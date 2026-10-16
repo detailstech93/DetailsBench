@@ -1,0 +1,139 @@
+# PC Benchmark Manager
+
+A Windows desktop application for discovering, managing, and running CPU, GPU, and Web benchmarks with session tracking and reporting.
+
+## Features (Phase 2 - Benchmark Detection & Execution)
+
+Verification status below is set after running `python -m pytest tests -v` and `python -m compileall app tests` in the project `.venv`. Evidence sources are listed per feature.
+
+### Elevation-Aware Launch (UAC Support)
+Verified manually by the user on this machine, 2026-10-16: launches of Geekbench 6 and 7 with UAC prompts worked correctly. Pytest mocks (`test_winerror_740_triggers_elevated_path`, `test_elevated_launch_winerror_1223_is_cancelled`, etc.) cover all OSError paths.
+- Executables that request administrator rights (e.g. Geekbench 6/7) are launched via a generic elevation fallback: normal launch is tried first; if WinError 740 occurs, `os.startfile(path, "runas")` is used to trigger a Windows UAC prompt.
+- The app itself remains non-elevated. Only the launched benchmark runs elevated when needed.
+- If the user declines the UAC prompt, the status is reported as `cancelled` (neutral, not an error).
+- The result includes `elevation_used: True/False` as an observed property.
+- Process confirmation uses snapshot-based comparison: a before-snapshot of running processes is taken, the launch occurs, then an after-snapshot verifies a NEW matching process appeared (full image-name match, not substring).
+- **UI automation of an elevated window from a non-elevated process is expected to be blocked** (not verified yet). Future automation phases must account for this.
+
+### Dynamic Benchmark Discovery (Merged Methods)
+Verified on this machine: real scan via `python test_real_scan.py`. Pytest channel-boundary tests (`TestChannelBoundaryMocks`) feed fake registry/filesystem data into real channel functions.
+No hardcoded installation paths or filenames. Discoveries are dynamically merged from:
+- **Registry Uninstall keys**: HKLM (64-bit), HKLM (WOW6432Node), and HKCU.
+- **Filesystem pattern search**: Scanning installation folders in both `C:\Program Files` and `C:\Program Files (x86)` (and other drive roots discovered via registry hints).
+- **App Paths registry key**: HKLM and HKCU.
+- **Start Menu shortcuts**: Reading `.lnk` targets in `%APPDATA%` and `%PROGRAMDATA%` Start Menu directories, and resolving `Get-StartApps` AppIDs.
+- **Microsoft Store (Appx) packages**: Queried dynamically via PowerShell `Get-AppxPackage` with timeouts (no inspection of protected `WindowsApps` directories).
+
+### Separate Geekbench 6 and Geekbench 7 Entries
+Verified on this machine: real scan detected both; versions and architectures match PE metadata. Pytest tests (`TestLaunchGuard`) prove helper binaries are rejected.
+- **geekbench_6**: Main GUI executable identified by pattern (`Geekbench 6.exe`), version `6.7.1.0`, architecture `x64`.
+- **geekbench_7**: Main GUI executable identified by pattern (`Geekbench 7.exe`), version `7.1.0.0`, architecture `x64`.
+- **Static Version & Architecture Inspection**: Executable architecture is determined from the PE header Machine field (`0x8664` -> `x64`), never from folder names. Version numbers are extracted from PE resource `VersionInfo` metadata and normalized (`"6,7,1,0"` -> `"6.7.1.0"`).
+- **Zero-Execution Safety**: Benchmark binaries are **NEVER** executed to probe version or help. Only the main GUI executable is launched, and only upon explicit user confirmation with no arguments. Helper binaries (`geekbench_x86_64.exe`, `geekbench_avx2.exe`, `geekbench6.exe`, `geekbench7.exe`) are never launched.
+- **Classification**: `READY_MANUAL` (assisted/manual). Automation/CLI requires a Pro license; license state is unknown ("License: not verified").
+
+### Cinebench Microsoft Store Package Detection
+Verified on this machine: Appx package detected; version and architecture read from metadata.
+- Detected via Appx package metadata (`MAXONComputerGmbH.Cinebench`).
+- Read Version `2026.1.3.0` and Architecture `X64`.
+- Executable path is `None` (protected `WindowsApps` folder is not inspected).
+- **Assisted Launching**: Uses Start Menu AppID `MAXONComputerGmbH.Cinebench_rsne5bsk8s7tj!Cinebench` (`shell:AppsFolder\<AppID>`) only after explicit user confirmation in the UI. Polls process state to verify launch.
+- **Classification**: `READY_MANUAL` ("launch it from the Start menu").
+
+### Additive Database Self-Migration
+Pytest `test_migration_from_old_schema` and `test_existing_database_compatibility` verify additive migration.
+- SQLite database schema supports storing benchmark versions alongside session results.
+- Automatic column migration (`ALTER TABLE results ADD COLUMN benchmark_version TEXT`) on database initialization ensures old database files remain readable with zero data loss.
+
+### Responsive UI with Background Worker
+Pytest `test_worker_class_structure`, `test_start_scan_scanning_state`, and `test_library_screen_consolidates_geekbench` verify worker threading and UI state. Launch operations run in `LaunchWorker` (QThread) — the GUI thread never blocks on launch, UAC wait, or process polling.
+- **Dedicated Worker Class**: `BenchmarkWorker` is a standalone `QThread` subclass with Qt signals (`scan_started`, `scan_finished`, `scan_error`, `progress`).
+- **Single Shared Manager**: `MainWindow` maintains one shared `BenchmarkManager` instance.
+- **Scanning State**: Status indicator shows progress; "Rescan Benchmarks" button disables into "Scanning..." state during evaluation.
+- **Automatic Refresh**: Library and Run screens refresh immediately when the background scan completes.
+
+---
+
+### Generalized Geekbench Discovery & Score Comparability
+Pytest channel-boundary and comparability tests (`TestComparability`, `TestLaunchGuard`) verify behavior.
+- **Dynamic Pattern Matching**: Discovers any major version matching `^Geekbench (\d+)$` (e.g. 6, 7, 8) via executable name pattern `Geekbench <N>.exe` and `ProductName` metadata, creating entry `geekbench_<N>`.
+- **Product Filtering**: Strictly excludes other Primate Labs products such as "Geekbench AI" or "Geekbench ML".
+- **Newly Seen Major Handling**: Any major version not in `KNOWN_GEEKBENCH_MAJORS = {4, 5, 6, 7}` is flagged as `"newly seen version: score comparability with other majors unknown"`.
+- **Cross-Major Score Isolation**: Cross-major score comparisons are blocked by default via `can_compare_geekbench_scores()` and `assert_can_compare_benchmarks()`.
+- **Multiple Installs of Same Major**: If multiple installs of the same major version exist, the highest version is reported as primary and other installs are recorded in `additional_installs`.
+- **Consolidated Library Card**: The Library screen displays all detected Geekbench majors grouped in a single "Geekbench" card/row with each major's status, version, architecture, and path.
+
+---
+
+## Benchmark Capability Matrix
+
+| Benchmark | Detection Method | Status on This Machine | Execution Method | Version | Architecture | Reason / Notes |
+|-----------|------------------|------------------------|------------------|---------|--------------|----------------|
+| **geekbench_6** | Registry, Filesystem, Start Menu | `READY_MANUAL` | Assisted / Manual | 6.7.1.0 | x64 | Windows GUI version requires manual execution; automation/CLI requires a Pro license; not verified for this version; License: not verified |
+| **geekbench_7** | Registry, Filesystem, Start Menu | `READY_MANUAL` | Assisted / Manual | 7.1.0.0 | x64 | Windows GUI version requires manual execution; automation/CLI requires a Pro license; not verified for this version; License: not verified |
+| **cinebench** | Appx package, Start Menu | `READY_MANUAL` | Assisted / Manual | 2026.1.3.0 | X64 | Store package version 2026.1.3.0, architecture X64; launch it from the Start menu |
+| **d3dmark** | Registry, Filesystem, Start Menu | `NOT_INSTALLED` | N/A | None | None | 3DMark not found on this system |
+| **glmark2** | WSL check | `MISSING_PREREQS` | N/A | None | None | glmark2 is not verified for native Windows; WSL present, install glmark2 inside WSL distro |
+| **speedometer** | Browser detection | `READY_MANUAL` | Assisted / Manual | 3.1 | Browser | Compatible browsers detected: Chrome 155, Edge 155 (manual execution required) | Verified manually by the user on this machine, 2026-10-16 |
+| **jetstream** | Browser detection | `READY_MANUAL` | Assisted / Manual | 3.0 | Browser | Compatible browsers detected: Chrome 155, Edge 155 (manual execution required) | Verified manually by the user on this machine, 2026-10-16 |
+
+---
+
+## Requirements
+
+- Windows 10/11
+- Python 3.8+
+
+### Installation
+
+```bash
+# Runtime dependencies (PySide6, pefile, psutil)
+pip install -r requirements.txt
+
+# Development dependencies (adds pytest on top of runtime)
+pip install -r requirements-dev.txt
+```
+
+## Usage
+
+### Launching the Application
+
+```bash
+# From the project root directory:
+python scripts/main.py
+```
+
+### Running Real Discovery Validation (No Mocks)
+
+```bash
+python test_real_scan.py
+```
+
+### Running Unit and Integration Tests
+
+```bash
+# Run all tests
+python -m pytest tests -v
+
+# Byte-compile check
+python -m compileall app tests
+```
+
+---
+
+## Code Locations
+
+- **`BenchmarkWorker`**: [`app/ui/main_window.py`](app/ui/main_window.py#L29-L62) - Standalone `QThread` subclass with `scan_started`, `scan_finished`, `scan_error`, and `progress` signals.
+- **`LaunchWorker`**: [`app/ui/main_window.py`](app/ui/main_window.py) - `QThread` for launch operations (Popen, UAC wait, process polling). GUI thread never blocks.
+- **`_WebLaunchWorker`**: [`app/ui/main_window.py`](app/ui/main_window.py) - `QThread` for spawning browsers to web benchmark URLs.
+- **`MainWindow.start_scan()`**: [`app/ui/main_window.py`](app/ui/main_window.py) - Background scan manager holding `self._scan_worker` reference and managing "Scanning..." UI state.
+- **`MainWindow._on_launch_clicked()`**: [`app/ui/main_window.py`](app/ui/main_window.py) - Confirmation dialogs, concurrent-launch guard, and worker dispatch.
+- **`MainWindow.closeEvent()`**: [`app/ui/main_window.py`](app/ui/main_window.py) - Waits for or cancels both `_scan_worker` and `_launch_worker`.
+- **Process snapshot helpers**: [`app/benchmark_manager.py`](app/benchmark_manager.py) - `_get_process_snapshot()`, `_has_new_process()`, and `_launch_with_elevation_fallback()`.
+- **`normalize_version()`**: [`app/benchmark_manager.py`](app/benchmark_manager.py) - Helper handling commas, dots, and mixed separators.
+- **PE Metadata Inspection**: [`app/benchmark_manager.py`](app/benchmark_manager.py) - `get_pe_architecture()`, `get_pe_version()`, and `get_pe_product_name()`.
+- **Geekbench Dynamic Discovery**: [`app/benchmark_manager.py`](app/benchmark_manager.py) - Dynamic discovery, major grouping, multiple install prioritization, and unknown major flagging.
+- **Cinebench Store Package Detection**: [`app/benchmark_manager.py`](app/benchmark_manager.py) - `Get-AppxPackage` query and AppID resolution.
+- **Comparability Rules**: [`app/benchmark_manager.py`](app/benchmark_manager.py) - `can_compare_geekbench_scores()` and `assert_can_compare_benchmarks()`.
+- **Database Self-Migration**: [`app/database.py`](app/database.py) - Additive column check and migration.
+- **Tests**: [`tests/test_benchmark_manager.py`](tests/test_benchmark_manager.py) - Includes `TestProcessSnapshot` (snapshot logic), `TestElevationFallbackMocks` (OSError paths), `TestChannelBoundaryMocks` (fake registry), and `TestChannelIsolation` (failing channel). Line references: `TestProcessSnapshot` at line ~850, `TestElevationFallbackMocks` at line ~700, `TestChannelBoundaryMocks` at line ~280, `TestChannelIsolation` at line ~420.

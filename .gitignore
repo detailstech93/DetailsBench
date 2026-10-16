@@ -1,0 +1,25 @@
+﻿# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Python virtual environments
+.venv/
+venv/
+
+# Local databases and SQLite files
+*.db
+*.sqlite
+*.sqlite3
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Temporary files and logs
+*.tmp
+*.log
+
+# Accidental reserved-name file in the project root
+/nul

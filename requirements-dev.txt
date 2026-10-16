@@ -1,0 +1,6 @@
+# Test and development dependencies for PC Benchmark Manager
+# Install with: pip install -r requirements-dev.txt
+# (requires requirements.txt already installed)
+
+-r requirements.txt
+pytest>=7.0.0
