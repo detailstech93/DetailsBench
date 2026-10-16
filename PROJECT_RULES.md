@@ -89,8 +89,15 @@ Include mocked tests for:
 
 - **Python 3.10 compatibility**: All code must run on Python 3.10. Do not use features
   introduced after 3.10 without a compatibility shim.
-- **Never read `.venv`**: Do not inspect, modify, or execute anything inside `.venv/`.
-  The virtual environment is managed externally.
+- **Never read `.venv` or `venv`**: Do not inspect, modify, list, or execute anything
+  inside `.venv/` or `venv/`. The virtual environment is managed externally. Running the
+  venv interpreter (`python` from within the venv) is allowed.
+- **If a file read or command fails twice, stop and report**; never retry a third time;
+  never loop reading the same files.
+- **Never create files with Windows reserved device names** (`nul`, `con`, `prn`, `aux`,
+  `com1`–`com9`, `lpt1`–`lpt9`). Never redirect output to `nul` from a Unix-style shell;
+  use `$null` or `Out-Null` in PowerShell. Scratch files go to `%TEMP%` or a `tmp/` folder,
+  never the project root.
 
 ## Execution Safety
 
@@ -133,6 +140,9 @@ Include mocked tests for:
 
 - Never execute benchmark binaries for probing. Use static PE reads (`pefile`) only.
 - Launch operations require explicit user confirmation in the UI.
+- **Elevation**: the app stays non-elevated. Elevated launch only through the OS UAC
+  prompt after explicit user confirmation. Never bypass or suppress UAC, edit manifests,
+  or set compatibility flags. A declined UAC prompt is a neutral "cancelled" outcome.
 - Elevation (UAC) is only triggered as a fallback when WinError 740 occurs.
 - Process confirmation uses snapshot-based comparison: a before-snapshot of running
   processes is taken, the launch occurs, then an after-snapshot verifies a NEW matching
@@ -147,6 +157,9 @@ Include mocked tests for:
 ## Testing
 
 - All tests are under `tests/` and run with `python -m pytest tests -v`.
+- **Tests use temporary databases** (`tmp_path`, `tempfile.mkdtemp`, or an in-memory
+  `:memory:` SQLite DB). Test rows are never written to the real database.
+- Default queries exclude `is_test` rows (`WHERE is_test = 0`).
 - Channel-boundary tests feed fake registry/filesystem data into real channel functions (clearly labeled as mocks).
 - Web benchmark URL verification (`scripts/verify_web_urls.py`) uses real network calls and is NOT part of the pytest suite.
 - Test-only packages belong in `requirements-dev.txt`; runtime packages in `requirements.txt`.
@@ -165,10 +178,10 @@ Include mocked tests for:
 
 ## Known Exceptions
 
-- `winreg` is a Python stdlib module (not `pywin32`). It is used extensively in `app/benchmark_manager.py` for registry discovery.
-- `psutil` is imported inside `app/system_info.py` with a fallback to PowerShell if unavailable.
-- `pefile` is imported at module level in `app/benchmark_manager.py`; it is a required runtime dependency.
-- The `ssl` module is imported in `scripts/verify_web_urls.py` but the explicit disable of certificate verification has been removed; the default verifying context is used.
+- `winreg` is a Python stdlib module (not `pywin32`). Imported at module level in `app/benchmark_manager.py:19`; used extensively for registry discovery.
+- `psutil` is imported inside `app/system_info.py:147` (within `get_ram_size()`) with a fallback to PowerShell if unavailable.
+- `pefile` is imported at module level in `app/benchmark_manager.py:23`; it is a required runtime dependency.
+- The `ssl` module is imported in `scripts/verify_web_urls.py:15`; the explicit disable of certificate verification has been removed; the default verifying context is used.
 
 ## Encoding Rule
 
