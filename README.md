@@ -300,7 +300,11 @@ verified download. "No" downloads nothing and captures nothing.
 5. With Record telemetry on, samples are cut into the same windows; they line up with the frames to about one
    second.
 
-The app never closes the game; close it yourself afterwards. Not yet verified on a real game on this machine
+When the benchmark ends (finished, stopped with the emergency stop, or failed after the launch) the app
+closes the game (`app/frames/game_close.py`): only processes that started inside the game's install folder after
+the launch, remembered by pid and start time. First WM_CLOSE to their windows (like clicking X); whatever still
+runs after 30 s is ended by force. Unsaved progress in the game is lost. Steam is never touched. A game running as
+administrator cannot be ended by this non-elevated app; the status then says to close it yourself. Not yet verified on a real game on this machine
 (only with fakes in tests/test_game_benchmark.py); reading the CSV while PresentMon writes it is the part to check.
 
 Finding PresentMon, in this order (nothing is downloaded when a usable copy exists):

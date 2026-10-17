@@ -11,7 +11,9 @@ window is one stored run (score = average FPS). A window the recording does not 
 "invalid" without a score. Telemetry samples are cut into the same windows; their alignment with the
 frames is approximate (about one second, the live check's interval).
 
-The game itself is never closed by this app; the user closes it.
+When the benchmark ends (finished, stopped, or failed after the launch) the game is closed:
+only the processes the launch started inside its install folder (app/frames/game_close.py),
+first politely, by force after 30 s.
 """
 
 import logging
@@ -94,7 +96,8 @@ class GameBenchmark:
                  sampler_factory: Optional[Callable[[], object]] = None,
                  elevated_runner: Callable = run_elevated, launcher: Optional[Callable] = None,
                  snapshot: Optional[Callable] = None, clock: Callable[[], float] = time.monotonic,
-                 sleep: Callable[[float], None] = time.sleep, poll_seconds: float = 1.0):
+                 sleep: Callable[[float], None] = time.sleep, poll_seconds: float = 1.0,
+                 folder_procs: Optional[Callable[[], dict]] = None, closer: Optional[Callable[[dict], str]] = None):
         self.spec = spec
         self.run_dir = Path(run_dir)
         self.stop_event = stop_event or threading.Event()
@@ -113,6 +116,32 @@ class GameBenchmark:
         self.sleep = sleep
         self.poll_seconds = poll_seconds
         self.csv_path = self.run_dir / CSV_NAME
+        from app.frames import game_close
+        self.folder_procs = folder_procs or (lambda: game_close.processes_in_folder(spec.install_path))
+        self.closer = closer or game_close.close_game
+        self._before: Optional[dict] = None
+        self._started: dict = {}
+
+    def _note_started(self):
+        """Remember processes in the game's folder that were not running before the launch."""
+        if self._before is None:
+            return
+        for pid, info in self.folder_procs().items():
+            if pid not in self._before:
+                self._started[pid] = info
+
+    def _close_game(self) -> str:
+        if self._before is None:
+            return ""
+        self._note_started()
+        if not self._started:
+            return "; no game process to close"
+        self.on_progress(f"Closing {self.spec.game_name}...")
+        try:
+            return "; " + self.closer(self._started)
+        except Exception as e:
+            logger.exception("Could not close the game")
+            return f"; the game could not be closed ({e}); close it yourself"
 
     def _read_csv(self) -> Optional[str]:
         try:
@@ -138,7 +167,7 @@ class GameBenchmark:
         def finish(status, message, **kw) -> GameCapture:
             halt.set()
             thread.join(30)
-            return GameCapture(status, message, command=command, **kw)
+            return GameCapture(status, message + self._close_game(), command=command, **kw)
 
         deadline = self.clock() + UAC_WAIT_SECONDS
         while not self.csv_path.exists():
@@ -155,6 +184,7 @@ class GameBenchmark:
             self.sleep(0.5)
 
         self.on_progress(f"PresentMon recording; launching {spec.game_name} through Steam...")
+        self._before = self.folder_procs()
         launched = self.launcher(spec.app_id, spec.install_path, spec.discovered_appids, snapshot=self.snapshot,
                                  timeout=LAUNCH_TIMEOUT_SECONDS, poll=1.0, sleep=self.sleep,
                                  clock=lambda: float("inf") if self.stop_event.is_set() else self.clock())
@@ -182,6 +212,7 @@ class GameBenchmark:
             if not thread.is_alive():
                 break
             names |= _exe_names_in(self.snapshot(), spec.install_path)
+            self._note_started()
             text = self._read_csv()
             if text:
                 now_pick = pick_game_process(summarize_processes(text), names)
@@ -206,11 +237,13 @@ class GameBenchmark:
         halt.set()
         thread.join(30)
         tel = sampler.stop() if sampler is not None else None
+        closed = self._close_game()
         if pick is None and stopped:
-            return GameCapture("cancelled", "stopped by user before the game showed frames", command=command)
+            return GameCapture("cancelled", "stopped by user before the game showed frames" + closed,
+                               command=command)
         if pick is None:
             return GameCapture("failed", "PresentMon recorded no frames from the game's process "
-                               f"(processes in its folder: {', '.join(sorted(names)) or 'none'})",
+                               f"(processes in its folder: {', '.join(sorted(names)) or 'none'})" + closed,
                                command=command)
         text = self._read_csv() or ""
         parsed = parse_presentmon_csv(text, process_id=pick[1])
@@ -240,7 +273,8 @@ class GameBenchmark:
                     result = WorkloadResult(status="completed", score=stats.avg_fps, unit="fps",
                                             metrics=metrics, duration_seconds=float(b - a), **common)
             out.append(WindowOutcome(is_warmup, run_index, result, sample_windows[k]))
-        return GameCapture("recorded", f"{recorded:.0f} s of {pick[0]} recorded", process=pick, windows=out,
+        return GameCapture("recorded", f"{recorded:.0f} s of {pick[0]} recorded" + closed, process=pick,
+                           windows=out,
                            command=command, telemetry_unavailable=dict(tel.unavailable) if tel else {})
 
 

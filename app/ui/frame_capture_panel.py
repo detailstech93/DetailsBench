@@ -144,6 +144,7 @@ class GameBenchmarkWorker(QThread):
         self.telemetry = telemetry
         self.benchmark_factory = benchmark_factory
         self.session_id: Optional[int] = None
+        self.capture_message = ""
 
     def stop(self):
         self.stop_event.set()
@@ -158,6 +159,7 @@ class GameBenchmarkWorker(QThread):
             if capture.status != "recorded":
                 self.finished_plan.emit(f"{capture.status}: {capture.message}; nothing was stored")
                 return
+            self.capture_message = capture.message
             self.progress.emit(capture.message + "; storing the runs...")
             self.session_id = self.create_session(capture)
             runner = AutomationRunner(self.db, self.session_id, plan_for(capture, self.spec), self.output_root,
@@ -605,7 +607,10 @@ class FrameCapturePanel(QGroupBox):
                 f"{spec.warmup_runs} warmup + {spec.repetitions} measured windows of {spec.seconds} s each "
                 f"are cut from the recording (profile {profile.name!r}); about {total} s of game time.\n\n"
                 f"Get to the scene you want to measure during the first {spec.settle_seconds} s and keep the "
-                f"game in front. The app never closes the game; close it yourself afterwards.\n\n"
+                f"game in front.\n\n"
+                f"4. When the benchmark ends (or is stopped) the app closes the game: first like clicking its "
+                f"close button, by force after 30 s. Unsaved progress in the game is lost. Only processes "
+                f"started inside the game's folder are closed, never Steam or anything else.\n\n"
                 f"Command (runs elevated):\n"
                 f"{subprocess.list2cmdline([path] + capture_all_args('<run folder>' + os.sep + 'presentmon.csv', spec.max_record_seconds()))}")
         if self.remote_check():
@@ -702,6 +707,8 @@ class FrameCapturePanel(QGroupBox):
             text = f"Session #{self.last_session_id}: " + ("; ".join(parts) or "no captures")
             if summary.stopped:
                 text += f". Stopped; {summary.not_started} capture(s) not started."
+            if getattr(self.worker, "capture_message", ""):
+                text += f". {self.worker.capture_message}"
         else:
             text = (f"Session #{self.last_session_id}: {summary}" if self.last_session_id is not None
                     else str(summary))

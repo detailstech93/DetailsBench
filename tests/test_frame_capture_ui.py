@@ -424,7 +424,7 @@ def test_benchmark_game_lists_installed_games_and_stores_every_window(qapp, pane
     p.worker.wait(10000)
     qapp.processEvents()
     assert "ONE UAC prompt" in p.asked[0] and "steam://rungameid/123" in p.asked[0]
-    assert "never closes the game" in p.asked[0]
+    assert "closes the game" in p.asked[0] and "never Steam" in p.asked[0]
     spec, _ = seen[0]
     assert (spec.app_id, spec.repetitions, spec.warmup_runs, spec.settle_seconds) == ("123", 2, 0, 30)
     sessions = db.get_sessions(include_test=True)
