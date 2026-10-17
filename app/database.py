@@ -8,9 +8,6 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
-DATABASE_PATH = "benchmark_manager.db"
-
-
 class Database:
     """Thread-safe database manager with connection pooling support."""
     

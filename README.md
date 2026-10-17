@@ -103,6 +103,18 @@ pip install -r requirements-dev.txt
 python scripts/main.py
 ```
 
+### Database Location
+
+The production database is stored per user, not in the project folder:
+
+- Windows: `%LOCALAPPDATA%\PCBenchmarkManager\benchmark_manager.db`
+- Other systems: `$XDG_DATA_HOME/PCBenchmarkManager/` (default `~/.local/share/PCBenchmarkManager/`)
+
+To use another file, create `settings.json` in that folder with `{"database_path": "D:\\path\\to\\my.db"}`.
+On first start, an existing `benchmark_manager.db` in the project root is copied there once (SQLite backup API, source opened read-only, integrity-checked); the original is never modified or deleted. The startup console prints the database path in use. Tests only use temporary databases. See `app/paths.py`.
+
+Verified manually on this machine (2026-10-17): the root database was copied, `integrity_check` returned `ok`, the original's SHA256 was unchanged, and a second start did not copy again.
+
 ### Running Real Discovery Validation (No Mocks)
 
 These scripts depend on the host machine and are not part of pytest.

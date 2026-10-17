@@ -244,23 +244,24 @@ class TestDatabaseOperations:
         assert results_by_name["geekbench_7"]["score"] == 2800.0
         assert results_by_name["geekbench_7"]["benchmark_version"] == "7.1.0.0"
 
-    def test_existing_database_compatibility(self):
-        """Test opening existing on-disk databases and reading historical sessions/results."""
-        import os
+    def test_existing_database_compatibility(self, tmp_path):
+        """Reopening an existing on-disk database (temp file) keeps its data.
+
+        Never opens the real databases in the project root.
+        """
         from app.database import Database
-        
-        existing_dbs = [p for p in ["benchmark_manager.db", "test_benchmark.db"] if os.path.exists(p)]
-        for db_file in existing_dbs:
-            db = Database(db_file)
-            sessions = db.get_sessions()
-            assert isinstance(sessions, list)
-            all_res = db.get_all_results()
-            assert isinstance(all_res, list)
-            # If test_benchmark.db has records, confirm they load without errors
-            if db_file == "test_benchmark.db" and len(sessions) > 0:
-                assert len(all_res) > 0
-                for r in all_res:
-                    assert "benchmark_name" in r
-                    assert "score" in r
+
+        db_file = str(tmp_path / 'existing.db')
+        first = Database(db_file)
+        session_id = first.create_session('Earlier run')
+        first.create_result(session_id, 'cinebench', 'CPU', 1234.0, 'points', True)
+
+        reopened = Database(db_file)
+        sessions = reopened.get_sessions()
+        assert [s['id'] for s in sessions] == [session_id]
+        all_res = reopened.get_all_results()
+        assert len(all_res) == 1
+        assert all_res[0]['benchmark_name'] == 'cinebench'
+        assert all_res[0]['score'] == 1234.0
 
 

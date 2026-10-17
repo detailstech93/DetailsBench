@@ -15,13 +15,18 @@ def main():
     # Get system info
     system_info = get_system_summary()
     
-    # Initialize database
+    # Initialize database (per-user data folder, see app/paths.py)
     from app.database import Database
-    
-    db = Database("benchmark_manager.db")
-    
+    from app.paths import resolve_database_path
+
+    db_path, db_notes = resolve_database_path()
+    db = Database(str(db_path))
+
     print(f"PC Benchmark Manager v0.1.0")
     print("=" * 50)
+    print(f"Database: {db_path}")
+    for note in db_notes:
+        print(f"  {note}")
     print(f"CPU: {system_info.get('cpu_brand', 'Unknown')}")
     print(f"Cores: {system_info.get('core_count', 'N/A')}")
     print(f"RAM: {system_info.get('ram_size_gb', 'N/A')} GB")
