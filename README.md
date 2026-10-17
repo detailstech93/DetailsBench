@@ -131,6 +131,25 @@ Compatibility (`app/environment/compatibility.py`): each definition lists suppor
 
 Linux: detection logic is tested with mocked inputs only, unverified on real hardware. ARM64: logic and mocked tests only, unverified on real ARM hardware.
 
+### Detected Tools and Games
+
+Shown in the Benchmark Library tab under "Detected tools and games", refreshed by Rescan, saved per scan in
+`discovery_snapshots` (linked to the environment snapshot). Real-machine check: `python scripts/verify_discovery.py`.
+
+Privacy: installed programs are matched against `data/known_software.py` (the benchmark suites, browsers,
+PresentMon, HWiNFO, LibreHardwareMonitor, 7-Zip, fio, DiskSpd, MLPerf Client, and the Steam / Epic / GOG clients).
+Anything else is dropped at once and never stored, shown or exported.
+
+| Source | Windows | Linux |
+|---|---|---|
+| Installed programs | Uninstall keys (HKLM 64-bit, HKLM 32-bit, HKCU) | `dpkg-query`, `rpm`, `flatpak`, `snap`, executables on PATH: unverified on real hardware |
+| Steam client | Valve registry keys, detected only if `steam.exe` exists (libraries: Phase 3C) | `~/.steam/steam`, `~/.local/share/Steam`: unverified |
+| Epic games | `%ProgramData%\Epic\EpicGamesLauncher\Data\Manifests\*.item`: location and field names unverified (no Epic install tested) | n/a |
+| GOG games | `HKLM\SOFTWARE\WOW6432Node\GOG.com\Games`: field names unverified (no GOG install tested) | n/a |
+
+Games keep only name, store, install path, app id and version. No game is assumed to have an automatable
+benchmark mode; that list will only be added with verified entries.
+
 ### Database Location
 
 The production database is stored per user, not in the project folder:
