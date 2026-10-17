@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
 from PySide6.QtCore import QThread, Qt, Signal, Slot
-from PySide6.QtGui import QGuiApplication, QKeySequence, QShortcut
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QCheckBox, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QMessageBox,
     QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout,
@@ -120,9 +120,7 @@ class AutomationPanel(QGroupBox):
         self.status_label.setWordWrap(True)
         layout.addWidget(self.status_label)
 
-        self.stop_shortcut = QShortcut(QKeySequence(STOP_SHORTCUT), self)
-        self.stop_shortcut.setContext(Qt.WindowShortcut)
-        self.stop_shortcut.activated.connect(self.emergency_stop)
+        # the Ctrl+Shift+X shortcut lives in MainWindow (one shortcut stops every panel)
         self.reload()
 
     # ---- tool list -------------------------------------------------------

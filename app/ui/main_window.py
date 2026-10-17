@@ -820,6 +820,19 @@ class MainWindow(QMainWindow):
             lambda: self.environment_profile.to_dict() if self.environment_profile else None,
             on_session_changed=self.refresh_history_screen, parent=tab)
         layout.addWidget(self.automation_panel)
+        from app.ui.frame_capture_panel import FrameCapturePanel
+        self.frame_panel = FrameCapturePanel(
+            self.db, self.selected_profile,
+            lambda: self.environment_profile.to_dict() if self.environment_profile else None,
+            on_session_changed=self.refresh_history_screen, parent=tab)
+        layout.addWidget(self.frame_panel)
+
+        # One emergency-stop shortcut for every automated section (two equal shortcuts would both be ambiguous)
+        from PySide6.QtGui import QKeySequence, QShortcut
+        from app.ui.automation_panel import STOP_SHORTCUT
+        self.stop_shortcut = QShortcut(QKeySequence(STOP_SHORTCUT), self)
+        self.stop_shortcut.setContext(Qt.WindowShortcut)
+        self.stop_shortcut.activated.connect(self.emergency_stop_all)
         
         # Status / Feedback area
         self.run_log = QTextEdit()
@@ -830,6 +843,10 @@ class MainWindow(QMainWindow):
         
         return tab
     
+    def emergency_stop_all(self):
+        self.automation_panel.emergency_stop()
+        self.frame_panel.emergency_stop()
+
     def _create_history_tab(self) -> QWidget:
         """Create Session History tab."""
         tab = QWidget()
@@ -991,6 +1008,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         """Clean shutdown: wait for or cancel workers before closing."""
         self.automation_panel.shutdown()   # emergency stop; only our own child processes end
+        self.frame_panel.shutdown()        # same for a running PresentMon capture
         if self._scan_worker is not None and self._scan_worker.isRunning():
             logger.info("Waiting for scan worker to finish before shutdown...")
             self._scan_worker.wait(5000)
