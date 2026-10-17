@@ -72,6 +72,16 @@ class TestArchitectureNormalization:
         assert _normalize_arch("") == "unknown"
         assert _normalize_arch("weird_arch") == "unknown"
 
+    def test_arm32_is_unknown_not_x86(self):
+        """32-bit ARM must never be reported as x86."""
+        for v in ("arm", "ARM", "arm32", "armv7l"):
+            assert _normalize_arch(v) == "unknown"
+
+    def test_linux_uname_spellings(self):
+        assert _normalize_arch("x86_64") == "x64"
+        assert _normalize_arch("i686") == "x86"
+        assert _normalize_arch("aarch64") == "arm64"
+
     def test_canonical_set(self):
         assert _CANONICAL_ARCHES == {"x64", "x86", "arm64", "unknown"}
 

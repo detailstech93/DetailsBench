@@ -22,6 +22,7 @@ import time
 from datetime import datetime
 import pefile
 
+from app.environment.arch import CANONICAL_ARCHES, normalize_arch
 from data.benchmark_definitions import (
     BENCHMARK_DEFINITIONS,
     DEFINITIONS_BY_ID,
@@ -120,23 +121,8 @@ def parse_version_tuple(v_str: Optional[str]) -> Tuple[int, ...]:
 # ──────────────────────────────────────────────────────────────────────────────
 
 _ARCH_MAP = {0x8664: "x64", 0x14C: "x86", 0xAA64: "arm64", 0x01C0: "arm"}
-_CANONICAL_ARCHES = frozenset({"x64", "x86", "arm64", "unknown"})
-
-
-def _normalize_arch(raw: Optional[str]) -> str:
-    """Normalize any architecture string to one of: x64, x86, arm64, unknown."""
-    if raw is None:
-        return "unknown"
-    low = raw.strip().lower()
-    if low in ("x64", "amd64", "64-bit"):
-        return "x64"
-    if low in ("x86", "x32", "32-bit", "ia32"):
-        return "x86"
-    if low in ("arm64", "arm64ec", "aarch64"):
-        return "arm64"
-    if low in ("arm", "arm32"):
-        return "x86"  # ARM32 on Windows is rare; treat as x86-class
-    return "unknown"
+_CANONICAL_ARCHES = CANONICAL_ARCHES
+_normalize_arch = normalize_arch   # shared with app/environment
 
 
 def get_pe_architecture(exe_path: str) -> str:
