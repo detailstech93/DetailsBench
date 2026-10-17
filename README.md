@@ -111,6 +111,26 @@ py -3.10 -m venv .venv
 python scripts/main.py
 ```
 
+### Environment Profile
+
+Built in the background scan worker (`app/environment/`) and shown on the Dashboard; Rescan refreshes it.
+Every value is labeled `detected`, `unverified` or `unavailable`, with its source in the tooltip.
+Real-machine check: `python scripts/verify_environment.py`.
+
+| Field | Windows source | Status on Windows | Linux |
+|---|---|---|---|
+| OS name / version / build | build number (registry ProductName says "Windows 10" on Windows 11), DisplayVersion, UBR | detected | `/etc/os-release`: unverified |
+| Native / app architecture, x64 emulation | `IsWow64Process2`, `sysconfig.get_platform()` | detected (env-var fallback: unverified) | `uname -m`: unverified |
+| App runs as administrator | `shell32.IsUserAnAdmin` | detected; UIPI limits on automating elevated windows: unverified | `geteuid() == 0`: unverified |
+| CPU / RAM / GPUs | existing `system_info` (all GPUs listed) | detected | partly unavailable |
+| DirectX / Vulkan / OpenGL | runtime DLLs in System32 | DirectX detected; Vulkan/OpenGL unverified (loader present does not prove driver support) | not probed |
+| WSL / display server | n/a on Windows | detected / unavailable | env vars, `/proc/version`: unverified |
+| Virtual machine | no reliable non-invasive method | unavailable | unavailable |
+
+Compatibility (`app/environment/compatibility.py`): each definition lists supported OS families, per-architecture support (`native` / `emulated` / `unsupported` / `unverified`, all `unverified` until tested) and an optional required graphics API. Only proven mismatches make a found benchmark "Unsupported on this system"; missing information gives `unverified`. Emulated results are flagged as not comparable to native ones.
+
+Linux: detection logic is tested with mocked inputs only, unverified on real hardware. ARM64: logic and mocked tests only, unverified on real ARM hardware.
+
 ### Database Location
 
 The production database is stored per user, not in the project folder:
