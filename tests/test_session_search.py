@@ -61,6 +61,8 @@ def test_percent_and_underscore_are_literal(db):
 def test_benchmark_and_date_filters(db):
     a, b, _ = db.ids
     assert ids(db.search_sessions(benchmark_name="geekbench_7")) == [a]
+    assert ids(db.search_sessions(benchmark_name="geekbench")) == [a]      # suite id matches its majors
+    assert db.search_sessions(benchmark_name="geek") == []                # but not arbitrary prefixes
     assert ids(db.search_sessions(benchmark_name="cinebench")) == [b, a]
     assert ids(db.search_sessions(date_from="2026-10-15")) == [b]
     assert ids(db.search_sessions(date_to="2026-10-01")) == [a]            # inclusive end date

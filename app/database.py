@@ -358,8 +358,11 @@ class Database:
             where.append("(s.name LIKE ? ESCAPE '\\' OR COALESCE(s.description, '') LIKE ? ESCAPE '\\')")
             params += [f"%{escaped}%", f"%{escaped}%"]
         if benchmark_name:
-            where.append("EXISTS (SELECT 1 FROM results r2 WHERE r2.session_id = s.id AND r2.benchmark_name = ?)")
-            params.append(benchmark_name)
+            # A suite id also matches its per-major entries: "geekbench" -> geekbench_6, geekbench_7
+            family = benchmark_name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "\\_%"
+            where.append("EXISTS (SELECT 1 FROM results r2 WHERE r2.session_id = s.id AND "
+                         "(r2.benchmark_name = ? OR r2.benchmark_name LIKE ? ESCAPE '\\'))")
+            params += [benchmark_name, family]
         if date_from:
             where.append("substr(s.created_at, 1, 10) >= ?")
             params.append(date_from)

@@ -589,6 +589,45 @@ class MainWindow(QMainWindow):
 
     # ── Sessions, manual results and manifests (Phase 4A) ───────────────────
 
+    def reload_profiles(self, select: Optional[str] = None):
+        """Fill the profile picker: built-ins, then saved profiles."""
+        from app.profiles import BUILTIN_PROFILES
+        try:
+            profiles = self.db.list_run_profiles() if self.db is not None else list(BUILTIN_PROFILES)
+            profiles = list(profiles)
+        except Exception:
+            logger.exception("Could not load run profiles")
+            profiles = list(BUILTIN_PROFILES)
+        current = select or self.profile_combo.currentText()
+        self.profile_combo.clear()
+        for profile in profiles:
+            label = profile.name + ("" if profile.builtin else " (saved)")
+            self.profile_combo.addItem(label, profile)
+        index = max(0, next((i for i, prof in enumerate(profiles)
+                             if prof.name == current or current.startswith(prof.name + " ")), 0))
+        self.profile_combo.setCurrentIndex(index)
+
+    def selected_profile(self):
+        from app.profiles import BUILTIN_PROFILES
+        return self.profile_combo.currentData() or BUILTIN_PROFILES[0]
+
+    def _ask_profile(self):
+        from app.ui.profile_dialog import ProfileDialog
+        dialog = ProfileDialog(self.selected_profile(), self)
+        return dialog.profile if dialog.exec() == QDialog.Accepted else None
+
+    def _on_save_profile_clicked(self):
+        profile = self._ask_profile()
+        if profile is None or self.db is None:
+            return
+        try:
+            self.db.save_run_profile(profile)
+        except ValueError as exc:
+            self.run_log.append(f"Profile NOT saved: {exc}")
+            return
+        self.reload_profiles(select=profile.name)
+        self.run_log.append(f"Saved run profile {profile.name!r}.")
+
     def _start_new_session(self):
         """The next recorded result starts a new session."""
         self.current_session_id = None
@@ -605,6 +644,7 @@ class MainWindow(QMainWindow):
         sid = self.db.create_session(name, "Manual results entered in the app", is_manual=True)
         manifest = build_manifest(
             {"id": sid, "name": name, "is_test": False, "is_manual": True},
+            run_settings=self.selected_profile().settings(),
             environment=self.environment_profile.to_dict() if self.environment_profile else None,
             # Benchmarks ready when the session started (versions, paths, compatibility)
             benchmarks_used=[asdict(b) for b in self.benchmark_manager.benchmarks if b.is_runnable()],
@@ -662,8 +702,16 @@ class MainWindow(QMainWindow):
         self.new_session_btn = QPushButton("Start new session")
         self.new_session_btn.clicked.connect(self._start_new_session)
         session_row.addWidget(self.session_label, 1)
+        session_row.addWidget(QLabel("Profile:"))
+        self.profile_combo = QComboBox()
+        self.profile_combo.setToolTip("Run settings recorded in the manifest of the next new session")
+        session_row.addWidget(self.profile_combo)
+        self.save_profile_btn = QPushButton("Save profile...")
+        self.save_profile_btn.clicked.connect(self._on_save_profile_clicked)
+        session_row.addWidget(self.save_profile_btn)
         session_row.addWidget(self.new_session_btn)
         layout.addLayout(session_row)
+        self.reload_profiles()
 
         self.run_table = QTableWidget()
         self.run_table.setColumnCount(6)
@@ -693,6 +741,36 @@ class MainWindow(QMainWindow):
         """Create Session History tab."""
         tab = QWidget()
         layout = QVBoxLayout(tab)
+
+        search_row = QHBoxLayout()
+        self.search_text = QLineEdit()
+        self.search_text.setPlaceholderText("Search session name or description")
+        self.search_benchmark = QComboBox()
+        self.search_benchmark.addItem("All benchmarks", None)
+        for definition in DEFINITIONS_BY_ID.values():
+            self.search_benchmark.addItem(definition.display_name, definition.id)
+        self.search_from = QLineEdit()
+        self.search_from.setPlaceholderText("From YYYY-MM-DD")
+        self.search_to = QLineEdit()
+        self.search_to.setPlaceholderText("To YYYY-MM-DD")
+        self.search_btn = QPushButton("Search")
+        self.search_btn.clicked.connect(self.refresh_history_screen)
+        self.search_text.returnPressed.connect(self.refresh_history_screen)
+        for widget, stretch in ((self.search_text, 2), (self.search_benchmark, 1),
+                                (self.search_from, 1), (self.search_to, 1), (self.search_btn, 0)):
+            search_row.addWidget(widget, stretch)
+        layout.addLayout(search_row)
+        self.search_error = QLabel("")
+        self.search_error.setStyleSheet("color: #C62828;")
+        layout.addWidget(self.search_error)
+
+        self.sessions_table = QTableWidget()
+        self.sessions_table.setColumnCount(7)
+        self.sessions_table.setHorizontalHeaderLabels(
+            ["Session", "Name", "Created", "Benchmarks", "Runs", "Manifest", "Flags"])
+        self.sessions_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.sessions_table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(self.sessions_table, 1)
 
         self.history_table = QTableWidget()
         self.history_table.setColumnCount(7)
@@ -1213,15 +1291,58 @@ class MainWindow(QMainWindow):
             logger.debug(f"Could not refresh history table: {e}")
         self.refresh_stats_table()
 
+    def search_filters(self) -> Optional[dict]:
+        """Current search filters, or None (with a message) if a date is invalid."""
+        from datetime import date
+        filters = {"text": self.search_text.text().strip() or None,
+                   "benchmark_name": self.search_benchmark.currentData(),
+                   "date_from": self.search_from.text().strip() or None,
+                   "date_to": self.search_to.text().strip() or None}
+        for key in ("date_from", "date_to"):
+            if filters[key]:
+                try:
+                    date.fromisoformat(filters[key])
+                except ValueError:
+                    self.search_error.setText(f"Invalid date {filters[key]!r}: use YYYY-MM-DD")
+                    return None
+        self.search_error.setText("")
+        return filters
+
+    def refresh_sessions_table(self) -> Optional[set]:
+        """Fill the sessions table from the search; returns the matching session ids."""
+        if not self.db:
+            return None
+        filters = self.search_filters()
+        if filters is None:
+            return None
+        try:
+            sessions = self.db.search_sessions(include_test=self.show_test_data_cb.isChecked(), **filters)
+        except Exception as e:
+            logger.debug(f"Could not search sessions: {e}")
+            return None
+        self.sessions_table.setRowCount(len(sessions))
+        for row, s in enumerate(sessions):
+            flags = " ".join(f for f, on in (("[TEST]", s["is_test"]), ("[MANUAL]", s["is_manual"])) if on)
+            cells = [f"#{s['id']}", s["name"], s["created_at"][:16].replace("T", " "),
+                     ", ".join(s["benchmarks"]) or "-", str(s["run_count"]),
+                     "yes" if s["has_manifest"] else "no", flags]
+            for col, text in enumerate(cells):
+                self.sessions_table.setItem(row, col, QTableWidgetItem(text))
+        return {s["id"] for s in sessions}
+
     def refresh_stats_table(self):
-        """One row per (session, benchmark) with summarize_runs statistics."""
+        """One row per (session, benchmark) with summarize_runs statistics,
+        limited to the sessions matching the current search."""
         if not self.db:
             return
         from app.stats import summarize_runs
+        matching = self.refresh_sessions_table()
         try:
             include_test = self.show_test_data_cb.isChecked()
             groups: Dict[tuple, list] = {}
             for run in self.db.get_runs(include_test=include_test):
+                if matching is not None and run["session_id"] not in matching:
+                    continue
                 groups.setdefault((run["session_id"], run["benchmark_name"]), []).append(run)
         except Exception as e:
             logger.debug(f"Could not load runs for statistics: {e}")
