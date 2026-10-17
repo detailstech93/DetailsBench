@@ -28,3 +28,11 @@ STEAM_BENCHMARK_APPS: List[Dict[str, object]] = [
 ]
 
 STEAM_BENCHMARK_APPS_BY_ID = {int(a["appid"]): a for a in STEAM_BENCHMARK_APPS}
+
+# Steam components that show up as installed apps but are not games
+# (compatibility tools, runtimes, redistributables): listed, never launched.
+STEAM_TOOL_NAME_PATTERNS = [
+    r"^Proton\b",
+    r"^Steam Linux Runtime\b",
+    r"^Steamworks Common Redistributables$",
+]

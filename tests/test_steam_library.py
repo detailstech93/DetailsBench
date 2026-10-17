@@ -112,3 +112,18 @@ class TestScanLibrary:
         open(os.path.join(lib, "steamapps", "appmanifest_730.acf"), "w", encoding="utf-8").write(manifest())
         games, _ = scan_library(lib, "linux")
         assert games[0]["runtime"] == "unavailable"   # native vs Proton not read reliably yet
+
+
+def test_steam_tools_are_marked_not_games(tmp_path):
+    lib = make_library(tmp_path / "L")
+    apps = os.path.join(lib, "steamapps")
+    for appid, name in ((3658110, "Proton 10.0"), (1070560, "Steam Linux Runtime 1.0 (scout)"),
+                        (228980, "Steamworks Common Redistributables"), (2180100, "Proton Hotfix"),
+                        (730, "Counter-Strike 2")):
+        open(os.path.join(apps, f"appmanifest_{appid}.acf"), "w", encoding="utf-8").write(
+            manifest(appid, name, 4, name))
+    games, _ = scan_library(lib, "windows")
+    kinds = {g["name"]: g["kind"] for g in games}
+    assert kinds == {"Proton 10.0": "tool", "Steam Linux Runtime 1.0 (scout)": "tool",
+                     "Steamworks Common Redistributables": "tool", "Proton Hotfix": "tool",
+                     "Counter-Strike 2": "game"}

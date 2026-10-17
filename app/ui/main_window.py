@@ -24,6 +24,7 @@ from app.benchmark_manager import (
     BenchmarkStatus, BenchmarkType, launch_assisted_benchmark
 )
 from app.discovery.result import DiscoveryResult
+from app.steam.launch import launch_and_confirm
 from app.discovery.runner import discover_installed
 from app.environment.adapters import select_adapter
 from app.environment.profile import DETECTED, UNVERIFIED, EnvironmentProfile
@@ -239,6 +240,39 @@ def _status_label(bm: BenchmarkInfo) -> str:
     return bm.status.value
 
 
+class SteamLaunchWorker(QThread):
+    """Launch one discovered Steam game off the GUI thread and confirm it.
+
+    Emits finished({status, message, url}). stop() ends the confirmation
+    wait early (reported as "unconfirmed"); processes are never killed.
+    """
+    finished = Signal(dict)
+
+    def __init__(self, game: dict, discovered_appids: List[str], timeout: float = 60.0):
+        super().__init__()
+        self.game = game
+        self.discovered_appids = discovered_appids
+        self.timeout = timeout
+        self._stop = False
+
+    def stop(self):
+        self._stop = True
+
+    def run(self):
+        import time
+        from app.benchmark_manager import _get_process_snapshot
+        try:
+            result = launch_and_confirm(
+                self.game["app_id"], self.game["install_path"], self.discovered_appids,
+                snapshot=_get_process_snapshot, timeout=self.timeout, poll=1.0,
+                clock=lambda: float("inf") if self._stop else time.monotonic(),
+            )
+        except Exception as exc:
+            logger.exception("Steam launch worker failed")
+            result = {"status": "error", "message": str(exc), "url": None}
+        self.finished.emit(result)
+
+
 ENV_FIELD_LABELS = [
     ("os_name", "OS"), ("os_version", "OS version"), ("os_build", "OS build"),
     ("native_arch", "Native architecture"), ("process_arch", "App architecture"),
@@ -272,6 +306,7 @@ class MainWindow(QMainWindow):
         self.environment_profile: Optional[EnvironmentProfile] = None
         self.environment_snapshot_id: Optional[int] = None
         self.discovery: Optional[DiscoveryResult] = None
+        self._steam_worker: Optional[SteamLaunchWorker] = None
         
         # One shared BenchmarkManager instance attribute
         self.benchmark_manager = BenchmarkManager()
@@ -345,6 +380,10 @@ class MainWindow(QMainWindow):
         # 4. Session History View
         self.history_tab = self._create_history_tab()
         self.tabs.addTab(self.history_tab, "Session History")
+
+        # 5. Steam View
+        self.steam_tab = self._create_steam_tab()
+        self.tabs.addTab(self.steam_tab, "Steam")
         
         main_layout.addWidget(self.tabs, 1)
     
@@ -456,6 +495,93 @@ class MainWindow(QMainWindow):
             for c, value in enumerate(row):
                 self.tools_table.setItem(r, c, QTableWidgetItem(value if value else "-"))
     
+    def _create_steam_tab(self) -> QWidget:
+        """Steam client, libraries and installed games with a guarded Launch button."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        self.steam_status_label = QLabel("Scanning...")
+        self.steam_status_label.setWordWrap(True)
+        layout.addWidget(self.steam_status_label)
+        self.steam_table = QTableWidget()
+        self.steam_table.setColumnCount(7)
+        self.steam_table.setHorizontalHeaderLabels(
+            ["AppID", "Name", "Installed", "Built-in benchmark", "Runtime", "Library", "Action"])
+        sheader = self.steam_table.horizontalHeader()
+        for col in (0, 2, 3, 4, 5, 6):
+            sheader.setSectionResizeMode(col, QHeaderView.ResizeToContents)
+        sheader.setSectionResizeMode(1, QHeaderView.Stretch)
+        layout.addWidget(self.steam_table, 1)
+        self.steam_log = QLabel("")
+        self.steam_log.setWordWrap(True)
+        self.steam_log.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        layout.addWidget(self.steam_log)
+        return tab
+
+    def steam_games(self) -> List[dict]:
+        if self.discovery is None:
+            return []
+        return [g for g in self.discovery.games if g.get("store") == "steam"]
+
+    def refresh_steam_view(self):
+        """Show the Steam client, libraries and games from the latest discovery."""
+        if self.discovery is None:
+            return
+        client = self.discovery.stores.get("steam") or {}
+        if client.get("status") != "detected":
+            self.steam_status_label.setText(f"Steam client: {client.get('status', 'not checked')}")
+        else:
+            libs = ", ".join(client.get("libraries") or []) or "none reachable"
+            notes = "; ".join(client.get("notes") or [])
+            text = f"Steam client: {client.get('path')}  |  Libraries: {libs}"
+            if notes:
+                text += f"  |  Notes: {notes}"
+            self.steam_status_label.setText(text)
+        games = sorted(self.steam_games(), key=lambda g: g["name"].lower())
+        self.steam_table.setRowCount(len(games))
+        busy = self._steam_worker is not None and self._steam_worker.isRunning()
+        for row, game in enumerate(games):
+            installed = {True: "yes", False: "no (partial/updating)", None: "unknown"}[game.get("installed")]
+            values = [game["app_id"], game["name"], installed, game.get("builtin_benchmark") or "-",
+                      game.get("runtime") or "-", game.get("library") or "-"]
+            for col, value in enumerate(values):
+                self.steam_table.setItem(row, col, QTableWidgetItem(str(value)))
+            is_tool = game.get("kind") == "tool"
+            button = QPushButton("Steam tool" if is_tool else "Launch...")
+            button.setEnabled(not busy and not is_tool and game.get("installed") is True)
+            button.clicked.connect(lambda checked=False, g=game: self._on_steam_launch_clicked(g))
+            self.steam_table.setCellWidget(row, 6, button)
+
+    def _confirm_steam_launch(self, game: dict) -> bool:
+        box = QMessageBox(self)
+        box.setWindowTitle("Confirm Steam Launch")
+        box.setIcon(QMessageBox.Question)
+        box.setText(f"Launch {game['name']} through Steam?")
+        box.setInformativeText(
+            f"steam://rungameid/{game['app_id']} will be opened. Steam may update the game or show "
+            "its own dialogs first. Nothing is changed in Steam settings, and no process is closed.")
+        box.setStandardButtons(QMessageBox.Yes | QMessageBox.Cancel)
+        box.setDefaultButton(QMessageBox.Cancel)
+        return box.exec() == QMessageBox.Yes
+
+    def _on_steam_launch_clicked(self, game: dict):
+        if self._steam_worker is not None and self._steam_worker.isRunning():
+            self.steam_log.setText("A Steam launch is already in progress.")
+            return
+        if not self._confirm_steam_launch(game):
+            self.steam_log.setText(f"Launch of {game['name']} was cancelled by user.")
+            return
+        appids = [g["app_id"] for g in self.steam_games()]
+        self._steam_worker = SteamLaunchWorker(game, appids)
+        self._steam_worker.finished.connect(self._on_steam_launch_finished)
+        self.steam_log.setText(f"Launching {game['name']} through Steam, waiting for its process...")
+        self._steam_worker.start()
+        self.refresh_steam_view()
+
+    @Slot(dict)
+    def _on_steam_launch_finished(self, result: dict):
+        self.steam_log.setText(f"{result.get('status')}: {result.get('message')}")
+        self.refresh_steam_view()
+
     def _create_run_tab(self) -> QWidget:
         """Create Run Benchmarks tab for launching and assisted execution."""
         tab = QWidget()
@@ -555,6 +681,9 @@ class MainWindow(QMainWindow):
                 logger.warning("Launch worker did not finish in time; aborting.")
                 self._launch_worker.terminate()
                 self._launch_worker.wait(1000)
+        if self._steam_worker is not None and self._steam_worker.isRunning():
+            self._steam_worker.stop()   # ends the confirmation wait; the game keeps running
+            self._steam_worker.wait(5000)
         event.accept()
     
     @Slot(object)
@@ -573,6 +702,7 @@ class MainWindow(QMainWindow):
         """Store and show discovery, saved with a link to the environment snapshot."""
         self.discovery = result
         self.refresh_tools_view()
+        self.refresh_steam_view()
         if self.db is not None:
             try:
                 self.db.save_discovery_snapshot(result.to_dict(), self.environment_snapshot_id)

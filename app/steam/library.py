@@ -17,7 +17,9 @@ import re
 from typing import Callable, List, Optional, Tuple
 
 from app.steam.vdf import parse_vdf
-from data.steam_benchmarks import STEAM_BENCHMARK_APPS_BY_ID
+from data.steam_benchmarks import STEAM_BENCHMARK_APPS_BY_ID, STEAM_TOOL_NAME_PATTERNS
+
+_TOOL_RE = re.compile("|".join(STEAM_TOOL_NAME_PATTERNS), re.IGNORECASE)
 
 MANIFEST_RE = re.compile(r"^appmanifest_(\d+)\.acf$", re.IGNORECASE)   # *.tmp / ~RF*.TMP excluded
 LIBRARY_FILES = (os.path.join("steamapps", "libraryfolders.vdf"),
@@ -111,5 +113,6 @@ def scan_library(library: str, platform: str,
             # Windows: native. Linux: native vs Proton is not read reliably yet.
             "runtime": "native" if platform == "windows" else "unavailable",
             "builtin_benchmark": bench["builtin_benchmark"] if bench else None,
+            "kind": "tool" if _TOOL_RE.search(manifest["name"]) else "game",
         })
     return games, notes
