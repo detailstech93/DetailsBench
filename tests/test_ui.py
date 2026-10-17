@@ -307,7 +307,8 @@ class TestWebLaunchWorkerProcessSnapshot:
         worker.finished.connect(lambda result: finished_results.append(result))
 
         with patch('subprocess.Popen', side_effect=OSError('access denied')):
-            worker.run()
+            with patch('app.benchmark_manager._get_process_snapshot', return_value=[]):
+                worker.run()
 
         assert len(finished_results) == 1
         result = finished_results[0]
@@ -368,6 +369,64 @@ class TestWebLaunchWorkerProcessSnapshot:
         result = finished_results[0]
         assert result['status'] == 'launched'
         assert 'Launch command accepted; page load not verified' in result['message']
+
+    def test_web_launch_worker_webbrowser_open_false(self, qapp):
+        """Signal-level test: webbrowser.open False -> status 'error'."""
+        from app.ui.main_window import _WebLaunchWorker
+
+        bm = BenchmarkInfo(
+            name='speedometer', display_name='Speedometer',
+            type=BenchmarkType.WEB, status=BenchmarkStatus.READY_MANUAL,
+        )
+        worker = _WebLaunchWorker(
+            bm, 'https://example.com/benchmark-page/',
+            '3.1',
+            browser_path=None,
+            browser_name=None,
+        )
+
+        finished_results = []
+        worker.finished.connect(lambda result: finished_results.append(result))
+
+        with patch('subprocess.Popen'), \
+             patch('webbrowser.open', return_value=False), \
+             patch('app.benchmark_manager._get_process_snapshot', return_value=[]):
+            worker.run()
+
+        assert len(finished_results) == 1
+        result = finished_results[0]
+        assert result['status'] == 'error'
+        assert 'no browser could be opened' in result['message']
+        assert result['elevation_used'] is False
+
+    def test_web_launch_worker_diagnostic_snapshot_failure_does_not_change_result(self, qapp):
+        """Signal-level test: diagnostic snapshot failure -> status 'launched'."""
+        from app.ui.main_window import _WebLaunchWorker
+
+        bm = BenchmarkInfo(
+            name='speedometer', display_name='Speedometer',
+            type=BenchmarkType.WEB, status=BenchmarkStatus.READY_MANUAL,
+        )
+        worker = _WebLaunchWorker(
+            bm, 'https://example.com/benchmark-page/',
+            '3.1',
+            browser_path=r'C:\Program Files\Google\Chrome\Application\chrome.exe',
+            browser_name='Chrome',
+        )
+
+        finished_results = []
+        worker.finished.connect(lambda result: finished_results.append(result))
+
+        with patch('subprocess.Popen'), \
+             patch('webbrowser.open'), \
+             patch('app.benchmark_manager._get_process_snapshot', side_effect=RuntimeError('boom')):
+            worker.run()
+
+        assert len(finished_results) == 1
+        result = finished_results[0]
+        assert result['status'] == 'launched'
+        assert 'Launch command accepted' in result['message']
+        assert result['elevation_used'] is False
 
 
 class TestScanErrorUIDisplay:

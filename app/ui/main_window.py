@@ -155,33 +155,45 @@ class _WebLaunchWorker(QThread):
         try:
             self.progress.emit(f"Launching {self.bm.display_name}...")
 
-            # Diagnostic-only process snapshot (never used as proof).
-            from app.benchmark_manager import _get_process_snapshot
-            before = _get_process_snapshot()
+            # Diagnostic-only process snapshot (never used as proof, and a
+            # failure here must never change the launch result).
+            from app.benchmark_manager import _get_process_snapshot, _has_new_process
+            before = None
+            try:
+                before = _get_process_snapshot()
+            except Exception as exc:
+                logger.debug("[diagnostic] pre-launch snapshot failed: %s", exc)
 
             if self.browser_path:
                 subprocess.Popen([self.browser_path, self.url])
-            else:
-                webbrowser.open(self.url)
+            elif not webbrowser.open(self.url):
+                self.finished.emit({
+                    'status': 'error',
+                    'message': (
+                        f"Could not launch {self.bm.display_name}: "
+                        f"no browser could be opened for {self.url}"
+                    ),
+                    'elevation_used': False,
+                })
+                return
 
-            # Log diagnostic note about process snapshot
-            after = _get_process_snapshot()
-            browser_exe = None
-            if self.browser_path:
-                browser_exe = os.path.basename(self.browser_path)
-            if browser_exe:
-                from app.benchmark_manager import _has_new_process
-                if _has_new_process(before, after, browser_exe):
-                    logger.debug(
-                        "[diagnostic] new %s process seen after launch of %s",
-                        browser_exe, self.bm.display_name,
-                    )
-                else:
-                    logger.debug(
-                        "[diagnostic] no new %s process seen after launch of %s "
-                        "(browser may have reused an existing process)",
-                        browser_exe, self.bm.display_name,
-                    )
+            try:
+                browser_exe = os.path.basename(self.browser_path) if self.browser_path else None
+                if before is not None and browser_exe:
+                    after = _get_process_snapshot()
+                    if _has_new_process(before, after, browser_exe):
+                        logger.debug(
+                            "[diagnostic] new %s process seen after launch of %s",
+                            browser_exe, self.bm.display_name,
+                        )
+                    else:
+                        logger.debug(
+                            "[diagnostic] no new %s process seen after launch of %s "
+                            "(browser may have reused an existing process)",
+                            browser_exe, self.bm.display_name,
+                        )
+            except Exception as exc:
+                logger.debug("[diagnostic] post-launch snapshot check failed: %s", exc)
 
             self.finished.emit({
                 'status': 'launched',
