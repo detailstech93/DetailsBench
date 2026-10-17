@@ -196,6 +196,23 @@ Verified manually on this machine (2026-10-17): libraries `C:\Program Files (x86
 
 Check the production database: `python scripts/verify_stats.py` (add `--include-test` to show test data).
 
+### History, Comparison and Run Profiles
+
+- **Session History** search: text in the session name/description, benchmark (a suite such as Geekbench also finds
+  its per-major entries), and an inclusive date range (YYYY-MM-DD). The statistics table follows the search.
+- **Compare Results** tab (`app/compare.py`): pick session A (baseline) and B; for each benchmark it shows mean A,
+  mean B, delta and delta % relative to A, and a status:
+  - **not comparable** (red, numbers greyed): no results on a side, different major versions (Geekbench 6 vs 7 use
+    different scales), different native architecture, different runtimes (e.g. native vs Proton), emulation;
+  - **warning** (orange): version difference or unknown, different OS, fewer than 2 runs, CV above 5 %, mixed
+    manual and real runs, manual vs real, test data;
+  - **ok** (green).
+- **Run profiles** (Run Benchmarks tab): built-in "Standard" (3 measured + 1 warmup) and "Quick check" (1 run), plus
+  saved profiles (`run_profiles` table). The selected profile's settings are stored in the manifest of the next
+  new session.
+
+Command line: `python scripts/verify_compare.py [A B] [--include-test]` compares two sessions with the same rules.
+
 ### Database Location
 
 The production database is stored per user, not in the project folder:
