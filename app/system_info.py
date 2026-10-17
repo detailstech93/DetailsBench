@@ -3,7 +3,8 @@
 import subprocess
 import platform
 import logging
-from typing import Optional, Tuple
+import sys
+from typing import List, Optional, Tuple
 
 # Configure basic logging for hardware detection issues
 logging.basicConfig(level=logging.INFO)
@@ -223,6 +224,27 @@ def get_gpu_name() -> Optional[str]:
     except Exception as e:
         logger.warning(f"DirectX GPU detection failed: {e}")
     
+    return None
+
+
+def get_gpu_names() -> Optional[List[str]]:
+    """All display adapters (Win32_VideoController), e.g. integrated + discrete.
+
+    Returns None when they cannot be read (non-Windows or query failure).
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        result = subprocess.run(
+            ['powershell', '-NoProfile', '-Command',
+             'Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name }'],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            names = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+            return names or None
+    except Exception as e:
+        logger.warning(f"GPU list detection failed: {e}")
     return None
 
 
