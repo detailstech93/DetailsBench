@@ -284,6 +284,11 @@ ENV_FIELD_LABELS = [
 ]
 
 
+def _fmt(value: Optional[float], digits: int = 2) -> str:
+    """Statistics cell text; "-" when not computable (e.g. stdev of one run)."""
+    return "-" if value is None else f"{value:,.{digits}f}"
+
+
 def _format_env_value(value: Any) -> str:
     if value is None:
         return "not available"
@@ -582,6 +587,68 @@ class MainWindow(QMainWindow):
         self.steam_log.setText(f"{result.get('status')}: {result.get('message')}")
         self.refresh_steam_view()
 
+    # ── Sessions, manual results and manifests (Phase 4A) ───────────────────
+
+    def _start_new_session(self):
+        """The next recorded result starts a new session."""
+        self.current_session_id = None
+        self.session_label.setText("Session: none yet (created with the first recorded result)")
+
+    def _ensure_session(self) -> Optional[int]:
+        """Create the session and its manifest on first use; None if no database."""
+        if self.current_session_id is not None or self.db is None:
+            return self.current_session_id
+        from dataclasses import asdict
+        from datetime import datetime
+        from app.manifest import build_manifest, git_commit
+        name = f"Session {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        sid = self.db.create_session(name, "Manual results entered in the app", is_manual=True)
+        manifest = build_manifest(
+            {"id": sid, "name": name, "is_test": False, "is_manual": True},
+            environment=self.environment_profile.to_dict() if self.environment_profile else None,
+            # Benchmarks ready when the session started (versions, paths, compatibility)
+            benchmarks_used=[asdict(b) for b in self.benchmark_manager.benchmarks if b.is_runnable()],
+            commit=git_commit(),
+        )
+        try:
+            self.db.save_session_manifest(sid, manifest)
+        except Exception:
+            logger.exception("Could not save session manifest")
+        self.current_session_id = sid
+        self.session_label.setText(f"Session: #{sid} {name}  (manifest saved)")
+        return sid
+
+    def _ask_result(self, bm: BenchmarkInfo, session_label: str) -> Optional[dict]:
+        from app.ui.record_dialog import RecordResultDialog
+        unit = "score" if bm.type == BenchmarkType.WEB else "points"
+        dialog = RecordResultDialog(bm.display_name, session_label, unit, self)
+        return dialog.values if dialog.exec() == QDialog.Accepted else None
+
+    def _on_record_clicked(self, bm: BenchmarkInfo):
+        label = f"#{self.current_session_id}" if self.current_session_id else "new session"
+        values = self._ask_result(bm, label)
+        if values is None:
+            return
+        sid = self._ensure_session()
+        if sid is None:
+            self.run_log.append("No database available; result not saved.")
+            return
+        try:
+            run_index = len(self.db.get_runs(sid, bm.name, include_test=True))
+            self.db.create_result(
+                sid, bm.name, bm.type.value, values["score"], values["unit"],
+                benchmark_version=bm.version, is_manual=True, status=values["status"],
+                is_warmup=values["is_warmup"], run_index=run_index, note=values["note"])
+        except Exception as exc:
+            logger.exception("Could not save result")
+            self.run_log.append(f"Result NOT saved: {exc}")
+            return
+        kind = "warmup" if values["is_warmup"] else "measured"
+        score = values["score"] if values["score"] is not None else "no score"
+        self.run_log.append(f"Saved {kind} run #{run_index} of {bm.display_name} in session #{sid}: "
+                            f"{values['status']}, {score} [MANUAL]")
+        self.refresh_history_screen()
+
     def _create_run_tab(self) -> QWidget:
         """Create Run Benchmarks tab for launching and assisted execution."""
         tab = QWidget()
@@ -590,10 +657,18 @@ class MainWindow(QMainWindow):
         desc = QLabel("Select an installed benchmark to launch or record scores:")
         layout.addWidget(desc)
         
+        session_row = QHBoxLayout()
+        self.session_label = QLabel("Session: none yet (created with the first recorded result)")
+        self.new_session_btn = QPushButton("Start new session")
+        self.new_session_btn.clicked.connect(self._start_new_session)
+        session_row.addWidget(self.session_label, 1)
+        session_row.addWidget(self.new_session_btn)
+        layout.addLayout(session_row)
+
         self.run_table = QTableWidget()
-        self.run_table.setColumnCount(5)
+        self.run_table.setColumnCount(6)
         self.run_table.setHorizontalHeaderLabels([
-            "Benchmark", "Version", "Status", "Execution Type", "Action"
+            "Benchmark", "Version", "Status", "Execution Type", "Action", "Results"
         ])
         header = self.run_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
@@ -601,7 +676,8 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.Stretch)
-        
+        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+
         layout.addWidget(self.run_table, 1)
         
         # Status / Feedback area
@@ -626,6 +702,16 @@ class MainWindow(QMainWindow):
         header = self.history_table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Stretch)
         layout.addWidget(self.history_table, 1)
+
+        layout.addWidget(QLabel("Statistics per session and benchmark "
+                                "(warmup, not-completed and test runs are excluded):"))
+        self.stats_table = QTableWidget()
+        self.stats_table.setColumnCount(11)
+        self.stats_table.setHorizontalHeaderLabels([
+            "Session", "Benchmark", "Runs", "Mean", "Median", "Min", "Max", "Std dev", "CV %",
+            "Excluded", "Source"])
+        self.stats_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        layout.addWidget(self.stats_table, 1)
 
         # Controls row: refresh button + show test data checkbox
         ctrl_layout = QHBoxLayout()
@@ -846,6 +932,9 @@ class MainWindow(QMainWindow):
             # Bind current benchmark to click handler
             action_btn.clicked.connect(lambda checked, b=bm: self._on_launch_clicked(b))
             self.run_table.setCellWidget(row, 4, action_btn)
+            record_btn = QPushButton("Record result...")
+            record_btn.clicked.connect(lambda checked=False, b=bm: self._on_record_clicked(b))
+            self.run_table.setCellWidget(row, 5, record_btn)
     
     def _on_launch_clicked(self, bm: BenchmarkInfo):
         """Handle user clicking launch on a benchmark with explicit confirmation dialog.
@@ -1122,3 +1211,29 @@ class MainWindow(QMainWindow):
                 self.history_table.setItem(row, 6, flag_item)
         except Exception as e:
             logger.debug(f"Could not refresh history table: {e}")
+        self.refresh_stats_table()
+
+    def refresh_stats_table(self):
+        """One row per (session, benchmark) with summarize_runs statistics."""
+        if not self.db:
+            return
+        from app.stats import summarize_runs
+        try:
+            include_test = self.show_test_data_cb.isChecked()
+            groups: Dict[tuple, list] = {}
+            for run in self.db.get_runs(include_test=include_test):
+                groups.setdefault((run["session_id"], run["benchmark_name"]), []).append(run)
+        except Exception as e:
+            logger.debug(f"Could not load runs for statistics: {e}")
+            return
+        self.stats_table.setRowCount(len(groups))
+        for row, ((sid, name), runs) in enumerate(sorted(groups.items(), key=lambda kv: (-kv[0][0], kv[0][1]))):
+            summary = summarize_runs(runs, include_test=include_test)
+            s = summary["stats"]
+            excluded = ", ".join(f"{k} {v}" for k, v in summary["excluded"].items() if v) or "-"
+            source = "mixed manual + real" if summary["mixed_sources"] else (
+                "MANUAL" if summary["manual_included"] else ("real" if summary["real_included"] else "-"))
+            cells = [f"#{sid}", name, str(summary["included"]), _fmt(s["mean"]), _fmt(s["median"]),
+                     _fmt(s["min"]), _fmt(s["max"]), _fmt(s["stdev"]), _fmt(s["cv_percent"], 1), excluded, source]
+            for col, text in enumerate(cells):
+                self.stats_table.setItem(row, col, QTableWidgetItem(text))
