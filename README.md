@@ -333,9 +333,11 @@ python scripts/verify_telemetry.py
 ```
 
 Verified on this machine (2026-10-17): psutil and nvidia-smi available (RTX 5090 Laptop GPU, driver 617.42), with 6 samples
-in 5 s (for example GPU 44 C, 180 MHz SM, 405 MHz memory, 10.3 W). LibreHardwareMonitor was not running, so it was
-reported as not available, with its reason. The LibreHardwareMonitor parser follows its `HttpServer.cs` source and has
-not been checked against a running copy. Linux and ARM: not verified.
+in 5 s (for example GPU 44 C, 180 MHz SM, 405 MHz memory, 10.3 W). LibreHardwareMonitor v0.9.6 (run as administrator,
+Intel Core Ultra 9 275HX): 420 sensors read; hottest CPU temperature 67-78 C, package power 16-23 W, average core clock
+about 3.8 GHz while idle. Its `RawValue` is text such as `17.3 W`, written in the current Windows number format, so a
+decimal comma and Arabic-Indic digits are read too; `NaN` readings are skipped. Intel's "Distance to TjMax" sensors are
+typed as temperatures but are headroom, so they are left out of the hottest temperature. Linux and ARM: not verified.
 
 ### Database Location
 

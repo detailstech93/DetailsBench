@@ -199,7 +199,7 @@ def test_parse_invalid_raw_values_are_skipped():
         "Text": "root",
         "Children": [
             {"id": 1, "Text": "bool", "SensorId": "/bool", "Type": "Temperature", "RawValue": True},
-            {"id": 2, "Text": "string", "SensorId": "/string", "Type": "Temperature", "RawValue": "65.0"},
+            {"id": 2, "Text": "string", "SensorId": "/string", "Type": "Temperature", "RawValue": "NaN \u00b0C"},
             {"id": 3, "Text": "nan", "SensorId": "/nan", "Type": "Temperature", "RawValue": float("nan")},
             {"id": 4, "Text": "inf", "SensorId": "/inf", "Type": "Temperature", "RawValue": float("inf")},
             {"id": 5, "Text": "missing", "SensorId": "/missing", "Type": "Temperature"},
@@ -219,7 +219,7 @@ def test_parse_valid_and_invalid_raw_values():
         "Text": "root",
         "Children": [
             {"id": 1, "Text": "good", "SensorId": "/good", "Type": "Load", "RawValue": 42},
-            {"id": 2, "Text": "bad", "SensorId": "/bad", "Type": "Load", "RawValue": "42"},
+            {"id": 2, "Text": "bad", "SensorId": "/bad", "Type": "Load", "RawValue": "42 % extra 7"},
         ],
     }
 

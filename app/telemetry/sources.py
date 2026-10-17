@@ -82,9 +82,14 @@ def is_loopback_url(url: str) -> bool:
 
 
 def lhm_cpu_reading(sensors) -> Reading:
-    """Hottest CPU temperature sensor, CPU package power, average of the per-core clocks."""
+    """Hottest CPU temperature sensor, CPU package power, average of the per-core clocks.
+
+    Intel's "... Distance to TjMax" sensors are typed Temperature but are a headroom, not a
+    temperature (57 at idle), so they are left out of the hottest.
+    """
     out: Reading = {}
-    temps = [s.value for p in _CPU_HW_PREFIXES for s in pick(sensors, "Temperature", p)]
+    temps = [s.value for p in _CPU_HW_PREFIXES for s in pick(sensors, "Temperature", p)
+             if "distance" not in s.name.lower() and "tjmax" not in s.name.lower()]
     if temps:
         out["cpu_temperature_hottest"] = (max(temps), "C")
     power = [s.value for p in _CPU_HW_PREFIXES for s in pick(sensors, "Power", p, "package")]
@@ -95,6 +100,10 @@ def lhm_cpu_reading(sensors) -> Reading:
     if clocks:
         out["cpu_core_clock_avg"] = (sum(clocks) / len(clocks), "MHz")
     return out
+
+
+class LhmDataError(RuntimeError):
+    """The web server answered, but not with sensors we can read."""
 
 
 class LhmSource:
@@ -108,14 +117,21 @@ class LhmSource:
         if not is_loopback_url(self.url):
             raise ValueError(f"only a local LibreHardwareMonitor address is read, not {self.url}")
         with self.opener(self.url, timeout=3) as resp:
-            parsed = parse_lhm_data(json.loads(resp.read().decode("utf-8")))
+            body = resp.read()
+        try:
+            data = json.loads(body.decode("utf-8-sig"))
+        except ValueError as e:
+            raise LhmDataError(f"data.json is not valid JSON: {e}")
+        parsed = parse_lhm_data(data)
         if not parsed.sensors:
-            raise RuntimeError(parsed.error or "no sensors")
+            raise LhmDataError(parsed.error or "no sensors")
         return parsed.sensors
 
     def available(self) -> Tuple[bool, str]:
         try:
             reading = lhm_cpu_reading(self._sensors())
+        except LhmDataError as e:
+            return False, f"LibreHardwareMonitor answered at {self.url} but its data could not be read: {e}"
         except Exception as e:
             return False, (f"LibreHardwareMonitor web server not reachable at {self.url} ({e}); run "
                            "LibreHardwareMonitor and enable Options > Remote Web Server")

@@ -1,13 +1,19 @@
 """Parse LibreHardwareMonitor's data.json (its local web server) into sensors (Phase 7).
 
 Field names follow LibreHardwareMonitor's HttpServer.cs (SensorId, Type, Text, RawValue,
-HardwareId, Children). RawValue is used, never the localized display text "Value".
-Not yet checked against a running LibreHardwareMonitor on this machine.
+HardwareId, Children). RawValue is used, never the display text "Value" (which scales units,
+e.g. KB/s or MB/s).
+
+Checked against LibreHardwareMonitor v0.9.6 on 2026-10-17: RawValue is TEXT, "<number> <unit>"
+("17.3 W", "0.686 V", "999.999", "NaN %"), made with string.Format in the current Windows culture
+(HttpServer.cs), so a decimal comma and Arabic-Indic digits are accepted too. A plain JSON number
+is also accepted. "NaN" and anything else that is not one number is skipped, never read as 0.
 
 Drafted by the local agent, reviewed.
 """
 
 import math
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -55,9 +61,28 @@ class LhmParse:
     error: Optional[str] = None
 
 
+_DIGITS = str.maketrans("\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669"
+                        "\u06f0\u06f1\u06f2\u06f3\u06f4\u06f5\u06f6\u06f7\u06f8\u06f9"
+                        "\u066b\u2212",
+                        "0123456789" "0123456789" ".-")
+_RAW_TEXT = re.compile(r"\s*([+-]?\d+(?:[.,]\d+)?)(?:\s+\S+)?\s*")
+
+
+def _text_to_float(text):
+    """'17.3 W' -> 17.3; '17,3 W' -> 17.3; 'NaN %' -> None."""
+    match = _RAW_TEXT.fullmatch(text.translate(_DIGITS))
+    if match is None:
+        return None
+    return float(match.group(1).replace(",", "."))
+
+
 def _to_finite_float(value):
     if isinstance(value, bool):
         return None
+    if isinstance(value, str):
+        value = _text_to_float(value)
+        if value is None:
+            return None
     if not isinstance(value, (int, float)):
         return None
     try:

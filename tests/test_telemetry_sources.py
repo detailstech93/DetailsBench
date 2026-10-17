@@ -105,6 +105,53 @@ def test_lhm_not_running_is_explained():
         False, "LibreHardwareMonitor shows no CPU sensors (its driver may be missing)")
 
 
+def _sensor(sid, text, kind, raw):
+    return {"id": 0, "Text": text, "SensorId": sid, "Type": kind, "RawValue": raw, "Children": []}
+
+
+# Shape and values as LibreHardwareMonitor v0.9.6 served them on 2026-10-17 (Core Ultra 9 275HX):
+# RawValue is text "<number> <unit>", Intel adds "Distance to TjMax" temperatures, a load can be "NaN %".
+REAL_TREE = {"id": 0, "Text": "Sensor", "Children": [{"id": 1, "Text": "HOST", "Children": [
+    {"id": 3, "Text": "Intel Core Ultra 9 275HX", "HardwareId": "/intelcpu/0", "Children": [
+        _sensor("/intelcpu/0/power/0", "CPU Package", "Power", "17.3 W"),
+        _sensor("/intelcpu/0/power/1", "CPU Cores", "Power", "8.0 W"),
+        _sensor("/intelcpu/0/clock/0", "Bus Speed", "Clock", "99.1 MHz"),
+        _sensor("/intelcpu/0/clock/1", "P-Core #1", "Clock", "4063.0 MHz"),
+        _sensor("/intelcpu/0/clock/3", "E-Core #1", "Clock", "4558.5 MHz"),
+        _sensor("/intelcpu/0/temperature/0", "Core Max", "Temperature", "52.0 \u00b0C"),
+        _sensor("/intelcpu/0/temperature/26", "CPU Package", "Temperature", "51.0 \u00b0C"),
+        _sensor("/intelcpu/0/temperature/27", "P-Core #1 Distance to TjMax", "Temperature", "57.0 \u00b0C"),
+        _sensor("/intelcpu/0/load/20", "CPU Core #19", "Load", "NaN %"),
+    ]},
+]}]}
+
+
+def test_lhm_real_v096_format():
+    parsed = parse_lhm_data(REAL_TREE)
+    assert parsed.error is None and parsed.skipped == 1                     # only the "NaN %" load
+    reading = lhm_cpu_reading(parsed.sensors)
+    assert reading == {"cpu_temperature_hottest": (52.0, "C"),              # not the 57 "Distance to TjMax"
+                       "cpu_package_power": (17.3, "W"),
+                       "cpu_core_clock_avg": ((4063.0 + 4558.5) / 2, "MHz")}
+
+
+def test_lhm_raw_value_in_other_windows_cultures():
+    tree = {"id": 0, "Text": "S", "Children": [{"id": 1, "Text": "CPU", "HardwareId": "/amdcpu/0", "Children": [
+        _sensor("/amdcpu/0/power/0", "Package", "Power", "17,3 W"),
+        _sensor("/amdcpu/0/temperature/0", "Core (Tctl/Tdie)", "Temperature",
+                "\u0666\u0665\u066b\u0665 \u00b0C"),
+        _sensor("/amdcpu/0/temperature/1", "CCD1", "Temperature", "1.234.5 \u00b0C"),
+    ]}]}
+    parsed = parse_lhm_data(tree)
+    assert parsed.skipped == 1
+    assert lhm_cpu_reading(parsed.sensors) == {"cpu_temperature_hottest": (65.5, "C"), "cpu_package_power": (17.3, "W")}
+
+
+def test_lhm_answering_without_sensors_is_not_called_unreachable():
+    ok, reason = LhmSource(opener=lhm_opener({"id": 0, "Text": "Sensor", "Children": []})).available()
+    assert not ok and "answered" in reason and "no sensors in data.json" in reason and "not reachable" not in reason
+
+
 def test_lhm_refuses_non_local_address():
     seen = []
     ok, reason = LhmSource("http://192.168.1.5:8085/data.json", opener=lhm_opener(TREE, seen)).available()
