@@ -3,20 +3,27 @@
 - nvidia-smi: NVIDIA GPU temperature, SM and memory clocks, power and load (no admin rights;
   ships with the NVIDIA driver on Windows and Linux).
 - LibreHardwareMonitor: CPU temperature, package power and core clocks, read from ITS OWN local
-  web server (http://localhost:8085/data.json). The app never installs LibreHardwareMonitor or a
-  kernel driver: CPU sensors on Windows need one (WinRing0 is flagged as vulnerable,
-  CVE-2020-14979; LibreHardwareMonitor 0.9.5+ uses PawnIO). The user runs it and enables
-  Options > Remote Web Server. Only a loopback address is ever read.
+  web server (http://127.0.0.1:8085/data.json). The app can download it and turn its web server
+  on with a random password (app/telemetry/lhm_provision.py); it never installs a kernel driver
+  itself (LibreHardwareMonitor 0.9.5+ installs PawnIO with its own prompt; the older WinRing0 is
+  flagged as vulnerable, CVE-2020-14979). For the copy this app set up, the port and the password
+  are read from its settings file on every request, because that file always holds the password
+  the running server expects. Only a loopback address is ever read.
 - psutil: CPU load and memory use everywhere; on Linux also CPU temperature (hwmon) and the
   live CPU clock. On Windows psutil.cpu_freq() is the static base clock, so it is not used.
+- RAPL (Linux): CPU package power from the kernel's energy counters
+  (/sys/class/powercap/intel-rapl:N, also used for AMD). Since kernel 5.10 only root may read
+  them (CVE-2020-8694); then the source says so and the reading is absent, never 0.
 """
 
+import base64
 import json
 import os
 import shutil
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 from typing import Callable, Dict, Optional, Tuple
 from urllib.parse import urlparse
@@ -106,18 +113,56 @@ class LhmDataError(RuntimeError):
     """The web server answered, but not with sensors we can read."""
 
 
+class LhmAuthError(RuntimeError):
+    """The web server wants a password that is not the one in the settings file we know."""
+
+
 class LhmSource:
     name = "LibreHardwareMonitor"
 
-    def __init__(self, url: str = LHM_URL, opener: Callable = urllib.request.urlopen):
-        self.url = url
+    def __init__(self, url: Optional[str] = None, opener: Callable = urllib.request.urlopen,
+                 settings: Callable[[], dict] = dict):
+        """settings() -> the LibreHardwareMonitor.config values of the copy this app set up ({} when none):
+        its port is used when no url is given, and its password when authentication is on."""
+        self._url = url
         self.opener = opener
+        self.settings = settings
+
+    @property
+    def url(self) -> str:
+        if self._url is not None:
+            return self._url
+        from app.telemetry.lhm_files import web_port
+        return f"http://127.0.0.1:{web_port(self._settings())}/data.json"
+
+    def _settings(self) -> dict:
+        try:
+            return self.settings() or {}
+        except Exception:
+            return {}
+
+    def _request(self, url: str):
+        from app.telemetry.lhm_files import web_auth
+        req = urllib.request.Request(url, headers={"User-Agent": "PC-Benchmark-Manager"})
+        auth = web_auth(self._settings())
+        if auth is not None:
+            token = base64.b64encode(f"{auth[0]}:{auth[1]}".encode("utf-8")).decode("ascii")
+            req.add_header("Authorization", f"Basic {token}")
+        return req
 
     def _sensors(self):
-        if not is_loopback_url(self.url):
-            raise ValueError(f"only a local LibreHardwareMonitor address is read, not {self.url}")
-        with self.opener(self.url, timeout=3) as resp:
-            body = resp.read()
+        url = self.url
+        if not is_loopback_url(url):
+            raise ValueError(f"only a local LibreHardwareMonitor address is read, not {url}")
+        try:
+            with self.opener(self._request(url), timeout=3) as resp:
+                body = resp.read()
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                raise LhmAuthError("it asks for a password that is not the one in the settings of the copy this "
+                                   "app set up (another copy may be running); close it and use Set up "
+                                   "LibreHardwareMonitor again")
+            raise
         try:
             data = json.loads(body.decode("utf-8-sig"))
         except ValueError as e:
@@ -132,6 +177,8 @@ class LhmSource:
             reading = lhm_cpu_reading(self._sensors())
         except LhmDataError as e:
             return False, f"LibreHardwareMonitor answered at {self.url} but its data could not be read: {e}"
+        except LhmAuthError as e:
+            return False, f"LibreHardwareMonitor at {self.url}: {e}"
         except Exception as e:
             return False, (f"LibreHardwareMonitor web server not reachable at {self.url} ({e}); run "
                            "LibreHardwareMonitor and enable Options > Remote Web Server")
@@ -205,8 +252,91 @@ def new_sampler(interval_seconds: float = 1.0):
     return TelemetrySampler(default_sources(), interval_seconds)
 
 
+RAPL_ROOT = "/sys/class/powercap"
+
+
+def _read_text(path: str) -> str:
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+class RaplSource:
+    """CPU package power (Linux) from the RAPL energy counters: the change in energy_uj over time."""
+    name = "RAPL"
+
+    def __init__(self, root: str = RAPL_ROOT, clock: Callable = time.monotonic,
+                 listdir: Callable[[str], list] = os.listdir, read_text: Optional[Callable[[str], str]] = None):
+        self.root = root
+        self.clock = clock
+        self.listdir = listdir
+        self.read_text = read_text or _read_text
+        self._last = None                       # (time, {zone: energy_uj})
+
+    def _zones(self) -> list:
+        """intel-rapl:N package zones (not their intel-rapl:N:M sub-zones)."""
+        zones = []
+        try:
+            names = sorted(self.listdir(self.root))
+        except OSError:
+            return zones
+        for entry in names:
+            parts = entry.split(":")
+            if len(parts) != 2 or parts[0] != "intel-rapl" or not parts[1].isdigit():
+                continue
+            try:
+                if self.read_text(f"{self.root}/{entry}/name").strip().startswith("package"):
+                    zones.append(entry)
+            except OSError:
+                continue
+        return zones
+
+    def _counter(self, zone: str, item: str) -> int:
+        return int(self.read_text(f"{self.root}/{zone}/{item}").strip())
+
+    def available(self) -> Tuple[bool, str]:
+        zones = self._zones()
+        if not zones:
+            return False, f"no RAPL package energy counters under {self.root}"
+        try:
+            for zone in zones:
+                self._counter(zone, "energy_uj")
+        except PermissionError:
+            return False, ("RAPL energy counters are readable by root only on this kernel (CVE-2020-8694 fix); "
+                           "CPU package power is not recorded")
+        except (OSError, ValueError) as e:
+            return False, f"RAPL energy counters could not be read: {e}"
+        return True, f"CPU package power ({len(zones)} package(s))"
+
+    def read(self) -> Reading:
+        now = self.clock()
+        energy = {zone: self._counter(zone, "energy_uj") for zone in self._zones()}
+        last, self._last = self._last, (now, energy)
+        if last is None or now - last[0] <= 0 or set(last[1]) != set(energy):
+            return {}                                # the first reading only starts the window
+        joules = 0
+        for zone, value in energy.items():
+            delta = value - last[1][zone]
+            if delta < 0:                            # the counter wrapped around
+                try:
+                    delta += self._counter(zone, "max_energy_range_uj")
+                except (OSError, ValueError):
+                    return {}
+            joules += delta / 1e6
+        return {"cpu_package_power": (joules / (now - last[0]), "W")}
+
+
+def _provisioned_lhm_settings() -> dict:
+    """LibreHardwareMonitor.config of the copy this app set up; {} when there is none."""
+    from app.paths import get_data_dir
+    from app.telemetry import lhm_provision
+    exe = lhm_provision.find_local(get_data_dir())
+    return lhm_provision.read_settings(exe).settings if exe else {}
+
+
 def default_sources(platform_name: str = sys.platform) -> list:
     sources = [PsutilSource(platform_name=platform_name), NvidiaSmiSource()]
     if platform_name == "win32":
-        sources.append(LhmSource())
+        sources.append(LhmSource(settings=_provisioned_lhm_settings))
+    elif platform_name.startswith("linux"):
+        sources.append(RaplSource())
     return sources

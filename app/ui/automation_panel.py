@@ -123,6 +123,9 @@ class AutomationPanel(QGroupBox):
         row.addWidget(self.reload_btn)
         row.addWidget(self.screenshot_box, 1)
         row.addWidget(self.telemetry_box)
+        from app.ui.lhm_setup import LhmSetupButton
+        self.lhm_btn = LhmSetupButton(lambda text: self.status_label.setText(text))
+        row.addWidget(self.lhm_btn)
         row.addWidget(self.run_btn)
         row.addWidget(self.stop_btn)
         layout.addLayout(row)

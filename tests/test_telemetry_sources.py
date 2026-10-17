@@ -75,7 +75,7 @@ class Resp(io.BytesIO):
 def lhm_opener(data, seen=None):
     def opener(url, timeout=None):
         if seen is not None:
-            seen.append(url)
+            seen.append(getattr(url, "full_url", url))
         if isinstance(data, Exception):
             raise data
         return Resp(json.dumps(data).encode("utf-8"))
@@ -216,4 +216,4 @@ def test_psutil_linux_temperature_and_clock():
 
 def test_default_sources_per_platform():
     assert [s.name for s in default_sources("win32")] == ["psutil", "nvidia-smi", "LibreHardwareMonitor"]
-    assert [s.name for s in default_sources("linux")] == ["psutil", "nvidia-smi"]
+    assert [s.name for s in default_sources("linux")] == ["psutil", "nvidia-smi", "RAPL"]

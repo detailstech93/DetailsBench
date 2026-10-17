@@ -324,9 +324,30 @@ extra metrics. A reading that a source cannot give is left out, never stored as 
 |---|---|---|
 | psutil | CPU load, memory use; on Linux also hottest CPU temperature and live CPU clock | CPU load is computed from the app's own `cpu_times()` deltas. `psutil.cpu_percent()` is not used, because any other caller resets its shared window and it then reports a false 0. On Windows `cpu_freq()` is the static base clock, so it is not recorded. |
 | nvidia-smi | per NVIDIA GPU: temperature, SM and memory clocks, power, load | No admin rights needed; ships with the NVIDIA driver (Windows and Linux). `[N/A]` values are left out. |
-| LibreHardwareMonitor | hottest CPU temperature, CPU package power, average core clock | Windows only. Read from LibreHardwareMonitor's own local web server (`http://127.0.0.1:8085/data.json`; only a loopback address is accepted). You run LibreHardwareMonitor and turn on Options > Remote Web Server. The app never installs it or any kernel driver: Windows CPU sensors need one, the old WinRing0 driver is flagged as vulnerable (CVE-2020-14979), and LibreHardwareMonitor 0.9.5+ uses PawnIO. |
+| LibreHardwareMonitor | hottest CPU temperature, CPU package power, average core clock | Windows only. Read from LibreHardwareMonitor's own local web server (`http://127.0.0.1:8085/data.json`; only a loopback address is accepted). **Set up LibreHardwareMonitor...** (next to Record telemetry) does it for you, see below. A copy you run yourself also works when its Options > Remote Web Server is on. |
+| RAPL | CPU package power | Linux only, from the kernel's energy counters (`/sys/class/powercap/intel-rapl:N`, also used for AMD). Since kernel 5.10 only root may read them (CVE-2020-8694); then the reason is shown and the reading is absent. CPU temperature and live clock on Linux come from psutil (hwmon). |
 
 HWiNFO is not used: its free version limits the shared-memory interface to 12 hours.
+
+**Set up LibreHardwareMonitor...** (Windows; `app/telemetry/lhm_provision.py`). Every step asks first:
+
+1. Uses the copy it set up before (`<data dir>\tools\librehardwaremonitor\<version>\`), or downloads the newest stable
+   release from GitHub (LibreHardwareMonitor/LibreHardwareMonitor, MPL-2.0): `LibreHardwareMonitor.zip`, the
+   .NET Framework 4.7.2 build that runs on Windows 10/11 as installed (the `.NET.10` zip would need another runtime).
+   The zip is not code-signed, so it is kept only when its size and the SHA-256 GitHub publishes match. It is
+   extracted through a temporary folder; no file may land outside it.
+2. Writes `LibreHardwareMonitor.config` next to the exe (only while it is not running, because it rewrites that file
+   on exit): web server on, port 8085, start minimized to the tray, and Basic authentication with a new random
+   password. The password is needed because its server cannot be limited to this PC (checked in its v0.9.6
+   `HttpServer.cs`: it listens on every interface) and it can also change fan settings. It stores the password as a
+   SHA-256 hash and saves only on exit or sign-out, so while it runs the password it expects is the value in that
+   file; telemetry reads it from there on every request.
+3. Starts it through the UAC prompt (CPU sensors need administrator rights). LibreHardwareMonitor may then ask to
+   install its sensor driver (PawnIO); that is its own prompt. This app never installs a driver.
+
+Windows on ARM: the same .NET Framework build runs there, but its sensor driver is not verified on ARM, so CPU
+sensors may be missing (telemetry then says so). Linux: LibreHardwareMonitor does not exist there; psutil (hwmon) and
+RAPL cover CPU temperature, clock and package power without a download, and the button is hidden.
 
 ```bash
 python scripts/verify_telemetry.py

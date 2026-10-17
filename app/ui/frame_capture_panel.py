@@ -187,6 +187,10 @@ class FrameCapturePanel(QGroupBox):
         self.telemetry_box.setChecked(True)
         self.telemetry_box.setToolTip(TELEMETRY_TIP)
         row2.addWidget(self.telemetry_box)
+        from app.ui.lhm_setup import LhmSetupButton
+        self.lhm_btn = LhmSetupButton(lambda text: self.status_label.setText(text), self.data_dir,
+                                      arch=self.arch, platform_name=self.platform_name)
+        row2.addWidget(self.lhm_btn)
         self.capture_btn = QPushButton("Capture frames...")
         self.capture_btn.clicked.connect(self.start_capture)
         row2.addWidget(self.capture_btn)
