@@ -92,6 +92,8 @@ Include mocked tests for:
 - **Never read `.venv` or `venv`**: Do not inspect, modify, list, or execute anything
   inside `.venv/` or `venv/`. The virtual environment is managed externally. Running the
   venv interpreter (`python` from within the venv) is allowed.
+- **One virtual environment**: `.venv` in the project root is the only supported one
+  (commands use `.\.venv\Scripts\python.exe`). Any other venv folder is legacy.
 - **If a file read or command fails twice, stop and report**; never retry a third time;
   never loop reading the same files.
 - **Never create files with Windows reserved device names** (`nul`, `con`, `prn`, `aux`,

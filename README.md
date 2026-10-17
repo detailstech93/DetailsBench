@@ -82,17 +82,25 @@ Pytest channel-boundary and comparability tests (`TestComparability`, `TestLaunc
 ## Requirements
 
 - Windows 10/11
-- Python 3.8+
+- Python 3.10 (the code must stay 3.10-compatible)
+- Windows for real discovery and launching; other systems are unverified
 
-### Installation
+### Installation on a new machine
 
-```bash
-# Runtime dependencies (PySide6, pefile, psutil)
-pip install -r requirements.txt
+The project uses one virtual environment, `.venv` in the project root (git-ignored).
+A virtual environment cannot be copied between machines: it points at the Python
+install of the machine that created it, so create a fresh one after cloning.
 
-# Development dependencies (adds pytest on top of runtime)
-pip install -r requirements-dev.txt
+```powershell
+git clone https://github.com/detailstech93/pc-benchmark-manager.git
+cd pc-benchmark-manager
+py -3.10 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt   # runtime + pytest
+.\.venv\Scripts\python.exe -m pytest tests -q
 ```
+
+`requirements.txt` holds the runtime dependencies (PySide6, pefile, psutil);
+`requirements-dev.txt` adds pytest on top of them.
 
 ## Usage
 
