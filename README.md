@@ -312,8 +312,10 @@ Not yet verified on a real game (only with fakes in tests/test_game_benchmark.py
 
 ### Forced game settings
 
-**Game settings...** (next to Benchmark game...) picks the graphics settings forced on every benchmark of the
-selected game: resolution, window mode, VSync, FPS limit, quality preset, upscaler and DLSS mode, dynamic
+Pressing Benchmark (Steam tab) or Benchmark game... for a supported game first opens the settings window, starting
+from the last choice; Cancel starts nothing. **Game settings...** opens the same window without a benchmark. It
+picks the graphics settings forced on the benchmark: resolution, window mode, VSync, FPS limit, quality preset,
+upscaler and DLSS mode, texture quality, dynamic
 resolution, Frame Generation (DLSS, multi frame), ray tracing, RT lighting and path tracing. Each one can stay
 "keep the game's value". The choice is saved in settings.json (`forced_game_settings`). Supported so far:
 Cyberpunk 2077 (`app/games/cyberpunk2077.py`, its `%LOCALAPPDATA%/CD Projekt Red/Cyberpunk 2077/UserSettings.json`).
@@ -335,7 +337,7 @@ Lists the game builds at runtime (resolution, DLSS mode, upscaler, preset, windo
 position in a list that is not in the file. The app learns a position each time it reads the file
 (`game_settings_indices.json` in the data folder), so the window offers only values seen before: to force another
 one, choose it once in the game's menu, close the game and open Game settings... again. Fixed lists (RT lighting,
-multi frame generation) and on/off settings offer every value at once.
+multi frame generation, texture quality) and on/off settings offer every value at once.
 
 `scripts/verify_game_settings.py` reads the real file and writes nothing. Checked on this computer on 2026-10-18:
 every setting read, keeping the current values plans no change. Writing, then the game keeping the values, is not

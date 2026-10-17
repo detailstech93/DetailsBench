@@ -257,6 +257,7 @@ class FrameCapturePanel(QGroupBox):
         self._after_tool: Optional[Callable[[], object]] = None
         self.benchmark_factory = None                    # tests swap in a fake GameBenchmark
         self.forced_factory = None                       # tests swap in a fake ForcedSettings
+        self.settings_reader = None                      # tests swap in a fake read_for_dialog
         from app.ui.game_settings_dialog import GameSettingsDialog
         self.settings_dialog_factory = lambda *a: GameSettingsDialog(*a, parent=self)
 
@@ -628,21 +629,25 @@ class FrameCapturePanel(QGroupBox):
         return saved_choice(settings, app_id)
 
     def edit_game_settings(self) -> bool:
+        return self._ask_game_settings() == "saved"
+
+    def _ask_game_settings(self) -> str:
+        """Show the settings window for the selected game: "saved", "cancelled" or "unavailable"."""
         from app.games.settings_file import SAVED_KEY, read_for_dialog
-        from app.ui.game_settings_dialog import GameSettingsDialog, describe
+        from app.ui.game_settings_dialog import describe
         game = self.game_combo.currentData()
         if not game:
-            return False
+            return "unavailable"
         app_id = str(game.get("app_id"))
         try:
-            choices, current = read_for_dialog(app_id, self.data_dir)
+            choices, current = (self.settings_reader or read_for_dialog)(app_id, self.data_dir)
         except (OSError, ValueError) as e:
             self.status_label.setText(f"Game settings: {e}")
-            return False
+            return "unavailable"
         dialog = self.settings_dialog_factory(str(game.get("name")), choices, current,
                                               self.forced_settings_for(app_id))
         if not dialog.exec():
-            return False
+            return "cancelled"
         selection = dialog.selection()
         settings, _ = load_settings(self.data_dir)
         every = settings.get(SAVED_KEY)
@@ -652,9 +657,9 @@ class FrameCapturePanel(QGroupBox):
             save_setting(self.data_dir, SAVED_KEY, every)
         except (OSError, ValueError) as e:
             self.status_label.setText(f"Game settings not saved: {e}")
-            return False
+            return "unavailable"
         self.status_label.setText(f"{game.get('name')}: forced settings: {describe(selection) or 'none'}")
-        return True
+        return "saved"
 
     def select_game(self, app_id) -> bool:
         for i in range(self.game_combo.count()):
@@ -699,7 +704,11 @@ class FrameCapturePanel(QGroupBox):
                                  warmup_runs=profile.warmup_runs, repetitions=profile.repetitions,
                                  settle_seconds=self.settle_spin.value())
         total = spec.settle_seconds + spec.seconds * spec.count
+        from app.games.settings_file import adapter_for
         from app.ui.game_settings_dialog import describe
+        if adapter_for(spec.app_id) is not None and self._ask_game_settings() == "cancelled":
+            self.status_label.setText("Cancelled; nothing was started.")
+            return False
         forced_values = self.forced_settings_for(spec.app_id)
         text = (f"Benchmark {spec.game_name} automatically:\n\n"
                 f"1. PresentMon starts elevated: ONE UAC prompt for the whole benchmark. It records only the "

@@ -493,7 +493,23 @@ def forced_panel(qapp, panel, values):
                         "install_path": "Z:/common/CP", "installed": True}]
     p.refresh_games()
     save_setting(p.data_dir, "forced_game_settings", {"1091500": values})
+    p.settings_reader = lambda app_id, data_dir: ({"ray_tracing": [True, False]}, {"ray_tracing": True})
+    p.dialogs = []
+    p.settings_dialog_factory = lambda *a: (p.dialogs.append(a), KeepDialog(a[3]))[1]
     return p, db
+
+
+class KeepDialog:
+    """Accepts the window as it opened (the saved choice)."""
+
+    def __init__(self, chosen, accept=True):
+        self.chosen, self.accept = chosen, accept
+
+    def exec(self):
+        return self.accept
+
+    def selection(self):
+        return dict(self.chosen)
 
 
 def run_bench(qapp, p):
@@ -508,6 +524,7 @@ def test_forced_settings_are_applied_checked_and_recorded(qapp, panel):
     fake = FakeForced()
     p.forced_factory, p.benchmark_factory = fake, fake_benchmark()
     run_bench(qapp, p)
+    assert p.dialogs[0][0] == "Cyberpunk 2077" and p.dialogs[0][3] == {"ray_tracing": False, "dlss_mode": "Quality"}
     assert "Forced game settings: Ray tracing Off, DLSS mode Quality" in p.asked[0]
     assert fake.log == ["apply", "finish"]
     sid = db.get_sessions(include_test=True)[0]["id"]
@@ -563,7 +580,38 @@ def test_game_settings_dialog_choice_is_saved(qapp, panel, monkeypatch):
 
         def selection(self):
             return {"rt_lighting": "Ultra"}
+    p.settings_reader = None
     p.settings_dialog_factory = Dialog
     assert p.edit_game_settings() is True
     assert p.forced_settings_for("1091500") == {"rt_lighting": "Ultra"}
     assert "RT lighting Ultra" in p.status_label.text()
+
+
+def test_benchmark_asks_the_settings_first_and_cancel_starts_nothing(qapp, panel):
+    p, db = forced_panel(qapp, panel, {"ray_tracing": False})
+    p.settings_dialog_factory = lambda *a: KeepDialog(a[3], accept=False)
+    seen = []
+    p.benchmark_factory = fake_benchmark(seen=seen)
+    assert p.benchmark_game() is False
+    assert p.asked == [] and seen == [] and p.status_label.text() == "Cancelled; nothing was started."
+
+
+def test_settings_picked_at_benchmark_time_are_used(qapp, panel):
+    p, db = forced_panel(qapp, panel, {})
+    p.settings_dialog_factory = lambda *a: KeepDialog({"ray_tracing": False})
+    fake = FakeForced()
+    p.forced_factory, p.benchmark_factory = fake, fake_benchmark()
+    run_bench(qapp, p)
+    assert fake.values == {"ray_tracing": False} and "Ray tracing Off" in p.asked[0]
+    assert p.forced_settings_for("1091500") == {"ray_tracing": False}
+
+
+def test_no_settings_file_benchmarks_without_forcing(qapp, panel):
+    p, db = forced_panel(qapp, panel, {})
+
+    def missing(app_id, data_dir):
+        raise OSError("the game's settings file was not found")
+    p.settings_reader = missing
+    p.benchmark_factory = fake_benchmark()
+    run_bench(qapp, p)
+    assert "No game settings are forced" in p.asked[0]

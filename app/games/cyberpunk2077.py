@@ -22,6 +22,7 @@ SETTINGS: Dict[str, Tuple[str, str]] = {
     "preset": ("/graphics/presets", "QuickPresets"),
     "upscaler": ("/graphics/presets", "ResolutionScaling"),
     "dlss_mode": ("/graphics/presets", "DLSS"),
+    "texture_quality": ("/graphics/presets", "TextureQuality"),
     "dynamic_resolution": ("/graphics/presets", "DynamicResolutionScaling"),
     "frame_gen": ("/graphics/presets", "FrameGeneration"),
     "dlss_frame_gen": ("/graphics/presets", "DLSSFrameGen"),
