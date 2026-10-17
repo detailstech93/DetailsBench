@@ -1,0 +1,12 @@
+{
+  "id": "selftest_python",
+  "display_name": "Framework self-test (Python loop, 2 s)",
+  "executable": {"python": true},
+  "args": ["-c", "import time\nn = 0\nend = time.perf_counter() + 2\nwhile time.perf_counter() < end:\n    sum(range(1000))\n    n += 1\nprint('SCORE=%.1f' % (n / 2))"],
+  "timeout_seconds": 30,
+  "success_exit_codes": [0],
+  "parser": {"type": "regex", "pattern": "^SCORE=(?P<score>[0-9.]+)$", "unit": "loops/s", "higher_is_better": true},
+  "verified": true,
+  "license": "not applicable (runs this app's own Python)",
+  "notes": "Checks the automation pipeline end to end. Results are stored as test data and are not a hardware benchmark."
+}
