@@ -426,7 +426,7 @@ class TestScanErrorUIDisplay:
 
         # Check the foreground color of the status cell
         status_item = window.library_table.item(0, 2)
-        fg_color = status_item.foreground().name()
+        fg_color = status_item.foreground().color().name()
         # Should be red (#C62828), not gray (#757575) or green (#2E7D32)
         assert fg_color.lower() == '#c62828', f"Expected red, got {fg_color}"
 

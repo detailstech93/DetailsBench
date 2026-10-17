@@ -1001,13 +1001,12 @@ class TestBrowserChannelIsolation:
 # ═══════════════════════════════════════════════════════════════════════════
 
 class TestBrowserAlreadyRunning:
-    """When the browser process is already running, the web benchmark launch
-    result must be 'launched, process not independently confirmed' — never
-    'failed' and never 'confirmed'."""
+    """_run_single_execution launches nothing for web benchmarks, so a browser
+    that is already running must never turn into a launch status."""
 
     def test_web_benchmark_browser_already_running(self):
-        """MOCK: feed fake browser snapshot into REAL _is_browser_running and
-        _run_single_execution; verify launch_status is not 'failed' or 'confirmed'."""
+        """MOCK: browser process present in the snapshot -> REAL
+        _run_single_execution still returns a plain manual result."""
         manager = BenchmarkManager()
         # Fake browser info
         manager.browser_info = {
@@ -1033,11 +1032,9 @@ class TestBrowserAlreadyRunning:
             ]
             result = executor._run_single_execution(web_info, timeout_seconds=60)
 
-        assert result['launch_status'] == 'launched, process not independently confirmed'
-        assert 'Browser already running' in result['message']
-        # Must NOT be 'failed' or 'confirmed'
-        assert result['launch_status'] != 'failed'
-        assert result['launch_status'] != 'confirmed'
+        assert 'launch_status' not in result
+        assert result['execution_method'] == 'manual'
+        assert result['score'] is None
 
     def test_web_benchmark_browser_not_running(self):
         """MOCK: no browser process in snapshot -> normal manual result."""
@@ -1245,56 +1242,32 @@ class TestScanErrorPlumbing:
 class TestMissingProgramFilesEnvVar:
     """When ProgramFiles env vars are missing, skip that root with a diagnostic note."""
 
-    def test_search_roots_skip_missing_env(self):
-        """MOCK: when ProgramFiles env vars are None, _discover_generic
-        should skip those roots and only use extra_roots."""
-        from app.benchmark_manager import BenchmarkManager
+    def test_search_roots_skip_missing_env(self, tmp_path, monkeypatch):
+        """MOCK: with ProgramFiles env vars removed, the REAL _scan_filesystem
+        scans only extra_roots (no literal C:\\Program Files fallback)."""
         from data.benchmark_definitions import DEFINITIONS_BY_ID
 
+        monkeypatch.delenv('ProgramFiles', raising=False)
+        monkeypatch.delenv('ProgramFiles(x86)', raising=False)
+
+        gb_dir = tmp_path / 'Geekbench 6'
+        gb_dir.mkdir()
+        (gb_dir / 'Geekbench 6.exe').write_bytes(b'')
+
         manager = BenchmarkManager()
-        defn = DEFINITIONS_BY_ID.get('geekbench_6')
-        assert defn is not None
+        defn = DEFINITIONS_BY_ID['geekbench']
 
-        # Mock os.environ to have no ProgramFiles vars
-        fake_environ = {k: v for k, v in os.environ.items()
-                        if k not in ('ProgramFiles', 'ProgramFiles(x86)')}
+        scanned = []
+        real_listdir = os.listdir
 
-        # Mock os.path.isdir to always return False for any path
-        with patch.dict(os.environ, fake_environ, clear=False):
-            # Remove the keys
-            for k in ('ProgramFiles', 'ProgramFiles(x86)'):
-                if k in os.environ:
-                    del os.environ[k]
+        def spy_listdir(path):
+            scanned.append(os.path.normcase(os.path.normpath(path)))
+            return real_listdir(path)
 
-            # Also mock filesystem so no candidates are found
-            with patch('os.path.isdir', return_value=False):
-                with patch('os.listdir', side_effect=OSError('no dir')):
-                    # Registry channel also mocked to return nothing
-                    with patch('app.benchmark_manager.winreg') as mock_wr:
-                        mock_wr.HKEY_LOCAL_MACHINE = -2147483646
-                        mock_wr.HKEY_CURRENT_USER = -2147483647
-                        mock_wr.KEY_READ = 0x20019
-                        mock_wr.KEY_WOW64_64KEY = 0x0100
-                        mock_wr.KEY_WOW64_32KEY = 0x0200
+        with patch('app.benchmark_manager.os.listdir', side_effect=spy_listdir):
+            candidates, methods = manager._scan_filesystem(defn, [str(tmp_path)])
 
-                        class MockRegKey:
-                            def __enter__(self):
-                                return self
-                            def __exit__(self, *a):
-                                pass
-
-                        mock_wr.OpenKey = lambda *a, **kw: MockRegKey()
-                        mock_wr.QueryInfoKey = lambda k: (0, 0, 0)
-                        mock_wr.EnumKey = lambda k, i: (_ for _ in ()).throw(OSError())
-                        mock_wr.QueryValueEx = lambda k, v: (_ for _ in ()).throw(OSError())
-
-                        # Start Menu and Appx also return nothing
-                        with patch('subprocess.run') as mock_run:
-                            mock_run.return_value.stdout = ''
-
-                            results = manager._discover_generic(defn, channel_errors=[])
-                            # Should produce NOT_INSTALLED, not crash
-                            assert results[0].status == BenchmarkStatus.NOT_INSTALLED
-
-            # Restore env vars
-            # (they will be restored by the test environment)
+        assert candidates == [os.path.normpath(str(gb_dir / 'Geekbench 6.exe'))]
+        assert methods == {'filesystem pattern'}
+        root = os.path.normcase(os.path.normpath(str(tmp_path)))
+        assert all(p.startswith(root) for p in scanned), scanned

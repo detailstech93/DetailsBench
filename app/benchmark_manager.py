@@ -1362,30 +1362,6 @@ $res | ConvertTo-Json -Depth 3
 
         return self.browser_info
 
-    # ── Browser process check for web benchmarks ───────────────────────────
-
-    def _is_browser_running(self) -> bool:
-        """Check whether any detected browser process is currently running.
-
-        Returns True if at least one browser from self.browser_info has a
-        matching process in the current snapshot.
-        """
-        if not self.browser_info:
-            return False
-        try:
-            snapshot = _get_process_snapshot()
-            for bname, bdata in self.browser_info.items():
-                p = bdata.get('path', '')
-                if not p:
-                    continue
-                target = os.path.basename(p).lower()
-                for img, _ in snapshot:
-                    if img.lower() == target:
-                        return True
-        except Exception:
-            pass
-        return False
-
     # ── Legacy alias methods (backward compat for tests / UI) ────────────────
 
     def _detect_geekbench(self, sys_apps_data: Optional[dict] = None) -> List[BenchmarkInfo]:
@@ -1554,13 +1530,8 @@ class BenchmarkExecutor:
 
     def _run_single_execution(self, benchmark_info: BenchmarkInfo, timeout_seconds: int) -> Dict[str, Any]:
         if not benchmark_info.executable_path and benchmark_info.type == BenchmarkType.WEB:
-            # Check if a browser is already running
-            if self.manager._is_browser_running():
-                return {'score': None, 'unit': 'points',
-                        'execution_method': 'manual',
-                        'timestamp': datetime.now().isoformat(),
-                        'launch_status': 'launched',
-                        'message': 'Launch command accepted; page load not verified'}
+            # Nothing is launched here (the UI opens the page via _WebLaunchWorker),
+            # so never report a launch status: a running browser proves nothing.
             return {'score': None, 'unit': 'points', 'execution_method': 'manual',
                     'timestamp': datetime.now().isoformat()}
         if benchmark_info.name.startswith('geekbench'):
