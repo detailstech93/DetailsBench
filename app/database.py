@@ -105,6 +105,15 @@ class Database:
                 )
             """)
 
+            # Run profiles (Phase 4B) - user-saved run settings; built-ins live in app/profiles.py
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS run_profiles (
+                    name TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL,
+                    profile_json TEXT NOT NULL
+                )
+            """)
+
             # ── Additive migrations ──────────────────────────────────────────
             cursor.execute("PRAGMA table_info(results)")
             results_cols = [col[1] for col in cursor.fetchall()]
@@ -375,6 +384,45 @@ class Database:
                  "is_test": bool(r[4]), "is_manual": bool(r[5]),
                  "benchmarks": sorted((r[6] or "").split(",")) if r[6] else [],
                  "run_count": r[7], "has_manifest": bool(r[8])} for r in rows]
+
+    def save_run_profile(self, profile) -> None:
+        """Insert or replace a user RunProfile; built-in names and invalid profiles are refused."""
+        from dataclasses import asdict
+        from app.profiles import BUILTIN_PROFILES, validate_profile
+        problems = validate_profile(profile)
+        if problems:
+            raise ValueError("; ".join(problems))
+        if profile.name.strip().lower() in {p.name.lower() for p in BUILTIN_PROFILES}:
+            raise ValueError(f"{profile.name!r} is a built-in profile name")
+        data = asdict(profile)
+        data["builtin"] = False
+        conn = self._get_connection()
+        conn.execute("INSERT OR REPLACE INTO run_profiles (name, created_at, profile_json) VALUES (?, ?, ?)",
+                     (profile.name.strip(), datetime.now().isoformat(), json.dumps(data, sort_keys=True)))
+        conn.commit()
+        conn.close()
+
+    def list_run_profiles(self) -> list:
+        """Built-in profiles first, then saved ones by name."""
+        from app.profiles import BUILTIN_PROFILES, RunProfile
+        conn = self._get_connection()
+        rows = conn.execute("SELECT profile_json FROM run_profiles ORDER BY name COLLATE NOCASE").fetchall()
+        conn.close()
+        saved = []
+        for (text,) in rows:
+            try:
+                saved.append(RunProfile(**json.loads(text)))
+            except (TypeError, ValueError):
+                logger.warning("Skipping unreadable run profile row")
+        return list(BUILTIN_PROFILES) + saved
+
+    def delete_run_profile(self, name: str) -> bool:
+        """Delete a saved (never built-in) profile; True if one was removed."""
+        conn = self._get_connection()
+        cur = conn.execute("DELETE FROM run_profiles WHERE name = ?", (name,))
+        conn.commit()
+        conn.close()
+        return cur.rowcount > 0
 
     def save_session_manifest(self, session_id: int, manifest: dict) -> None:
         """Store the session's manifest once; a second save raises ValueError."""
