@@ -526,6 +526,7 @@ def test_forced_settings_are_applied_checked_and_recorded(qapp, panel):
     run_bench(qapp, p)
     assert p.dialogs[0][0] == "Cyberpunk 2077" and p.dialogs[0][3] == {"ray_tracing": False, "dlss_mode": "Quality"}
     assert "Forced game settings: Ray tracing Off, DLSS mode Quality" in p.asked[0]
+    assert "steam://run/1091500//--launcher-skip -skipStartScreen/ is opened" in p.asked[0]
     assert fake.log == ["apply", "finish"]
     sid = db.get_sessions(include_test=True)[0]["id"]
     gs = db.get_session_manifest(sid)["run_settings"]["game_settings"]

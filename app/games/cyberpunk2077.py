@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 APP_ID = 1091500
+# Passed to this launch only (steam://run): skip REDlauncher and the "press any key" start screen.
+LAUNCH_ARGS = ["--launcher-skip", "-skipStartScreen"]
 
 SETTINGS: Dict[str, Tuple[str, str]] = {
     "resolution": ("/video/display", "Resolution"),

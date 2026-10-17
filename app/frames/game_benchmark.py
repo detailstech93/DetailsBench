@@ -65,6 +65,7 @@ class GameBenchmarkSpec:
     repetitions: int = 3
     settle_seconds: int = 30
     min_frames: int = 100
+    launch_args: List[str] = field(default_factory=list)   # from the game's adapter (app/games)
 
     @property
     def count(self) -> int:
@@ -213,9 +214,10 @@ class GameBenchmark:
 
         self.on_progress(f"PresentMon recording; launching {spec.game_name} through Steam...")
         self._before = self.folder_procs()
+        extra = {"args": list(spec.launch_args)} if spec.launch_args else {}
         launched = self.launcher(spec.app_id, spec.install_path, spec.discovered_appids, snapshot=self.snapshot,
                                  timeout=LAUNCH_TIMEOUT_SECONDS, poll=1.0, sleep=self.sleep,
-                                 clock=lambda: float("inf") if self.stop_event.is_set() else self.clock())
+                                 clock=lambda: float("inf") if self.stop_event.is_set() else self.clock(), **extra)
         if self.stop_event.is_set():
             return finish("cancelled", "stopped by user while the game was starting")
         if launched.get("status") != "launched":

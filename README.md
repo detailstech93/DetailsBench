@@ -289,7 +289,10 @@ verified download. "No" downloads nothing and captures nothing.
 1. PresentMon starts elevated ONCE, so there is one UAC prompt per benchmark, not one per run. It records only
    the programs in the game's install folder (`--process_name` for every .exe there, because the game's exact exe
    is known only after it starts) and ends by itself when they have exited (`--terminate_on_proc_exit`).
-2. The game is launched with `steam://rungameid/<appid>` (same rules as the Steam tab's Launch).
+2. The game is launched with `steam://rungameid/<appid>` (same rules as the Steam tab's Launch). A game with an
+   adapter may name fixed launch flags; then `steam://run/<appid>//<flags>/` is used, for that launch only (never
+   written to the game's Steam launch options). Cyberpunk 2077: `--launcher-skip -skipStartScreen` (no REDlauncher,
+   no "press any key" screen). Steam may ask you to allow the arguments; not yet verified on a real launch.
 3. The app waits by the clock: **Skip first (s)** (default 30, loading and menus) plus the profile's warmup and
    measured runs of **Seconds** each, times 1.15 plus 20 s for loading. PresentMon keeps its CSV locked while it
    writes (checked on this machine: "Permission denied"), so it cannot be read during the run.
@@ -337,7 +340,7 @@ Lists the game builds at runtime (resolution, DLSS mode, upscaler, preset, windo
 position in a list that is not in the file. The app learns a position each time it reads the file
 (`game_settings_indices.json` in the data folder), so the window offers only values seen before: to force another
 one, choose it once in the game's menu, close the game and open Game settings... again. Fixed lists (RT lighting,
-multi frame generation, texture quality) and on/off settings offer every value at once.
+multi frame generation, texture quality) and on/off settings offer every value at once. Turning the upscaler or frame generation Off works the same way: set Off once in the game.
 
 `scripts/verify_game_settings.py` reads the real file and writes nothing. Checked on this computer on 2026-10-18:
 every setting read, keeping the current values plans no change. Writing, then the game keeping the values, is not

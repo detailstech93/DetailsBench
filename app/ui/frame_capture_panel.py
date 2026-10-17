@@ -127,6 +127,19 @@ class TaskWorker(QThread):
             self.done.emit(e)
 
 
+def game_launch_args(app_id) -> List[str]:
+    """Fixed launch flags from the game's settings adapter (none for other games)."""
+    from app.games.settings_file import adapter_for
+    adapter = adapter_for(app_id)
+    return list(getattr(adapter.module, "LAUNCH_ARGS", [])) if adapter is not None else []
+
+
+def launch_url_text(spec) -> str:
+    if spec.launch_args:
+        return f"steam://run/{spec.app_id}//{' '.join(spec.launch_args)}/"
+    return f"steam://rungameid/{spec.app_id}"
+
+
 def settings_problem(rec) -> Optional[str]:
     """Why a benchmark must not start with these settings (refused or not written as asked), or None."""
     if rec.refused:
@@ -702,7 +715,8 @@ class FrameCapturePanel(QGroupBox):
                                  install_path=str(game.get("install_path")), discovered_appids=appids,
                                  presentmon_path=path, seconds=self.seconds_spin.value(),
                                  warmup_runs=profile.warmup_runs, repetitions=profile.repetitions,
-                                 settle_seconds=self.settle_spin.value())
+                                 settle_seconds=self.settle_spin.value(),
+                                 launch_args=game_launch_args(game.get("app_id")))
         total = spec.settle_seconds + spec.seconds * spec.count
         from app.games.settings_file import adapter_for
         from app.ui.game_settings_dialog import describe
@@ -713,7 +727,9 @@ class FrameCapturePanel(QGroupBox):
         text = (f"Benchmark {spec.game_name} automatically:\n\n"
                 f"1. PresentMon starts elevated: ONE UAC prompt for the whole benchmark. It records only the "
                 f"programs (.exe) in the game's folder:\n   {spec.install_path}\n"
-                f"2. steam://rungameid/{spec.app_id} is opened.\n"
+                f"2. {launch_url_text(spec)} is opened."
+                + (" The arguments apply to this launch only; Steam may ask you to allow them."
+                   if spec.launch_args else "") + "\n"
                 f"3. The app waits about {spec.wait_seconds():.0f} s. The first {spec.settle_seconds} s of the "
                 f"game (loading, menus) are not measured, then {spec.warmup_runs} warmup + {spec.repetitions} "
                 f"measured runs of {spec.seconds} s each (profile {profile.name!r}), {total} s of game time.\n"

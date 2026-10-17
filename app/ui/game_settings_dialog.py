@@ -38,7 +38,8 @@ class GameSettingsDialog(QDialog):
                       "afterwards.\n\nResolution, Quality preset (Low, Medium, High, ...), Upscaler, DLSS mode, "
                       "Window mode and VSync list only the values this game has used so far: the game keeps "
                       "their full list to itself. To force another one (for example the Low preset), choose it "
-                      "once in the game's own menu, close the game, and press Benchmark again.")
+                      "once in the game's own menu, close the game, and press Benchmark again. The same for turning "
+                      "the upscaler or frame generation Off: set Off once in the game.")
         note.setWordWrap(True)
         layout.addWidget(note)
         form = QFormLayout()

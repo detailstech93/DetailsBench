@@ -67,6 +67,7 @@ class Fakes:
 
     def launcher(self, appid, install, appids, **kw):
         self.calls.append(("launch", appid))
+        self.launch_kw = kw
         self.launched = True
         return {"status": self.launch, "message": "no new process" if self.launch != "launched" else "ok"}
 
@@ -227,3 +228,12 @@ def test_force_after_the_grace_time_and_problems_reported():
                       sleep=clock.sleep, clock=clock)
     assert "could not be closed (Game.exe: access denied); close it yourself" in text
     assert close_game({7: game}, alive=lambda i: False) == "the game was already closed"
+
+
+def test_launch_arguments_reach_the_launcher_only_when_set(tmp_path):
+    fakes = Fakes(tmp_path)
+    run(tmp_path, fakes)
+    assert "args" not in fakes.launch_kw
+    fakes = Fakes(tmp_path)
+    run(tmp_path, fakes, launch_args=["--launcher-skip"])
+    assert fakes.launch_kw["args"] == ["--launcher-skip"]

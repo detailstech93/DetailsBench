@@ -85,3 +85,18 @@ class TestLaunchAndConfirm:
             raise OSError("no handler for steam://")
         out = launch_and_confirm("1091500", GAME, ["1091500"], snapshot=lambda: [], opener=boom)
         assert out["status"] == "error" and "no handler" in out["message"]
+
+
+def test_launch_url_with_adapter_arguments():
+    assert build_launch_url("1091500", ["1091500"], ["--launcher-skip", "-skipStartScreen"]) ==         "steam://run/1091500//--launcher-skip -skipStartScreen/"
+    assert build_launch_url("1091500", ["1091500"], []) == "steam://rungameid/1091500"
+    for bad in ["--x y", "-a/b", "x", "--a=1", "--a\"", "", "--"]:
+        with pytest.raises(ValueError):
+            build_launch_url("1091500", ["1091500"], [bad])
+
+
+def test_launch_and_confirm_passes_arguments():
+    opened = []
+    out = launch_and_confirm("1091500", "Z:/G", ["1091500"], snapshot=lambda: [], opener=opened.append,
+                             timeout=0, args=["--launcher-skip"])
+    assert opened == ["steam://run/1091500//--launcher-skip/"] and out["url"] == opened[0]
