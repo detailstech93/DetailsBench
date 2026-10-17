@@ -56,10 +56,16 @@ def capture_args(output_file: str, seconds: int, process_name: Optional[str] = N
                      "--session_name", SESSION_NAME]
 
 
-def capture_all_args(output_file: str, seconds: int) -> List[str]:
-    """Every process (no target flag; PresentMon's default), for a game whose exe is known only later."""
-    return ["--output_file", output_file, "--timed", str(int(seconds)), "--terminate_after_timed",
-            "--session_name", SESSION_NAME]
+def capture_game_args(output_file: str, exe_names: List[str], seconds: int) -> List[str]:
+    """Every exe of a game's folder (--process_name repeated), started BEFORE the game. PresentMon ends by
+    itself when the game's processes have exited (--terminate_on_proc_exit), which writes the whole CSV;
+    --timed is only the upper limit. (PresentMon keeps its CSV locked while it writes, so it cannot be
+    read live.) Flags checked in PresentMon 2.6.0 --help on 2026-10-17."""
+    args = []
+    for name in exe_names:
+        args += ["--process_name", name]
+    return args + ["--output_file", output_file, "--terminate_on_proc_exit", "--timed", str(int(seconds)),
+                   "--terminate_after_timed", "--session_name", SESSION_NAME]
 
 
 def workload_id_for(process_name: str) -> str:

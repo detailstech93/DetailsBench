@@ -17,7 +17,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 ERROR_CANCELLED = 1223
 SW_SHOWMINNOACTIVE = 7     # console window appears minimized: visible, never steals focus
@@ -97,7 +97,8 @@ class WinApi:
 
 def run_elevated(executable: str, args: List[str], cwd: Optional[str], timeout_seconds: float,
                  stop_event: Optional[threading.Event] = None, api=None,
-                 poll_seconds: float = 0.2, show: int = SW_SHOWMINNOACTIVE) -> ElevatedOutcome:
+                 poll_seconds: float = 0.2, show: int = SW_SHOWMINNOACTIVE,
+                 on_started: Optional[Callable[[], None]] = None) -> ElevatedOutcome:
     if api is None:
         if sys.platform != "win32":
             return ElevatedOutcome("start_failed", error="elevated launch is only implemented on Windows")
@@ -109,6 +110,8 @@ def run_elevated(executable: str, args: List[str], cwd: Optional[str], timeout_s
         if err == ERROR_CANCELLED:
             return ElevatedOutcome("uac_declined", error="the UAC prompt was declined")
         return ElevatedOutcome("start_failed", error=f"could not start (winerror {err})")
+    if on_started is not None:
+        on_started()                       # the UAC prompt was accepted and the process runs
     try:
         deadline = started + timeout_seconds
         while True:

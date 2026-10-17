@@ -7,7 +7,7 @@ from app.automation.runner import AutomationRunner
 from app.database import Database
 from app.frames.elevated import ElevatedOutcome
 from app.frames.game_close import ProcInfo, close_game, processes_in_folder
-from app.frames.game_benchmark import GameBenchmark, GameBenchmarkSpec, plan_for
+from app.frames.game_benchmark import GameBenchmark, GameBenchmarkSpec, game_exe_names, plan_for
 from app.telemetry.sampler import TelemetryResult
 
 HEADER = "Application,ProcessID,MsBetweenPresents\n"
@@ -33,6 +33,7 @@ class Fakes:
         self.launched = False
         self.closed = []
         self.old = {3: ProcInfo(3, 1.0, "old.exe")}           # already running before: never closed
+        self.game_closed = threading.Event()
 
     def folder_procs(self):
         game = {7: ProcInfo(7, 2.0, str(self.install / "bin" / "Game.exe"))}
@@ -40,6 +41,7 @@ class Fakes:
 
     def closer(self, started):
         self.closed.append(sorted(started))
+        self.game_closed.set()
         return "game closed (Game.exe)"
 
     def clock(self):
@@ -49,14 +51,18 @@ class Fakes:
         self.now[0] += seconds
         time.sleep(0.001)
 
-    def elevated(self, exe, args, cwd, timeout, halt):
+    def elevated(self, exe, args, cwd, timeout, halt, on_started=None):
         self.calls.append(("presentmon", list(args)))
         if self.uac == "decline":
             return ElevatedOutcome("uac_declined", error="the UAC prompt was declined")
-        out = args[args.index("--output_file") + 1]
-        with open(out, "w", encoding="utf-8") as f:
-            f.write(csv_text(self.game_frames))
-        halt.wait(10)
+        on_started()
+        while not (self.game_closed.is_set() or halt.is_set()):     # like --terminate_on_proc_exit
+            time.sleep(0.001)
+        if self.game_closed.is_set():                                # the CSV is complete only after exit
+            out = args[args.index("--output_file") + 1]
+            with open(out, "w", encoding="utf-8") as f:
+                f.write(csv_text(self.game_frames))
+            return ElevatedOutcome("exited", exit_code=0)
         return ElevatedOutcome("stopped", exit_code=1, terminated=True)
 
     def launcher(self, appid, install, appids, **kw):
@@ -81,7 +87,7 @@ def run(tmp_path, fakes, stop=None, sampler=None, **kw):
     bench = GameBenchmark(s, tmp_path / "run", stop, lambda m: None, sampler_factory=sampler,
                           elevated_runner=fakes.elevated, launcher=fakes.launcher, snapshot=fakes.snapshot,
                           clock=fakes.clock, sleep=fakes.sleep, folder_procs=fakes.folder_procs,
-                          closer=fakes.closer)
+                          closer=fakes.closer, exe_lister=lambda folder: ["Game.exe", "Launcher.exe"])
     return s, bench.run()
 
 
@@ -91,7 +97,8 @@ def test_one_recording_becomes_warmup_and_measured_windows(tmp_path):
     assert cap.status == "recorded" and cap.process == ("Game.exe", 7)
     assert [c[0] for c in fakes.calls] == ["presentmon", "launch"]          # PresentMon (UAC) before the game
     args = fakes.calls[0][1]
-    assert "--process_name" not in args and "--process_id" not in args and "--terminate_after_timed" in args
+    assert args[:4] == ["--process_name", "Game.exe", "--process_name", "Launcher.exe"]
+    assert "--terminate_on_proc_exit" in args and "--process_id" not in args
     assert [(w.is_warmup, w.run_index) for w in cap.windows] == [(True, 0), (False, 1), (False, 2)]
     for w in cap.windows:
         assert w.result.status == "completed" and abs(w.result.score - 20.0) < 1e-6 and w.result.unit == "fps"
@@ -120,15 +127,35 @@ def test_game_that_does_not_start_stops_presentmon_and_stores_nothing(tmp_path):
     _, cap = run(tmp_path, fakes)
     assert cap.status == "failed" and "did not start" in cap.message and cap.windows == []
     assert fakes.closed == [] and cap.message.endswith("; no game process to close")
+    assert not (tmp_path / "run" / "presentmon.csv").exists()               # PresentMon was stopped
 
 
-def test_stop_before_frames_is_cancelled(tmp_path):
-    fakes = Fakes(tmp_path)
+def test_stop_closes_the_game_and_unreached_windows_are_cancelled(tmp_path):
+    fakes = Fakes(tmp_path, game_frames=500)                                 # 25 s of game time
     stop = threading.Event()
-    fakes.snapshot = lambda: (stop.set(), [])[1]                           # stop pressed during the first check
+    procs = fakes.folder_procs
+    fakes.folder_procs = lambda: (stop.set() if fakes.launched else None, procs())[1]
     _, cap = run(tmp_path, fakes, stop=stop)
-    assert cap.status == "cancelled" and cap.windows == []
     assert fakes.closed == [[7]]                                             # stopped: the game is closed too
+    assert cap.status == "recorded" and [w.result.status for w in cap.windows] == ["cancelled"] * 3
+
+
+def test_no_frames_from_the_game_is_a_failure(tmp_path):
+    fakes = Fakes(tmp_path, game_frames=0)
+    _, cap = run(tmp_path, fakes)
+    assert cap.status == "failed" and "no frames from the game (started: Game.exe" in cap.message
+
+
+def test_wait_is_settle_plus_windows_with_room_for_loading(tmp_path):
+    fakes = Fakes(tmp_path)
+    s, cap = run(tmp_path, fakes)
+    assert s.wait_seconds() == (10 + 20 * 3) * 1.15 + 20
+    assert fakes.now[0] >= s.wait_seconds()
+
+
+def test_game_exe_names_walks_the_folder(tmp_path):
+    walk = lambda folder: [(folder, [], ["Game.EXE", "readme.txt"]), (folder + "/bin", [], ["game.exe", "Crash.exe"])]
+    assert game_exe_names("G", walk=walk) == ["Crash.exe", "Game.EXE"]
 
 
 class FakeSampler:
@@ -144,10 +171,9 @@ class FakeSampler:
 
 def test_windows_are_stored_like_runs_with_their_telemetry(tmp_path):
     fakes = Fakes(tmp_path)
-    # the live check sees 100 s of game time at sampler time 0, so the game's time 0 is at -100 s
-    samples = [(t - 100.0, {"gpu_temp": (float(t), "C")}) for t in range(0, 100, 5)]
+    samples = [(float(t), {"gpu_temp": (float(t), "C")}) for t in range(0, 110)]   # one per second
     s, cap = run(tmp_path, fakes, sampler=lambda: FakeSampler(samples))
-    assert [len(w.samples) for w in cap.windows] == [4, 4, 4]
+    assert [len(w.samples) for w in cap.windows] == [20, 20, 20]
     db = Database(str(tmp_path / "g.db"))
     sid = db.create_session("g", is_manual=False)
     summary = AutomationRunner(db, sid, plan_for(cap, s), tmp_path / "runs").run()
@@ -156,7 +182,9 @@ def test_windows_are_stored_like_runs_with_their_telemetry(tmp_path):
     assert summary.records[0].workload_id == "frames_game"
     assert (summary.records[1].run_dir / "telemetry.csv").is_file()
     metrics = db.get_result_metrics(summary.records[1].result_id)
-    assert metrics["tel_gpu_temp_avg"][0] == 37.5 and metrics["avg_fps"][0] == 20.0
+    # game time 0 = close request - 100 s recorded; the window 30-50 s holds 20 consecutive samples
+    assert metrics["tel_gpu_temp_avg"][1] == "C" and metrics["avg_fps"][0] == 20.0
+    assert metrics["tel_gpu_temp_max"][0] - metrics["tel_gpu_temp_avg"][0] == 9.5
 
 
 class Clock:

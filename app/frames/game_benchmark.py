@@ -1,19 +1,19 @@
-"""Benchmark one Steam game end to end: start PresentMon, launch the game, capture, store.
+"""Benchmark one Steam game end to end: start PresentMon, launch the game, capture, close it, store.
 
-One UAC prompt per benchmark: PresentMon starts elevated ONCE, before the game, and records every
-process (no process filter, because the game's exe name is known only after it starts). Then the game
-is launched through Steam (app/steam/launch.py rules: the appid comes from a local manifest, a new
-process inside the game's install folder confirms it). While PresentMon writes, its CSV is read every
-second; the game's process is the one in the install folder with the most frames. When the game's
-summed frame times cover the settle time plus every capture window, PresentMon (our own elevated child)
-is stopped. The recording is cut into warmup and measured windows (app/frames/segments.py); each
-window is one stored run (score = average FPS). A window the recording does not reach is stored as
-"invalid" without a score. Telemetry samples are cut into the same windows; their alignment with the
-frames is approximate (about one second, the live check's interval).
+One UAC prompt per benchmark: PresentMon starts elevated ONCE, before the game, filtered to every exe
+in the game's install folder (--process_name repeated; the game's exact exe is known only after it
+starts) with --terminate_on_proc_exit. Then the game is launched through Steam (app/steam/launch.py
+rules: the appid comes from a local manifest, a new process inside the install folder confirms it).
 
-When the benchmark ends (finished, stopped, or failed after the launch) the game is closed:
-only the processes the launch started inside its install folder (app/frames/game_close.py),
-first politely, by force after 30 s.
+PresentMon keeps its CSV locked while it writes (checked on 2026-10-17: reading it gave "Permission
+denied"), so nothing is read live. The app waits by the clock for the settle time plus every window
+(plus 15 % and 20 s for loading), then closes the game (app/frames/game_close.py: only the processes
+the launch started inside the install folder, politely first, by force after 30 s). PresentMon then ends
+by itself and writes the whole CSV. The game's process is the started one with the most frames. Game
+time is the sum of its frame times; the recording is cut into warmup and measured windows
+(app/frames/segments.py), each stored as one run (score = average FPS). A window the recording does
+not reach is "invalid" without a score. Telemetry samples are cut into the same windows, aligned on
+the moment the game was asked to close (approximate, about one second).
 """
 
 import logging
@@ -26,7 +26,7 @@ from typing import Callable, List, Optional, Tuple
 
 from app.automation.workload import RunContext, Workload, WorkloadResult
 from app.frames.elevated import run_elevated
-from app.frames.presentmon import CSV_NAME, START_MARGIN_SECONDS, capture_all_args, workload_id_for
+from app.frames.presentmon import CSV_NAME, START_MARGIN_SECONDS, capture_game_args, workload_id_for
 from app.frames.presentmon_csv import parse_presentmon_csv, summarize_processes
 from app.frames.segments import (
     first_frame_offset, game_seconds, pick_game_process, slice_samples, split_frames, window_bounds,
@@ -35,9 +35,22 @@ from app.frames.stats import compute_frame_stats, stats_to_metrics
 
 logger = logging.getLogger(__name__)
 
-UAC_WAIT_SECONDS = 120.0          # time to answer the UAC prompt (PresentMon's CSV appears after it)
+UAC_WAIT_SECONDS = 120.0          # time to answer the UAC prompt
 LAUNCH_TIMEOUT_SECONDS = 120.0    # Steam may show its own dialog or update check first
-STALL_SECONDS = 30.0              # no new game frames for this long: the game was closed or paused
+LOAD_FACTOR, LOAD_MARGIN_SECONDS = 1.15, 20.0   # wall time waited per second of needed game time, plus margin
+MAX_EXE_NAMES = 200
+
+
+def game_exe_names(folder: str, walk: Callable = os.walk, limit: int = MAX_EXE_NAMES) -> List[str]:
+    """Distinct .exe file names anywhere in the game's folder (case-insensitive), sorted."""
+    names = {}
+    for _, _, files in walk(folder):
+        for name in files:
+            if name.lower().endswith(".exe"):
+                names.setdefault(name.lower(), name)
+        if len(names) >= limit:
+            break
+    return sorted(names.values(), key=str.lower)[:limit]
 
 
 @dataclass
@@ -60,10 +73,13 @@ class GameBenchmarkSpec:
     def windows(self) -> List[Tuple[float, float]]:
         return window_bounds(self.settle_seconds, self.seconds, self.count)
 
+    def wait_seconds(self) -> float:
+        """Wall time to wait after the launch: settle plus every window, with room for loading."""
+        return (self.settle_seconds + self.seconds * self.count) * LOAD_FACTOR + LOAD_MARGIN_SECONDS
+
     def max_record_seconds(self) -> int:
-        """PresentMon's --timed limit: enough for launch, settle and every window, then it stops itself."""
-        return int(UAC_WAIT_SECONDS + LAUNCH_TIMEOUT_SECONDS + self.settle_seconds
-                   + self.seconds * self.count + STALL_SECONDS + 60)
+        """PresentMon's --timed upper limit; normally it ends earlier, when the game is closed."""
+        return int(UAC_WAIT_SECONDS + LAUNCH_TIMEOUT_SECONDS + self.wait_seconds() + 120)
 
 
 @dataclass
@@ -84,12 +100,6 @@ class GameCapture:
     telemetry_unavailable: dict = field(default_factory=dict)
 
 
-def _exe_names_in(snapshot, folder: str) -> set:
-    root = os.path.normcase(os.path.normpath(folder)) + os.sep
-    return {os.path.basename(path) for _, path in snapshot
-            if path and os.path.normcase(os.path.normpath(path)).startswith(root)}
-
-
 class GameBenchmark:
     def __init__(self, spec: GameBenchmarkSpec, run_dir: Path, stop_event: Optional[threading.Event] = None,
                  on_progress: Callable[[str], None] = lambda m: None,
@@ -97,7 +107,8 @@ class GameBenchmark:
                  elevated_runner: Callable = run_elevated, launcher: Optional[Callable] = None,
                  snapshot: Optional[Callable] = None, clock: Callable[[], float] = time.monotonic,
                  sleep: Callable[[float], None] = time.sleep, poll_seconds: float = 1.0,
-                 folder_procs: Optional[Callable[[], dict]] = None, closer: Optional[Callable[[dict], str]] = None):
+                 folder_procs: Optional[Callable[[], dict]] = None, closer: Optional[Callable[[dict], str]] = None,
+                 exe_lister: Callable[[str], List[str]] = game_exe_names):
         self.spec = spec
         self.run_dir = Path(run_dir)
         self.stop_event = stop_event or threading.Event()
@@ -116,6 +127,7 @@ class GameBenchmark:
         self.sleep = sleep
         self.poll_seconds = poll_seconds
         self.csv_path = self.run_dir / CSV_NAME
+        self.exe_lister = exe_lister
         from app.frames import game_close
         self.folder_procs = folder_procs or (lambda: game_close.processes_in_folder(spec.install_path))
         self.closer = closer or game_close.close_game
@@ -146,41 +158,57 @@ class GameBenchmark:
     def _read_csv(self) -> Optional[str]:
         try:
             return self.csv_path.read_text(encoding="utf-8", errors="replace")
-        except OSError:           # not written yet, or locked for a moment by PresentMon
+        except OSError:           # not written, or still locked by PresentMon
             return None
 
     def run(self) -> GameCapture:
         spec = self.spec
         self.run_dir.mkdir(parents=True, exist_ok=True)
-        args = capture_all_args(str(self.csv_path), spec.max_record_seconds())
+        exes = self.exe_lister(spec.install_path)
+        if not exes:
+            return GameCapture("failed", f"no .exe file found in {spec.install_path}; the game was not started")
+        args = capture_game_args(str(self.csv_path), exes, spec.max_record_seconds())
         command = [spec.presentmon_path] + args
-        halt = threading.Event()        # stops our elevated PresentMon (user stop, or enough recorded)
+        halt = threading.Event()        # ends our elevated PresentMon by force (only if it does not end itself)
+        running = threading.Event()     # set once the UAC prompt was accepted
         outcome = {}
 
         def record():
             outcome["out"] = self.elevated_runner(spec.presentmon_path, args, str(self.run_dir),
-                                                  spec.max_record_seconds() + START_MARGIN_SECONDS, halt)
+                                                  spec.max_record_seconds() + START_MARGIN_SECONDS, halt,
+                                                  on_started=running.set)
         thread = threading.Thread(target=record, name="presentmon", daemon=True)
         self.on_progress("Starting PresentMon (accept the UAC prompt)...")
         thread.start()
 
-        def finish(status, message, **kw) -> GameCapture:
-            halt.set()
+        def end_presentmon() -> str:
+            """Close the game; PresentMon then ends by itself (--terminate_on_proc_exit) and writes its CSV."""
+            closed = self._close_game()
+            if not self._started:
+                halt.set()              # no game process: nothing would end PresentMon
             thread.join(30)
-            return GameCapture(status, message + self._close_game(), command=command, **kw)
+            if thread.is_alive():
+                halt.set()
+                thread.join(15)
+                closed += "; PresentMon did not end by itself and was stopped (its last data may be missing)"
+            return closed
+
+        def finish(status, message, **kw) -> GameCapture:
+            return GameCapture(status, message + end_presentmon(), command=command, **kw)
 
         deadline = self.clock() + UAC_WAIT_SECONDS
-        while not self.csv_path.exists():
-            if self.stop_event.is_set():
-                return finish("cancelled", "stopped by user before the game was started")
+        while not running.is_set():
             if not thread.is_alive():
                 out = outcome.get("out")
                 if out is not None and out.status == "uac_declined":
                     return finish("cancelled", "UAC prompt declined; the game was not started")
-                return finish("failed", "PresentMon ended before recording: "
+                return finish("failed", "PresentMon did not start: "
                               + (getattr(out, "error", None) or f"exit code {getattr(out, 'exit_code', None)}"))
+            if self.stop_event.is_set():
+                return finish("cancelled", "stopped by user before the game was started")
             if self.clock() >= deadline:
-                return finish("failed", f"PresentMon wrote nothing within {UAC_WAIT_SECONDS:g} s; the game was not started")
+                return finish("failed", f"the UAC prompt was not answered within {UAC_WAIT_SECONDS:g} s; "
+                              "the game was not started")
             self.sleep(0.5)
 
         self.on_progress(f"PresentMon recording; launching {spec.game_name} through Steam...")
@@ -200,56 +228,45 @@ class GameBenchmark:
             except Exception as e:
                 self.on_progress(f"telemetry not started: {e}")
         t0 = self.clock()
-        windows = spec.windows()
-        needed = windows[-1][1]
-        names, pick, offset = set(), None, None
-        covered, last_growth = 0.0, self.clock()
+        wait = spec.wait_seconds()
         stopped = False
         while True:
             if self.stop_event.is_set():
                 stopped = True
                 break
             if not thread.is_alive():
-                break
-            names |= _exe_names_in(self.snapshot(), spec.install_path)
+                break                   # PresentMon ended: the game was closed, or its time limit
             self._note_started()
-            text = self._read_csv()
-            if text:
-                now_pick = pick_game_process(summarize_processes(text), names)
-                if now_pick is not None:
-                    frames = parse_presentmon_csv(text, process_id=now_pick[1]).frametimes_ms
-                    seconds = game_seconds(frames)
-                    if now_pick != pick:
-                        pick, offset = now_pick, first_frame_offset(self.clock() - t0, seconds)
-                    if seconds > covered:
-                        covered, last_growth = seconds, self.clock()
-                    shown = min(covered, needed)
-                    self.on_progress(f"{spec.game_name} ({pick[0]}): {shown:.0f} of {needed:.0f} s recorded "
-                                     f"(first {spec.settle_seconds} s skipped as loading)")
-                    if covered >= needed:
-                        break
-            if pick is not None and self.clock() - last_growth >= STALL_SECONDS:
-                break                   # the game stopped presenting (closed, minimized or paused)
-            if pick is None and self.clock() - t0 >= LAUNCH_TIMEOUT_SECONDS + spec.settle_seconds:
+            elapsed = self.clock() - t0
+            if elapsed >= wait:
                 break
+            self.on_progress(f"{spec.game_name}: {elapsed:.0f} of {wait:.0f} s. The first {spec.settle_seconds} s "
+                             "are not measured; keep the game in front. It is closed at the end.")
             self.sleep(self.poll_seconds)
 
-        halt.set()
-        thread.join(30)
+        t_close = self.clock() - t0
+        closed = end_presentmon()
         tel = sampler.stop() if sampler is not None else None
-        closed = self._close_game()
-        if pick is None and stopped:
-            return GameCapture("cancelled", "stopped by user before the game showed frames" + closed,
-                               command=command)
+        text = self._read_csv()
+        started_names = {os.path.basename(i.exe) for i in self._started.values()}
+        prefix = "stopped by user; " if stopped else ""
+        if text is None:
+            return GameCapture("cancelled" if stopped else "failed",
+                               prefix + "PresentMon wrote no capture file" + closed, command=command)
+        pick = pick_game_process(summarize_processes(text), started_names or set(exes))
         if pick is None:
-            return GameCapture("failed", "PresentMon recorded no frames from the game's process "
-                               f"(processes in its folder: {', '.join(sorted(names)) or 'none'})" + closed,
-                               command=command)
-        text = self._read_csv() or ""
+            return GameCapture("cancelled" if stopped else "failed",
+                               prefix + "PresentMon recorded no frames from the game (started: "
+                               + (", ".join(sorted(started_names)) or "none")
+                               + "; a Remote Desktop session records none)" + closed, command=command)
         parsed = parse_presentmon_csv(text, process_id=pick[1])
-        frame_windows = split_frames(parsed.frametimes_ms if not parsed.error else [], windows)
-        sample_windows = slice_samples(tel.samples if tel else [], offset or 0.0, windows)
-        recorded = game_seconds(parsed.frametimes_ms) if not parsed.error else 0.0
+        windows = spec.windows()
+        frametimes = parsed.frametimes_ms if not parsed.error else []
+        recorded = game_seconds(frametimes)
+        frame_windows = split_frames(frametimes, windows)
+        # the game stops presenting when it is asked to close, so its first frame was `recorded` s earlier
+        offset = first_frame_offset(t_close, recorded)
+        sample_windows = slice_samples(tel.samples if tel else [], offset, windows)
         common = {"command": command}
         out = []
         for k, frames in enumerate(frame_windows):
@@ -274,8 +291,8 @@ class GameBenchmark:
                                             metrics=metrics, duration_seconds=float(b - a), **common)
             out.append(WindowOutcome(is_warmup, run_index, result, sample_windows[k]))
         return GameCapture("recorded", f"{recorded:.0f} s of {pick[0]} recorded" + closed, process=pick,
-                           windows=out,
-                           command=command, telemetry_unavailable=dict(tel.unavailable) if tel else {})
+                           windows=out, command=command,
+                           telemetry_unavailable=dict(tel.unavailable) if tel else {})
 
 
 class RecordedWindow(Workload):

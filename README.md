@@ -286,26 +286,29 @@ verified download. "No" downloads nothing and captures nothing.
 **Benchmark...** next to the game in the Steam tab. After one confirmation everything else runs by itself
 (`app/frames/game_benchmark.py`):
 
-1. PresentMon starts elevated ONCE, so there is one UAC prompt per benchmark, not one per run. It records
-   every process, because the game's exe name is known only after it starts.
-2. The game is launched with `steam://rungameid/<appid>` (same rules as the Steam tab's Launch). Its process is
-   the one inside its install folder with the most frames in PresentMon's CSV, which is read every second.
-3. **Skip first (s)** (default 30) of the game's time is not measured (loading, menus). Then the profile's warmup
-   and measured runs are cut from the one recording as consecutive windows of **Seconds** each. Game time is the
-   sum of the game's frame times. PresentMon is stopped as soon as the last window is covered.
-4. Each window is stored as one run (score = average FPS, plus 1% low and the other frame metrics). A window
-   the recording does not reach (the game was closed or stopped showing frames for 30 s) is stored as
-   `invalid` with the reason and no score. If nothing was recorded (UAC declined, the game did not start),
-   nothing is stored and no session is created.
-5. With Record telemetry on, samples are cut into the same windows; they line up with the frames to about one
-   second.
+1. PresentMon starts elevated ONCE, so there is one UAC prompt per benchmark, not one per run. It records only
+   the programs in the game's install folder (`--process_name` for every .exe there, because the game's exact exe
+   is known only after it starts) and ends by itself when they have exited (`--terminate_on_proc_exit`).
+2. The game is launched with `steam://rungameid/<appid>` (same rules as the Steam tab's Launch).
+3. The app waits by the clock: **Skip first (s)** (default 30, loading and menus) plus the profile's warmup and
+   measured runs of **Seconds** each, times 1.15 plus 20 s for loading. PresentMon keeps its CSV locked while it
+   writes (checked on this machine: "Permission denied"), so it cannot be read during the run.
+4. Then the app closes the game (`app/frames/game_close.py`): only processes that started inside the game's
+   install folder after the launch, remembered by pid and start time. First WM_CLOSE to their windows (like
+   clicking X); whatever still runs after 30 s is ended by force. Unsaved progress in the game is lost. Steam is
+   never touched. A game running as administrator cannot be ended by this non-elevated app; the status then says
+   to close it yourself. The same happens when the benchmark is stopped or fails after the launch.
+5. PresentMon ends by itself and writes the whole CSV. The game's process is the started one with the most
+   frames. Game time is the sum of its frame times; the first Skip seconds are dropped and the runs are cut as
+   consecutive windows. Each window is stored as one run (score = average FPS, plus 1% low and the other frame
+   metrics). A window the recording does not reach is stored as `invalid` with the reason and no score. If
+   nothing was recorded (UAC declined, the game did not start, no frames), nothing is stored and no session is
+   created.
+6. With Record telemetry on, samples are cut into the same windows, aligned on the moment the game was asked to
+   close (about one second).
 
-When the benchmark ends (finished, stopped with the emergency stop, or failed after the launch) the app
-closes the game (`app/frames/game_close.py`): only processes that started inside the game's install folder after
-the launch, remembered by pid and start time. First WM_CLOSE to their windows (like clicking X); whatever still
-runs after 30 s is ended by force. Unsaved progress in the game is lost. Steam is never touched. A game running as
-administrator cannot be ended by this non-elevated app; the status then says to close it yourself. Not yet verified on a real game on this machine
-(only with fakes in tests/test_game_benchmark.py); reading the CSV while PresentMon writes it is the part to check.
+PresentMon records nothing inside a Remote Desktop session: run game benchmarks at the computer's own screen.
+Not yet verified on a real game (only with fakes in tests/test_game_benchmark.py).
 
 Finding PresentMon, in this order (nothing is downloaded when a usable copy exists):
 1. a file you chose with **Select PresentMon...**;

@@ -589,7 +589,6 @@ class FrameCapturePanel(QGroupBox):
             self.lhm.ensure(lambda: started.append(self.benchmark_game(tools_ready=True)))
             return bool(started and started[0])
         from app.frames.game_benchmark import GameBenchmarkSpec
-        from app.frames.presentmon import capture_all_args
         profile = self.get_profile()
         appids = [str(g.get("app_id")) for g in (self.games() or [])]
         spec = GameBenchmarkSpec(game_name=str(game.get("name")), app_id=str(game.get("app_id")),
@@ -599,20 +598,18 @@ class FrameCapturePanel(QGroupBox):
                                  settle_seconds=self.settle_spin.value())
         total = spec.settle_seconds + spec.seconds * spec.count
         text = (f"Benchmark {spec.game_name} automatically:\n\n"
-                f"1. PresentMon starts elevated: ONE UAC prompt for the whole benchmark. It records every "
-                f"process until enough of the game is recorded (at most {spec.max_record_seconds()} s).\n"
-                f"2. steam://rungameid/{spec.app_id} is opened; the game's process is found in\n"
-                f"   {spec.install_path}\n"
-                f"3. The first {spec.settle_seconds} s of the game (loading, menus) are skipped, then "
-                f"{spec.warmup_runs} warmup + {spec.repetitions} measured windows of {spec.seconds} s each "
-                f"are cut from the recording (profile {profile.name!r}); about {total} s of game time.\n\n"
-                f"Get to the scene you want to measure during the first {spec.settle_seconds} s and keep the "
-                f"game in front.\n\n"
-                f"4. When the benchmark ends (or is stopped) the app closes the game: first like clicking its "
-                f"close button, by force after 30 s. Unsaved progress in the game is lost. Only processes "
-                f"started inside the game's folder are closed, never Steam or anything else.\n\n"
-                f"Command (runs elevated):\n"
-                f"{subprocess.list2cmdline([path] + capture_all_args('<run folder>' + os.sep + 'presentmon.csv', spec.max_record_seconds()))}")
+                f"1. PresentMon starts elevated: ONE UAC prompt for the whole benchmark. It records only the "
+                f"programs (.exe) in the game's folder:\n   {spec.install_path}\n"
+                f"2. steam://rungameid/{spec.app_id} is opened.\n"
+                f"3. The app waits about {spec.wait_seconds():.0f} s. The first {spec.settle_seconds} s of the "
+                f"game (loading, menus) are not measured, then {spec.warmup_runs} warmup + {spec.repetitions} "
+                f"measured runs of {spec.seconds} s each (profile {profile.name!r}), {total} s of game time.\n"
+                f"   Get to the scene you want to measure during the first {spec.settle_seconds} s and keep the "
+                f"game in front.\n"
+                f"4. Then the app closes the game: first like clicking its close button, by force after 30 s. "
+                f"Unsaved progress in the game is lost. Only processes started inside the game's folder are "
+                f"closed, never Steam or anything else. PresentMon then ends by itself and the runs are stored.\n\n"
+                f"PresentMon: {path}")
         if self.remote_check():
             text += "\n\n" + REMOTE_WARNING
         if not self.confirm(text):
