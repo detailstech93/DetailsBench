@@ -51,6 +51,20 @@ def load_settings(data_dir: Path) -> Tuple[dict, List[str]]:
     return data, []
 
 
+def save_setting(data_dir: Path, key: str, value) -> None:
+    """Set one key in settings.json, keeping every other key. A malformed file is
+    never overwritten (ValueError); the new file is written under a temporary name first."""
+    path = data_dir / SETTINGS_FILENAME
+    data, notes = load_settings(data_dir)
+    if notes:
+        raise ValueError(notes[0])
+    data[key] = value
+    data_dir.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.partial")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def copy_database(source: Path, target: Path) -> None:
     """Copy a SQLite database with the backup API, source opened read-only.
 
