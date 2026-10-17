@@ -17,13 +17,13 @@ from app.games.settings_file import ADAPTERS, setting_choices  # noqa: E402
 def main() -> int:
     found = 0
     for app_id, adapter in ADAPTERS.items():
-        path = adapter.settings_path()
-        print(f"Steam {app_id}: {path}")
-        if path is None or not path.is_file():
-            print("  no settings file (start the game once)")
+        store = adapter.store()
+        print(f"Steam {app_id}: {store.where}")
+        if not store.exists():
+            print("  no settings (start the game once)")
             continue
         found += 1
-        data = adapter.module.parse(path.read_bytes().decode("utf-8"))
+        data = store.read()
         mod = adapter.module
         current = mod.read_settings(data)
         print("  read:", json.dumps(current))

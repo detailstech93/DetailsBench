@@ -326,14 +326,21 @@ resolution, Frame Generation (DLSS, multi frame), ray tracing, RT lighting and p
 |---|---|---|
 | Cyberpunk 2077 | `app/games/cyberpunk2077.py` | `%LOCALAPPDATA%/CD Projekt Red/Cyberpunk 2077/UserSettings.json` |
 | Borderlands 3 | `app/games/borderlands3.py` | `Documents/My Games/Borderlands 3/Saved/Config/WindowsNoEditor/GameUserSettings.ini` |
+| Rise of the Tomb Raider | `app/games/rise_tomb_raider.py` | registry: `HKEY_CURRENT_USER/Software/Crystal Dynamics/Rise of the Tomb Raider/Graphics` |
 
 Borderlands 3 offers resolution, window mode, VSync, frame rate limit, quality preset, resolution scale, dynamic
 resolution, anti-aliasing, texture quality and graphics API (DX11/DX12). Only the changed values are rewritten;
 every other byte of the file stays as it was.
 
+Rise of the Tomb Raider keeps its settings as DWORD values in the registry. Writing them was allowed by the
+user on 2026-10-18, always after the benchmark's confirmation: the backup is a JSON copy of the key's values in
+the run folder, only values that differ are written, and the same values are put back after the run. It offers
+resolution, fullscreen and exclusive fullscreen, VSync, graphics API (DX11/DX12), DLSS, texture, shadow, ambient
+occlusion and detail levels, SSAA, FXAA, SMAA and motion blur. Levels, VSync and DLSS are numbers the game does
+not explain in the registry, so only numbers already used by the game are offered.
+
 Not supported, checked on this computer on 2026-10-18: God of War keeps its settings inside its save file;
-Rise and Shadow of the Tomb Raider keep them in the registry (writing it needs your explicit permission, not
-done); Counter-Strike 2 keeps them in a folder named after the Steam account (not touched); DOOM (2016) writes
+Shadow of the Tomb Raider keeps them in a folder named after the Steam account (not touched); Counter-Strike 2 keeps them in a folder named after the Steam account (not touched); DOOM (2016) writes
 almost none; Red Dead Redemption 2 and The Witcher 3 have no settings file yet (start them once, then they can
 be looked at).
 

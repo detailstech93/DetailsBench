@@ -1,19 +1,24 @@
 """Force a game's graphics settings for one benchmark, verify them, then put the user's own file back.
 
 Only games with an adapter (a module that knows the settings file, see ADAPTERS) are supported. The
-flow, all on the game's own settings file and only after the user confirmed it:
+flow, all on the game's own settings and only after the user confirmed it:
 
-1. read the file and plan the changes (adapter.plan); values the game would not accept are refused
+1. read the settings and plan the changes (adapter.plan); values the game would not accept are refused
    with a reason and nothing is written for them;
-2. copy the file unchanged into the run folder (the backup), then write the changed file under a
-   temporary name and replace the original with it;
-3. read it back and compare (verified before the launch);
-4. after the game was closed, read it again (the game may rewrite it with what it really used:
-   verified after the run), then copy the backup back over it.
+2. copy the settings unchanged into the run folder (the backup), then write the changed ones (a file:
+   under a temporary name, then replacing the original);
+3. read them back and compare (verified before the launch);
+4. after the game was closed, read them again (the game may rewrite them with what it really used:
+   verified after the run), then put the backup back.
 
-Some list settings of Cyberpunk 2077 carry the position of the value in a list the game builds at
-runtime. Those positions are learned from the file each time it is read (the user picked the value
-once in the game's menu) and kept in game_settings_indices.json in the data folder.
+A game that keeps its settings in the registry (Rise of the Tomb Raider: DWORD values under one key in
+HKEY_CURRENT_USER, written only with the user's permission given on 2026-10-18) has a RegistryStore
+instead of a file: the backup is a JSON copy of the key's DWORD values, and only values that differ are
+written, both when forcing and when putting the user's values back.
+
+Some list settings carry a value or position the file alone does not list (Cyberpunk 2077's runtime
+lists, free text in Borderlands 3). What was seen is learned each time the settings are read (the user
+picked the value once in the game's menu) and kept in game_settings_indices.json in the data folder.
 """
 
 import json
@@ -23,10 +28,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Mapping, Optional
 
-from app.games import borderlands3, cyberpunk2077
+from app.games import borderlands3, cyberpunk2077, rise_tomb_raider
 
 INDICES_FILENAME = "game_settings_indices.json"
-BACKUP_NAME = "game_settings_backup"      # + the settings file's own extension
+BACKUP_NAME = "game_settings_backup"      # + the store's own extension
 
 
 def documents_dir(env: Mapping[str, str]) -> Optional[Path]:
@@ -45,10 +50,90 @@ def documents_dir(env: Mapping[str, str]) -> Optional[Path]:
     return Path(home) / "Documents" if home else None
 
 
+class FileStore:
+    def __init__(self, adapter: "Adapter", path: Optional[Path]):
+        self.adapter, self.path = adapter, path
+        self.where = str(path)
+        self.backup_suffix = path.suffix if path else ""
+
+    def exists(self) -> bool:
+        return self.path is not None and self.path.is_file()
+
+    def read(self):
+        """Parse the game's file; bytes are decoded as they are (line endings kept)."""
+        return self.adapter.module.parse(self.path.read_bytes().decode("utf-8"))
+
+    def write(self, data) -> None:
+        tmp = self.path.with_name(self.path.name + ".pcbm-tmp")
+        tmp.write_bytes(self.adapter.module.dump(data).encode("utf-8"))
+        os.replace(tmp, self.path)
+
+    def save_backup(self, backup: Path) -> None:
+        shutil.copy2(self.path, backup)
+
+    def restore(self, backup: Path) -> None:
+        shutil.copy2(backup, self.path)
+
+
+class WinReg:
+    """DWORD values of one HKEY_CURRENT_USER key (Windows only)."""
+
+    def read(self, key: str) -> Dict[str, int]:
+        import winreg
+        out = {}
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key) as k:
+            i = 0
+            while True:
+                try:
+                    name, value, kind = winreg.EnumValue(k, i)
+                except OSError:
+                    break
+                if kind == winreg.REG_DWORD:
+                    out[name] = value
+                i += 1
+        return out
+
+    def set_dword(self, key: str, name: str, value: int) -> None:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key, 0, winreg.KEY_SET_VALUE) as k:
+            winreg.SetValueEx(k, name, 0, winreg.REG_DWORD, int(value))
+
+
+class RegistryStore:
+    backup_suffix = ".json"
+
+    def __init__(self, key: str, reg=None):
+        self.key, self.reg = key, reg or WinReg()
+        self.where = "HKEY_CURRENT_USER\\" + key
+
+    def exists(self) -> bool:
+        try:
+            self.reg.read(self.key)
+            return True
+        except (OSError, ImportError):
+            return False
+
+    def read(self) -> Dict[str, int]:
+        return self.reg.read(self.key)
+
+    def write(self, data: Dict[str, int]) -> None:
+        now = self.reg.read(self.key)
+        for name, value in data.items():
+            if now.get(name) != value:
+                self.reg.set_dword(self.key, name, value)
+
+    def save_backup(self, backup: Path) -> None:
+        backup.write_text(json.dumps(self.reg.read(self.key), indent=1), encoding="utf-8")
+
+    def restore(self, backup: Path) -> None:
+        self.write(json.loads(backup.read_text(encoding="utf-8")))
+
+
 @dataclass(frozen=True)
 class Adapter:
-    """module: parse, dump, read_settings, choices, observed_indices, merge_indices, plan, apply, verify,
-    APP_ID, LAUNCH_ARGS. base: "localappdata" or "documents"."""
+    """module: read_settings, choices, observed_indices, merge_indices, plan, apply, verify, APP_ID,
+    LAUNCH_ARGS, and parse/dump for a file. base: "localappdata", "documents" or "registry" (relative_path
+    is then a key under HKEY_CURRENT_USER)."""
     module: object
     relative_path: str
     base: str = "localappdata"
@@ -61,12 +146,18 @@ class Adapter:
             root = Path(env["LOCALAPPDATA"]) if env.get("LOCALAPPDATA") else None
         return root / self.relative_path if root else None
 
+    def store(self, env: Optional[Mapping[str, str]] = None, reg=None):
+        if self.base == "registry":
+            return RegistryStore(self.relative_path, reg)
+        return FileStore(self, self.settings_path(env))
+
 
 ADAPTERS: Dict[str, Adapter] = {
     str(cyberpunk2077.APP_ID): Adapter(cyberpunk2077, os.path.join("CD Projekt Red", "Cyberpunk 2077",
                                                                    "UserSettings.json")),
     str(borderlands3.APP_ID): Adapter(borderlands3, os.path.join(
         "My Games", "Borderlands 3", "Saved", "Config", "WindowsNoEditor", "GameUserSettings.ini"), "documents"),
+    str(rise_tomb_raider.APP_ID): Adapter(rise_tomb_raider, rise_tomb_raider.REGISTRY_KEY, "registry"),
 }
 
 
@@ -81,17 +172,6 @@ def _read_json(path: Path):
 def _write_json(path: Path, data) -> None:
     tmp = path.with_name(path.name + ".pcbm-tmp")
     tmp.write_text(json.dumps(data, indent=4), encoding="utf-8")
-    os.replace(tmp, path)
-
-
-def _read_game(adapter: Adapter, path: Path):
-    """Parse the game's file; bytes are decoded as they are (line endings kept)."""
-    return adapter.module.parse(path.read_bytes().decode("utf-8"))
-
-
-def _write_game(adapter: Adapter, path: Path, data) -> None:
-    tmp = path.with_name(path.name + ".pcbm-tmp")
-    tmp.write_bytes(adapter.module.dump(data).encode("utf-8"))
     os.replace(tmp, path)
 
 
@@ -155,45 +235,45 @@ class ForcedSettings:
     """apply() before the launch, finish() after the game was closed (also after a failure)."""
 
     def __init__(self, app_id, requested: Dict[str, object], run_dir: Path, data_dir: Path,
-                 env: Optional[Mapping[str, str]] = None):
+                 env: Optional[Mapping[str, str]] = None, reg=None):
         self.app_id = str(app_id)
         self.adapter = adapter_for(app_id)
         if self.adapter is None:
             raise ValueError(f"no settings adapter for Steam app {app_id}")
-        self.path = self.adapter.settings_path(env)
+        self.store = self.adapter.store(env, reg)
         self.requested = dict(requested)
-        self.backup = Path(run_dir) / (BACKUP_NAME + (self.path.suffix if self.path else ""))
+        self.backup = Path(run_dir) / (BACKUP_NAME + self.store.backup_suffix)
         self.data_dir = Path(data_dir)
-        self.record = SettingsRecord(str(self.path), self.requested)
+        self.record = SettingsRecord(self.store.where, self.requested)
         self._written = False
 
     def apply(self) -> SettingsRecord:
-        """Back up and write the file. Raises OSError/ValueError when it cannot be read or written;
-        nothing is changed then (the caller does not launch the game)."""
+        """Back up and write the settings. Raises OSError/ValueError when they cannot be read or written;
+        the caller then calls finish() (puts back anything written) and does not launch the game."""
         mod = self.adapter.module
-        if self.path is None or not self.path.is_file():
-            raise OSError(f"the game's settings file was not found ({self.path}); start the game once first")
-        data = _read_game(self.adapter, self.path)
+        if not self.store.exists():
+            raise OSError(f"the game's settings were not found ({self.store.where}); start the game once first")
+        data = self.store.read()
         self.record.before = mod.read_settings(data)
         known = learn_indices(self.data_dir, self.app_id, self.adapter, data)
         changes, refused = mod.plan(data, self.requested, known)
         self.record.refused = dict(refused)
         self.record.changed = [c.key for c in changes]
         self.backup.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(self.path, self.backup)
+        self.store.save_backup(self.backup)
         if changes:
-            _write_game(self.adapter, self.path, mod.apply(data, changes))
-            self._written = True
+            self._written = True            # a write that fails half way is still put back by finish()
+            self.store.write(mod.apply(data, changes))
         accepted = {k: v for k, v in self.requested.items() if k not in refused}
-        self.record.mismatch_before_launch = _mismatches(mod.verify(_read_game(self.adapter, self.path), accepted))
+        self.record.mismatch_before_launch = _mismatches(mod.verify(self.store.read(), accepted))
         return self.record
 
     def finish(self, restore: bool = True) -> SettingsRecord:
-        """Read the file the game left, then put the backup back (only if we wrote anything)."""
+        """Read what the game left, then put the backup back (only if we wrote anything)."""
         mod = self.adapter.module
         if self.backup.is_file():
             try:
-                data = _read_game(self.adapter, self.path)
+                data = self.store.read()
                 accepted = {k: v for k, v in self.requested.items() if k not in self.record.refused}
                 self.record.mismatch_after_run = _mismatches(mod.verify(data, accepted))
                 learn_indices(self.data_dir, self.app_id, self.adapter, data)
@@ -201,9 +281,9 @@ class ForcedSettings:
                 self.record.notes.append(f"could not read the settings after the run: {e}")
         if restore and self._written:
             try:
-                shutil.copy2(self.backup, self.path)
+                self.store.restore(self.backup)
                 self.record.restored = True
-            except OSError as e:
+            except (OSError, ValueError) as e:
                 self.record.restored = False
                 self.record.notes.append(f"your settings were not put back ({e}); the copy is {self.backup}")
         elif self._written:
@@ -219,15 +299,15 @@ def setting_choices(adapter: Adapter, data, known: Dict[str, Dict[str, int]]) ->
     return adapter.module.choices(data, known)
 
 
-def read_for_dialog(app_id, data_dir: Path, env: Optional[Mapping[str, str]] = None):
-    """(choices, current values) from the game's file, or raises OSError/ValueError."""
+def read_for_dialog(app_id, data_dir: Path, env: Optional[Mapping[str, str]] = None, reg=None):
+    """(choices, current values) from the game's settings, or raises OSError/ValueError."""
     adapter = adapter_for(app_id)
     if adapter is None:
         raise ValueError(f"no settings adapter for Steam app {app_id}")
-    path = adapter.settings_path(env)
-    if path is None or not path.is_file():
-        raise OSError(f"the game's settings file was not found ({path}); start the game once first")
-    data = _read_game(adapter, path)
+    store = adapter.store(env, reg)
+    if not store.exists():
+        raise OSError(f"the game's settings were not found ({store.where}); start the game once first")
+    data = store.read()
     known = learn_indices(data_dir, app_id, adapter, data)
     return setting_choices(adapter, data, known), adapter.module.read_settings(data)
 

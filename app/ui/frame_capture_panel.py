@@ -199,6 +199,7 @@ class GameBenchmarkWorker(QThread):
                 try:
                     rec = self.forced.apply()
                 except (OSError, ValueError) as e:
+                    self.forced.finish()                 # puts back whatever was written before the error
                     self.finished_plan.emit(f"failed: the game settings could not be forced ({e}); "
                                             "the game was not started")
                     return
@@ -632,7 +633,7 @@ class FrameCapturePanel(QGroupBox):
         ok = bool(game) and adapter_for(game.get("app_id")) is not None
         self.game_settings_btn.setEnabled(ok and not self.is_running())
         if not ok:
-            self.game_settings_btn.setToolTip("Forcing settings is supported for: Cyberpunk 2077, Borderlands 3.")
+            self.game_settings_btn.setToolTip("Forcing settings is supported for: Cyberpunk 2077, Borderlands 3, Rise of the Tomb Raider.")
 
     def forced_settings_for(self, app_id) -> Dict[str, object]:
         from app.games.settings_file import adapter_for, saved_choice
