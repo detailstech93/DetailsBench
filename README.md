@@ -213,6 +213,24 @@ Check the production database: `python scripts/verify_stats.py` (add `--include-
 
 Command line: `python scripts/verify_compare.py [A B] [--include-test]` compares two sessions with the same rules.
 
+### Reports, Export and Backup
+
+Session History tab: select a session in the sessions table, then:
+
+- **HTML report...**: one standalone file (inline CSS, no scripts, no external links, light/dark) with summary
+  statistics, every run (warmup, failed and test runs flagged; a failed run never shows a score), the environment
+  from the manifest and the reproducibility settings (`app/report.py`). The app asks before opening it.
+- **Export JSON...**: the full session (`app/export.py`, format `pc-benchmark-manager.session` v1): session,
+  manifest, runs and per-benchmark statistics. NaN/infinity are written as `null`.
+- **Export CSV...**: one row per run (`app/csv_export.py`), UTF-8 with BOM so Excel shows Arabic names; text cells
+  starting with `= + - @` are prefixed with `'` so spreadsheets do not run them as formulas.
+- **Back up database**: copies the database to `backups\benchmark_manager_YYYYMMDD_HHMMSS.db` next to it
+  (SQLite backup API, integrity-checked, plus a `.sha256` file). Existing backups are never overwritten or deleted.
+  To use a backup, point `database_path` in `settings.json` at it; nothing is restored automatically.
+
+Files are written under a temporary `.partial` name and renamed when complete.
+Command line: `python scripts/verify_export.py [id] [--include-test] [--out DIR] [--backup]`.
+
 ### Database Location
 
 The production database is stored per user, not in the project folder:
