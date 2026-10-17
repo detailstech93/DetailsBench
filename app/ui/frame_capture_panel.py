@@ -633,7 +633,7 @@ class FrameCapturePanel(QGroupBox):
         ok = bool(game) and adapter_for(game.get("app_id")) is not None
         self.game_settings_btn.setEnabled(ok and not self.is_running())
         if not ok:
-            self.game_settings_btn.setToolTip("Forcing settings is supported for: Cyberpunk 2077, Borderlands 3, Rise of the Tomb Raider.")
+            self.game_settings_btn.setToolTip("Forcing settings is supported for: Cyberpunk 2077, Borderlands 3, Rise of the Tomb Raider, Red Dead Redemption 2, The Witcher 3.")
 
     def forced_settings_for(self, app_id) -> Dict[str, object]:
         from app.games.settings_file import adapter_for, saved_choice

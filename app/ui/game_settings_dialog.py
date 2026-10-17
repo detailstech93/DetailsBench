@@ -20,6 +20,8 @@ LABELS = {
     "dynamic_resolution": "Dynamic resolution", "frame_gen": "Frame generation",
     "dlss_frame_gen": "DLSS Frame Generation", "multi_frame_gen": "Multi Frame Generation",
     "ray_tracing": "Ray tracing", "rt_lighting": "RT lighting", "path_tracing": "Path tracing",
+    "lighting_quality": "Lighting quality", "volumetrics_quality": "Volumetrics quality",
+    "reflection_quality": "Reflection quality", "msaa": "MSAA", "fsr": "FSR", "hairworks": "HairWorks",
 }
 
 

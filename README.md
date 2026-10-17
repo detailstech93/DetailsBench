@@ -327,6 +327,8 @@ resolution, Frame Generation (DLSS, multi frame), ray tracing, RT lighting and p
 | Cyberpunk 2077 | `app/games/cyberpunk2077.py` | `%LOCALAPPDATA%/CD Projekt Red/Cyberpunk 2077/UserSettings.json` |
 | Borderlands 3 | `app/games/borderlands3.py` | `Documents/My Games/Borderlands 3/Saved/Config/WindowsNoEditor/GameUserSettings.ini` |
 | Rise of the Tomb Raider | `app/games/rise_tomb_raider.py` | registry: `HKEY_CURRENT_USER/Software/Crystal Dynamics/Rise of the Tomb Raider/Graphics` |
+| Red Dead Redemption 2 | `app/games/red_dead_redemption2.py` | `Documents/Rockstar Games/Red Dead Redemption 2/Settings/system.xml` |
+| The Witcher 3 | `app/games/witcher3.py` | `Documents/The Witcher 3/dx12user.settings` |
 
 Borderlands 3 offers resolution, window mode, VSync, frame rate limit, quality preset, resolution scale, dynamic
 resolution, anti-aliasing, texture quality and graphics API (DX11/DX12). Only the changed values are rewritten;
@@ -339,10 +341,16 @@ resolution, fullscreen and exclusive fullscreen, VSync, graphics API (DX11/DX12)
 occlusion and detail levels, SSAA, FXAA, SMAA and motion blur. Levels, VSync and DLSS are numbers the game does
 not explain in the registry, so only numbers already used by the game are offered.
 
+Red Dead Redemption 2 and The Witcher 3 share `app/games/text_settings.py` (named text values; only the changed
+characters are rewritten). Red Dead Redemption 2 offers resolution, window mode, VSync, graphics API
+(Vulkan/DX12), texture, shadow, lighting, volumetrics and reflection quality (Low to Ultra, named in the file),
+ambient occlusion, TAA, MSAA, FXAA, DLSS, DLSS mode, FSR and motion blur. The Witcher 3 (DirectX 12 mode only)
+offers resolution, window mode, VSync, FPS limit, anti-aliasing, DLSS mode, DLSS Frame Generation, ray tracing,
+path tracing and HairWorks. Numbers the files do not name are learned like the other games.
+
 Not supported, checked on this computer on 2026-10-18: God of War keeps its settings inside its save file;
 Shadow of the Tomb Raider keeps them in a folder named after the Steam account (not touched); Counter-Strike 2 keeps them in a folder named after the Steam account (not touched); DOOM (2016) writes
-almost none; Red Dead Redemption 2 and The Witcher 3 have no settings file yet (start them once, then they can
-be looked at).
+almost none.
 
 With forced settings, Benchmark game... says so in its confirmation, then (`app/games/settings_file.py`):
 

@@ -17,7 +17,7 @@ instead of a file: the backup is a JSON copy of the key's DWORD values, and only
 written, both when forcing and when putting the user's values back.
 
 Some list settings carry a value or position the file alone does not list (Cyberpunk 2077's runtime
-lists, free text in Borderlands 3). What was seen is learned each time the settings are read (the user
+lists, free text in Borderlands 3, numbers in Red Dead Redemption 2 and The Witcher 3). What was seen is learned each time the settings are read (the user
 picked the value once in the game's menu) and kept in game_settings_indices.json in the data folder.
 """
 
@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Mapping, Optional
 
-from app.games import borderlands3, cyberpunk2077, rise_tomb_raider
+from app.games import borderlands3, cyberpunk2077, red_dead_redemption2, rise_tomb_raider, witcher3
 
 INDICES_FILENAME = "game_settings_indices.json"
 BACKUP_NAME = "game_settings_backup"      # + the store's own extension
@@ -158,6 +158,9 @@ ADAPTERS: Dict[str, Adapter] = {
     str(borderlands3.APP_ID): Adapter(borderlands3, os.path.join(
         "My Games", "Borderlands 3", "Saved", "Config", "WindowsNoEditor", "GameUserSettings.ini"), "documents"),
     str(rise_tomb_raider.APP_ID): Adapter(rise_tomb_raider, rise_tomb_raider.REGISTRY_KEY, "registry"),
+    str(red_dead_redemption2.APP_ID): Adapter(red_dead_redemption2, os.path.join(
+        "Rockstar Games", "Red Dead Redemption 2", "Settings", "system.xml"), "documents"),
+    str(witcher3.APP_ID): Adapter(witcher3, os.path.join("The Witcher 3", "dx12user.settings"), "documents"),
 }
 
 
