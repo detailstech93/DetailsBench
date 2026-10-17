@@ -77,8 +77,9 @@ class AutomationPanel(QGroupBox):
         self.get_environment = get_environment
         self.on_session_changed = on_session_changed
         self.loader = loader
-        if output_root is None and db is not None:
-            output_root = Path(db.db_path).resolve().parent / "automation_runs"
+        db_path = getattr(db, "db_path", None)
+        if output_root is None and isinstance(db_path, str):
+            output_root = Path(db_path).resolve().parent / "automation_runs"
         self.output_root = output_root
         self.workloads: list = []
         self.worker: Optional[AutomationWorker] = None
@@ -194,7 +195,7 @@ class AutomationPanel(QGroupBox):
     def start_plan(self) -> bool:
         if self.is_running():
             return False
-        if self.db is None:
+        if self.db is None or self.output_root is None:
             self.status_label.setText("No database available; nothing was run.")
             return False
         workloads = self.selected_workloads()
