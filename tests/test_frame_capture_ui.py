@@ -62,7 +62,7 @@ def test_select_presentmon_saves_setting(panel):
     assert "PresentMon not selected" in p.path_label.text()
     p.select_presentmon()
     assert load_settings(tmp / "data")[0] == {"presentmon_path": str(tmp / "PresentMon.exe")}
-    assert str(tmp / "PresentMon.exe") in p.path_label.text() and "not yet verified" in p.path_label.text()
+    assert str(tmp / "PresentMon.exe") in p.path_label.text() and "not yet verified" not in p.path_label.text()
 
 
 def test_frameview_copy_refused(panel):

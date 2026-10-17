@@ -10,8 +10,9 @@ through the UAC prompt, after the user confirms, while the app stays non-elevate
 PresentMon stops itself after the capture time (--timed with --terminate_after_timed).
 Only the PresentMon process we started is ever terminated; the game is never touched.
 
-CAPTURE_FLAGS_VERIFIED stays False until scripts/verify_frames.py has shown
-that the selected PresentMon's --help lists every flag used here.
+CAPTURE_FLAGS_VERIFIED: verified with PresentMon 2.6.0 x64 by scripts/verify_frames.py on
+2026-10-17 (--help lists every flag; a real 10 s capture at the local console gave 590 frames,
+59.4 FPS). Captures inside a Remote Desktop session recorded no frames on that machine.
 """
 
 import re
@@ -28,7 +29,7 @@ CSV_NAME = "presentmon.csv"
 SESSION_NAME = "PCBenchmarkManager"      # own ETW session name; never stops another tool's session
 CAPTURE_FLAGS = ("--process_name", "--process_id", "--output_file", "--timed",
                  "--terminate_after_timed", "--session_name")
-CAPTURE_FLAGS_VERIFIED = False
+CAPTURE_FLAGS_VERIFIED = True
 START_MARGIN_SECONDS = 30                # PresentMon startup and CSV flush on top of the capture time
 
 

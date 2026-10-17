@@ -66,6 +66,8 @@ def read_help(exe: str) -> str:
 
 
 def main(argv) -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     from app.frames import provision
     from app.frames.presentmon import CAPTURE_FLAGS, FrameCaptureWorkload
     from app.paths import load_settings, resolve_database_path
@@ -129,7 +131,7 @@ def main(argv) -> int:
                   f"duration={r.duration_seconds}")
             csv = Path(rec.run_dir) / "presentmon.csv"
             if csv.is_file():
-                lines = csv.read_text(encoding="utf-8", errors="replace").splitlines()
+                lines = csv.read_text(encoding="utf-8-sig", errors="replace").splitlines()  # PresentMon writes a BOM
                 print(f"  raw CSV: {csv} ({len(lines)} lines); first 3:")
                 for line in lines[:3]:
                     print("    " + line)
