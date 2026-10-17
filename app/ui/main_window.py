@@ -813,6 +813,13 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
 
         layout.addWidget(self.run_table, 1)
+
+        from app.ui.automation_panel import AutomationPanel
+        self.automation_panel = AutomationPanel(
+            self.db, self.selected_profile,
+            lambda: self.environment_profile.to_dict() if self.environment_profile else None,
+            on_session_changed=self.refresh_history_screen, parent=tab)
+        layout.addWidget(self.automation_panel)
         
         # Status / Feedback area
         self.run_log = QTextEdit()
@@ -983,6 +990,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         """Clean shutdown: wait for or cancel workers before closing."""
+        self.automation_panel.shutdown()   # emergency stop; only our own child processes end
         if self._scan_worker is not None and self._scan_worker.isRunning():
             logger.info("Waiting for scan worker to finish before shutdown...")
             self._scan_worker.wait(5000)
