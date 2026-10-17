@@ -332,6 +332,50 @@ class Database:
         return {"id": row[0], "environment_snapshot_id": row[1], "created_at": row[2],
                 "is_test": bool(row[3]), "result": json.loads(row[4])}
 
+    def search_sessions(self, text: Optional[str] = None, benchmark_name: Optional[str] = None,
+                        date_from: Optional[str] = None, date_to: Optional[str] = None,
+                        include_test: bool = False) -> list:
+        """Sessions matching all given filters, newest first.
+
+        text: substring of name or description (case-insensitive, % and _ literal).
+        benchmark_name: session has at least one result for it.
+        date_from / date_to: ISO dates (YYYY-MM-DD), both inclusive.
+        Each row: id, name, description, created_at, is_test, is_manual,
+        benchmarks (sorted names), run_count, has_manifest.
+        """
+        where, params = [], []
+        if text:
+            escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            where.append("(s.name LIKE ? ESCAPE '\\' OR COALESCE(s.description, '') LIKE ? ESCAPE '\\')")
+            params += [f"%{escaped}%", f"%{escaped}%"]
+        if benchmark_name:
+            where.append("EXISTS (SELECT 1 FROM results r2 WHERE r2.session_id = s.id AND r2.benchmark_name = ?)")
+            params.append(benchmark_name)
+        if date_from:
+            where.append("substr(s.created_at, 1, 10) >= ?")
+            params.append(date_from)
+        if date_to:
+            where.append("substr(s.created_at, 1, 10) <= ?")
+            params.append(date_to)
+        if not include_test:
+            where.append("COALESCE(s.is_test, 0) = 0")
+        clause = ("WHERE " + " AND ".join(where)) if where else ""
+        conn = self._get_connection()
+        rows = conn.execute(f"""
+            SELECT s.id, s.name, s.description, s.created_at,
+                   COALESCE(s.is_test, 0), COALESCE(s.is_manual, 0),
+                   (SELECT GROUP_CONCAT(DISTINCT r.benchmark_name) FROM results r WHERE r.session_id = s.id),
+                   (SELECT COUNT(*) FROM results r WHERE r.session_id = s.id),
+                   EXISTS (SELECT 1 FROM session_manifests m WHERE m.session_id = s.id)
+            FROM sessions s {clause}
+            ORDER BY s.created_at DESC, s.id DESC
+        """, params).fetchall()
+        conn.close()
+        return [{"id": r[0], "name": r[1], "description": r[2], "created_at": r[3],
+                 "is_test": bool(r[4]), "is_manual": bool(r[5]),
+                 "benchmarks": sorted((r[6] or "").split(",")) if r[6] else [],
+                 "run_count": r[7], "has_manifest": bool(r[8])} for r in rows]
+
     def save_session_manifest(self, session_id: int, manifest: dict) -> None:
         """Store the session's manifest once; a second save raises ValueError."""
         conn = self._get_connection()
