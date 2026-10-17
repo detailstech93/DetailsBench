@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QMessageBox, QListWidget, QTableWidget, QTableWidgetItem,
     QHeaderView, QGroupBox, QCheckBox, QLineEdit, QSpinBox,
     QDialog, QDialogButtonBox, QFormLayout, QComboBox, QTabWidget,
-    QProgressBar, QFrame, QStackedWidget
+    QProgressBar, QFrame, QStackedWidget, QFileDialog
 )
 from PySide6.QtCore import Qt, Signal, Slot, QThread
 from PySide6.QtGui import QFont, QColor
@@ -890,9 +890,75 @@ class MainWindow(QMainWindow):
         )
         ctrl_layout.addWidget(self.show_test_data_cb)
         ctrl_layout.addStretch()
+        self.export_buttons = {}
+        for fmt, label in (("html", "HTML report..."), ("json", "Export JSON..."), ("csv", "Export CSV...")):
+            btn = QPushButton(label)
+            btn.setToolTip("Export the session selected in the sessions table")
+            btn.clicked.connect(lambda _checked=False, f=fmt: self.export_selected_session(f))
+            ctrl_layout.addWidget(btn)
+            self.export_buttons[fmt] = btn
+        self.backup_btn = QPushButton("Back up database")
+        self.backup_btn.setToolTip("Copy the database into the backups folder next to it "
+                                   "(existing backups are never overwritten)")
+        self.backup_btn.clicked.connect(self.backup_now)
+        ctrl_layout.addWidget(self.backup_btn)
         layout.addLayout(ctrl_layout)
+        self.export_note = QLabel("")
+        self.export_note.setWordWrap(True)
+        self.export_note.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        layout.addWidget(self.export_note)
 
         return tab
+
+    def selected_session_id(self) -> Optional[int]:
+        row = self.sessions_table.currentRow()
+        item = self.sessions_table.item(row, 0) if row >= 0 else None
+        return item.data(Qt.UserRole) if item else None
+
+    def export_selected_session(self, fmt: str):
+        """Ask for a file name and write the selected session as html / json / csv."""
+        from app.export import build_session_export, default_filename, write_export
+        session_id = self.selected_session_id()
+        if not self.db or session_id is None:
+            self.export_note.setText("Select a session in the sessions table first.")
+            return
+        try:
+            export = build_session_export(self.db, session_id)
+        except Exception as e:
+            self.export_note.setText(f"Export failed: {e}")
+            return
+        filters = {"html": "HTML report (*.html)", "json": "JSON (*.json)", "csv": "CSV (*.csv)"}
+        start = os.path.join(os.path.expanduser("~"), "Documents", default_filename(export, fmt))
+        path, _ = QFileDialog.getSaveFileName(self, "Export session", start, filters[fmt])
+        if not path:
+            return
+        try:
+            written = write_export(export, path, fmt)
+        except Exception as e:
+            self.export_note.setText(f"Export failed: {e}")
+            return
+        self.export_note.setText(f"Session #{session_id} exported to {written}")
+        if fmt == "html" and self._confirm("Open report",
+                                           f"Report saved to:\n{written}\n\nOpen it in the browser now?"):
+            if not webbrowser.open(written.resolve().as_uri()):
+                self.export_note.setText(f"Report saved to {written} (could not open a browser)")
+
+    def _confirm(self, title: str, text: str) -> bool:
+        return QMessageBox.question(self, title, text, QMessageBox.Yes | QMessageBox.No,
+                                    QMessageBox.No) == QMessageBox.Yes
+
+    def backup_now(self):
+        from app.backup import backup_database
+        if not self.db:
+            return
+        try:
+            info = backup_database(self.db.db_path)
+        except Exception as e:
+            self.export_note.setText(f"Backup failed: {e}")
+            return
+        counts = ", ".join(f"{k} {v}" for k, v in info["counts"].items())
+        self.export_note.setText(f"Backup saved: {info['path']} (integrity {info['integrity']}, {counts}, "
+                                 f"sha256 {info['sha256'][:16]}...)")
     
     def start_scan(self):
         """Trigger benchmark scan using background worker thread."""
@@ -1414,7 +1480,10 @@ class MainWindow(QMainWindow):
                      ", ".join(s["benchmarks"]) or "-", str(s["run_count"]),
                      "yes" if s["has_manifest"] else "no", flags]
             for col, text in enumerate(cells):
-                self.sessions_table.setItem(row, col, QTableWidgetItem(text))
+                item = QTableWidgetItem(text)
+                if col == 0:
+                    item.setData(Qt.UserRole, s["id"])
+                self.sessions_table.setItem(row, col, item)
         return {s["id"] for s in sessions}
 
     def refresh_stats_table(self):
