@@ -35,6 +35,21 @@ from app.ui.automation_panel import STOP_SHORTCUT, AutomationWorker
 logger = logging.getLogger(__name__)
 
 
+REMOTE_WARNING = ("WARNING: this is a Remote Desktop session. PresentMon recorded no frames in one on the "
+                  "test machine; run the capture at the computer's own screen.")
+
+
+def is_remote_session() -> bool:
+    """True inside a Remote Desktop session (GetSystemMetrics SM_REMOTESESSION); False elsewhere or on error."""
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+        return bool(ctypes.windll.user32.GetSystemMetrics(0x1000))
+    except (OSError, AttributeError):
+        return False
+
+
 def read_os_release(path: str = "/etc/os-release") -> dict:
     """KEY=value pairs of /etc/os-release ({} when missing)."""
     data = {}
@@ -113,7 +128,7 @@ class FrameCapturePanel(QGroupBox):
                  output_root: Optional[Path] = None, parent=None,
                  detector: Optional[Callable] = None, planner: Optional[Callable] = None,
                  downloader: Optional[Callable] = None, arch: Optional[str] = None,
-                 platform_name: str = sys.platform):
+                 platform_name: str = sys.platform, remote_check: Optional[Callable[[], bool]] = None):
         super().__init__("Frame capture (PresentMon)", parent)
         self.db = db
         self.get_profile = get_profile
@@ -127,6 +142,7 @@ class FrameCapturePanel(QGroupBox):
         self.output_root = output_root
         self.workload_factory = FrameCaptureWorkload     # tests swap in a fake elevated runner
         self.platform_name = platform_name
+        self.remote_check = remote_check or is_remote_session
         self.arch = arch or provision.native_arch()
         self.detector = detector or (lambda: provision.find_local(self.arch, self.data_dir,
                                                                   self._setting_path()))
@@ -212,6 +228,8 @@ class FrameCapturePanel(QGroupBox):
         emulated = ("  x64 build under ARM64 emulation (unverified)"
                     if self.detected is not None and self.detected.emulated else "")
         flags = "" if CAPTURE_FLAGS_VERIFIED else "  (capture flags not yet verified on this machine)"
+        if self.remote_check():
+            flags += "\n" + REMOTE_WARNING
         self.path_label.setText(f"PresentMon: {path}{source}{emulated}{flags}")
 
     # ---- automatic detection, download (Windows) and install (Linux) ------------
@@ -388,6 +406,8 @@ class FrameCapturePanel(QGroupBox):
                 f"Only PresentMon is started and stopped; the game is never touched.")
         if not CAPTURE_FLAGS_VERIFIED:
             text += "\n\nWARNING: the capture flags are not yet verified with this PresentMon (--help)."
+        if self.remote_check():
+            text += "\n\n" + REMOTE_WARNING
         if not self.confirm(text):
             self.status_label.setText("Cancelled; nothing was captured.")
             return False

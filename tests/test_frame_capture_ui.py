@@ -44,7 +44,8 @@ def panel(qapp, tmp_path):
     p = FrameCapturePanel(db, lambda: RunProfile(name="p", repetitions=2, warmup_runs=0),
                           lambda: None, data_dir=tmp_path / "data",
                           lister=lambda: [("game.exe", 42), ("other.exe", 7)], output_root=tmp_path / "runs",
-                          detector=lambda: Found(error="none"), arch="x64", platform_name="win32")
+                          detector=lambda: Found(error="none"), arch="x64", platform_name="win32",
+                          remote_check=lambda: False)
     p.asked = []
     p.confirm = lambda text: (p.asked.append(text), True)[1]
     p.ask_presentmon_file = lambda: str(exe)
@@ -148,6 +149,7 @@ def make_panel(tmp_path, **kw):
     kw.setdefault("detector", lambda: Found(error="none"))
     kw.setdefault("arch", "x64")
     kw.setdefault("platform_name", "win32")
+    kw.setdefault("remote_check", lambda: False)
     p = FrameCapturePanel(Database(str(tmp_path / "g.db")), lambda: RunProfile(name="p"), lambda: None,
                           data_dir=tmp_path / "data", lister=lambda: [], output_root=tmp_path / "runs", **kw)
     p.asked = []
@@ -294,3 +296,28 @@ def test_read_os_release(tmp_path):
     f.write_text('# comment\nID=ubuntu\nID_LIKE="debian"\nPRETTY_NAME="Ubuntu 24.04"\n', encoding="utf-8")
     assert read_os_release(str(f)) == {"ID": "ubuntu", "ID_LIKE": "debian", "PRETTY_NAME": "Ubuntu 24.04"}
     assert read_os_release(str(tmp_path / "missing")) == {}
+
+
+def test_remote_desktop_warning(qapp, tmp_path):
+    exe = tmp_path / "PresentMon.exe"
+    exe.write_bytes(b"MZ")
+    p = make_panel(tmp_path, remote_check=lambda: True)
+    finish(qapp, p)
+    p.ask_presentmon_file = lambda: str(exe)
+    p.select_presentmon()
+    assert "Remote Desktop session" in p.path_label.text()
+    p.process_combo.addItem("game.exe (pid 42)", ("game.exe", 42))
+    asked = []
+    p.confirm = lambda text: (asked.append(text), False)[1]
+    assert p.start_capture() is False and "Remote Desktop session" in asked[0]
+    (tmp_path / "b").mkdir()
+    local = make_panel(tmp_path / "b")
+    finish(qapp, local)
+    local.ask_presentmon_file = lambda: str(exe)
+    local.select_presentmon()
+    assert "Remote Desktop" not in local.path_label.text()
+
+
+def test_is_remote_session_never_raises():
+    from app.ui.frame_capture_panel import is_remote_session
+    assert is_remote_session() in (True, False)
