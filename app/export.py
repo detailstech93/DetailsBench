@@ -32,6 +32,9 @@ def build_session_export(db, session_id: int, now: Optional[str] = None) -> dict
     summaries = {name: summarize_runs(group, include_test=bool(session["is_test"]))
                  for name, group in sorted(grouped.items())}
     manifest = db.get_session_manifest(session_id)
+    from app.metrics_summary import metrics_dict, summarize_metrics
+    run_metrics = {r["id"]: db.get_result_metrics(r["id"]) for r in runs}
+    metric_summaries = summarize_metrics(runs, lambda r: run_metrics.get(r["id"]), include_test=bool(session["is_test"]))
     from app import __version__
     return {
         "format": EXPORT_FORMAT,
@@ -43,8 +46,9 @@ def build_session_export(db, session_id: int, now: Optional[str] = None) -> dict
                    | {"is_test": bool(session.get("is_test")), "is_manual": bool(session.get("is_manual"))},
         "manifest": manifest,
         "runs": [dict(r, is_warmup=bool(r["is_warmup"]), is_test=bool(r["is_test"]),
-                      is_manual=bool(r["is_manual"])) for r in runs],
+                      is_manual=bool(r["is_manual"]), metrics=metrics_dict(run_metrics[r["id"]])) for r in runs],
         "summaries": summaries,
+        "metric_summaries": metric_summaries,
     }
 
 

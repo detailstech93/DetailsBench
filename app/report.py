@@ -281,6 +281,50 @@ def _runs_section(export: Mapping) -> str:
     )
 
 
+def _metric_group(name: str) -> str:
+    return "Telemetry" if str(name).startswith("tel_") else "Run"
+
+
+def _metrics_section(export: Mapping) -> str:
+    """Extra numbers per benchmark (frame capture, telemetry) over the same runs as the statistics."""
+    summaries = _mapping(export.get("metric_summaries"))
+    if not summaries:
+        return ""
+    rows = []
+    for bench in sorted(summaries, key=str):
+        metrics = _mapping(summaries.get(bench)) or {}
+        for name in sorted(metrics, key=lambda n: (_metric_group(n) == "Telemetry", str(n))):
+            m = _mapping(metrics.get(name)) or {}
+            if _truthy(m.get("mixed_units")):
+                numbers = '<td colspan="3">units differ between runs; not summarized</td>'
+            else:
+                numbers = "".join(f"<td>{_format_number(m.get(k))}</td>" for k in ("mean", "min", "max"))
+            rows.append(
+                "<tr>"
+                f"<td>{_text(bench)}</td>"
+                f"<td>{_metric_group(name)}</td>"
+                f"<td>{_text(name)}</td>"
+                f"{numbers}"
+                f"<td>{_text(m.get('unit'))}</td>"
+                f"<td>{_text(m.get('count'))}</td>"
+                "</tr>"
+            )
+    if not rows:
+        return ""
+    return (
+        "<section>"
+        "<h2>Extra metrics</h2>"
+        "<p>Frame capture numbers and telemetry (tel_*) recorded with each run, over the same runs as the "
+        "statistics. A reading a source could not give is absent, never 0.</p>"
+        '<div class="table-wrap"><table>'
+        "<thead><tr><th>Benchmark</th><th>Kind</th><th>Metric</th><th>Mean</th><th>Min</th><th>Max</th>"
+        "<th>Unit</th><th>Runs</th></tr></thead>"
+        "<tbody>" + "".join(rows) + "</tbody>"
+        "</table></div>"
+        "</section>"
+    )
+
+
 def _environment_section(export: Mapping) -> str:
     manifest = _mapping(export.get("manifest"))
     environment = _mapping(manifest.get("environment")) if manifest is not None else None
@@ -527,6 +571,7 @@ def render_session_report(export: Mapping) -> str:
         "<main>"
         + _header_section(export_mapping)
         + _summary_section(export_mapping)
+        + _metrics_section(export_mapping)
         + _runs_section(export_mapping)
         + _environment_section(export_mapping)
         + _reproducibility_section(export_mapping)

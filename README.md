@@ -207,6 +207,9 @@ Check the production database: `python scripts/verify_stats.py` (add `--include-
   - **warning** (orange): version difference or unknown, different OS, fewer than 2 runs, CV above 5 %, mixed
     manual and real runs, manual vs real, test data;
   - **ok** (green).
+  A second table, **Extra metrics**, compares the frame capture numbers and telemetry (`tel_*`) recorded with the
+  runs (`app/metrics_summary.py`), over the same runs as the means. A metric found on one side only, or with a
+  different unit on each side, is listed with a note and no delta.
 - **Run profiles** (Run Benchmarks tab): built-in "Standard" (3 measured + 1 warmup) and "Quick check" (1 run), plus
   saved profiles (`run_profiles` table). The selected profile's settings are stored in the manifest of the next
   new session.
@@ -219,9 +222,12 @@ Session History tab: select a session in the sessions table, then:
 
 - **HTML report...**: one standalone file (inline CSS, no scripts, no external links, light/dark) with summary
   statistics, every run (warmup, failed and test runs flagged; a failed run never shows a score), the environment
-  from the manifest and the reproducibility settings (`app/report.py`). The app asks before opening it.
+  from the manifest and the reproducibility settings (`app/report.py`). An **Extra metrics** table lists the mean,
+  min and max of each frame capture and telemetry metric over the same runs as the statistics (metrics whose unit
+  differs between runs are not summarized). The app asks before opening it.
 - **Export JSON...**: the full session (`app/export.py`, format `pc-benchmark-manager.session` v1): session,
-  manifest, runs and per-benchmark statistics. NaN/infinity are written as `null`.
+  manifest, runs (each with its `metrics`) and per-benchmark statistics, plus `metric_summaries`.
+  NaN/infinity are written as `null`.
 - **Export CSV...**: one row per run (`app/csv_export.py`), UTF-8 with BOM so Excel shows Arabic names; text cells
   starting with `= + - @` are prefixed with `'` so spreadsheets do not run them as formulas.
 - **Back up database**: copies the database to `backups\benchmark_manager_YYYYMMDD_HHMMSS.db` next to it

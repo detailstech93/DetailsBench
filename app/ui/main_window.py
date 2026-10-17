@@ -530,6 +530,16 @@ class MainWindow(QMainWindow):
             cheader.setSectionResizeMode(col, QHeaderView.ResizeToContents)
         cheader.setSectionResizeMode(6, QHeaderView.Stretch)
         layout.addWidget(self.compare_table, 1)
+        layout.addWidget(QLabel("Extra metrics (frame capture and telemetry, tel_*), same runs as the means above:"))
+        self.compare_metrics_table = QTableWidget()
+        self.compare_metrics_table.setColumnCount(8)
+        self.compare_metrics_table.setHorizontalHeaderLabels(
+            ["Benchmark", "Metric", "Unit", "Mean A", "Mean B", "Delta", "Delta %", "Note"])
+        mheader = self.compare_metrics_table.horizontalHeader()
+        for col in range(7):
+            mheader.setSectionResizeMode(col, QHeaderView.ResizeToContents)
+        mheader.setSectionResizeMode(7, QHeaderView.Stretch)
+        layout.addWidget(self.compare_metrics_table, 1)
         self.compare_note = QLabel("Delta % is relative to A. Rows marked not comparable keep their numbers "
                                    "for reference only.")
         self.compare_note.setWordWrap(True)
@@ -582,9 +592,26 @@ class MainWindow(QMainWindow):
                 elif row["status"] == "not_comparable" and c in (3, 4):
                     item.setForeground(QColor("#757575"))
                 self.compare_table.setItem(r, c, item)
+        self._fill_metric_comparison(a, b)
         same = " (the same session on both sides)" if a["id"] == b["id"] else ""
         self.compare_note.setText(f"Compared #{a['id']} (A) with #{b['id']} (B){same}. "
                                   "Delta % is relative to A.")
+
+    def _fill_metric_comparison(self, a: dict, b: dict):
+        """Extra metrics of both sessions over the same runs the means use (test runs included, as there)."""
+        from app.metrics_summary import compare_metrics, metrics_for_db, summarize_metrics
+        metrics_of = metrics_for_db(self.db)
+        rows = compare_metrics(
+            summarize_metrics(self.db.get_runs(a["id"], include_test=True), metrics_of, include_test=True),
+            summarize_metrics(self.db.get_runs(b["id"], include_test=True), metrics_of, include_test=True))
+        self.compare_metrics_table.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            delta = "-" if row["delta"] is None else f"{row['delta']:+,.2f}"
+            delta_pct = "-" if row["delta_percent"] is None else f"{row['delta_percent']:+.2f} %"
+            cells = [row["benchmark"], row["metric"], row["unit"] or "-", _fmt(row["mean_a"]), _fmt(row["mean_b"]),
+                     delta, delta_pct, row["note"] or "-"]
+            for c, text in enumerate(cells):
+                self.compare_metrics_table.setItem(r, c, QTableWidgetItem(text))
 
     def _create_steam_tab(self) -> QWidget:
         """Steam client, libraries and installed games with a guarded Launch button."""
