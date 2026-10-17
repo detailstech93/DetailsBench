@@ -23,6 +23,8 @@ from app.benchmark_manager import (
     BenchmarkManager, BenchmarkExecutor, BenchmarkInfo,
     BenchmarkStatus, BenchmarkType, launch_assisted_benchmark
 )
+from app.discovery.result import DiscoveryResult
+from app.discovery.runner import discover_installed
 from app.environment.adapters import select_adapter
 from app.environment.profile import DETECTED, UNVERIFIED, EnvironmentProfile
 from data.benchmark_definitions import (
@@ -45,6 +47,7 @@ class BenchmarkWorker(QThread):
     scan_error = Signal(str)
     progress = Signal(str)
     profile_ready = Signal(object)   # EnvironmentProfile
+    discovery_ready = Signal(object) # DiscoveryResult
 
     def __init__(self, benchmark_manager: BenchmarkManager):
         super().__init__()
@@ -63,6 +66,11 @@ class BenchmarkWorker(QThread):
                 self.profile_ready.emit(profile)
             except Exception:
                 logger.exception("Environment profile failed; scanning without it")
+            self.progress.emit("Looking for known tools and games...")
+            try:
+                self.discovery_ready.emit(discover_installed())
+            except Exception:
+                logger.exception("Installed-software discovery failed")
             self.progress.emit("Scanning system capabilities and benchmarks...")
             benchmarks = self.benchmark_manager.scan(profile)
             self.scan_finished.emit(benchmarks)
@@ -262,6 +270,8 @@ class MainWindow(QMainWindow):
         self.system_info = system_info or {}
         self.current_session_id: Optional[int] = None
         self.environment_profile: Optional[EnvironmentProfile] = None
+        self.environment_snapshot_id: Optional[int] = None
+        self.discovery: Optional[DiscoveryResult] = None
         
         # One shared BenchmarkManager instance attribute
         self.benchmark_manager = BenchmarkManager()
@@ -411,7 +421,40 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(6, QHeaderView.Stretch)
         
         layout.addWidget(self.library_table, 1)
+
+        tools_group = QGroupBox("Detected tools and games")
+        tools_group.setToolTip("Only known benchmark tools, browsers, launchers and games are listed; "
+                               "other installed software is never stored or shown.")
+        tools_layout = QVBoxLayout(tools_group)
+        self.stores_label = QLabel("Scanning...")
+        tools_layout.addWidget(self.stores_label)
+        self.tools_table = QTableWidget()
+        self.tools_table.setColumnCount(5)
+        self.tools_table.setHorizontalHeaderLabels(["Kind", "Name", "Version", "Location", "Source"])
+        theader = self.tools_table.horizontalHeader()
+        for col in range(4):
+            theader.setSectionResizeMode(col, QHeaderView.ResizeToContents)
+        theader.setSectionResizeMode(4, QHeaderView.Stretch)
+        tools_layout.addWidget(self.tools_table)
+        layout.addWidget(tools_group, 1)
         return tab
+
+    def refresh_tools_view(self):
+        """Show matched software, games and store status in the Library tab."""
+        result = self.discovery
+        if result is None:
+            return
+        stores = ", ".join(f"{name}: {info.get('status')}" for name, info in sorted(result.stores.items()))
+        diag = f"  |  problems: {'; '.join(result.diagnostics)}" if result.diagnostics else ""
+        self.stores_label.setText(f"Stores / clients: {stores or 'none checked'}{diag}")
+        rows = [(s["kind"], s["name"], s.get("version"), s.get("path"), s.get("source"))
+                for s in result.software]
+        rows += [(f"game ({g['store']})", g["name"], g.get("version"), g.get("install_path"), g["store"])
+                 for g in result.games]
+        self.tools_table.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            for c, value in enumerate(row):
+                self.tools_table.setItem(r, c, QTableWidgetItem(value if value else "-"))
     
     def _create_run_tab(self) -> QWidget:
         """Create Run Benchmarks tab for launching and assisted execution."""
@@ -492,6 +535,7 @@ class MainWindow(QMainWindow):
         self._scan_worker.scan_finished.connect(self._on_scan_finished)
         self._scan_worker.scan_error.connect(self._on_scan_error)
         self._scan_worker.profile_ready.connect(self._on_profile_ready)
+        self._scan_worker.discovery_ready.connect(self._on_discovery_ready)
         
         self._scan_worker.start()
 
@@ -520,9 +564,20 @@ class MainWindow(QMainWindow):
         self.refresh_environment_view()
         if self.db is not None:
             try:
-                self.db.save_environment_snapshot(profile.to_dict())
+                self.environment_snapshot_id = self.db.save_environment_snapshot(profile.to_dict())
             except Exception:
                 logger.exception("Could not save environment snapshot")
+
+    @Slot(object)
+    def _on_discovery_ready(self, result: DiscoveryResult):
+        """Store and show discovery, saved with a link to the environment snapshot."""
+        self.discovery = result
+        self.refresh_tools_view()
+        if self.db is not None:
+            try:
+                self.db.save_discovery_snapshot(result.to_dict(), self.environment_snapshot_id)
+            except Exception:
+                logger.exception("Could not save discovery snapshot")
 
     @Slot(str)
     def _on_scan_progress(self, msg: str):

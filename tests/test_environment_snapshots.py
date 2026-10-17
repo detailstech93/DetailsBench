@@ -142,3 +142,30 @@ def test_migration_from_previous_schema(tmp_path):
     assert snapshot is not None
     assert snapshot["session_id"] == old_session_id
     assert snapshot["profile"] == {"migrated": True}
+
+
+def test_discovery_snapshot_round_trip_and_link(tmp_path):
+    db = _make_db(tmp_path)
+    env_id = db.save_environment_snapshot({"os": "x"})
+    result = {"software": [{"id": "steam", "name": "Steam"}], "games": [], "stores": {},
+              "diagnostics": [], "step_seconds": {}}
+    sid = db.save_discovery_snapshot(result, env_id)
+    db.save_discovery_snapshot({"software": []}, is_test=True)
+    latest = db.get_latest_discovery_snapshot()
+    assert latest["id"] == sid
+    assert latest["environment_snapshot_id"] == env_id
+    assert latest["result"] == result
+    assert db.get_latest_discovery_snapshot(include_test=True)["is_test"] is True
+
+
+def test_discovery_table_added_to_previous_schema(tmp_path):
+    """Database created by the 3A schema (no discovery table) gains it additively."""
+    path = str(tmp_path / "prev.db")
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, "
+                 "description TEXT, created_at TEXT NOT NULL, is_test BOOLEAN DEFAULT 0, is_manual BOOLEAN DEFAULT 0)")
+    conn.execute("INSERT INTO sessions (name, created_at) VALUES ('kept', '2026-10-17')")
+    conn.commit(); conn.close()
+    db = Database(path)
+    assert [s["name"] for s in db.get_sessions()] == ["kept"]
+    assert db.save_discovery_snapshot({"software": []}) == 1

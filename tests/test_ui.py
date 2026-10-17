@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt
 
 from app.ui.main_window import BenchmarkWorker, MainWindow
 from app.benchmark_manager import BenchmarkManager, BenchmarkInfo, BenchmarkStatus, BenchmarkType
+from app.discovery.result import DiscoveryResult
 
 
 @pytest.fixture(scope="session")
@@ -561,7 +562,7 @@ class TestEnvironmentProfileUI:
         worker.profile_ready.connect(profiles.append)
         worker.scan_finished.connect(finished.append)
         profile = self._profile()
-        with patch('app.ui.main_window.select_adapter') as sel:
+        with patch('app.ui.main_window.select_adapter') as sel,                 patch('app.ui.main_window.discover_installed', return_value=DiscoveryResult()):
             sel.return_value.build_profile.return_value = profile
             worker.run()
         assert profiles == [profile]
@@ -575,7 +576,7 @@ class TestEnvironmentProfileUI:
         profiles, finished = [], []
         worker.profile_ready.connect(profiles.append)
         worker.scan_finished.connect(finished.append)
-        with patch('app.ui.main_window.select_adapter', side_effect=RuntimeError('boom')):
+        with patch('app.ui.main_window.select_adapter', side_effect=RuntimeError('boom')),                 patch('app.ui.main_window.discover_installed', side_effect=RuntimeError('boom')):
             worker.run()
         assert profiles == []
         manager.scan.assert_called_once_with(None)
@@ -605,4 +606,46 @@ class TestEnvironmentProfileUI:
             window = MainWindow(mock_db, {})
         window._on_profile_ready(self._profile())
         assert window.env_value_labels['os_name'].text().startswith('Windows 11')
+        window.close()
+
+
+class TestDetectedToolsUI:
+    """MOCK: a fake DiscoveryResult into the REAL worker signal and Library view."""
+
+    def _result(self):
+        return DiscoveryResult(
+            software=[{"id": "steam", "display_name": "Steam", "kind": "launcher", "name": "Steam",
+                       "version": "2.10.91.91", "path": None, "source": "registry HKLM (32-bit)"}],
+            games=[{"store": "epic", "app_id": "Fortnite", "name": "Fortnite",
+                    "install_path": r"D:\Games\Fortnite", "version": None}],
+            stores={"steam": {"status": "detected", "path": r"C:\Steam", "source": "registry"},
+                    "epic": {"status": "not detected", "path": None, "source": "manifests"}},
+        )
+
+    def test_worker_emits_discovery(self, qapp):
+        manager = Mock(); manager.scan.return_value = []
+        worker = BenchmarkWorker(manager)
+        got = []
+        worker.discovery_ready.connect(got.append)
+        result = self._result()
+        with patch('app.ui.main_window.select_adapter', side_effect=RuntimeError('x')),                 patch('app.ui.main_window.discover_installed', return_value=result):
+            worker.run()
+        assert got == [result]
+
+    def test_library_shows_tools_games_and_saves_with_env_link(self, qapp):
+        mock_db = Mock()
+        mock_db.save_environment_snapshot.return_value = 7
+        with patch.object(MainWindow, 'start_scan'):
+            window = MainWindow(mock_db, {})
+        from app.environment.profile import EnvironmentProfile
+        window._on_profile_ready(EnvironmentProfile())
+        window._on_discovery_ready(self._result())
+        table = window.tools_table
+        assert table.rowCount() == 2
+        assert [table.item(0, c).text() for c in range(5)] ==             ["launcher", "Steam", "2.10.91.91", "-", "registry HKLM (32-bit)"]
+        assert table.item(1, 0).text() == "game (epic)"
+        assert "epic: not detected" in window.stores_label.text()
+        assert "steam: detected" in window.stores_label.text()
+        mock_db.save_discovery_snapshot.assert_called_once()
+        assert mock_db.save_discovery_snapshot.call_args[0][1] == 7
         window.close()

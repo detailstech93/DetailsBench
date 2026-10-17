@@ -81,6 +81,17 @@ class Database:
                 )
             """)
 
+            # Discovery snapshots (Phase 3B) - matched software/games only, as JSON
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS discovery_snapshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    environment_snapshot_id INTEGER NULL REFERENCES environment_snapshots(id),
+                    created_at TEXT NOT NULL,
+                    result_json TEXT NOT NULL,
+                    is_test BOOLEAN DEFAULT 0
+                )
+            """)
+
             # ── Additive migrations ──────────────────────────────────────────
             cursor.execute("PRAGMA table_info(results)")
             results_cols = [col[1] for col in cursor.fetchall()]
@@ -231,6 +242,37 @@ class Database:
             return None
 
         return self._snapshot_row(row)
+
+    def save_discovery_snapshot(self, result: dict, environment_snapshot_id: Optional[int] = None,
+                                is_test: bool = False) -> int:
+        """Save a DiscoveryResult dict (matched entries only) and return its ID."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO discovery_snapshots (environment_snapshot_id, created_at, result_json, is_test) "
+            "VALUES (?, ?, ?, ?)",
+            (environment_snapshot_id, datetime.now().isoformat(), json.dumps(result, sort_keys=True), is_test)
+        )
+        snapshot_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return snapshot_id
+
+    def get_latest_discovery_snapshot(self, include_test: bool = False) -> Optional[dict]:
+        """Newest discovery snapshot: {id, environment_snapshot_id, created_at, is_test, result}."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        where = "" if include_test else "WHERE is_test = 0 "
+        cursor.execute(
+            "SELECT id, environment_snapshot_id, created_at, is_test, result_json "
+            f"FROM discovery_snapshots {where}ORDER BY id DESC LIMIT 1"
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if row is None:
+            return None
+        return {"id": row[0], "environment_snapshot_id": row[1], "created_at": row[2],
+                "is_test": bool(row[3]), "result": json.loads(row[4])}
 
     @staticmethod
     def _snapshot_row(row) -> dict:
