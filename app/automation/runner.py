@@ -7,6 +7,7 @@ further run; runs that never started are reported, not stored. A run that
 does not complete gets a diagnostic snapshot in its run folder.
 """
 
+import json
 import math
 import threading
 from dataclasses import dataclass, field
@@ -48,7 +49,8 @@ class AutomationRunner:
     def __init__(self, db, session_id: int, plan: List[PlanItem], output_root: Path,
                  cooldown_seconds: float = 0.0, stop_event: Optional[threading.Event] = None,
                  on_progress: Optional[Callable[[str], None]] = None,
-                 screenshot: Optional[Callable[[Path], bool]] = None):
+                 screenshot: Optional[Callable[[Path], bool]] = None,
+                 telemetry: Optional[Callable[[], object]] = None):
         self.db = db
         self.session_id = session_id
         self.plan = plan
@@ -57,6 +59,7 @@ class AutomationRunner:
         self.stop_event = stop_event or threading.Event()
         self.on_progress = on_progress or (lambda message: None)
         self.screenshot = screenshot
+        self.telemetry = telemetry          # factory: a new, not started TelemetrySampler per run
 
     def stop(self):
         self.stop_event.set()
@@ -74,6 +77,31 @@ class AutomationRunner:
                 self.db.save_result_metrics(result_id, rows)
             except Exception as e:
                 self.on_progress(f"metrics not stored: {e}")
+
+    def _start_telemetry(self):
+        if self.telemetry is None:
+            return None
+        try:
+            return self.telemetry().start()
+        except Exception as e:              # telemetry never blocks a run
+            self.on_progress(f"telemetry not started: {e}")
+            return None
+
+    def _finish_telemetry(self, sampler, run_dir: Path) -> dict:
+        """Stop sampling; keep telemetry.csv and telemetry.json in the run folder; return summary metrics."""
+        if sampler is None:
+            return {}
+        from app.telemetry.sampler import summarize, write_csv
+        try:
+            result = sampler.stop()
+            write_csv(result, run_dir / "telemetry.csv")
+            (run_dir / "telemetry.json").write_text(json.dumps(
+                {"samples": len(result.samples), "unavailable": result.unavailable,
+                 "read_errors": result.errors, "last_error": result.last_error}, indent=2), encoding="utf-8")
+            return summarize(result)
+        except Exception as e:
+            self.on_progress(f"telemetry not stored: {e}")
+            return {}
 
     def _schedule(self):
         for item in self.plan:
@@ -105,10 +133,12 @@ class AutomationRunner:
             self.on_progress(f"{wl.display_name}: {label} started")
             ctx = RunContext(output_dir=run_dir, timeout_seconds=item.timeout_seconds,
                              stop_event=self.stop_event, run_index=run_index, is_warmup=is_warmup)
+            sampler = self._start_telemetry()
             try:
                 result = wl.run(ctx)
             except Exception as e:      # a broken workload must not end the whole plan
                 result = WorkloadResult(status="failed", error=f"workload raised: {e}")
+            telemetry_metrics = self._finish_telemetry(sampler, run_dir)
             record = RunRecord(wl.id, run_index, is_warmup, result, None, run_dir)
             if result.status != "completed":
                 record.diagnostics = write_snapshot(
@@ -120,8 +150,8 @@ class AutomationRunner:
                 benchmark_version=wl.version(), is_test=wl.is_test, is_manual=False,
                 status=result.status, is_warmup=is_warmup, run_index=run_index,
                 note=result.error)
-            if result.status == "completed" and result.metrics:
-                self._store_metrics(record.result_id, result.metrics)
+            if result.status == "completed" and (result.metrics or telemetry_metrics):
+                self._store_metrics(record.result_id, {**telemetry_metrics, **(result.metrics or {})})
             summary.records.append(record)
             shown = f"{result.score:g} {result.unit or ''}".strip() if result.score is not None else result.error
             self.on_progress(f"{wl.display_name}: {label} {result.status} ({shown})")
