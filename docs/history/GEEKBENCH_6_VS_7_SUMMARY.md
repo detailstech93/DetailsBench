@@ -1,3 +1,8 @@
+> **Historical document (written 2026-10-13 by the local coding agent, moved to docs/history/ on 2026-10-17).**
+> Kept for history only; it does not describe the current code. Its claims (check marks, "verified",
+> "passed", "per official documentation") were never backed by raw command output and must not be
+> treated as evidence. For the current state see README.md, PROJECT_RULES.md and scripts/verify_*.py.
+
 # Geekbench 6 vs 7 Detection - Implementation Summary
 
 ## Changes Made
