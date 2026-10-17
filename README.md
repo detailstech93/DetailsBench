@@ -178,6 +178,24 @@ Real-machine check: `python scripts/verify_steam.py`.
 Verified manually on this machine (2026-10-17): libraries `C:\Program Files (x86)\Steam` and `Z:\SteamLibrary`
 (network share), 15 apps found, no SteamID in the results. Launching a game from the tab: not tested yet.
 
+### Results, Sessions and Statistics
+
+- Recording: in **Run Benchmarks**, "Record result..." per ready benchmark. Choose measured or warmup, the status
+  (completed, failed, timed_out, cancelled, skipped, invalid, awaiting_manual_input), the score exactly as displayed,
+  unit and note. All entries are stored as MANUAL (`is_manual=1`). Only completed runs may have a score: a failure is
+  never stored as a number, and the database refuses it.
+- Sessions: the first recorded result creates a session; "Start new session" begins the next. Each session gets a
+  manifest once (`session_manifests`): app version and git commit, Python version, run settings, the environment
+  profile, the benchmarks ready at session start (version, path, architecture, compatibility), the games used, and a
+  comparability block (runtimes, emulation).
+- Statistics (**Session History** tab, `app/stats.py`): per session and benchmark, runs counted, mean, median, min,
+  max, sample standard deviation and CV %. Warmup, not-completed, test and score-less runs are excluded and counted
+  by reason; the source column shows MANUAL, real or mixed. Std dev and CV need at least two runs.
+- Schema changes are additive (`status`, `is_warmup`, `run_index`, `note` on results); older rows keep their data and
+  their status is derived from `passed`.
+
+Check the production database: `python scripts/verify_stats.py` (add `--include-test` to show test data).
+
 ### Database Location
 
 The production database is stored per user, not in the project folder:
