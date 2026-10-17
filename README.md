@@ -292,7 +292,18 @@ Architectures:
   password prompt) after you confirm. A MangoHud package was checked to exist for Debian on x64 and ARM64 only; other
   combinations are marked as not verified. Capturing frames with MangoHud is not implemented yet.
 
-The PresentMon capture flags are marked "not yet verified on this machine" until they have been checked with a real capture.
+The PresentMon capture flags are marked "not yet verified on this machine" until they have been checked with a real capture:
+
+```bash
+python scripts/verify_frames.py            # find PresentMon, check its --help lists every flag the app uses
+python scripts/verify_frames.py --capture  # plus one 10 s capture of the script's own animated window (UAC prompt)
+```
+
+Checked on this machine (2026-10-17): PresentMon 2.6.0 `--help` lists every flag the app uses. Three elevated
+captures (one of the script's own Direct3D 11 window by PID, one of all processes) started and stopped normally
+with exit code 0 but recorded no frames, so PresentMon wrote no CSV and the run was stored as `failed` without a
+score. Windows reported this as a remote session (`SM_REMOTESESSION`), which is the likely cause (not confirmed);
+the capture must be repeated at the machine's own console before the flags are marked verified.
 
 ### Database Location
 
