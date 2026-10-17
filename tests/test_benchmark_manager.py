@@ -945,18 +945,24 @@ class TestProcessSnapshot:
         assert _has_new_process(before, after, 'Geekbench 6.exe') is True
 
     def test_snapshot_returns_list(self):
-        """_get_process_snapshot returns a list of (image, path) tuples."""
-        with patch('subprocess.run') as mock_run:
-            mock_result = Mock()
-            mock_result.returncode = 0
-            mock_result.stdout = '"chrome.exe","1234","Console","Console","1024 K"\n'
-            mock_run.return_value = mock_result
+        """MOCK: fake psutil processes -> (image, exe_or_None) tuples;
+        nameless entries are skipped, unreadable exe becomes None."""
+        procs = [
+            Mock(info={'name': 'chrome.exe', 'exe': r'C:\Chrome\chrome.exe'}),
+            Mock(info={'name': 'Geekbench 6.exe', 'exe': None}),
+            Mock(info={'name': None, 'exe': None}),
+        ]
+        with patch('psutil.process_iter', return_value=procs):
             snapshot = _get_process_snapshot()
-            assert isinstance(snapshot, list)
-            # Each entry is (image_name, exe_path_or_None)
-            for entry in snapshot:
-                assert isinstance(entry, tuple)
-                assert len(entry) == 2
+        assert snapshot == [
+            ('chrome.exe', r'C:\Chrome\chrome.exe'),
+            ('Geekbench 6.exe', None),
+        ]
+
+    def test_snapshot_failure_returns_empty(self):
+        """MOCK: psutil raising -> empty snapshot, no exception."""
+        with patch('psutil.process_iter', side_effect=RuntimeError('boom')):
+            assert _get_process_snapshot() == []
 
 
 # ═══════════════════════════════════════════════════════════════════════════

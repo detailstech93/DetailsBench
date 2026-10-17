@@ -319,33 +319,12 @@ def _get_process_snapshot() -> List[Tuple[str, Optional[str]]]:
     """
     snapshot: List[Tuple[str, Optional[str]]] = []
     try:
-        res = subprocess.run(
-            ["tasklist", "/FO", "CSV", "/NH", "/FI", "MEMUSAGE ne 0"],
-            capture_output=True, text=True, timeout=5,
-        )
-        if res.returncode == 0 and res.stdout:
-            reader = csv.reader(io.StringIO(res.stdout))
-            for row in reader:
-                if not row:
-                    continue
-                image = row[0].strip()
-                # Try to get executable path via a second query
-                exe_path: Optional[str] = None
-                try:
-                    path_res = subprocess.run(
-                        ["wmic", "process", "where",
-                         f"Name='{image}'",
-                         "get", "ExecutablePath", "/format:list"],
-                        capture_output=True, text=True, timeout=3,
-                    )
-                    if path_res.returncode == 0 and path_res.stdout.strip():
-                        for line in path_res.stdout.splitlines():
-                            if line.startswith("ExecutablePath="):
-                                exe_path = line.split("=", 1)[1].strip()
-                                break
-                except Exception:
-                    pass
-                snapshot.append((image, exe_path))
+        import psutil
+        # One pass; exe is None where access is denied (e.g. elevated processes)
+        for proc in psutil.process_iter(['name', 'exe']):
+            image = proc.info.get('name')
+            if image:
+                snapshot.append((image, proc.info.get('exe') or None))
     except Exception as e:
         logger.debug(f"Process snapshot error: {e}")
     return snapshot
