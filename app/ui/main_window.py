@@ -23,6 +23,8 @@ from app.benchmark_manager import (
     BenchmarkManager, BenchmarkExecutor, BenchmarkInfo,
     BenchmarkStatus, BenchmarkType, launch_assisted_benchmark
 )
+from app.environment.adapters import select_adapter
+from app.environment.profile import DETECTED, UNVERIFIED, EnvironmentProfile
 from data.benchmark_definitions import (
     DEFINITIONS_BY_ID,
     get_default_page_version,
@@ -42,6 +44,7 @@ class BenchmarkWorker(QThread):
     scan_finished = Signal(list)
     scan_error = Signal(str)
     progress = Signal(str)
+    profile_ready = Signal(object)   # EnvironmentProfile
 
     def __init__(self, benchmark_manager: BenchmarkManager):
         super().__init__()
@@ -53,9 +56,15 @@ class BenchmarkWorker(QThread):
         self._is_running = True
         self.scan_started.emit()
         try:
+            self.progress.emit("Building environment profile...")
+            profile = None
+            try:
+                profile = select_adapter().build_profile()
+                self.profile_ready.emit(profile)
+            except Exception:
+                logger.exception("Environment profile failed; scanning without it")
             self.progress.emit("Scanning system capabilities and benchmarks...")
-            # Calls scan() only, as required
-            benchmarks = self.benchmark_manager.scan()
+            benchmarks = self.benchmark_manager.scan(profile)
             self.scan_finished.emit(benchmarks)
         except Exception as e:
             logger.exception("Background benchmark scan failed")
@@ -222,6 +231,27 @@ def _status_label(bm: BenchmarkInfo) -> str:
     return bm.status.value
 
 
+ENV_FIELD_LABELS = [
+    ("os_name", "OS"), ("os_version", "OS version"), ("os_build", "OS build"),
+    ("native_arch", "Native architecture"), ("process_arch", "App architecture"),
+    ("x64_emulated", "x64 runs emulated"), ("app_is_elevated", "App runs as administrator"),
+    ("is_wsl", "Inside WSL"), ("is_virtual_machine", "Virtual machine"),
+    ("cpu", "CPU"), ("ram_gb", "Memory (GB)"), ("gpu", "GPUs"),
+    ("directx", "DirectX"), ("vulkan", "Vulkan"), ("opengl", "OpenGL"),
+    ("display_server", "Display server"),
+]
+
+
+def _format_env_value(value: Any) -> str:
+    if value is None:
+        return "not available"
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if isinstance(value, (list, tuple)):
+        return ", ".join(str(v) for v in value)
+    return str(value)
+
+
 class MainWindow(QMainWindow):
     """Main application window for PC Benchmark Manager."""
     
@@ -231,6 +261,7 @@ class MainWindow(QMainWindow):
         self.db = db
         self.system_info = system_info or {}
         self.current_session_id: Optional[int] = None
+        self.environment_profile: Optional[EnvironmentProfile] = None
         
         # One shared BenchmarkManager instance attribute
         self.benchmark_manager = BenchmarkManager()
@@ -329,8 +360,33 @@ class MainWindow(QMainWindow):
         group_layout.addRow("Operating System:", QLabel(os_val))
         
         layout.addWidget(group)
+
+        env_group = QGroupBox("Environment Profile")
+        env_group.setToolTip("Each value is marked detected, unverified or unavailable. "
+                             "Hover a value to see where it came from.")
+        self.env_form = QFormLayout(env_group)
+        self.env_form.setLabelAlignment(Qt.AlignRight)
+        self.env_value_labels: Dict[str, QLabel] = {}
+        for name, title in ENV_FIELD_LABELS:
+            label = QLabel("Scanning...")
+            label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            self.env_value_labels[name] = label
+            self.env_form.addRow(f"{title}:", label)
+        layout.addWidget(env_group)
         layout.addStretch(1)
         return tab
+
+    def refresh_environment_view(self):
+        """Show the current EnvironmentProfile on the Dashboard."""
+        profile = self.environment_profile
+        if profile is None:
+            return
+        for name, label in self.env_value_labels.items():
+            f = getattr(profile, name)
+            label.setText(f"{_format_env_value(f.value)}   [{f.status}]")
+            label.setToolTip(f"source: {f.source or 'n/a'}")
+            color = {DETECTED: "", UNVERIFIED: "color: #B26A00;"}.get(f.status, "color: #757575;")
+            label.setStyleSheet(color)
     
     def _create_library_tab(self) -> QWidget:
         """Create Benchmark Library tab showing all detected benchmarks."""
@@ -435,6 +491,7 @@ class MainWindow(QMainWindow):
         self._scan_worker.progress.connect(self._on_scan_progress)
         self._scan_worker.scan_finished.connect(self._on_scan_finished)
         self._scan_worker.scan_error.connect(self._on_scan_error)
+        self._scan_worker.profile_ready.connect(self._on_profile_ready)
         
         self._scan_worker.start()
 
@@ -456,6 +513,17 @@ class MainWindow(QMainWindow):
                 self._launch_worker.wait(1000)
         event.accept()
     
+    @Slot(object)
+    def _on_profile_ready(self, profile: EnvironmentProfile):
+        """Store and show the profile, and save it as an environment snapshot."""
+        self.environment_profile = profile
+        self.refresh_environment_view()
+        if self.db is not None:
+            try:
+                self.db.save_environment_snapshot(profile.to_dict())
+            except Exception:
+                logger.exception("Could not save environment snapshot")
+
     @Slot(str)
     def _on_scan_progress(self, msg: str):
         """Handle worker progress signal."""

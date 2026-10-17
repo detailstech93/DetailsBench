@@ -538,3 +538,71 @@ class TestStatusLabel:
         bm = BenchmarkInfo(name='glmark2', display_name='glmark2',
                            type=BenchmarkType.GPU, status=status, reason=reason)
         assert _status_label(bm) == expected
+
+
+class TestEnvironmentProfileUI:
+    """MOCK: fake profiles into the REAL worker, Dashboard and snapshot slot."""
+
+    def _profile(self):
+        from app.environment.profile import EnvironmentProfile, detected, unavailable, unverified
+        p = EnvironmentProfile()
+        p.os_name = detected('Windows 11 Professional', 'build')
+        p.gpu = detected(['Intel(R) Graphics', 'NVIDIA GeForce RTX 5090 Laptop GPU'], 'cim')
+        p.vulkan = unverified('Vulkan loader present', 'dll')
+        p.app_is_elevated = detected(False, 'IsUserAnAdmin')
+        p.display_server = unavailable('not Linux')
+        return p
+
+    def test_worker_builds_profile_and_passes_it_to_scan(self, qapp):
+        manager = Mock()
+        manager.scan.return_value = []
+        worker = BenchmarkWorker(manager)
+        profiles, finished = [], []
+        worker.profile_ready.connect(profiles.append)
+        worker.scan_finished.connect(finished.append)
+        profile = self._profile()
+        with patch('app.ui.main_window.select_adapter') as sel:
+            sel.return_value.build_profile.return_value = profile
+            worker.run()
+        assert profiles == [profile]
+        manager.scan.assert_called_once_with(profile)
+        assert finished == [[]]
+
+    def test_worker_scans_without_profile_when_profile_fails(self, qapp):
+        manager = Mock()
+        manager.scan.return_value = []
+        worker = BenchmarkWorker(manager)
+        profiles, finished = [], []
+        worker.profile_ready.connect(profiles.append)
+        worker.scan_finished.connect(finished.append)
+        with patch('app.ui.main_window.select_adapter', side_effect=RuntimeError('boom')):
+            worker.run()
+        assert profiles == []
+        manager.scan.assert_called_once_with(None)
+        assert finished == [[]]
+
+    def test_dashboard_shows_values_with_status(self, qapp):
+        mock_db = Mock()
+        with patch.object(MainWindow, 'start_scan'):
+            window = MainWindow(mock_db, {})
+        assert window.env_value_labels['os_name'].text() == 'Scanning...'
+        window._on_profile_ready(self._profile())
+        labels = window.env_value_labels
+        assert labels['os_name'].text() == 'Windows 11 Professional   [detected]'
+        assert labels['gpu'].text().startswith('Intel(R) Graphics, NVIDIA GeForce RTX 5090')
+        assert labels['vulkan'].text().endswith('[unverified]')
+        assert labels['app_is_elevated'].text() == 'no   [detected]'
+        assert labels['display_server'].text() == 'not available   [unavailable]'
+        assert labels['os_name'].toolTip() == 'source: build'
+        mock_db.save_environment_snapshot.assert_called_once()
+        assert mock_db.save_environment_snapshot.call_args[0][0]['os_name']['value'] == 'Windows 11 Professional'
+        window.close()
+
+    def test_snapshot_save_failure_does_not_break_ui(self, qapp):
+        mock_db = Mock()
+        mock_db.save_environment_snapshot.side_effect = RuntimeError('db locked')
+        with patch.object(MainWindow, 'start_scan'):
+            window = MainWindow(mock_db, {})
+        window._on_profile_ready(self._profile())
+        assert window.env_value_labels['os_name'].text().startswith('Windows 11')
+        window.close()
