@@ -231,6 +231,40 @@ Session History tab: select a session in the sessions table, then:
 Files are written under a temporary `.partial` name and renamed when complete.
 Command line: `python scripts/verify_export.py [id] [--include-test] [--out DIR] [--backup]`.
 
+### Automation (Command-Line Tools)
+
+Run Benchmarks tab, section **Automated runs**. Each external command-line benchmark is one small JSON spec in
+`data/tools/` (format and rules in `data/tools/README.md`); a broken spec file is skipped and its errors are shown.
+
+- **Run automated...** shows every command, the run count and the worst-case duration, and asks first. Repetitions,
+  warmup runs and cooldown come from the selected run profile; the timeout comes from the tool spec. Each plan
+  creates a new session with its manifest (a test session when only `selftest_` tools are selected).
+- Every run is stored with its status. A run that is skipped, failed, cancelled, timed out or produced no usable
+  score (`invalid`) never gets a score, and its run folder gets `diagnostics.json` (output tails and a system snapshot).
+- **Emergency stop** (red button, or `Ctrl+Shift+X` while the app window has focus) ends the current run and starts
+  no further run. There is no system-wide hotkey. A stop or timeout terminates only the process tree the app itself
+  started (terminate, then kill after 5 s); no other process is touched.
+- **Screenshot on failure** is off by default because it captures the whole desktop. It is saved only in the run folder.
+- Run folders: `automation_runs\` next to the database (stdout, stderr and diagnostics for each run).
+
+Only the framework self-test (`selftest_python`, a 2 s Python loop stored as test data) ships for now. No command
+for a real tool is added until it has been checked on a real machine with its raw output.
+
+Design decision (GUI benchmarks such as Geekbench): their windows may run elevated, and Windows UIPI blocks
+a normal-integrity process from sending input to an elevated window (not verified on this machine). They stay
+assisted: the app launches them, and the user records the result. Tools that need administrator rights
+(`requires_elevation: true`) are rejected by the spec validator. The Geekbench command line needs a Pro license and is not used.
+
+Real-machine check (temporary database by default; `--production` stores the self-test as a test session):
+
+```bash
+python scripts/verify_automation.py
+```
+
+Verified on this machine (2026-10-17): 3 self-test runs stored as `completed` with their raw stdout; the emergency
+stop ended a child and its own child within 1.2 s (`cancelled`, 2 runs not started); a 1 s timeout ended both
+processes (`timed_out`, no score, diagnostics written).
+
 ### Database Location
 
 The production database is stored per user, not in the project folder:
