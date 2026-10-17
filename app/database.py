@@ -114,6 +114,18 @@ class Database:
                 )
             """)
 
+            # Extra numbers of one run (Phase 6), e.g. 1% low FPS of a frame capture.
+            # Only finite numbers; a run that is not completed gets none.
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS result_metrics (
+                    result_id INTEGER NOT NULL REFERENCES results(id),
+                    name TEXT NOT NULL,
+                    value REAL NOT NULL,
+                    unit TEXT,
+                    PRIMARY KEY (result_id, name)
+                )
+            """)
+
             # ── Additive migrations ──────────────────────────────────────────
             cursor.execute("PRAGMA table_info(results)")
             results_cols = [col[1] for col in cursor.fetchall()]
@@ -426,6 +438,43 @@ class Database:
         conn.commit()
         conn.close()
         return cur.rowcount > 0
+
+    def save_result_metrics(self, result_id: int, metrics: dict) -> int:
+        """Store {name: (value, unit)} for a completed run; returns the number stored.
+
+        Raises ValueError (nothing stored) for a run that is missing or not completed,
+        a non-finite value, or a name that is already stored for this run.
+        """
+        import math
+        rows = []
+        for name, (value, unit) in metrics.items():
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ValueError(f"metric {name!r} is not a finite number: {value!r}")
+            rows.append((result_id, str(name), float(value), unit))
+        conn = self._get_connection()
+        try:
+            row = conn.execute("SELECT status, passed FROM results WHERE id = ?", (result_id,)).fetchone()
+            if row is None:
+                raise ValueError(f"result {result_id} does not exist")
+            if (row[0] or ("completed" if row[1] else "failed")) != "completed":
+                raise ValueError(f"result {result_id} is {row[0]}; only completed runs get metrics")
+            conn.executemany("INSERT INTO result_metrics (result_id, name, value, unit) VALUES (?, ?, ?, ?)", rows)
+            conn.commit()
+        except sqlite3.IntegrityError as exc:
+            raise ValueError(f"metrics not stored for result {result_id}: {exc}")
+        finally:
+            conn.close()
+        return len(rows)
+
+    def get_result_metrics(self, result_id: int) -> dict:
+        """{name: (value, unit)}; {} when the run has none."""
+        conn = self._get_connection()
+        try:
+            rows = conn.execute("SELECT name, value, unit FROM result_metrics WHERE result_id = ? ORDER BY name",
+                                (result_id,)).fetchall()
+        finally:
+            conn.close()
+        return {name: (value, unit) for name, value, unit in rows}
 
     def save_session_manifest(self, session_id: int, manifest: dict) -> None:
         """Store the session's manifest once; a second save raises ValueError."""

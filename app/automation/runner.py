@@ -7,6 +7,7 @@ further run; runs that never started are reported, not stored. A run that
 does not complete gets a diagnostic snapshot in its run folder.
 """
 
+import math
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -60,6 +61,20 @@ class AutomationRunner:
     def stop(self):
         self.stop_event.set()
 
+    def _store_metrics(self, result_id: int, metrics: dict):
+        """Numbers become rows ({name: value} or {name: (value, unit)}); text metrics are skipped.
+        A metrics problem never changes the stored run."""
+        rows = {}
+        for name, value in metrics.items():
+            value, unit = value if isinstance(value, tuple) else (value, None)
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
+                rows[name] = (value, unit)
+        if rows:
+            try:
+                self.db.save_result_metrics(result_id, rows)
+            except Exception as e:
+                self.on_progress(f"metrics not stored: {e}")
+
     def _schedule(self):
         for item in self.plan:
             for i in range(item.warmup_runs):
@@ -105,6 +120,8 @@ class AutomationRunner:
                 benchmark_version=wl.version(), is_test=wl.is_test, is_manual=False,
                 status=result.status, is_warmup=is_warmup, run_index=run_index,
                 note=result.error)
+            if result.status == "completed" and result.metrics:
+                self._store_metrics(record.result_id, result.metrics)
             summary.records.append(record)
             shown = f"{result.score:g} {result.unit or ''}".strip() if result.score is not None else result.error
             self.on_progress(f"{wl.display_name}: {label} {result.status} ({shown})")
