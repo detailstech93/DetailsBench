@@ -73,7 +73,7 @@ Pytest channel-boundary and comparability tests (`TestComparability`, `TestLaunc
 | **geekbench_7** | Registry, Filesystem, Start Menu | `READY_MANUAL` | Assisted / Manual | 7.1.0.0 | x64 | Windows GUI version requires manual execution; automation/CLI requires a Pro license; not verified for this version; License: not verified |
 | **cinebench** | Appx package, Start Menu | `READY_MANUAL` | Assisted / Manual | 2026.1.3.0 | X64 | Store package version 2026.1.3.0, architecture X64; launch it from the Start menu |
 | **d3dmark** | Registry, Filesystem, Start Menu | `NOT_INSTALLED` | N/A | None | None | 3DMark not found on this system |
-| **glmark2** | WSL check | `MISSING_PREREQS` | N/A | None | None | glmark2 is not verified for native Windows; WSL present, install glmark2 inside WSL distro |
+| **glmark2** | WSL check | `UNSUPPORTED` (shown as "Unsupported on this system") | N/A | None | None | glmark2 is not verified for native Windows and this app does not launch WSL programs; the reason says whether WSL is present |
 | **speedometer** | Browser detection | `READY_MANUAL` | Assisted / Manual | 3.1 | Browser | Compatible browsers detected: Chrome 155, Edge 155 (manual execution required) | Verified manually by the user on this machine, 2026-10-16 |
 | **jetstream** | Browser detection | `READY_MANUAL` | Assisted / Manual | 3.0 | Browser | Compatible browsers detected: Chrome 155, Edge 155 (manual execution required) | Verified manually by the user on this machine, 2026-10-16 |
 

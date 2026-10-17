@@ -199,6 +199,17 @@ class _WebLaunchWorker(QThread):
             })
 
 
+def _status_label(bm: BenchmarkInfo) -> str:
+    """Text shown for a benchmark's status in the Library table."""
+    if bm.status == BenchmarkStatus.SCAN_ERROR:
+        return f"could not check: {bm.reason or 'unknown error'}"
+    if bm.status == BenchmarkStatus.READY_MANUAL:
+        return "assisted/manual"
+    if bm.status == BenchmarkStatus.UNSUPPORTED:
+        return "Unsupported on this system"
+    return bm.status.value
+
+
 class MainWindow(QMainWindow):
     """Main application window for PC Benchmark Manager."""
     
@@ -484,13 +495,9 @@ class MainWindow(QMainWindow):
             any_ready = False
             any_error = False
             for gb in geekbenches:
+                st = _status_label(gb)
                 if gb.status == BenchmarkStatus.SCAN_ERROR:
-                    st = f"could not check: {gb.reason or 'unknown error'}"
                     any_error = True
-                elif gb.status == BenchmarkStatus.READY_MANUAL:
-                    st = "assisted/manual"
-                else:
-                    st = gb.status.value
                 if gb.status in (BenchmarkStatus.READY_MANUAL, BenchmarkStatus.READY_AUTO):
                     any_ready = True
                 status_lines.append(f"{gb.display_name}: {st}")
@@ -517,15 +524,8 @@ class MainWindow(QMainWindow):
             })
             
         for bm in others:
-            if bm.status == BenchmarkStatus.SCAN_ERROR:
-                st = f"could not check: {bm.reason or 'unknown error'}"
-                status_is_error = True
-            elif bm.status == BenchmarkStatus.READY_MANUAL:
-                st = "assisted/manual"
-                status_is_error = False
-            else:
-                st = bm.status.value
-                status_is_error = False
+            st = _status_label(bm)
+            status_is_error = bm.status == BenchmarkStatus.SCAN_ERROR
             ver_text = bm.version or "None"
             arch_text = bm.architecture or "None"
             method_text = bm.detection_method or "not_found"

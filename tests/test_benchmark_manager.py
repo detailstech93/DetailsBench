@@ -438,7 +438,8 @@ class TestChannelIsolation:
 # ═══════════════════════════════════════════════════════════════════════════
 
 class TestGlmark2Wsl:
-    """glmark2 must report Unsupported or Missing Prerequisites based on WSL."""
+    """glmark2 is Unsupported on Windows whether or not WSL is present
+    (the app cannot launch programs inside WSL); the reason says which."""
 
     @patch('subprocess.run')
     def test_glmark2_wsl_absent(self, mock_run):
@@ -455,7 +456,7 @@ class TestGlmark2Wsl:
 
     @patch('subprocess.run')
     def test_glmark2_wsl_present(self, mock_run):
-        """WSL present → MISSING_PREREQS."""
+        """WSL present → still UNSUPPORTED (not runnable from this app)."""
         mock_result = Mock()
         mock_result.returncode = 0
         mock_run.return_value = mock_result
@@ -463,7 +464,8 @@ class TestGlmark2Wsl:
         channel_errors = []
         results = manager._discover_glmark2(channel_errors)
         assert len(results) == 1
-        assert results[0].status == BenchmarkStatus.MISSING_PREREQS
+        assert results[0].status == BenchmarkStatus.UNSUPPORTED
+        assert results[0].is_runnable() is False
         assert 'WSL is present' in results[0].reason
         assert results[0].file_exists is None
 

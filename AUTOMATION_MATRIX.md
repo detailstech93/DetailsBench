@@ -15,7 +15,7 @@
 | **geekbench_7** | CPU | READY_MANUAL | 7.1.0.0 | x64 | `C:\Program Files\Geekbench 7\Geekbench 7.exe` | Start Menu, filesystem pattern, registry | Windows GUI version requires manual execution; automation/CLI requires a Pro license; not verified for this version; License: not verified |
 | **cinebench** | CPU | READY_MANUAL | 2026.1.3.0 | X64 | *no exe path* (Store AppID: `MAXONComputerGmbH.Cinebench_rsne5bsk8s7tj!Cinebench`) | Appx, Start Menu | Store package version 2026.1.3.0, architecture X64; launch it from the Start menu |
 | **d3dmark** | GPU | NOT_INSTALLED | None | None | *no exe path* | not_found | 3DMark not found on this system |
-| **glmark2** | GPU | MISSING_PREREQS | None | None | *no exe path* | wsl_check | glmark2 is not verified for native Windows. WSL is present on this system; install glmark2 inside a WSL distro. |
+| **glmark2** | GPU | UNSUPPORTED | None | None | *no exe path* | wsl_check | glmark2 is not verified for native Windows; it can only be used through WSL, which this app does not launch. The reason notes whether WSL is present. |
 | **speedometer** | Web | READY_MANUAL | 3.1 | None | *no exe path* | browser_detection | Compatible browsers detected: Chrome 155.0.8059.40, Edge 155.0.4283.45 (manual execution required) |
 | **jetstream** | Web | READY_MANUAL | 3.0 | None | *no exe path* | browser_detection | Compatible browsers detected: Chrome 155.0.8059.40, Edge 155.0.4283.45 (manual execution required) |
 

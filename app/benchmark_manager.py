@@ -1105,46 +1105,32 @@ $res | ConvertTo-Json -Depth 3
         except Exception as exc:
             channel_errors.append(f"channel wsl_check failed: {exc}")
 
-        if wsl_present:
-            return [BenchmarkInfo(
-                name='glmark2',
-                display_name='glmark2',
-                type=BenchmarkType.GPU,
-                status=BenchmarkStatus.MISSING_PREREQS,
-                executable_path=None,
-                version=None,
-                architecture=None,
-                official_url='https://github.com/glmark2/glmark2',
-                reason=(
-                    'glmark2 is not verified for native Windows. '
-                    'It can only be used through WSL, which is a Linux environment. '
-                    'WSL is present on this system; install glmark2 inside a WSL distro.'
-                ),
-                prerequisites=['WSL', 'Linux glmark2 package'],
-                detection_method='wsl_check',
-                file_exists=None,
-                scan_diagnostics=channel_errors if channel_errors else None,
-            )]
-        else:
-            return [BenchmarkInfo(
-                name='glmark2',
-                display_name='glmark2',
-                type=BenchmarkType.GPU,
-                status=BenchmarkStatus.UNSUPPORTED,
-                executable_path=None,
-                version=None,
-                architecture=None,
-                official_url='https://github.com/glmark2/glmark2',
-                reason=(
-                    'glmark2 is not verified for native Windows; '
-                    'it can only be used through WSL, which is a Linux environment. '
-                    'WSL is not present on this system.'
-                ),
-                prerequisites=['WSL', 'Linux glmark2 package'],
-                detection_method='wsl_check',
-                file_exists=None,
-                scan_diagnostics=channel_errors if channel_errors else None,
-            )]
+        # Unsupported either way: this app cannot launch programs inside WSL,
+        # so installing glmark2 in WSL would not make it runnable from here.
+        wsl_note = (
+            'WSL is present on this system; glmark2 can only be run manually inside a WSL distro.'
+            if wsl_present else
+            'WSL is not present on this system.'
+        )
+        return [BenchmarkInfo(
+            name='glmark2',
+            display_name='glmark2',
+            type=BenchmarkType.GPU,
+            status=BenchmarkStatus.UNSUPPORTED,
+            executable_path=None,
+            version=None,
+            architecture=None,
+            official_url='https://github.com/glmark2/glmark2',
+            reason=(
+                'glmark2 is not verified for native Windows; '
+                'it can only be used through WSL, which this app does not launch. '
+                + wsl_note
+            ),
+            prerequisites=['WSL', 'Linux glmark2 package'],
+            detection_method='wsl_check',
+            file_exists=None,
+            scan_diagnostics=channel_errors if channel_errors else None,
+        )]
 
     # ── Web benchmark discovery (with browser detection via App Paths) ────────
 

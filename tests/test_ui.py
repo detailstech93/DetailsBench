@@ -463,3 +463,19 @@ class TestScanErrorUIDisplay:
         assert window.run_table.item(0, 0).text() == 'Geekbench 6'
 
         window.close()
+
+
+class TestStatusLabel:
+    """_status_label: text shown in the Library status column."""
+
+    @pytest.mark.parametrize('status, reason, expected', [
+        (BenchmarkStatus.UNSUPPORTED, 'WSL is present', 'Unsupported on this system'),
+        (BenchmarkStatus.READY_MANUAL, None, 'assisted/manual'),
+        (BenchmarkStatus.SCAN_ERROR, 'boom', 'could not check: boom'),
+        (BenchmarkStatus.NOT_INSTALLED, None, 'not_installed'),
+    ])
+    def test_status_label(self, status, reason, expected):
+        from app.ui.main_window import _status_label
+        bm = BenchmarkInfo(name='glmark2', display_name='glmark2',
+                           type=BenchmarkType.GPU, status=status, reason=reason)
+        assert _status_label(bm) == expected
