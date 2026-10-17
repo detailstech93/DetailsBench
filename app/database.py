@@ -8,6 +8,10 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+# Result states (Phase 2 spec). Only "completed" runs may carry a score.
+RESULT_STATUSES = ("completed", "failed", "timed_out", "cancelled", "skipped",
+                   "invalid", "awaiting_manual_input")
+
 
 class Database:
     """Thread-safe database manager with connection pooling support."""
@@ -123,6 +127,14 @@ class Database:
                 cursor.execute("ALTER TABLE results ADD COLUMN is_manual BOOLEAN DEFAULT 0")
                 logger.info("Migrated results table: added is_manual column")
 
+            # Phase 4A: run status, warmup flag, run order, free-text note.
+            # status stays NULL on old rows; readers derive it from `passed`.
+            for column, ddl in (("status", "TEXT"), ("is_warmup", "BOOLEAN DEFAULT 0"),
+                                ("run_index", "INTEGER"), ("note", "TEXT")):
+                if column not in results_cols:
+                    cursor.execute(f"ALTER TABLE results ADD COLUMN {column} {ddl}")
+                    logger.info("Migrated results table: added %s column", column)
+
             conn.commit()
         except sqlite3.Error as e:
             logger.error(f"Database initialization failed: {e}")
@@ -153,34 +165,71 @@ class Database:
                       benchmark_type: str, score: Optional[float] = None,
                       unit: str = "points", passed: bool = True,
                       benchmark_version: Optional[str] = None,
-                      is_test: bool = False, is_manual: bool = False) -> int:
-        """Add a result to the specified session."""
+                      is_test: bool = False, is_manual: bool = False,
+                      status: Optional[str] = None, is_warmup: bool = False,
+                      run_index: Optional[int] = None, note: Optional[str] = None) -> int:
+        """Add one run result to the specified session.
+
+        status defaults to "completed" when passed else "failed". A run that
+        is not completed must not carry a score (a failure is never stored
+        as a number, in particular never as zero).
+        """
+        if status is None:
+            status = "completed" if passed else "failed"
+        if status not in RESULT_STATUSES:
+            raise ValueError(f"unknown result status {status!r}")
+        if status != "completed" and score is not None:
+            raise ValueError(f"a {status} run must not have a score (got {score!r})")
         conn = self._get_connection()
         cursor = conn.cursor()
-
-        if benchmark_version:
-            cursor.execute(
-                """INSERT INTO results (session_id, benchmark_name, benchmark_type,
-                                       score, unit, passed, benchmark_version,
-                                       is_test, is_manual)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (session_id, benchmark_name, benchmark_type, score, unit, passed,
-                 benchmark_version, is_test, is_manual)
-            )
-        else:
-            cursor.execute(
-                """INSERT INTO results (session_id, benchmark_name, benchmark_type,
-                                       score, unit, passed, is_test, is_manual)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (session_id, benchmark_name, benchmark_type, score, unit, passed,
-                 is_test, is_manual)
-            )
-
+        cursor.execute(
+            """INSERT INTO results (session_id, benchmark_name, benchmark_type, score, unit,
+                                   passed, benchmark_version, is_test, is_manual,
+                                   status, is_warmup, run_index, note)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (session_id, benchmark_name, benchmark_type, score, unit,
+             status == "completed", benchmark_version or None, is_test, is_manual,
+             status, is_warmup, run_index, note)
+        )
         result_id = cursor.lastrowid
         conn.commit()
         conn.close()
-
         return result_id
+
+    def get_runs(self, session_id: Optional[int] = None, benchmark_name: Optional[str] = None,
+                 include_test: bool = False) -> list:
+        """Run rows for statistics, with an effective status for old rows.
+
+        Old rows (status NULL) count as "completed" if passed else "failed".
+        is_test is true when either the result or its session is a test.
+        """
+        where, params = [], []
+        if session_id is not None:
+            where.append("r.session_id = ?")
+            params.append(session_id)
+        if benchmark_name is not None:
+            where.append("r.benchmark_name = ?")
+            params.append(benchmark_name)
+        if not include_test:
+            where.append("COALESCE(r.is_test, 0) = 0 AND COALESCE(s.is_test, 0) = 0")
+        clause = ("WHERE " + " AND ".join(where)) if where else ""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(f"""
+            SELECT r.id, r.session_id, r.benchmark_name, r.benchmark_type, r.benchmark_version,
+                   r.score, r.unit, r.timestamp, r.run_index, r.note,
+                   COALESCE(r.status, CASE WHEN r.passed THEN 'completed' ELSE 'failed' END) AS status,
+                   COALESCE(r.is_warmup, 0) AS is_warmup,
+                   CASE WHEN COALESCE(r.is_test, 0) OR COALESCE(s.is_test, 0) THEN 1 ELSE 0 END AS is_test,
+                   COALESCE(r.is_manual, 0) AS is_manual
+            FROM results r JOIN sessions s ON r.session_id = s.id
+            {clause}
+            ORDER BY r.session_id, r.benchmark_name, COALESCE(r.run_index, r.id)
+        """, params)
+        columns = [d[0] for d in cursor.description]
+        rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        conn.close()
+        return rows
     
     def save_environment_snapshot(self, profile: dict, session_id: Optional[int] = None,
                                   is_test: bool = False) -> int:
