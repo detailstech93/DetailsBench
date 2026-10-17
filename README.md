@@ -282,6 +282,27 @@ There is no download button. When you press **Capture frames...** (after picking
 for PresentMon; if no usable copy is found, it asks whether to download it, and the capture goes on right after a
 verified download. "No" downloads nothing and captures nothing.
 
+**Game benchmark (automatic)**: pick a game in **Game (Steam)** and press **Benchmark game...**, or press
+**Benchmark...** next to the game in the Steam tab. After one confirmation everything else runs by itself
+(`app/frames/game_benchmark.py`):
+
+1. PresentMon starts elevated ONCE, so there is one UAC prompt per benchmark, not one per run. It records
+   every process, because the game's exe name is known only after it starts.
+2. The game is launched with `steam://rungameid/<appid>` (same rules as the Steam tab's Launch). Its process is
+   the one inside its install folder with the most frames in PresentMon's CSV, which is read every second.
+3. **Skip first (s)** (default 30) of the game's time is not measured (loading, menus). Then the profile's warmup
+   and measured runs are cut from the one recording as consecutive windows of **Seconds** each. Game time is the
+   sum of the game's frame times. PresentMon is stopped as soon as the last window is covered.
+4. Each window is stored as one run (score = average FPS, plus 1% low and the other frame metrics). A window
+   the recording does not reach (the game was closed or stopped showing frames for 30 s) is stored as
+   `invalid` with the reason and no score. If nothing was recorded (UAC declined, the game did not start),
+   nothing is stored and no session is created.
+5. With Record telemetry on, samples are cut into the same windows; they line up with the frames to about one
+   second.
+
+The app never closes the game; close it yourself afterwards. Not yet verified on a real game on this machine
+(only with fakes in tests/test_game_benchmark.py); reading the CSV while PresentMon writes it is the part to check.
+
 Finding PresentMon, in this order (nothing is downloaded when a usable copy exists):
 1. a file you chose with **Select PresentMon...**;
 2. an Intel PresentMon installation (`Program Files\Intel\PresentMon\PresentMonConsoleApplication`);

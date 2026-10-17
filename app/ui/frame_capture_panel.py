@@ -7,6 +7,10 @@ session: score = average FPS, 1% low and the other numbers in result_metrics.
 
 The process list is read in a worker thread and shown only; just the chosen
 process name (and pid for the capture) is used, nothing else is stored.
+
+"Benchmark game..." does it all for one installed Steam game (app/frames/game_benchmark.py): one
+UAC prompt for PresentMon, the game is launched through Steam, its process is found by itself, and
+the warmup and measured windows are captured and stored without any further step.
 """
 
 import logging
@@ -122,6 +126,48 @@ class TaskWorker(QThread):
             self.done.emit(e)
 
 
+class GameBenchmarkWorker(QThread):
+    """Records one game benchmark, then stores its windows through AutomationRunner (no GUI access)."""
+    progress = Signal(str)
+    finished_plan = Signal(object)              # RunSummary, or an error str
+
+    def __init__(self, spec, run_dir: Path, create_session: Callable, db, output_root: Path,
+                 telemetry: Optional[Callable] = None, benchmark_factory: Optional[Callable] = None):
+        super().__init__()
+        import threading
+        self.stop_event = threading.Event()
+        self.spec = spec
+        self.run_dir = run_dir
+        self.create_session = create_session
+        self.db = db
+        self.output_root = output_root
+        self.telemetry = telemetry
+        self.benchmark_factory = benchmark_factory
+        self.session_id: Optional[int] = None
+
+    def stop(self):
+        self.stop_event.set()
+
+    def run(self):
+        from app.automation.runner import AutomationRunner
+        from app.frames.game_benchmark import GameBenchmark, plan_for
+        try:
+            factory = self.benchmark_factory or GameBenchmark
+            capture = factory(self.spec, self.run_dir, self.stop_event, self.progress.emit,
+                              sampler_factory=self.telemetry).run()
+            if capture.status != "recorded":
+                self.finished_plan.emit(f"{capture.status}: {capture.message}; nothing was stored")
+                return
+            self.progress.emit(capture.message + "; storing the runs...")
+            self.session_id = self.create_session(capture)
+            runner = AutomationRunner(self.db, self.session_id, plan_for(capture, self.spec), self.output_root,
+                                      on_progress=self.progress.emit)
+            self.finished_plan.emit(runner.run())
+        except Exception as e:
+            logger.exception("Game benchmark failed")
+            self.finished_plan.emit(f"failed: {e}")
+
+
 class FrameCapturePanel(QGroupBox):
     def __init__(self, db, get_profile: Callable, get_environment: Callable[[], Optional[dict]],
                  on_session_changed: Callable[[], None] = lambda: None, data_dir: Optional[Path] = None,
@@ -129,7 +175,8 @@ class FrameCapturePanel(QGroupBox):
                  output_root: Optional[Path] = None, parent=None,
                  detector: Optional[Callable] = None, planner: Optional[Callable] = None,
                  downloader: Optional[Callable] = None, arch: Optional[str] = None,
-                 platform_name: str = sys.platform, remote_check: Optional[Callable[[], bool]] = None):
+                 platform_name: str = sys.platform, remote_check: Optional[Callable[[], bool]] = None,
+                 games: Callable[[], List[dict]] = lambda: []):
         super().__init__("Frame capture (PresentMon)", parent)
         self.db = db
         self.get_profile = get_profile
@@ -156,6 +203,9 @@ class FrameCapturePanel(QGroupBox):
         self._list_worker: Optional[ProcessListWorker] = None
         self.last_session_id: Optional[int] = None
         self.last_summary = None
+        self.games = games
+        self._after_tool: Optional[Callable[[], object]] = None
+        self.benchmark_factory = None                    # tests swap in a fake GameBenchmark
 
         layout = QVBoxLayout(self)
         row1 = QHBoxLayout()
@@ -197,10 +247,30 @@ class FrameCapturePanel(QGroupBox):
         row2.addWidget(self.stop_btn)
         layout.addLayout(row2)
 
-        self.status_label = QLabel("Start the game first, then refresh the list and pick its process.")
+        row3 = QHBoxLayout()
+        row3.addWidget(QLabel("Game (Steam):"))
+        self.game_combo = QComboBox()
+        self.game_combo.setMinimumWidth(260)
+        row3.addWidget(self.game_combo, 1)
+        row3.addWidget(QLabel("Skip first (s):"))
+        self.settle_spin = QSpinBox()
+        self.settle_spin.setRange(0, 600)
+        self.settle_spin.setValue(30)
+        self.settle_spin.setToolTip("Loading screens and menus at the start are not measured.")
+        row3.addWidget(self.settle_spin)
+        self.game_btn = QPushButton("Benchmark game...")
+        self.game_btn.setToolTip("Starts PresentMon (one UAC prompt), launches the game through Steam, finds its "
+                                 "process and captures every run by itself.")
+        self.game_btn.clicked.connect(lambda: self.benchmark_game())
+        row3.addWidget(self.game_btn)
+        layout.addLayout(row3)
+
+        self.status_label = QLabel("Benchmark game... does everything for a Steam game. For any other program: "
+                                   "start it, refresh the list, pick its process and press Capture frames....")
         self.status_label.setWordWrap(True)
         layout.addWidget(self.status_label)
         self.show_path()
+        self.refresh_games()
         self.auto_detect()
 
     # ---- PresentMon path ------------------------------------------------------
@@ -283,7 +353,7 @@ class FrameCapturePanel(QGroupBox):
         if isinstance(choice, provision.Found):
             self.detected = choice
             self.show_path()
-            self.start_capture()
+            self._continue_after_tool()
             return
         if not isinstance(choice, provision.AssetChoice) or choice.error:
             self.status_label.setText(f"Download not possible: {getattr(choice, 'error', choice)}")
@@ -311,7 +381,11 @@ class FrameCapturePanel(QGroupBox):
         self.detected = found
         self.show_path()
         self.status_label.setText(f"PresentMon {found.version} ready: " + "; ".join(found.notes or ["verified"]))
-        self.start_capture()
+        self._continue_after_tool()
+
+    def _continue_after_tool(self):
+        after, self._after_tool = self._after_tool, None
+        (after or self.start_capture)()
 
     def install_mangohud(self, os_release: Optional[dict] = None, which: Callable = shutil.which):
         from app.frames.linux_install import mangohud_install_plan
@@ -416,7 +490,7 @@ class FrameCapturePanel(QGroupBox):
         if problem:
             if self._setting_path():
                 self.status_label.setText(f"{problem}. Use 'Select PresentMon...' to choose it again.")
-            elif not self.download_tool():  # asks first; continues the capture when PresentMon is ready
+            elif not self._download_then(lambda: self.start_capture()):  # asks first; continues when ready
                 self.status_label.setText("Still looking for PresentMon; press Capture frames... again in a moment.")
             return False
         if self.telemetry_box.isChecked() and not tools_ready:
@@ -453,6 +527,135 @@ class FrameCapturePanel(QGroupBox):
         self.worker.start()
         return True
 
+    def _download_then(self, after: Callable[[], object]) -> bool:
+        self._after_tool = after
+        if self.download_tool():
+            return True
+        self._after_tool = None
+        return False
+
+    # ---- whole game benchmark ---------------------------------------------------
+    def refresh_games(self):
+        """Installed Steam games (not Steam tools) from the latest discovery."""
+        current = self.game_combo.currentData()
+        self.game_combo.clear()
+        try:
+            games = [g for g in (self.games() or []) if g.get("installed") is True and g.get("kind") != "tool"]
+        except Exception:
+            logger.exception("Could not read the game list")
+            games = []
+        for game in sorted(games, key=lambda g: str(g.get("name", "")).lower()):
+            self.game_combo.addItem(f"{game.get('name')} ({game.get('app_id')})", game)
+        if current is not None:
+            index = next((i for i in range(self.game_combo.count())
+                          if (self.game_combo.itemData(i) or {}).get("app_id") == current.get("app_id")), -1)
+            if index >= 0:
+                self.game_combo.setCurrentIndex(index)
+
+    def select_game(self, app_id) -> bool:
+        for i in range(self.game_combo.count()):
+            if str((self.game_combo.itemData(i) or {}).get("app_id")) == str(app_id):
+                self.game_combo.setCurrentIndex(i)
+                return True
+        return False
+
+    def benchmark_game(self, tools_ready: bool = False) -> bool:
+        """PresentMon and (with telemetry) LibreHardwareMonitor first, then one confirmation; the rest is automatic."""
+        if self.is_running() or self.lhm.busy():
+            return False
+        if self.db is None or self.output_root is None:
+            self.status_label.setText("No database available; nothing was captured.")
+            return False
+        if not self.is_windows():
+            self.status_label.setText("Game benchmarks capture frames with PresentMon, which is Windows-only; "
+                                      "MangoHud capture on Linux is not implemented yet.")
+            return False
+        game = self.game_combo.currentData()
+        if not game:
+            self.status_label.setText("No installed Steam game found (Steam tab, or rescan).")
+            return False
+        path = self.presentmon_path()
+        problem = check_presentmon_path(path)
+        if problem:
+            if self._setting_path():
+                self.status_label.setText(f"{problem}. Use 'Select PresentMon...' to choose it again.")
+            elif not self._download_then(lambda: self.benchmark_game()):
+                self.status_label.setText("Still looking for PresentMon; press Benchmark game... again in a moment.")
+            return False
+        if self.telemetry_box.isChecked() and not tools_ready:
+            started = []
+            self.lhm.ensure(lambda: started.append(self.benchmark_game(tools_ready=True)))
+            return bool(started and started[0])
+        from app.frames.game_benchmark import GameBenchmarkSpec
+        from app.frames.presentmon import capture_all_args
+        profile = self.get_profile()
+        appids = [str(g.get("app_id")) for g in (self.games() or [])]
+        spec = GameBenchmarkSpec(game_name=str(game.get("name")), app_id=str(game.get("app_id")),
+                                 install_path=str(game.get("install_path")), discovered_appids=appids,
+                                 presentmon_path=path, seconds=self.seconds_spin.value(),
+                                 warmup_runs=profile.warmup_runs, repetitions=profile.repetitions,
+                                 settle_seconds=self.settle_spin.value())
+        total = spec.settle_seconds + spec.seconds * spec.count
+        text = (f"Benchmark {spec.game_name} automatically:\n\n"
+                f"1. PresentMon starts elevated: ONE UAC prompt for the whole benchmark. It records every "
+                f"process until enough of the game is recorded (at most {spec.max_record_seconds()} s).\n"
+                f"2. steam://rungameid/{spec.app_id} is opened; the game's process is found in\n"
+                f"   {spec.install_path}\n"
+                f"3. The first {spec.settle_seconds} s of the game (loading, menus) are skipped, then "
+                f"{spec.warmup_runs} warmup + {spec.repetitions} measured windows of {spec.seconds} s each "
+                f"are cut from the recording (profile {profile.name!r}); about {total} s of game time.\n\n"
+                f"Get to the scene you want to measure during the first {spec.settle_seconds} s and keep the "
+                f"game in front. The app never closes the game; close it yourself afterwards.\n\n"
+                f"Command (runs elevated):\n"
+                f"{subprocess.list2cmdline([path] + capture_all_args('<run folder>' + os.sep + 'presentmon.csv', spec.max_record_seconds()))}")
+        if self.remote_check():
+            text += "\n\n" + REMOTE_WARNING
+        if not self.confirm(text):
+            self.status_label.setText("Cancelled; nothing was started.")
+            return False
+        environment = self.get_environment()
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_dir = self.output_root / f"game_{spec.app_id}_{stamp}"
+
+        def create_session(capture) -> int:
+            return self._create_game_session(spec, profile, environment, capture)
+        self.worker = GameBenchmarkWorker(spec, run_dir, create_session, self.db, self.output_root,
+                                          telemetry_sources.new_sampler if self.telemetry_box.isChecked() else None,
+                                          self.benchmark_factory)
+        self.last_session_id, self.last_summary = None, None
+        self.worker.progress.connect(self._on_progress)
+        self.worker.finished_plan.connect(self._on_finished)
+        self._set_running(True)
+        self.status_label.setText(f"Benchmarking {spec.game_name}...")
+        self.worker.start()
+        return True
+
+    def _create_game_session(self, spec, profile, environment, capture) -> int:
+        from app.manifest import build_manifest, git_commit
+        name = f"{spec.game_name} {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        process = capture.process[0] if capture.process else "?"
+        sid = self.db.create_session(name, f"Game benchmark of {spec.game_name} (Steam {spec.app_id}), "
+                                           f"PresentMon capture of {process}", is_manual=False)
+        settings = dict(profile.settings(), capture_seconds=spec.seconds, settle_seconds=spec.settle_seconds,
+                        steam_app_id=spec.app_id, game_process=process)
+        version = None
+        try:
+            from app.benchmark_manager import get_pe_version
+            version = get_pe_version(spec.presentmon_path)
+        except Exception:
+            pass
+        manifest = build_manifest(
+            {"id": sid, "name": name, "is_test": False, "is_manual": False},
+            run_settings=settings, environment=environment,
+            benchmarks_used=[{"name": "presentmon", "display_name": "PresentMon", "version": version,
+                              "executable_path": spec.presentmon_path, "detection_method": "found or downloaded"}],
+            commit=git_commit())
+        try:
+            self.db.save_session_manifest(sid, manifest)
+        except Exception:
+            logger.exception("Could not save session manifest")
+        return sid
+
     def is_running(self) -> bool:
         return self.worker is not None and self.worker.isRunning()
 
@@ -471,8 +674,8 @@ class FrameCapturePanel(QGroupBox):
             self._task.wait(60000)          # a download or signature check; never cut a file write short
 
     def _set_running(self, running: bool):
-        for w in (self.capture_btn, self.select_btn, self.refresh_btn,
-                  self.process_combo, self.seconds_spin, self.telemetry_box):
+        for w in (self.capture_btn, self.select_btn, self.refresh_btn, self.process_combo, self.seconds_spin,
+                  self.telemetry_box, self.game_combo, self.settle_spin, self.game_btn):
             w.setEnabled(not running)
         self.stop_btn.setEnabled(running)
 
@@ -484,6 +687,8 @@ class FrameCapturePanel(QGroupBox):
     def _on_finished(self, summary):
         self._set_running(False)
         self.last_summary = summary
+        if isinstance(self.worker, GameBenchmarkWorker):
+            self.last_session_id = self.worker.session_id
         if isinstance(summary, RunSummary):
             parts = []
             for rec in summary.records:
@@ -498,6 +703,7 @@ class FrameCapturePanel(QGroupBox):
             if summary.stopped:
                 text += f". Stopped; {summary.not_started} capture(s) not started."
         else:
-            text = f"Session #{self.last_session_id}: {summary}"
+            text = (f"Session #{self.last_session_id}: {summary}" if self.last_session_id is not None
+                    else str(summary))
         self.status_label.setText(text)
         self.on_session_changed()

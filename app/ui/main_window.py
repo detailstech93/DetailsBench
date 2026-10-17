@@ -664,10 +664,23 @@ class MainWindow(QMainWindow):
             for col, value in enumerate(values):
                 self.steam_table.setItem(row, col, QTableWidgetItem(str(value)))
             is_tool = game.get("kind") == "tool"
+            can_start = not busy and not is_tool and game.get("installed") is True
+            cell = QWidget()
+            cell_layout = QHBoxLayout(cell)
+            cell_layout.setContentsMargins(0, 0, 0, 0)
             button = QPushButton("Steam tool" if is_tool else "Launch...")
-            button.setEnabled(not busy and not is_tool and game.get("installed") is True)
+            button.setEnabled(can_start)
             button.clicked.connect(lambda checked=False, g=game: self._on_steam_launch_clicked(g))
-            self.steam_table.setCellWidget(row, 6, button)
+            cell_layout.addWidget(button)
+            if not is_tool:
+                bench = QPushButton("Benchmark...")
+                bench.setToolTip("Launch the game and capture its frames automatically (Run Benchmarks tab)")
+                bench.setEnabled(can_start)
+                bench.clicked.connect(lambda checked=False, g=game: self._on_steam_benchmark_clicked(g))
+                cell_layout.addWidget(bench)
+            self.steam_table.setCellWidget(row, 6, cell)
+        if getattr(self, "frame_panel", None) is not None:
+            self.frame_panel.refresh_games()
 
     def _confirm_steam_launch(self, game: dict) -> bool:
         box = QMessageBox(self)
@@ -694,6 +707,15 @@ class MainWindow(QMainWindow):
         self.steam_log.setText(f"Launching {game['name']} through Steam, waiting for its process...")
         self._steam_worker.start()
         self.refresh_steam_view()
+
+    def _on_steam_benchmark_clicked(self, game: dict):
+        """The whole benchmark runs in the Frame capture section, which shows its progress and stop button."""
+        self.frame_panel.refresh_games()
+        if not self.frame_panel.select_game(game["app_id"]):
+            self.steam_log.setText(f"{game['name']} cannot be benchmarked (not fully installed).")
+            return
+        self.tabs.setCurrentWidget(self.run_tab)
+        self.frame_panel.benchmark_game()
 
     @Slot(dict)
     def _on_steam_launch_finished(self, result: dict):
@@ -851,7 +873,7 @@ class MainWindow(QMainWindow):
         self.frame_panel = FrameCapturePanel(
             self.db, self.selected_profile,
             lambda: self.environment_profile.to_dict() if self.environment_profile else None,
-            on_session_changed=self.refresh_history_screen, parent=tab)
+            on_session_changed=self.refresh_history_screen, parent=tab, games=self.steam_games)
         layout.addWidget(self.frame_panel)
 
         # One emergency-stop shortcut for every automated section (two equal shortcuts would both be ambiguous)

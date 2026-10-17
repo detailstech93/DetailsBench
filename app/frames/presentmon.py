@@ -56,6 +56,12 @@ def capture_args(output_file: str, seconds: int, process_name: Optional[str] = N
                      "--session_name", SESSION_NAME]
 
 
+def capture_all_args(output_file: str, seconds: int) -> List[str]:
+    """Every process (no target flag; PresentMon's default), for a game whose exe is known only later."""
+    return ["--output_file", output_file, "--timed", str(int(seconds)), "--terminate_after_timed",
+            "--session_name", SESSION_NAME]
+
+
 def workload_id_for(process_name: str) -> str:
     stem = re.sub(r"\.exe$", "", process_name.strip(), flags=re.IGNORECASE)
     return "frames_" + (re.sub(r"[^a-z0-9_]+", "_", stem.lower()).strip("_") or "process")

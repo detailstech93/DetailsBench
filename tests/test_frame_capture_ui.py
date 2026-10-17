@@ -382,3 +382,78 @@ def test_telemetry_option_reaches_the_runner(qapp, panel):
     assert p.worker.runner.telemetry is None
     assert p.worker.wait(30000)
     qapp.processEvents()
+
+
+GAMES = [{"store": "steam", "app_id": "123", "name": "Game", "install_path": "Z:/common/Game", "installed": True},
+         {"store": "steam", "app_id": "9", "name": "Partial", "install_path": "Z:/common/P", "installed": False},
+         {"store": "steam", "app_id": "8", "name": "Proton", "install_path": "Z:/common/X", "installed": True,
+          "kind": "tool"}]
+
+
+def fake_benchmark(result_status="recorded", seen=None):
+    from app.automation.workload import WorkloadResult
+    from app.frames.game_benchmark import GameCapture, WindowOutcome
+
+    class Bench:
+        def __init__(self, spec, run_dir, stop_event, progress, sampler_factory=None):
+            if seen is not None:
+                seen.append((spec, sampler_factory))
+            self.spec = spec
+
+        def run(self):
+            if result_status != "recorded":
+                return GameCapture(result_status, "UAC prompt declined; the game was not started")
+            windows = [WindowOutcome(k < self.spec.warmup_runs,
+                                     k if k < self.spec.warmup_runs else k - self.spec.warmup_runs + 1,
+                                     WorkloadResult(status="completed", score=60.0 + k, unit="fps",
+                                                    metrics={"low_1pct_fps": (40.0, "fps")}))
+                       for k in range(self.spec.count)]
+            return GameCapture("recorded", "70 s of Game.exe recorded", process=("Game.exe", 7), windows=windows)
+    return Bench
+
+
+def test_benchmark_game_lists_installed_games_and_stores_every_window(qapp, panel):
+    p, db, _ = panel
+    p.select_presentmon()
+    p.games = lambda: GAMES
+    p.refresh_games()
+    assert [p.game_combo.itemData(i)["app_id"] for i in range(p.game_combo.count())] == ["123"]
+    seen = []
+    p.benchmark_factory = fake_benchmark(seen=seen)
+    assert p.benchmark_game() is True
+    p.worker.wait(10000)
+    qapp.processEvents()
+    assert "ONE UAC prompt" in p.asked[0] and "steam://rungameid/123" in p.asked[0]
+    assert "never closes the game" in p.asked[0]
+    spec, _ = seen[0]
+    assert (spec.app_id, spec.repetitions, spec.warmup_runs, spec.settle_seconds) == ("123", 2, 0, 30)
+    sessions = db.get_sessions(include_test=True)
+    assert len(sessions) == 1 and sessions[0]["name"].startswith("Game ")
+    assert p.last_session_id == sessions[0]["id"]
+    assert "run 1: 60.0 fps, 1% low 40.0" in p.status_label.text()
+
+
+def test_benchmark_game_that_records_nothing_creates_no_session(qapp, panel):
+    p, db, _ = panel
+    p.select_presentmon()
+    p.games = lambda: GAMES
+    p.refresh_games()
+    p.benchmark_factory = fake_benchmark("cancelled")
+    p.benchmark_game()
+    p.worker.wait(10000)
+    qapp.processEvents()
+    assert db.get_sessions(include_test=True) == []
+    assert p.status_label.text().startswith("cancelled: UAC prompt declined") and p.game_btn.isEnabled()
+
+
+def test_benchmark_game_needs_a_game_and_offers_presentmon_first(qapp, tmp_path):
+    p = make_panel(tmp_path, planner=lambda: CHOICE)
+    p.answer = False
+    finish(qapp, p)
+    assert p.benchmark_game() is False and "No installed Steam game" in p.status_label.text()
+    p.games = lambda: GAMES
+    p.refresh_games()
+    p.benchmark_game()
+    finish(qapp, p)
+    assert "Frame capture needs PresentMon" in p.asked[0] and p.capture_asked == []
+    assert p.status_label.text() == "Download cancelled; nothing was captured."

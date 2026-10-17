@@ -4,7 +4,7 @@ import sys
 from unittest.mock import Mock, patch
 
 import pytest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QPushButton
 
 from app.discovery.result import DiscoveryResult
 from app.ui.main_window import MainWindow, SteamLaunchWorker
@@ -47,10 +47,25 @@ def test_table_lists_only_steam_games_sorted(window):
     assert "Z:\\SteamLibrary" in window.steam_status_label.text()
 
 
-def test_launch_button_disabled_for_partial_install(window):
+def buttons(table, row):
+    return {b.text(): b for b in table.cellWidget(row, 6).findChildren(QPushButton)}
+
+
+def test_launch_and_benchmark_buttons_disabled_for_partial_install(window):
     t = window.steam_table
-    assert t.cellWidget(0, 6).isEnabled() is True
-    assert t.cellWidget(2, 6).isEnabled() is False
+    assert set(buttons(t, 0)) == {"Launch...", "Benchmark..."}
+    assert all(b.isEnabled() for b in buttons(t, 0).values())
+    assert not any(b.isEnabled() for b in buttons(t, 2).values())
+
+
+def test_benchmark_button_hands_the_game_to_the_frame_section(window):
+    assert [window.frame_panel.game_combo.itemData(i)["app_id"]
+            for i in range(window.frame_panel.game_combo.count())] == ["730", "1091500"]   # installed only
+    with patch.object(type(window.frame_panel), "benchmark_game") as bench:
+        buttons(window.steam_table, 1)["Benchmark..."].click()
+    bench.assert_called_once()
+    assert window.frame_panel.game_combo.currentData()["app_id"] == "1091500"
+    assert window.tabs.currentWidget() is window.run_tab
 
 
 def test_cancelled_confirmation_starts_nothing(window):
@@ -100,6 +115,6 @@ def test_tool_rows_cannot_be_launched(qapp):
     with patch.object(MainWindow, "start_scan"):
         w = MainWindow(Mock(), {})
     w._on_discovery_ready(result)
-    button = w.steam_table.cellWidget(0, 6)
-    assert button.text() == "Steam tool" and button.isEnabled() is False
+    assert list(buttons(w.steam_table, 0)) == ["Steam tool"]
+    assert buttons(w.steam_table, 0)["Steam tool"].isEnabled() is False
     w.close()
