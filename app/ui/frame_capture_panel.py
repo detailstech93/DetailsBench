@@ -127,11 +127,17 @@ class TaskWorker(QThread):
             self.done.emit(e)
 
 
-def game_launch_args(app_id) -> List[str]:
-    """Fixed launch flags from the game's settings adapter (none for other games)."""
+def game_launch_args(app_id, forced: Optional[Dict[str, object]] = None) -> List[str]:
+    """Fixed launch flags from the game's settings adapter (none for other games), plus the forced values for
+    a game forced with launch arguments (an unknown value adds nothing; ForcedSettings.apply refuses it)."""
     from app.games.settings_file import adapter_for
     adapter = adapter_for(app_id)
-    return list(getattr(adapter.module, "LAUNCH_ARGS", [])) if adapter is not None else []
+    if adapter is None:
+        return []
+    args = list(getattr(adapter.module, "LAUNCH_ARGS", []))
+    if adapter.base == "launch" and forced:
+        args += adapter.module.launch_args(forced)
+    return args
 
 
 def launch_url_text(spec) -> str:
@@ -152,6 +158,8 @@ def settings_problem(rec) -> Optional[str]:
 
 def mark_unverified(capture, rec):
     """Runs measured with settings the game did not keep are not valid results (no score)."""
+    if getattr(rec, "unchecked", None):
+        capture.message += "; not checked after the run: " + ", ".join(rec.unchecked)
     if rec.mismatch_after_run is None:
         why = "the game settings could not be checked after the run"
     elif rec.mismatch_after_run:
@@ -633,7 +641,7 @@ class FrameCapturePanel(QGroupBox):
         ok = bool(game) and adapter_for(game.get("app_id")) is not None
         self.game_settings_btn.setEnabled(ok and not self.is_running())
         if not ok:
-            self.game_settings_btn.setToolTip("Forcing settings is supported for: Cyberpunk 2077, Borderlands 3, Rise of the Tomb Raider, Red Dead Redemption 2, The Witcher 3.")
+            self.game_settings_btn.setToolTip("Forcing settings is supported for: Cyberpunk 2077, Borderlands 3, Rise of the Tomb Raider, Red Dead Redemption 2, The Witcher 3, Counter-Strike 2, DOOM (2016).")
 
     def forced_settings_for(self, app_id) -> Dict[str, object]:
         from app.games.settings_file import adapter_for, saved_choice
@@ -725,6 +733,8 @@ class FrameCapturePanel(QGroupBox):
             self.status_label.setText("Cancelled; nothing was started.")
             return False
         forced_values = self.forced_settings_for(spec.app_id)
+        spec.launch_args = game_launch_args(spec.app_id, forced_values)
+        by_launch = getattr(adapter_for(spec.app_id), "base", None) == "launch"
         text = (f"Benchmark {spec.game_name} automatically:\n\n"
                 f"1. PresentMon starts elevated: ONE UAC prompt for the whole benchmark. It records only the "
                 f"programs (.exe) in the game's folder:\n   {spec.install_path}\n"
@@ -740,7 +750,16 @@ class FrameCapturePanel(QGroupBox):
                 f"Unsaved progress in the game is lost. Only processes started inside the game's folder are "
                 f"closed, never Steam or anything else. PresentMon then ends by itself and the runs are stored.\n\n"
                 f"PresentMon: {path}")
-        if forced_values:
+        if forced_values and by_launch:
+            text += ("\n\nForced game settings: " + describe(forced_values) + ".\nThey are passed as the launch "
+                     "arguments above; nothing is written before the launch. After the run the app reads the "
+                     "game's settings files to check them (runs are not valid if the game used other values; "
+                     "values the files do not hold are recorded as not checked)."
+                     + (" The game may save them when it closes, so its settings files are copied first and put "
+                        "back afterwards." if getattr(adapter_for(spec.app_id).module, "RESTORE", False) else
+                        " The app only reads that game's settings file; if the game saves the values, set them "
+                        "back in its menu."))
+        elif forced_values:
             text += ("\n\nForced game settings: " + describe(forced_values) + ".\nBefore the launch the app copies "
                      "the game's settings file into the run folder, writes these values and checks them; it does "
                      "not start the game if one cannot be written. After the run it checks them again (runs are "

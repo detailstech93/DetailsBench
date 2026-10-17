@@ -4,7 +4,8 @@ Valve warns that the steam:// browser protocol has had security issues, so:
 - the URL is built only from an appid found in a local appmanifest
   (numeric, and present in the discovered set), never from free text;
 - launch arguments are passed only when a game adapter names them (fixed
-  flags such as Cyberpunk 2077's --launcher-skip, checked against SAFE_ARG),
+  flags such as Cyberpunk 2077's --launcher-skip, or forced settings such as
+  -w 1920 or +r_mode 17; every token is checked against SAFE_ARG),
   with steam://run/<appid>//<args>/; they apply to that launch only and are
   never written to the game's Steam launch options;
 - the caller must get explicit user confirmation first (UI does);
@@ -21,7 +22,7 @@ import time
 from typing import Callable, Iterable, List, Optional, Sequence, Set, Tuple
 
 Snapshot = List[Tuple[str, Optional[str]]]
-SAFE_ARG = re.compile(r"^-{1,2}[A-Za-z][A-Za-z0-9_-]*$")      # a bare flag: no value, space, slash or quote
+SAFE_ARG = re.compile(r"^(?:-{1,2}|\+)[A-Za-z][A-Za-z0-9_-]*$|^-?[0-9]+$")   # a flag, +cvar or whole number: no space, slash or quote
 
 
 def build_launch_url(appid, discovered_appids: Iterable[str], args: Sequence[str] = ()) -> str:
@@ -34,7 +35,7 @@ def build_launch_url(appid, discovered_appids: Iterable[str], args: Sequence[str
     if not args:
         return f"steam://rungameid/{text}"
     for arg in args:
-        if not isinstance(arg, str) or not SAFE_ARG.match(arg):
+        if not isinstance(arg, str) or not SAFE_ARG.fullmatch(arg):
             raise ValueError(f"unsafe launch argument: {arg!r}")
     return f"steam://run/{text}//{' '.join(args)}/"
 

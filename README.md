@@ -329,6 +329,8 @@ resolution, Frame Generation (DLSS, multi frame), ray tracing, RT lighting and p
 | Rise of the Tomb Raider | `app/games/rise_tomb_raider.py` | registry: `HKEY_CURRENT_USER/Software/Crystal Dynamics/Rise of the Tomb Raider/Graphics` |
 | Red Dead Redemption 2 | `app/games/red_dead_redemption2.py` | `Documents/Rockstar Games/Red Dead Redemption 2/Settings/system.xml` |
 | The Witcher 3 | `app/games/witcher3.py` | `Documents/The Witcher 3/dx12user.settings` |
+| Counter-Strike 2 | `app/games/counter_strike2.py` | launch arguments; reads `Steam/userdata/<account>/730/local/cfg/cs2_video.txt` |
+| DOOM (2016) | `app/games/doom2016.py` | launch arguments; `Saved Games/id Software/DOOM/base/DOOMConfig.cfg`, `.local` |
 
 Borderlands 3 offers resolution, window mode, VSync, frame rate limit, quality preset, resolution scale, dynamic
 resolution, anti-aliasing, texture quality and graphics API (DX11/DX12). Only the changed values are rewritten;
@@ -348,9 +350,21 @@ ambient occlusion, TAA, MSAA, FXAA, DLSS, DLSS mode, FSR and motion blur. The Wi
 offers resolution, window mode, VSync, FPS limit, anti-aliasing, DLSS mode, DLSS Frame Generation, ray tracing,
 path tracing and HairWorks. Numbers the files do not name are learned like the other games.
 
+Counter-Strike 2 and DOOM (2016) are forced with launch arguments (`app/games/launch_settings.py`): nothing is
+written before the launch, the values are added to that launch's `steam://run` arguments (each token must be a
+flag, a `+cvar` or a whole number), and the game's settings files are read after the run to check them. A value
+the files do not hold then is recorded as `unchecked` (the run is kept, `verified` is false).
+
+- Counter-Strike 2 (`app/games/counter_strike2.py`): resolution (`-w`/`-h`; common resolutions are offered) and
+  window mode (`-fullscreen`, `-windowed`, `-windowed -noborder`). Its `cs2_video.txt` is in a folder named after
+  the Steam account: allowed to be read only (2026-10-18), never written, and recorded as
+  `Steam/userdata/<account>/...`. If the game saves the forced values, the run notes say to set them back in its menu.
+- DOOM (2016) (`app/games/doom2016.py`): `+r_mode` (resolution position, learned), `+r_renderAPI` (OpenGL/Vulkan)
+  and `+r_swapInterval` (VSync). `Saved Games/id Software/DOOM/base/DOOMConfig.cfg` and `.local` are copied before
+  the launch and put back afterwards if the game changed them.
+
 Not supported, checked on this computer on 2026-10-18: God of War keeps its settings inside its save file;
-Shadow of the Tomb Raider keeps them in a folder named after the Steam account (not touched); Counter-Strike 2 keeps them in a folder named after the Steam account (not touched); DOOM (2016) writes
-almost none.
+Shadow of the Tomb Raider keeps them in a folder named after the Steam account (not touched).
 
 With forced settings, Benchmark game... says so in its confirmation, then (`app/games/settings_file.py`):
 

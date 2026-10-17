@@ -28,7 +28,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Mapping, Optional
 
-from app.games import borderlands3, cyberpunk2077, red_dead_redemption2, rise_tomb_raider, witcher3
+from app.games import (borderlands3, counter_strike2, cyberpunk2077, doom2016, red_dead_redemption2,
+                       rise_tomb_raider, witcher3)
 
 INDICES_FILENAME = "game_settings_indices.json"
 BACKUP_NAME = "game_settings_backup"      # + the store's own extension
@@ -129,11 +130,43 @@ class RegistryStore:
         self.write(json.loads(backup.read_text(encoding="utf-8")))
 
 
+class FilesStore:
+    """The settings files of a game forced with launch arguments (module.settings_files names them). Missing
+    files are skipped. The backup is a folder; restore copies back only files whose bytes changed, and only
+    when the module allows it (RESTORE: Counter-Strike 2's file is read only)."""
+    backup_suffix = ""
+
+    def __init__(self, module, env: Mapping[str, str]):
+        self.module = module
+        self.files, self.where = module.settings_files(env)
+        self.writable = bool(getattr(module, "RESTORE", False))
+
+    def exists(self) -> bool:
+        return any(p.is_file() for p in self.files.values())
+
+    def read(self):
+        return self.module.parse({name: p.read_bytes().decode("utf-8")
+                                  for name, p in self.files.items() if p.is_file()})
+
+    def save_backup(self, backup: Path) -> None:
+        backup.mkdir(parents=True, exist_ok=True)
+        for name, p in self.files.items():
+            if p.is_file():
+                shutil.copy2(p, backup / name)
+
+    def restore(self, backup: Path) -> None:
+        for name, p in self.files.items():
+            saved = backup / name
+            if saved.is_file() and (not p.is_file() or p.read_bytes() != saved.read_bytes()):
+                shutil.copy2(saved, p)
+
+
 @dataclass(frozen=True)
 class Adapter:
     """module: read_settings, choices, observed_indices, merge_indices, plan, apply, verify, APP_ID,
     LAUNCH_ARGS, and parse/dump for a file. base: "localappdata", "documents" or "registry" (relative_path
-    is then a key under HKEY_CURRENT_USER)."""
+    is then a key under HKEY_CURRENT_USER), or "launch": the module has launch_args() and settings_files()
+    instead of apply/dump (the values go on the command line, see app/games/launch_settings.py)."""
     module: object
     relative_path: str
     base: str = "localappdata"
@@ -149,6 +182,8 @@ class Adapter:
     def store(self, env: Optional[Mapping[str, str]] = None, reg=None):
         if self.base == "registry":
             return RegistryStore(self.relative_path, reg)
+        if self.base == "launch":
+            return FilesStore(self.module, os.environ if env is None else env)
         return FileStore(self, self.settings_path(env))
 
 
@@ -161,6 +196,8 @@ ADAPTERS: Dict[str, Adapter] = {
     str(red_dead_redemption2.APP_ID): Adapter(red_dead_redemption2, os.path.join(
         "Rockstar Games", "Red Dead Redemption 2", "Settings", "system.xml"), "documents"),
     str(witcher3.APP_ID): Adapter(witcher3, os.path.join("The Witcher 3", "dx12user.settings"), "documents"),
+    str(counter_strike2.APP_ID): Adapter(counter_strike2, "", "launch"),
+    str(doom2016.APP_ID): Adapter(doom2016, "", "launch"),
 }
 
 
@@ -215,11 +252,13 @@ class SettingsRecord:
     mismatch_after_run: Optional[Dict[str, list]] = None           # None: not read after the run
     restored: Optional[bool] = None
     notes: List[str] = field(default_factory=list)
+    launch_args: List[str] = field(default_factory=list)          # launch adapters: how the values were set
+    unchecked: List[str] = field(default_factory=list)            # launch adapters: not in the files after the run
 
     @property
     def verified(self) -> bool:
         """Every requested setting was accepted, written and still in place after the run."""
-        return (not self.refused and not self.mismatch_before_launch
+        return (not self.refused and not self.mismatch_before_launch and not self.unchecked
                 and self.mismatch_after_run is not None and not self.mismatch_after_run)
 
     def to_dict(self) -> dict:
@@ -227,7 +266,8 @@ class SettingsRecord:
                 "changed": list(self.changed), "refused": dict(self.refused),
                 "mismatch_before_launch": dict(self.mismatch_before_launch),
                 "mismatch_after_run": self.mismatch_after_run, "restored": self.restored,
-                "verified": self.verified, "notes": list(self.notes)}
+                "verified": self.verified, "notes": list(self.notes),
+                "launch_args": list(self.launch_args), "unchecked": list(self.unchecked)}
 
 
 def _mismatches(found: Dict[str, tuple]) -> Dict[str, list]:
@@ -249,11 +289,14 @@ class ForcedSettings:
         self.data_dir = Path(data_dir)
         self.record = SettingsRecord(self.store.where, self.requested)
         self._written = False
+        self._launch = False
 
     def apply(self) -> SettingsRecord:
         """Back up and write the settings. Raises OSError/ValueError when they cannot be read or written;
         the caller then calls finish() (puts back anything written) and does not launch the game."""
         mod = self.adapter.module
+        if self.adapter.base == "launch":
+            return self._apply_launch(mod)
         if not self.store.exists():
             raise OSError(f"the game's settings were not found ({self.store.where}); start the game once first")
         data = self.store.read()
@@ -271,10 +314,47 @@ class ForcedSettings:
         self.record.mismatch_before_launch = _mismatches(mod.verify(self.store.read(), accepted))
         return self.record
 
+    def _apply_launch(self, mod) -> SettingsRecord:
+        """Nothing is written: the accepted values become this launch's arguments (record.launch_args)."""
+        data = self.store.read() if self.store.exists() else mod.parse({})
+        self.record.before = mod.read_settings(data)
+        known = learn_indices(self.data_dir, self.app_id, self.adapter, data)
+        changes, refused = mod.plan(data, self.requested, known)
+        self.record.refused = dict(refused)
+        self.record.changed = [c.key for c in changes if c.old != c.new or type(c.old) is not type(c.new)]
+        self.record.launch_args = mod.launch_args({c.key: c.new for c in changes})
+        self._launch = True
+        if self.store.writable and self.store.exists():
+            self.store.save_backup(self.backup)
+            self._written = True            # the game may save the values when it closes: put the files back
+        return self.record
+
+    def _finish_launch(self, mod) -> None:
+        accepted = {k: v for k, v in self.requested.items() if k not in self.record.refused}
+        try:
+            data = self.store.read() if self.store.exists() else mod.parse({})
+        except (OSError, ValueError) as e:
+            self.record.notes.append(f"could not read the settings after the run: {e}")
+            return
+        found = mod.verify(data, accepted)
+        self.record.unchecked = [k for k, (_, actual) in found.items() if actual is None]
+        self.record.mismatch_after_run = _mismatches({k: v for k, v in found.items() if v[1] is not None})
+        if self.record.unchecked:
+            self.record.notes.append("not in the game's settings files after the run, so not checked: "
+                                     + ", ".join(self.record.unchecked))
+        learn_indices(self.data_dir, self.app_id, self.adapter, data)
+        now = mod.read_settings(data)
+        kept = [k for k in accepted if k in now and now[k] != self.record.before.get(k)]
+        if kept and not self.store.writable:
+            self.record.notes.append("the game saved these forced values in its own settings, which the app "
+                                     "only reads; set them back in the game's menu if needed: " + ", ".join(kept))
+
     def finish(self, restore: bool = True) -> SettingsRecord:
         """Read what the game left, then put the backup back (only if we wrote anything)."""
         mod = self.adapter.module
-        if self.backup.is_file():
+        if self._launch:
+            self._finish_launch(mod)
+        elif self.backup.is_file():
             try:
                 data = self.store.read()
                 accepted = {k: v for k, v in self.requested.items() if k not in self.record.refused}
@@ -308,9 +388,12 @@ def read_for_dialog(app_id, data_dir: Path, env: Optional[Mapping[str, str]] = N
     if adapter is None:
         raise ValueError(f"no settings adapter for Steam app {app_id}")
     store = adapter.store(env, reg)
-    if not store.exists():
+    if store.exists():
+        data = store.read()
+    elif adapter.base == "launch":
+        data = adapter.module.parse({})        # launch arguments do not need the files
+    else:
         raise OSError(f"the game's settings were not found ({store.where}); start the game once first")
-    data = store.read()
     known = learn_indices(data_dir, app_id, adapter, data)
     return setting_choices(adapter, data, known), adapter.module.read_settings(data)
 

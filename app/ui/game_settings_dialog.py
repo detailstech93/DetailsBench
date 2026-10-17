@@ -22,6 +22,7 @@ LABELS = {
     "ray_tracing": "Ray tracing", "rt_lighting": "RT lighting", "path_tracing": "Path tracing",
     "lighting_quality": "Lighting quality", "volumetrics_quality": "Volumetrics quality",
     "reflection_quality": "Reflection quality", "msaa": "MSAA", "fsr": "FSR", "hairworks": "HairWorks",
+    "resolution_mode": "Resolution (r_mode position)",
 }
 
 
