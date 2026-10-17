@@ -265,6 +265,35 @@ Verified on this machine (2026-10-17): 3 self-test runs stored as `completed` wi
 stop ended a child and its own child within 1.2 s (`cancelled`, 2 runs not started); a 1 s timeout ended both
 processes (`timed_out`, no score, diagnostics written).
 
+### Frame Capture (PresentMon)
+
+Run Benchmarks tab, section **Frame capture**. PresentMon records every frame of one game process; the app stores
+average FPS as the score and 1% low, 0.1% low and frame-time numbers as extra metrics of the run. Every capture
+needs administrator rights, so Windows shows its UAC prompt for each capture after you confirm; declining it
+cancels the rest of the plan (nothing is stored as a score).
+
+Finding PresentMon, in this order (nothing is downloaded when a usable copy exists):
+1. a file you chose with **Select PresentMon...**;
+2. an Intel PresentMon installation (`Program Files\Intel\PresentMon\PresentMonConsoleApplication`);
+3. a copy the app downloaded earlier (`tools\presentmon\<version>\` in the data folder);
+4. **Download PresentMon...**: the newest official file from GitHub (GameTechDev/PresentMon releases). The app shows
+   the file name, version, size, URL and SHA-256 and asks first. The file is kept only when its size and SHA-256 match
+   what GitHub publishes and its Authenticode signature is valid and from Intel Corporation; otherwise it is deleted.
+   Copies bundled inside other tools (FrameView) are refused.
+
+Architectures:
+- **x64**: official build (2.6.0 checked on this machine: SHA-256 equals the GitHub digest, signature valid, Intel).
+- **x86 (32-bit Windows)**: the latest release has no x86 file; the newest release that has one is chosen (2.4.1).
+- **ARM64 Windows**: Intel publishes no ARM64 build (GameTechDev/PresentMon#667 closed "not planned"). The x64 file
+  is used under Windows x64 emulation and the app says so; this is NOT verified on ARM hardware. A native arm64 file
+  is preferred automatically if one is ever published.
+- **Linux**: PresentMon is Windows-only. The alternative is MangoHud: **Install MangoHud...** builds the command for the
+  distribution's package manager (apt-get, dnf, pacman, zypper), shows it, and runs it through `pkexec` (the system
+  password prompt) after you confirm. A MangoHud package was checked to exist for Debian on x64 and ARM64 only; other
+  combinations are marked as not verified. Capturing frames with MangoHud is not implemented yet.
+
+The PresentMon capture flags are marked "not yet verified on this machine" until they have been checked with a real capture.
+
 ### Database Location
 
 The production database is stored per user, not in the project folder:

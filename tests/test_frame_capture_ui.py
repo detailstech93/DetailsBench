@@ -11,10 +11,12 @@ from PySide6.QtWidgets import QApplication
 
 from app.database import Database
 from app.frames.elevated import ElevatedOutcome
+from app.frames.provision import Found
+from app.frames.release_select import AssetChoice
 from app.frames.presentmon import FrameCaptureWorkload
 from app.paths import load_settings
 from app.profiles import RunProfile
-from app.ui.frame_capture_panel import FrameCapturePanel, list_processes
+from app.ui.frame_capture_panel import FrameCapturePanel, list_processes, read_os_release, run_commands
 from app.ui.main_window import MainWindow
 
 
@@ -41,7 +43,8 @@ def panel(qapp, tmp_path):
     db = Database(str(tmp_path / "f.db"))
     p = FrameCapturePanel(db, lambda: RunProfile(name="p", repetitions=2, warmup_runs=0),
                           lambda: None, data_dir=tmp_path / "data",
-                          lister=lambda: [("game.exe", 42), ("other.exe", 7)], output_root=tmp_path / "runs")
+                          lister=lambda: [("game.exe", 42), ("other.exe", 7)], output_root=tmp_path / "runs",
+                          detector=lambda: Found(error="none"), arch="x64", platform_name="win32")
     p.asked = []
     p.confirm = lambda text: (p.asked.append(text), True)[1]
     p.ask_presentmon_file = lambda: str(exe)
@@ -133,3 +136,161 @@ def test_main_window_shortcut_stops_both_panels(qapp, tmp_path):
     with patch.object(w.frame_panel, "shutdown") as shutdown:
         w.close()
     shutdown.assert_called_once()
+
+
+# ---- automatic detection, download and Linux install (fakes only: no network, no PowerShell, no pkexec) ----
+CHOICE = AssetChoice(version="2.6.0", tag="v2.6.0", name="PresentMon-2.6.0-x64.exe",
+                     url="https://github.com/GameTechDev/PresentMon/releases/download/v2.6.0/PresentMon-2.6.0-x64.exe",
+                     size=980320, sha256="b2" * 32, asset_arch="x64")
+
+
+def make_panel(tmp_path, **kw):
+    kw.setdefault("detector", lambda: Found(error="none"))
+    kw.setdefault("arch", "x64")
+    kw.setdefault("platform_name", "win32")
+    p = FrameCapturePanel(Database(str(tmp_path / "g.db")), lambda: RunProfile(name="p"), lambda: None,
+                          data_dir=tmp_path / "data", lister=lambda: [], output_root=tmp_path / "runs", **kw)
+    p.asked = []
+    p.confirm_download = lambda text: (p.asked.append(text), p.answer)[1]
+    p.answer = True
+    return p
+
+
+def finish(qapp, p):
+    if p._task is not None:
+        assert p._task.wait(10000)
+    qapp.processEvents()
+
+
+def test_auto_detect_finds_intel_install(qapp, tmp_path):
+    exe = tmp_path / "PresentMon-2.6.0-x64.exe"
+    exe.write_bytes(b"MZ")
+    p = make_panel(tmp_path, detector=lambda: Found(str(exe), "intel install", "2.6.0"))
+    finish(qapp, p)
+    assert p.presentmon_path() == str(exe)
+    assert str(exe) in p.path_label.text() and "[intel install]" in p.path_label.text()
+    assert p.download_btn.isEnabled() and p.download_btn.text() == "Download PresentMon..."
+
+
+def test_chosen_file_wins_over_detected(qapp, tmp_path):
+    found, mine = tmp_path / "PresentMon-2.6.0-x64.exe", tmp_path / "PresentMon.exe"
+    found.write_bytes(b"MZ")
+    mine.write_bytes(b"MZ")
+    p = make_panel(tmp_path, detector=lambda: Found(str(found), "intel install", "2.6.0"))
+    finish(qapp, p)
+    p.ask_presentmon_file = lambda: str(mine)
+    p.select_presentmon()
+    assert p.presentmon_path() == str(mine) and "[intel install]" not in p.path_label.text()
+
+
+def test_download_after_confirmation(qapp, tmp_path):
+    got = tmp_path / "data" / "PresentMon-2.6.0-x64.exe"
+    calls = []
+
+    def downloader(choice):
+        calls.append(choice.name)
+        got.parent.mkdir(parents=True, exist_ok=True)
+        got.write_bytes(b"MZ")
+        return Found(str(got), "download", "2.6.0", notes=["size, SHA-256 and Intel signature verified"])
+    p = make_panel(tmp_path, planner=lambda: CHOICE, downloader=downloader)
+    finish(qapp, p)
+    p.download_tool()
+    finish(qapp, p)
+    assert len(p.asked) == 1 and CHOICE.url in p.asked[0] and CHOICE.sha256 in p.asked[0]
+    assert "0.9 MB" in p.asked[0] and "emulation" not in p.asked[0]
+    finish(qapp, p)
+    assert calls == ["PresentMon-2.6.0-x64.exe"] and p.presentmon_path() == str(got)
+    assert "PresentMon 2.6.0 ready" in p.status_label.text() and "[download]" in p.path_label.text()
+
+
+def test_download_cancelled_downloads_nothing(qapp, tmp_path):
+    calls = []
+    p = make_panel(tmp_path, planner=lambda: CHOICE, downloader=lambda c: calls.append(c))
+    p.answer = False
+    finish(qapp, p)
+    p.download_tool()
+    finish(qapp, p)
+    assert calls == [] and p.status_label.text() == "Download cancelled."
+
+
+def test_arm64_download_explains_emulation(qapp, tmp_path):
+    from dataclasses import replace
+    p = make_panel(tmp_path, arch="arm64", planner=lambda: replace(CHOICE, emulated=True))
+    p.answer = False
+    finish(qapp, p)
+    p.download_tool()
+    finish(qapp, p)
+    assert "no native ARM64 build" in p.asked[0] and "not verified on ARM hardware" in p.asked[0]
+
+
+@pytest.mark.parametrize("planner,downloader,expected", [
+    (lambda: AssetChoice(error="no published checksum for X"), None, "Download not possible: no published checksum"),
+    (lambda: CHOICE, lambda c: Found(error="SHA-256 differs"), "Download failed, nothing kept: SHA-256 differs"),
+    (lambda: CHOICE, lambda c: 1 / 0, "Download failed, nothing kept: division by zero"),
+])
+def test_download_problems_are_reported(qapp, tmp_path, planner, downloader, expected):
+    p = make_panel(tmp_path, planner=planner, downloader=downloader or (lambda c: None))
+    finish(qapp, p)
+    p.download_tool()
+    finish(qapp, p)
+    finish(qapp, p)
+    assert p.status_label.text().startswith(expected) and p.presentmon_path() is None
+    assert p.download_btn.isEnabled()
+
+
+def test_linux_offers_mangohud_install(qapp, tmp_path):
+    detected = []
+    p = make_panel(tmp_path, platform_name="linux", detector=lambda: detected.append(1))
+    finish(qapp, p)
+    assert detected == [] and p.download_btn.text() == "Install MangoHud..."
+    assert "Windows-only" in p.path_label.text() and "MangoHud" in p.path_label.text()
+    paths = {"pkexec": "/usr/bin/pkexec", "apt-get": "/usr/bin/apt-get"}
+    ran = []
+    p.command_runner = lambda commands: (ran.append(commands), "done")[1]
+    p.install_mangohud({"ID": "ubuntu", "ID_LIKE": "debian"}, paths.get)
+    finish(qapp, p)
+    assert "/usr/bin/pkexec /usr/bin/apt-get update" in p.asked[0]
+    assert ran == [[["/usr/bin/pkexec", "/usr/bin/apt-get", "update"],
+                    ["/usr/bin/pkexec", "/usr/bin/apt-get", "install", "-y", "mangohud"]]]
+    assert p.status_label.text() == "MangoHud install: done"
+
+
+def test_linux_install_cancel_and_errors(qapp, tmp_path):
+    p = make_panel(tmp_path, platform_name="linux", arch="arm64")
+    ran = []
+    p.command_runner = lambda commands: ran.append(commands)
+    p.answer = False
+    p.install_mangohud({"ID": "fedora"}, {"pkexec": "/usr/bin/pkexec", "dnf": "/usr/bin/dnf"}.get)
+    assert "not verified" in p.asked[0] and p.status_label.text() == "Install cancelled."
+    p.install_mangohud({"ID": "ubuntu"}, {"mangohud": "/usr/bin/mangohud"}.get)
+    assert "already installed" in p.status_label.text()
+    p.install_mangohud({"ID": "plan9"}, {}.get)
+    assert "unsupported distribution" in p.status_label.text() and ran == []
+
+
+class Res:
+    def __init__(self, code, err=""):
+        self.returncode, self.stderr, self.stdout = code, err, ""
+
+
+def test_run_commands():
+    seen = []
+
+    def runner_for(*codes):
+        it = iter(codes)
+        return lambda argv, **k: (seen.append(argv), Res(next(it), "E: lock held\n"))[1]
+    cmds = [["/usr/bin/pkexec", "apt-get", "update"], ["/usr/bin/pkexec", "apt-get", "install"]]
+    assert run_commands(cmds, runner_for(0, 0)) == "done" and len(seen) == 2
+    assert run_commands(cmds, runner_for(126)) == "cancelled (password prompt declined)"
+    assert run_commands(cmds, runner_for(0, 100)) == "failed (exit code 100): E: lock held"
+
+    def boom(argv, **k):
+        raise OSError("no such file")
+    assert run_commands(cmds, boom) == "failed: no such file"
+
+
+def test_read_os_release(tmp_path):
+    f = tmp_path / "os-release"
+    f.write_text('# comment\nID=ubuntu\nID_LIKE="debian"\nPRETTY_NAME="Ubuntu 24.04"\n', encoding="utf-8")
+    assert read_os_release(str(f)) == {"ID": "ubuntu", "ID_LIKE": "debian", "PRETTY_NAME": "Ubuntu 24.04"}
+    assert read_os_release(str(tmp_path / "missing")) == {}
