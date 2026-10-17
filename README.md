@@ -106,10 +106,13 @@ py -3.10 -m venv .venv
 
 ### Launching the Application
 
-```bash
-# From the project root directory:
-python scripts/main.py
+Double-click `run.bat` in the project folder, or from PowerShell in the project folder:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\main.py
 ```
+
+The console window prints the database path and any errors; closing it closes the app.
 
 ### Environment Profile
 

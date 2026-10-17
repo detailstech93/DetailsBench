@@ -227,8 +227,25 @@ def get_gpu_name() -> Optional[str]:
     return None
 
 
+def parse_gpu_lines(text: str) -> List[str]:
+    """Parse "Name|PNPDeviceID" lines; keep physical adapters only.
+
+    Virtual adapters (e.g. "Microsoft Remote Display Adapter", PNP id SWD\\...)
+    are software devices, not GPUs; physical ones sit on a bus such as PCI\\.
+    """
+    names = []
+    for line in text.splitlines():
+        name, _, pnp = line.strip().partition("|")
+        name, pnp = name.strip(), pnp.strip().upper()
+        if not name or pnp.startswith(("SWD\\", "ROOT\\")):
+            continue
+        if name not in names:
+            names.append(name)
+    return names
+
+
 def get_gpu_names() -> Optional[List[str]]:
-    """All display adapters (Win32_VideoController), e.g. integrated + discrete.
+    """All physical display adapters (Win32_VideoController), e.g. integrated + discrete.
 
     Returns None when they cannot be read (non-Windows or query failure).
     """
@@ -237,12 +254,12 @@ def get_gpu_names() -> Optional[List[str]]:
     try:
         result = subprocess.run(
             ['powershell', '-NoProfile', '-Command',
-             'Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name }'],
+             'Get-CimInstance Win32_VideoController | '
+             'ForEach-Object { $_.Name + "|" + $_.PNPDeviceID }'],
             capture_output=True, text=True, timeout=10
         )
         if result.returncode == 0:
-            names = [line.strip() for line in result.stdout.splitlines() if line.strip()]
-            return names or None
+            return parse_gpu_lines(result.stdout) or None
     except Exception as e:
         logger.warning(f"GPU list detection failed: {e}")
     return None
@@ -288,7 +305,8 @@ def get_system_summary() -> dict:
         'core_count': get_core_count(),
         'thread_count': get_thread_count(),
         'ram_size_gb': ram_info[0] if ram_info else None,
-        'gpu_name': get_gpu_name(),
+        # All physical GPUs (integrated + discrete); the single-name lookup is the fallback
+        'gpu_name': ", ".join(get_gpu_names() or []) or get_gpu_name(),
         'operating_system': get_operating_system()
     }
 
