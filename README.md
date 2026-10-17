@@ -153,6 +153,31 @@ Anything else is dropped at once and never stored, shown or exported.
 Games keep only name, store, install path, app id and version. No game is assumed to have an automatable
 benchmark mode; that list will only be added with verified entries.
 
+### Steam
+
+The "Steam" tab lists the client, reachable libraries and installed apps; refreshed by Rescan.
+Real-machine check: `python scripts/verify_steam.py`.
+
+- Libraries: both `steamapps/libraryfolders.vdf` and `config/libraryfolders.vdf` are read as hints (sources disagree on
+  the location; either can be stale). Unreachable libraries (unplugged drive, offline network share) are reported as notes.
+- Games: only `appmanifest_<appid>.acf` files are read (editor temp files such as `appmanifest_X.acf~RF*.TMP` are skipped).
+  Kept: appid, name, install folder, install state, build id, size. Never kept: `LastOwner` (account SteamID).
+  Never read: `loginusers.vdf`, `ssfn*`, `config.vdf`.
+- Each library is scanned as its own step in the background worker, so a slow network library cannot freeze the app.
+- Proton, Steam Linux Runtime and Steamworks Redistributables are listed as "tool" and cannot be launched.
+- Launching: `steam://rungameid/<appid>` only for an appid from a local manifest, after an explicit confirmation, without
+  launch arguments. Reported as `launched` only if a new process starts inside the game's folder within 60 s, otherwise
+  `unconfirmed`. Steam settings are never changed and no process is ever closed.
+- `data/steam_benchmarks.py`: appids checked against Steam's official store endpoint on 2026-10-17 (3DMark, Cyberpunk 2077,
+  Red Dead Redemption 2, Shadow / Rise of the Tomb Raider, Borderlands 3). Their built-in benchmark modes are
+  **unverified** until run on a real machine.
+- Linux: client folders `~/.steam/steam`, `~/.local/share/Steam`; native vs Proton and the Proton version are
+  "unavailable" (not read reliably yet). Results across Windows/Linux or Proton versions must not be compared.
+  Linux and Flatpak/Snap Steam: unverified on real hardware.
+
+Verified manually on this machine (2026-10-17): libraries `C:\Program Files (x86)\Steam` and `Z:\SteamLibrary`
+(network share), 15 apps found, no SteamID in the results. Launching a game from the tab: not tested yet.
+
 ### Database Location
 
 The production database is stored per user, not in the project folder:
