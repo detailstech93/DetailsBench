@@ -16,7 +16,7 @@ Verified manually by the user on this machine, 2026-10-16: launches of Geekbench
 - **UI automation of an elevated window from a non-elevated process is expected to be blocked** (not verified yet). Future automation phases must account for this.
 
 ### Dynamic Benchmark Discovery (Merged Methods)
-Verified on this machine: real scan via `python test_real_scan.py`. Pytest channel-boundary tests (`TestChannelBoundaryMocks`) feed fake registry/filesystem data into real channel functions.
+Real-machine check: `python scripts/verify_real_scan.py` (run manually; checks machine-independent invariants and prints the scan for comparison). Pytest channel-boundary tests (`TestChannelBoundaryMocks`) feed fake registry/filesystem data into real channel functions.
 No hardcoded installation paths or filenames. Discoveries are dynamically merged from:
 - **Registry Uninstall keys**: HKLM (64-bit), HKLM (WOW6432Node), and HKCU.
 - **Filesystem pattern search**: Scanning installation folders in both `C:\Program Files` and `C:\Program Files (x86)` (and other drive roots discovered via registry hints).
@@ -105,8 +105,11 @@ python scripts/main.py
 
 ### Running Real Discovery Validation (No Mocks)
 
+These scripts depend on the host machine and are not part of pytest.
+
 ```bash
-python test_real_scan.py
+python scripts/verify_real_scan.py
+python scripts/verify_geekbench_versions.py
 ```
 
 ### Running Unit and Integration Tests

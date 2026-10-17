@@ -41,6 +41,7 @@ class TestVersionNormalization:
         assert normalize_version("2026.1.3.0") == "2026.1.3.0"
         assert normalize_version("5, 2, 1") == "5.2.1"
         assert normalize_version("4.3, 2.1") == "4.3.2.1"
+        assert normalize_version("4.3.2.1.0") == "4.3.2.1.0"
         assert normalize_version("") == ""
         assert normalize_version(None) is None
         assert normalize_version("Unknown") == "Unknown"
