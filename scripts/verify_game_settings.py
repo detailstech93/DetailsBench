@@ -23,7 +23,7 @@ def main() -> int:
             print("  no settings file (start the game once)")
             continue
         found += 1
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = adapter.module.parse(path.read_bytes().decode("utf-8"))
         mod = adapter.module
         current = mod.read_settings(data)
         print("  read:", json.dumps(current))

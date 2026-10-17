@@ -4,11 +4,12 @@
 stores its value and its position ("index"). Fixed lists carry their "values", so any listed value can be
 written. Lists the game builds at runtime (resolution, DLSS mode, upscaler, preset, ...) carry no values;
 a value is written only when its position was seen before (plan refuses it otherwise). verify compares
-what the file says with what was asked. No file access here (app/games/settings_file.py does that).
+what the file says with what was asked. No file access here (app/games/settings_file.py does that; parse and dump only convert text).
 Shape checked on a real file (version 140) on 2026-10-18. Drafted by the local agent, reviewed.
 """
 
 import copy
+import json
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
@@ -275,3 +276,31 @@ def verify(data, desired: Dict[str, object]) -> Dict[str, Tuple[object, object]]
             result[key] = (expected, actual)
 
     return result
+
+
+def parse(text: str):
+    return json.loads(text)
+
+
+def dump(data) -> str:
+    return json.dumps(data, indent=4)
+
+
+def choices(data, known: Dict[str, Dict[str, int]]) -> Dict[str, list]:
+    """Values offered per setting: on/off, the file's own list, or the runtime-list values seen so far."""
+    out = {}
+    for key, (group, name) in SETTINGS.items():
+        opt = find_option(data, group, name)
+        if opt is None:
+            continue
+        kind = opt.get("type")
+        if kind == "bool":
+            out[key] = [True, False]
+        elif kind == "string_list" and isinstance(opt.get("values"), list):
+            out[key] = [v for v in opt["values"] if isinstance(v, str)]
+        elif kind == "string_list":
+            seen = dict(known.get(key) or {})
+            if isinstance(opt.get("value"), str) and isinstance(opt.get("index"), int):
+                seen[opt["value"]] = opt["index"]
+            out[key] = [v for v, _ in sorted(seen.items(), key=lambda kv: (kv[1], kv[0]))]
+    return out

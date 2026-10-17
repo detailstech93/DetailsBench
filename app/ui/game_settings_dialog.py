@@ -13,6 +13,7 @@ KEEP = "(keep the game's value)"
 LABELS = {
     "resolution": "Resolution", "window_mode": "Window mode", "vsync": "VSync", "fps_limit": "FPS limit",
     "preset": "Quality preset", "upscaler": "Upscaler", "dlss_mode": "DLSS mode", "texture_quality": "Texture quality",
+    "resolution_scale": "Resolution scale", "anti_aliasing": "Anti-aliasing", "graphics_api": "Graphics API",
     "dynamic_resolution": "Dynamic resolution", "frame_gen": "Frame generation",
     "dlss_frame_gen": "DLSS Frame Generation", "multi_frame_gen": "Multi Frame Generation",
     "ray_tracing": "Ray tracing", "rt_lighting": "RT lighting", "path_tracing": "Path tracing",
@@ -35,11 +36,10 @@ class GameSettingsDialog(QDialog):
         layout = QVBoxLayout(self)
         note = QLabel("Before each benchmark the app writes these values into the game's settings file "
                       "(a copy is kept), checks them before and after the run, and puts your own file back "
-                      "afterwards.\n\nResolution, Quality preset (Low, Medium, High, ...), Upscaler, DLSS mode, "
-                      "Window mode and VSync list only the values this game has used so far: the game keeps "
-                      "their full list to itself. To force another one (for example the Low preset), choose it "
-                      "once in the game's own menu, close the game, and press Benchmark again. The same for turning "
-                      "the upscaler or frame generation Off: set Off once in the game.")
+                      "afterwards.\n\nSome settings (for example resolution, quality preset, upscaler) list only "
+                      "the values this game has used so far, because its file does not hold the full list. To "
+                      "force another one (the Low preset, the upscaler Off, ...), choose it once in the game's own "
+                      "menu, close the game, and press Benchmark again.")
         note.setWordWrap(True)
         layout.addWidget(note)
         form = QFormLayout()

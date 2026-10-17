@@ -321,7 +321,21 @@ picks the graphics settings forced on the benchmark: resolution, window mode, VS
 upscaler and DLSS mode, texture quality, dynamic
 resolution, Frame Generation (DLSS, multi frame), ray tracing, RT lighting and path tracing. Each one can stay
 "keep the game's value". The choice is saved in settings.json (`forced_game_settings`). Supported so far:
-Cyberpunk 2077 (`app/games/cyberpunk2077.py`, its `%LOCALAPPDATA%/CD Projekt Red/Cyberpunk 2077/UserSettings.json`).
+
+| Game | Adapter | Settings file |
+|---|---|---|
+| Cyberpunk 2077 | `app/games/cyberpunk2077.py` | `%LOCALAPPDATA%/CD Projekt Red/Cyberpunk 2077/UserSettings.json` |
+| Borderlands 3 | `app/games/borderlands3.py` | `Documents/My Games/Borderlands 3/Saved/Config/WindowsNoEditor/GameUserSettings.ini` |
+
+Borderlands 3 offers resolution, window mode, VSync, frame rate limit, quality preset, resolution scale, dynamic
+resolution, anti-aliasing, texture quality and graphics API (DX11/DX12). Only the changed values are rewritten;
+every other byte of the file stays as it was.
+
+Not supported, checked on this computer on 2026-10-18: God of War keeps its settings inside its save file;
+Rise and Shadow of the Tomb Raider keep them in the registry (writing it needs your explicit permission, not
+done); Counter-Strike 2 keeps them in a folder named after the Steam account (not touched); DOOM (2016) writes
+almost none; Red Dead Redemption 2 and The Witcher 3 have no settings file yet (start them once, then they can
+be looked at).
 
 With forced settings, Benchmark game... says so in its confirmation, then (`app/games/settings_file.py`):
 

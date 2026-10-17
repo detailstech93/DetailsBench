@@ -23,26 +23,50 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Mapping, Optional
 
-from app.games import cyberpunk2077
+from app.games import borderlands3, cyberpunk2077
 
 INDICES_FILENAME = "game_settings_indices.json"
-BACKUP_NAME = "game_settings_backup.json"
+BACKUP_NAME = "game_settings_backup"      # + the settings file's own extension
+
+
+def documents_dir(env: Mapping[str, str]) -> Optional[Path]:
+    """The user's Documents folder (it may be moved, e.g. to OneDrive); PCBM_DOCUMENTS overrides it in tests."""
+    if env.get("PCBM_DOCUMENTS"):
+        return Path(env["PCBM_DOCUMENTS"])
+    if env is os.environ and os.name == "nt":
+        try:
+            import ctypes
+            buf = ctypes.create_unicode_buffer(260)
+            if ctypes.windll.shell32.SHGetFolderPathW(None, 5, None, 0, buf) == 0 and buf.value:  # CSIDL_PERSONAL
+                return Path(buf.value)
+        except Exception:
+            pass
+    home = env.get("USERPROFILE") or env.get("HOME")
+    return Path(home) / "Documents" if home else None
 
 
 @dataclass(frozen=True)
 class Adapter:
+    """module: parse, dump, read_settings, choices, observed_indices, merge_indices, plan, apply, verify,
+    APP_ID, LAUNCH_ARGS. base: "localappdata" or "documents"."""
     module: object
-    relative_path: str                  # under %LOCALAPPDATA%
+    relative_path: str
+    base: str = "localappdata"
 
     def settings_path(self, env: Optional[Mapping[str, str]] = None) -> Optional[Path]:
         env = os.environ if env is None else env
-        base = env.get("LOCALAPPDATA")
-        return Path(base) / self.relative_path if base else None
+        if self.base == "documents":
+            root = documents_dir(env)
+        else:
+            root = Path(env["LOCALAPPDATA"]) if env.get("LOCALAPPDATA") else None
+        return root / self.relative_path if root else None
 
 
 ADAPTERS: Dict[str, Adapter] = {
     str(cyberpunk2077.APP_ID): Adapter(cyberpunk2077, os.path.join("CD Projekt Red", "Cyberpunk 2077",
                                                                    "UserSettings.json")),
+    str(borderlands3.APP_ID): Adapter(borderlands3, os.path.join(
+        "My Games", "Borderlands 3", "Saved", "Config", "WindowsNoEditor", "GameUserSettings.ini"), "documents"),
 }
 
 
@@ -57,6 +81,17 @@ def _read_json(path: Path):
 def _write_json(path: Path, data) -> None:
     tmp = path.with_name(path.name + ".pcbm-tmp")
     tmp.write_text(json.dumps(data, indent=4), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _read_game(adapter: Adapter, path: Path):
+    """Parse the game's file; bytes are decoded as they are (line endings kept)."""
+    return adapter.module.parse(path.read_bytes().decode("utf-8"))
+
+
+def _write_game(adapter: Adapter, path: Path, data) -> None:
+    tmp = path.with_name(path.name + ".pcbm-tmp")
+    tmp.write_bytes(adapter.module.dump(data).encode("utf-8"))
     os.replace(tmp, path)
 
 
@@ -127,7 +162,7 @@ class ForcedSettings:
             raise ValueError(f"no settings adapter for Steam app {app_id}")
         self.path = self.adapter.settings_path(env)
         self.requested = dict(requested)
-        self.backup = Path(run_dir) / BACKUP_NAME
+        self.backup = Path(run_dir) / (BACKUP_NAME + (self.path.suffix if self.path else ""))
         self.data_dir = Path(data_dir)
         self.record = SettingsRecord(str(self.path), self.requested)
         self._written = False
@@ -138,7 +173,7 @@ class ForcedSettings:
         mod = self.adapter.module
         if self.path is None or not self.path.is_file():
             raise OSError(f"the game's settings file was not found ({self.path}); start the game once first")
-        data = _read_json(self.path)
+        data = _read_game(self.adapter, self.path)
         self.record.before = mod.read_settings(data)
         known = learn_indices(self.data_dir, self.app_id, self.adapter, data)
         changes, refused = mod.plan(data, self.requested, known)
@@ -147,10 +182,10 @@ class ForcedSettings:
         self.backup.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(self.path, self.backup)
         if changes:
-            _write_json(self.path, mod.apply(data, changes))
+            _write_game(self.adapter, self.path, mod.apply(data, changes))
             self._written = True
         accepted = {k: v for k, v in self.requested.items() if k not in refused}
-        self.record.mismatch_before_launch = _mismatches(mod.verify(_read_json(self.path), accepted))
+        self.record.mismatch_before_launch = _mismatches(mod.verify(_read_game(self.adapter, self.path), accepted))
         return self.record
 
     def finish(self, restore: bool = True) -> SettingsRecord:
@@ -158,7 +193,7 @@ class ForcedSettings:
         mod = self.adapter.module
         if self.backup.is_file():
             try:
-                data = _read_json(self.path)
+                data = _read_game(self.adapter, self.path)
                 accepted = {k: v for k, v in self.requested.items() if k not in self.record.refused}
                 self.record.mismatch_after_run = _mismatches(mod.verify(data, accepted))
                 learn_indices(self.data_dir, self.app_id, self.adapter, data)
@@ -180,24 +215,8 @@ SAVED_KEY = "forced_game_settings"          # settings.json: {app_id: {key: valu
 
 
 def setting_choices(adapter: Adapter, data, known: Dict[str, Dict[str, int]]) -> Dict[str, list]:
-    """Values the dialog offers per setting: on/off, the file's own list, or the positions learned so far."""
-    mod = adapter.module
-    out = {}
-    for key, (group, name) in mod.SETTINGS.items():
-        opt = mod.find_option(data, group, name)
-        if opt is None:
-            continue
-        kind = opt.get("type")
-        if kind == "bool":
-            out[key] = [True, False]
-        elif kind == "string_list" and isinstance(opt.get("values"), list):
-            out[key] = [v for v in opt["values"] if isinstance(v, str)]
-        elif kind == "string_list":
-            seen = dict(known.get(key) or {})
-            if isinstance(opt.get("value"), str) and isinstance(opt.get("index"), int):
-                seen[opt["value"]] = opt["index"]
-            out[key] = [v for v, _ in sorted(seen.items(), key=lambda kv: (kv[1], kv[0]))]
-    return out
+    """Values the dialog offers per setting (the adapter decides: on/off, fixed lists, values seen so far)."""
+    return adapter.module.choices(data, known)
 
 
 def read_for_dialog(app_id, data_dir: Path, env: Optional[Mapping[str, str]] = None):
@@ -208,7 +227,7 @@ def read_for_dialog(app_id, data_dir: Path, env: Optional[Mapping[str, str]] = N
     path = adapter.settings_path(env)
     if path is None or not path.is_file():
         raise OSError(f"the game's settings file was not found ({path}); start the game once first")
-    data = _read_json(path)
+    data = _read_game(adapter, path)
     known = learn_indices(data_dir, app_id, adapter, data)
     return setting_choices(adapter, data, known), adapter.module.read_settings(data)
 

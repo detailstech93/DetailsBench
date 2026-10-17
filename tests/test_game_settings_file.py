@@ -52,7 +52,7 @@ def test_apply_writes_backs_up_and_verifies(env):
     rec = fs.apply()
     assert rec.changed == ["ray_tracing", "rt_lighting"] and rec.refused == {}
     assert rec.mismatch_before_launch == {} and rec.before["rt_lighting"] == "Psycho"
-    assert (run_dir / BACKUP_NAME).read_bytes() == original
+    assert (run_dir / (BACKUP_NAME + ".json")).read_bytes() == original
     assert option(path, "RayTracing")["value"] is False
     assert option(path, "RayTracedLighting")["value"] == "Ultra" and option(path, "RayTracedLighting")["index"] == 2
     assert not path.with_name(path.name + ".pcbm-tmp").exists()
@@ -107,7 +107,7 @@ def test_missing_settings_file_changes_nothing(tmp_path):
                         env={"LOCALAPPDATA": str(tmp_path / "none")})
     with pytest.raises(OSError, match="start the game once"):
         fs.apply()
-    assert not (tmp_path / "run" / BACKUP_NAME).exists()
+    assert not (tmp_path / "run" / (BACKUP_NAME + ".json")).exists()
 
 
 def test_malformed_indices_file_is_ignored(tmp_path):
@@ -115,3 +115,37 @@ def test_malformed_indices_file_is_ignored(tmp_path):
     assert load_indices(tmp_path) == {}
     adapter = adapter_for(APP)
     assert learn_indices(tmp_path, APP, adapter, sample())["resolution"] == {"2560x1440": 0}
+
+
+BL3 = ("[ScalabilityGroups]\r\nsg.TextureQuality=3\r\n\r\n[/Script/OakGame.OakGameUserSettings]\r\n"
+       "GraphicsQualityMode=Ultra\r\nbUseVSync=False\r\nLastGPUBenchmarkSteps=1.0\r\nLastGPUBenchmarkSteps=2.0\r\n"
+       "FullscreenMode=1\r\nLastConfirmedFullscreenMode=1\r\nPreferredFullscreenMode=1\r\n"
+       "PreferredGraphicsAPI=DX11\r\n\r\n")
+
+
+def test_borderlands3_ini_in_documents_keeps_every_other_byte(tmp_path):
+    docs = tmp_path / "docs"
+    path = docs / "My Games" / "Borderlands 3" / "Saved" / "Config" / "WindowsNoEditor" / "GameUserSettings.ini"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(BL3.encode("utf-8"))
+    env = {"PCBM_DOCUMENTS": str(docs)}
+    fs = ForcedSettings("397540", {"vsync": True, "window_mode": "Fullscreen", "graphics_api": "DX12"},
+                        tmp_path / "run", tmp_path / "data", env=env)
+    rec = fs.apply()
+    assert rec.refused == {} and rec.mismatch_before_launch == {}
+    assert path.read_bytes() == BL3.replace("bUseVSync=False", "bUseVSync=True").replace(
+        "Mode=1", "Mode=0").replace("DX11", "DX12").encode("utf-8")
+    assert (tmp_path / "run" / (BACKUP_NAME + ".ini")).read_bytes() == BL3.encode("utf-8")
+    rec = fs.finish()
+    assert rec.verified and path.read_bytes() == BL3.encode("utf-8")
+
+
+def test_learned_value_is_refused_until_seen(tmp_path):
+    docs = tmp_path / "docs"
+    path = docs / "My Games" / "Borderlands 3" / "Saved" / "Config" / "WindowsNoEditor" / "GameUserSettings.ini"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(BL3.encode("utf-8"))
+    fs = ForcedSettings("397540", {"preset": "Low"}, tmp_path / "run", tmp_path / "data",
+                        env={"PCBM_DOCUMENTS": str(docs)})
+    rec = fs.apply()
+    assert "not seen in this game yet" in rec.refused["preset"] and path.read_bytes() == BL3.encode("utf-8")
