@@ -85,4 +85,6 @@ def discover_linux(run: Callable[[Sequence[str]], Optional[str]] = run_command,
                 return
         result.stores["steam"] = store_status("not detected", None, "~/.steam/steam, ~/.local/share/Steam")
     result.run_step("steam_client", steam)
+    from app.steam.discovery import add_steam_games
+    add_steam_games(result, "linux")
     return result

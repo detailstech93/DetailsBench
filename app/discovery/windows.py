@@ -143,4 +143,6 @@ def discover_windows(reg=None) -> DiscoveryResult:
     result.run_step("steam_client", steam)
     result.run_step("epic_games", epic)
     result.run_step("gog_games", gog)
+    from app.steam.discovery import add_steam_games
+    add_steam_games(result, "windows")
     return result
