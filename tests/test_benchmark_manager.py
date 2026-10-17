@@ -1280,3 +1280,28 @@ class TestMissingProgramFilesEnvVar:
         assert methods == {'filesystem pattern'}
         root = os.path.normcase(os.path.normpath(str(tmp_path)))
         assert all(p.startswith(root) for p in scanned), scanned
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PowerShell JSON shape: one-element arrays are unwrapped by ConvertTo-Json
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestQuerySystemAppsJsonShape:
+    """MOCK: feed PowerShell-shaped JSON into the REAL _query_system_apps."""
+
+    def _run(self, stdout):
+        with patch('subprocess.run') as mock_run:
+            mock_run.return_value = Mock(returncode=0, stdout=stdout)
+            return BenchmarkManager()._query_system_apps()
+
+    def test_single_start_app_object_becomes_list(self):
+        data = self._run('{"appx_cinebench": null, "start_apps": '
+                         '{"Name": "Geekbench 7", "AppID": "Geekbench 7.exe"}}')
+        assert data['start_apps'] == [{'Name': 'Geekbench 7', 'AppID': 'Geekbench 7.exe'}]
+
+    def test_null_start_apps_becomes_empty_list(self):
+        assert self._run('{"appx_cinebench": null, "start_apps": null}')['start_apps'] == []
+
+    def test_list_is_kept(self):
+        data = self._run('{"start_apps": [{"Name": "A", "AppID": "a"}, {"Name": "B", "AppID": "b"}]}')
+        assert [s['Name'] for s in data['start_apps']] == ['A', 'B']

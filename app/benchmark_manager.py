@@ -596,7 +596,15 @@ $res | ConvertTo-Json -Depth 3
                 capture_output=True, text=True, timeout=12,
             )
             if proc.returncode == 0 and proc.stdout.strip():
-                return json.loads(proc.stdout)
+                data = json.loads(proc.stdout)
+                # PowerShell 5.1 ConvertTo-Json unwraps a one-element array
+                # into a bare object (and an empty one into null).
+                start_apps = data.get('start_apps')
+                if isinstance(start_apps, dict):
+                    data['start_apps'] = [start_apps]
+                elif not isinstance(start_apps, list):
+                    data['start_apps'] = []
+                return data
         except Exception as e:
             logger.warning(f"Combined PowerShell query failed: {e}")
         return {'appx_cinebench': None, 'start_apps': []}
