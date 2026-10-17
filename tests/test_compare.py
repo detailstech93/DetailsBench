@@ -261,3 +261,28 @@ def test_sqlite_style_int_flags_count_as_true() -> None:
     assert "test_data" in issue_codes(compare_benchmark("b", make_side(is_test=1), make_side()))
     assert "test_data" not in issue_codes(compare_benchmark("b", make_side(is_test=0), make_side()))
     assert "test_data" not in issue_codes(compare_benchmark("b", make_side(is_test="yes"), make_side()))
+
+
+def _run(name: str, score: Optional[float], version: Optional[str] = "7.1.0.0", **kw: Any) -> Dict[str, Any]:
+    run = {"benchmark_name": name, "benchmark_version": version, "score": score, "status": "completed",
+           "is_warmup": 0, "is_test": 0, "is_manual": 1}
+    run.update(kw)
+    return run
+
+
+def test_compare_sessions_end_to_end() -> None:
+    from app.compare import compare_sessions
+    a = [_run("geekbench_7", s) for s in (2500.0, 2510.0, 2490.0)] + [_run("cinebench", 1000.0, "2026.1.3.0")]
+    b = [_run("geekbench_7", s) for s in (2600.0, 2610.0, 2590.0)] + [_run("geekbench_7", 9999.0, is_warmup=1)]
+    rows = {r["benchmark"]: r for r in compare_sessions(a, b)}
+    gb = rows["geekbench_7"]
+    assert gb["status"] == "ok" and round(gb["delta_percent"], 2) == 4.0     # warmup 9999 ignored
+    assert rows["cinebench"]["status"] == "not_comparable"                   # only in session A
+    assert "no_results" in issue_codes(rows["cinebench"])
+
+
+def test_mixed_versions_inside_one_session_become_unknown() -> None:
+    from app.compare import compare_sessions
+    a = [_run("geekbench_7", 2500.0, "7.1.0.0"), _run("geekbench_7", 2500.0, "7.2.0.0")]
+    b = [_run("geekbench_7", 2500.0), _run("geekbench_7", 2500.0)]
+    assert "version_unknown" in issue_codes(compare_sessions(a, b)[0])

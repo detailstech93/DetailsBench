@@ -386,7 +386,11 @@ class MainWindow(QMainWindow):
         self.history_tab = self._create_history_tab()
         self.tabs.addTab(self.history_tab, "Session History")
 
-        # 5. Steam View
+        # 5. Compare Results View
+        self.compare_tab = self._create_compare_tab()
+        self.tabs.addTab(self.compare_tab, "Compare Results")
+
+        # 6. Steam View
         self.steam_tab = self._create_steam_tab()
         self.tabs.addTab(self.steam_tab, "Steam")
         
@@ -500,6 +504,88 @@ class MainWindow(QMainWindow):
             for c, value in enumerate(row):
                 self.tools_table.setItem(r, c, QTableWidgetItem(value if value else "-"))
     
+    def _create_compare_tab(self) -> QWidget:
+        """Pick two sessions and compare every benchmark, with reasons when not comparable."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        row = QHBoxLayout()
+        self.compare_a = QComboBox()
+        self.compare_b = QComboBox()
+        self.compare_reload_btn = QPushButton("Reload sessions")
+        self.compare_reload_btn.clicked.connect(self.reload_compare_sessions)
+        self.compare_btn = QPushButton("Compare")
+        self.compare_btn.clicked.connect(self.run_comparison)
+        for label, widget in (("A (baseline):", self.compare_a), ("B:", self.compare_b)):
+            row.addWidget(QLabel(label))
+            row.addWidget(widget, 1)
+        row.addWidget(self.compare_reload_btn)
+        row.addWidget(self.compare_btn)
+        layout.addLayout(row)
+        self.compare_table = QTableWidget()
+        self.compare_table.setColumnCount(7)
+        self.compare_table.setHorizontalHeaderLabels(
+            ["Benchmark", "Mean A", "Mean B", "Delta", "Delta %", "Status", "Why"])
+        cheader = self.compare_table.horizontalHeader()
+        for col in range(6):
+            cheader.setSectionResizeMode(col, QHeaderView.ResizeToContents)
+        cheader.setSectionResizeMode(6, QHeaderView.Stretch)
+        layout.addWidget(self.compare_table, 1)
+        self.compare_note = QLabel("Delta % is relative to A. Rows marked not comparable keep their numbers "
+                                   "for reference only.")
+        self.compare_note.setWordWrap(True)
+        layout.addWidget(self.compare_note)
+        return tab
+
+    def reload_compare_sessions(self):
+        if not self.db:
+            return
+        try:
+            include_test = self.show_test_data_cb.isChecked()
+            sessions = self.db.search_sessions(include_test=include_test)
+        except Exception as e:
+            logger.debug(f"Could not load sessions for comparison: {e}")
+            return
+        for combo in (self.compare_a, self.compare_b):
+            current = combo.currentData()
+            combo.clear()
+            for s in sessions:
+                flag = " [TEST]" if s["is_test"] else ""
+                combo.addItem(f"#{s['id']} {s['name']} ({s['created_at'][:10]}){flag}", s)
+            index = next((i for i, s in enumerate(sessions) if current and s["id"] == current["id"]), -1)
+            if index >= 0:
+                combo.setCurrentIndex(index)
+        if len(sessions) >= 2 and self.compare_a.currentIndex() == self.compare_b.currentIndex():
+            self.compare_a.setCurrentIndex(1)   # default: older session as baseline A, newest as B
+
+    def run_comparison(self):
+        from app.compare import compare_sessions
+        a, b = self.compare_a.currentData(), self.compare_b.currentData()
+        if not self.db or not a or not b:
+            self.compare_note.setText("Pick two sessions first.")
+            return
+        rows = compare_sessions(
+            self.db.get_runs(a["id"], include_test=True), self.db.get_runs(b["id"], include_test=True),
+            self.db.get_session_manifest(a["id"]), self.db.get_session_manifest(b["id"]),
+            a["is_test"], b["is_test"])
+        colors = {"ok": "#2E7D32", "warning": "#B26A00", "not_comparable": "#C62828"}
+        self.compare_table.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            why = "; ".join(f"{i['level']}: {i['message']}" for i in row["issues"]) or "-"
+            delta_pct = "-" if row["delta_percent"] is None else f"{row['delta_percent']:+.2f} %"
+            delta = "-" if row["delta"] is None else f"{row['delta']:+,.2f}"
+            cells = [row["benchmark"], _fmt(row["mean_a"]), _fmt(row["mean_b"]), delta, delta_pct,
+                     row["status"].replace("_", " "), why]
+            for c, text in enumerate(cells):
+                item = QTableWidgetItem(text)
+                if c == 5:
+                    item.setForeground(QColor(colors[row["status"]]))
+                elif row["status"] == "not_comparable" and c in (3, 4):
+                    item.setForeground(QColor("#757575"))
+                self.compare_table.setItem(r, c, item)
+        same = " (the same session on both sides)" if a["id"] == b["id"] else ""
+        self.compare_note.setText(f"Compared #{a['id']} (A) with #{b['id']} (B){same}. "
+                                  "Delta % is relative to A.")
+
     def _create_steam_tab(self) -> QWidget:
         """Steam client, libraries and installed games with a guarded Launch button."""
         tab = QWidget()
@@ -1290,6 +1376,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.debug(f"Could not refresh history table: {e}")
         self.refresh_stats_table()
+        self.reload_compare_sessions()
 
     def search_filters(self) -> Optional[dict]:
         """Current search filters, or None (with a message) if a date is invalid."""

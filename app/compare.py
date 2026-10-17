@@ -99,6 +99,37 @@ def _major_version(version: Any) -> Optional[str]:
     return major
 
 
+def sides_for_session(runs: List[Mapping], manifest: Optional[Mapping], is_test: bool) -> Dict[str, dict]:
+    """Group one session's runs by benchmark into compare_benchmark sides.
+
+    The version is the single benchmark_version used in that session for the
+    benchmark; if runs disagree (or none is recorded) it is None, which makes
+    compare_benchmark warn "version_unknown".
+    """
+    from app.stats import summarize_runs
+    grouped: Dict[str, List[Mapping]] = {}
+    for run in runs:
+        grouped.setdefault(run["benchmark_name"], []).append(run)
+    sides = {}
+    for name, group in grouped.items():
+        versions = {r.get("benchmark_version") for r in group if r.get("benchmark_version")}
+        sides[name] = {"summary": summarize_runs(group, include_test=True),
+                       "version": versions.pop() if len(versions) == 1 else None,
+                       "manifest": manifest, "is_test": bool(is_test)}
+    return sides
+
+
+def compare_sessions(runs_a: List[Mapping], runs_b: List[Mapping],
+                     manifest_a: Optional[Mapping] = None, manifest_b: Optional[Mapping] = None,
+                     is_test_a: bool = False, is_test_b: bool = False) -> List[dict]:
+    """compare_benchmark for every benchmark present in either session, sorted by name."""
+    sides_a = sides_for_session(runs_a, manifest_a, is_test_a)
+    sides_b = sides_for_session(runs_b, manifest_b, is_test_b)
+    empty = {"summary": {"included": 0, "stats": {}}, "version": None, "manifest": None, "is_test": False}
+    return [compare_benchmark(name, sides_a.get(name, empty), sides_b.get(name, empty))
+            for name in sorted(set(sides_a) | set(sides_b))]
+
+
 def _issue(level: str, code: str, message: str) -> Dict[str, str]:
     """Create an issue dictionary."""
     return {"level": level, "code": code, "message": message}
