@@ -96,6 +96,15 @@ class Database:
                 )
             """)
 
+            # Session manifests (Phase 4A) - one reproduction record per session
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS session_manifests (
+                    session_id INTEGER PRIMARY KEY REFERENCES sessions(id),
+                    created_at TEXT NOT NULL,
+                    manifest_json TEXT NOT NULL
+                )
+            """)
+
             # ── Additive migrations ──────────────────────────────────────────
             cursor.execute("PRAGMA table_info(results)")
             results_cols = [col[1] for col in cursor.fetchall()]
@@ -322,6 +331,26 @@ class Database:
             return None
         return {"id": row[0], "environment_snapshot_id": row[1], "created_at": row[2],
                 "is_test": bool(row[3]), "result": json.loads(row[4])}
+
+    def save_session_manifest(self, session_id: int, manifest: dict) -> None:
+        """Store the session's manifest once; a second save raises ValueError."""
+        conn = self._get_connection()
+        try:
+            conn.execute(
+                "INSERT INTO session_manifests (session_id, created_at, manifest_json) VALUES (?, ?, ?)",
+                (session_id, datetime.now().isoformat(), json.dumps(manifest, sort_keys=True)))
+            conn.commit()
+        except sqlite3.IntegrityError as exc:
+            raise ValueError(f"session {session_id} already has a manifest or does not exist: {exc}")
+        finally:
+            conn.close()
+
+    def get_session_manifest(self, session_id: int) -> Optional[dict]:
+        conn = self._get_connection()
+        row = conn.execute("SELECT manifest_json FROM session_manifests WHERE session_id = ?",
+                           (session_id,)).fetchone()
+        conn.close()
+        return json.loads(row[0]) if row else None
 
     @staticmethod
     def _snapshot_row(row) -> dict:
