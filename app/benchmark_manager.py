@@ -46,6 +46,7 @@ class BenchmarkStatus(Enum):
     UNSUPPORTED = "unsupported"
     LICENSE_REQUIRED = "license_required"
     COMPATIBILITY_UNVERIFIED = "compatibility_unverified"
+    SCAN_ERROR = "scan_error"
 
 
 class BenchmarkType(Enum):
@@ -708,10 +709,20 @@ $res | ConvertTo-Json -Depth 3
             '|'.join(definition.name_patterns), re.IGNORECASE
         ) if definition.name_patterns else None
 
-        search_roots = [
-            os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)'),
-            os.environ.get('ProgramFiles', r'C:\Program Files'),
-        ] + extra_roots
+        search_roots = []
+        for env_name, label in [('ProgramFiles(x86)', 'Program Files (x86)'),
+                                ('ProgramFiles', 'Program Files')]:
+            val = os.environ.get(env_name)
+            if val and os.path.isdir(val):
+                search_roots.append(val)
+            else:
+                logger.debug(
+                    "Skipping %s root: %s env var %s",
+                    label,
+                    "missing" if val is None else "not a directory",
+                    env_name,
+                )
+        search_roots = search_roots + extra_roots
 
         for base in search_roots:
             if not os.path.isdir(base):
@@ -928,12 +939,21 @@ $res | ConvertTo-Json -Depth 3
                         appid = sa.get('AppID', '')
                         guid_x86 = '{7C5A40EF-A0FB-4BFC-874A-C0F2E0B9FA8E}'
                         guid_x64 = '{6D809377-6AF0-444B-8957-A3773F02200E}'
-                        resolved = appid.replace(guid_x86, os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)'))
-                        resolved = resolved.replace(guid_x64, os.environ.get('ProgramFiles', r'C:\Program Files'))
-                        if os.path.isfile(resolved):
-                            norm_res = os.path.normpath(resolved)
-                            if norm_res not in [c['path'] for c in all_candidates]:
-                                all_candidates.append({'path': norm_res, 'method': 'Start Menu'})
+                        pf_x86 = os.environ.get('ProgramFiles(x86)')
+                        pf = os.environ.get('ProgramFiles')
+                        if pf_x86 is None or pf is None:
+                            logger.debug(
+                                "Skipping Start Menu GUID resolution for %s: "
+                                "ProgramFiles env var(s) missing",
+                                definition.id,
+                            )
+                        else:
+                            resolved = appid.replace(guid_x86, pf_x86)
+                            resolved = resolved.replace(guid_x64, pf)
+                            if os.path.isfile(resolved):
+                                norm_res = os.path.normpath(resolved)
+                                if norm_res not in [c['path'] for c in all_candidates]:
+                                    all_candidates.append({'path': norm_res, 'method': 'Start Menu'})
             except Exception as exc:
                 logger.error("channel start_menu failed for %s: %s", definition.id, exc)
                 channel_errors.append(f"channel start_menu failed: {exc}")
@@ -1155,8 +1175,34 @@ $res | ConvertTo-Json -Depth 3
 
         Uses _derive_official_url() so the official_url comes from the
         configured page versions (single source of truth).
+
+        Browser detection is isolated: a crash is recorded in channel_errors
+        and the benchmark falls back to NOT_INSTALLED rather than aborting
+        the entire scan.
         """
-        browser_info = self._detect_browsers()
+        try:
+            browser_info = self._detect_browsers()
+        except Exception as exc:
+            logger.error("channel browser_detection failed for %s: %s", definition.id, exc)
+            channel_errors.append(f"channel browser_detection failed: {exc}")
+            page_url = _derive_official_url(definition)
+            default_ver = get_default_page_version(definition)
+            version_str = default_ver["version"] if default_ver else None
+            return [BenchmarkInfo(
+                name=definition.id,
+                display_name=definition.display_name,
+                type=self._category_to_type(definition.category),
+                status=BenchmarkStatus.SCAN_ERROR,
+                executable_path=None,
+                version=version_str,
+                architecture=None,
+                official_url=page_url,
+                reason=f'browser check failed: {exc}',
+                prerequisites=['Modern web browser'],
+                detection_method='error',
+                file_exists=None,
+                scan_diagnostics=channel_errors if channel_errors else None,
+            )]
         compatible: list = []
         for bname, bdata in browser_info.items():
             if bdata['version'] and self._is_browser_compatible(bname, bdata['version']):
@@ -1170,6 +1216,20 @@ $res | ConvertTo-Json -Depth 3
         version_str = default_ver["version"] if default_ver else None
 
         if compatible:
+            # Build enhanced reason text that notes fallback browsers
+            fallback_notes = []
+            for bname, bdata in browser_info.items():
+                if bdata.get('found_by_fallback'):
+                    fallback_notes.append(f"{bname} found by fallback path, unverified")
+            reason_parts = [f'Compatible browsers detected: {", ".join(compatible)} (manual execution required)']
+            if fallback_notes:
+                reason_parts.append('; '.join(fallback_notes))
+            final_reason = '; '.join(reason_parts)
+
+            # Merge fallback notes into scan_diagnostics
+            diag = list(channel_errors) if channel_errors else []
+            diag.extend(fallback_notes)
+
             return [BenchmarkInfo(
                 name=definition.id,
                 display_name=definition.display_name,
@@ -1179,11 +1239,11 @@ $res | ConvertTo-Json -Depth 3
                 version=version_str,
                 architecture=None,
                 official_url=page_url,
-                reason=f'Compatible browsers detected: {", ".join(compatible)} (manual execution required)',
+                reason=final_reason,
                 prerequisites=['Modern web browser'],
                 detection_method='browser_detection',
                 file_exists=None,   # not applicable for web benchmarks
-                scan_diagnostics=channel_errors if channel_errors else None,
+                scan_diagnostics=diag if diag else None,
             )]
         return [BenchmarkInfo(
             name=definition.id,
@@ -1204,7 +1264,12 @@ $res | ConvertTo-Json -Depth 3
     # ── Browser detection: App Paths registry + fallback folder search ───────
 
     def _detect_browsers(self) -> Dict[str, dict]:
-        """Detect installed web browsers via App Paths registry, then fallback paths."""
+        """Detect installed web browsers via App Paths registry, then fallback paths.
+
+        Fallback paths are built from os.environ (ProgramFiles, ProgramFiles(x86),
+        LOCALAPPDATA) — no literal hardcoded paths.
+        Browsers found by fallback are labeled "found by fallback, unverified".
+        """
         self.browser_info = {}
         # Browser names to search for in App Paths registry
         browser_keys = {
@@ -1213,23 +1278,23 @@ $res | ConvertTo-Json -Depth 3
             'Firefox': ['firefox.exe'],
             'Opera': ['opera.exe'],
         }
-        # Fallback hardcoded paths (used only if App Paths lookup fails)
-        fallback_paths = {
+        # Fallback sub-paths built from os.environ (no literal paths)
+        pf = os.environ.get('ProgramFiles', '')
+        pf86 = os.environ.get('ProgramFiles(x86)', '')
+        localappdata = os.environ.get('LOCALAPPDATA', '')
+        fallback_subpaths = {
             'Chrome': [
-                r'C:\Program Files\Google\Chrome\Application\chrome.exe',
-                r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe',
+                r'Google\Chrome\Application\chrome.exe',
             ],
             'Edge': [
-                r'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe',
-                r'C:\Program Files\Microsoft\Edge\Application\msedge.exe',
+                r'Microsoft\Edge\Application\msedge.exe',
             ],
             'Firefox': [
-                r'C:\Program Files\Mozilla Firefox\firefox.exe',
-                r'C:\Program Files (x86)\Mozilla Firefox\firefox.exe',
+                r'Mozilla Firefox\firefox.exe',
             ],
             'Opera': [
-                r'C:\Program Files\Opera\opera.exe',
-                r'C:\Program Files (x86)\Opera\launcher.exe',
+                r'Opera\opera.exe',
+                r'Opera\launcher.exe',
             ],
         }
 
@@ -1274,21 +1339,52 @@ $res | ConvertTo-Json -Depth 3
                 except OSError:
                     pass
 
-            # 2. Fallback: hardcoded paths
+            # 2. Fallback: paths built from os.environ
             if not found:
-                for exe_path in fallback_paths.get(browser_name, []):
-                    if os.path.exists(exe_path):
-                        version = get_pe_version(exe_path) or "Unknown"
-                        arch = get_pe_architecture(exe_path)
-                        self.browser_info[browser_name] = {
-                            'path': exe_path,
-                            'version': version,
-                            'architecture': arch,
-                        }
-                        found = True
+                for sub in fallback_subpaths.get(browser_name, []):
+                    for base in (pf86, pf, localappdata):
+                        if not base:
+                            continue
+                        exe_path = os.path.join(base, sub)
+                        if os.path.exists(exe_path):
+                            version = get_pe_version(exe_path) or "Unknown"
+                            arch = get_pe_architecture(exe_path)
+                            self.browser_info[browser_name] = {
+                                'path': exe_path,
+                                'version': version,
+                                'architecture': arch,
+                                'found_by_fallback': True,
+                            }
+                            found = True
+                            break
+                    if found:
                         break
 
         return self.browser_info
+
+    # ── Browser process check for web benchmarks ───────────────────────────
+
+    def _is_browser_running(self) -> bool:
+        """Check whether any detected browser process is currently running.
+
+        Returns True if at least one browser from self.browser_info has a
+        matching process in the current snapshot.
+        """
+        if not self.browser_info:
+            return False
+        try:
+            snapshot = _get_process_snapshot()
+            for bname, bdata in self.browser_info.items():
+                p = bdata.get('path', '')
+                if not p:
+                    continue
+                target = os.path.basename(p).lower()
+                for img, _ in snapshot:
+                    if img.lower() == target:
+                        return True
+        except Exception:
+            pass
+        return False
 
     # ── Legacy alias methods (backward compat for tests / UI) ────────────────
 
@@ -1458,6 +1554,13 @@ class BenchmarkExecutor:
 
     def _run_single_execution(self, benchmark_info: BenchmarkInfo, timeout_seconds: int) -> Dict[str, Any]:
         if not benchmark_info.executable_path and benchmark_info.type == BenchmarkType.WEB:
+            # Check if a browser is already running
+            if self.manager._is_browser_running():
+                return {'score': None, 'unit': 'points',
+                        'execution_method': 'manual',
+                        'timestamp': datetime.now().isoformat(),
+                        'launch_status': 'launched',
+                        'message': 'Launch command accepted; page load not verified'}
             return {'score': None, 'unit': 'points', 'execution_method': 'manual',
                     'timestamp': datetime.now().isoformat()}
         if benchmark_info.name.startswith('geekbench'):

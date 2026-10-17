@@ -112,6 +112,17 @@ class _WebLaunchWorker(QThread):
     """Lightweight worker for spawning a browser to a web benchmark URL.
 
     Runs subprocess.Popen / webbrowser.open off the GUI thread.
+
+    Results are defined as:
+     - launch call returned without exception  -> status "launched",
+       message "Launch command accepted; page load not verified"
+     - launch call raised an exception         -> status "error" with exception text
+     - user cancelled before launch            -> status "cancelled"
+
+    A process snapshot is taken only as a diagnostic note in the log;
+    it is never used as proof of a successful launch because browsers
+    spawn child processes (renderers) and a process-count increase does
+    not prove our launch worked.
     """
     finished = Signal(dict)
     progress = Signal(str)
@@ -126,31 +137,60 @@ class _WebLaunchWorker(QThread):
         self.version_str = version_str
         self.browser_path = browser_path
         self.browser_name = browser_name
+        self._cancelled = False
+
+    def cancel(self):
+        """Signal that the user cancelled before the launch call."""
+        self._cancelled = True
 
     def run(self):
+        if self._cancelled:
+            self.finished.emit({
+                'status': 'cancelled',
+                'message': f"Launch of {self.bm.display_name} was cancelled by user.",
+                'elevation_used': False,
+            })
+            return
+
         try:
             self.progress.emit(f"Launching {self.bm.display_name}...")
+
+            # Diagnostic-only process snapshot (never used as proof).
+            from app.benchmark_manager import _get_process_snapshot
+            before = _get_process_snapshot()
+
             if self.browser_path:
                 subprocess.Popen([self.browser_path, self.url])
-                self.finished.emit({
-                    'status': 'launched',
-                    'message': (
-                        f"{self.bm.display_name} v{self.version_str} "
-                        f"in {self.browser_name}: {self.url}"
-                    ),
-                    'elevation_used': False,
-                })
             else:
                 webbrowser.open(self.url)
-                self.finished.emit({
-                    'status': 'unconfirmed',
-                    'message': (
-                        f"Opened {self.bm.display_name} v{self.version_str} "
-                        f"in default browser: {self.url} "
-                        f"(launch not verified — browser may have blocked it)"
-                    ),
-                    'elevation_used': False,
-                })
+
+            # Log diagnostic note about process snapshot
+            after = _get_process_snapshot()
+            browser_exe = None
+            if self.browser_path:
+                browser_exe = os.path.basename(self.browser_path)
+            if browser_exe:
+                from app.benchmark_manager import _has_new_process
+                if _has_new_process(before, after, browser_exe):
+                    logger.debug(
+                        "[diagnostic] new %s process seen after launch of %s",
+                        browser_exe, self.bm.display_name,
+                    )
+                else:
+                    logger.debug(
+                        "[diagnostic] no new %s process seen after launch of %s "
+                        "(browser may have reused an existing process)",
+                        browser_exe, self.bm.display_name,
+                    )
+
+            self.finished.emit({
+                'status': 'launched',
+                'message': (
+                    f"{self.bm.display_name} v{self.version_str} "
+                    f"Launch command accepted; page load not verified: {self.url}"
+                ),
+                'elevation_used': False,
+            })
         except Exception as e:
             self.finished.emit({
                 'status': 'error',
@@ -442,8 +482,15 @@ class MainWindow(QMainWindow):
             path_lines = []
             
             any_ready = False
+            any_error = False
             for gb in geekbenches:
-                st = "assisted/manual" if gb.status == BenchmarkStatus.READY_MANUAL else gb.status.value
+                if gb.status == BenchmarkStatus.SCAN_ERROR:
+                    st = f"could not check: {gb.reason or 'unknown error'}"
+                    any_error = True
+                elif gb.status == BenchmarkStatus.READY_MANUAL:
+                    st = "assisted/manual"
+                else:
+                    st = gb.status.value
                 if gb.status in (BenchmarkStatus.READY_MANUAL, BenchmarkStatus.READY_AUTO):
                     any_ready = True
                 status_lines.append(f"{gb.display_name}: {st}")
@@ -462,6 +509,7 @@ class MainWindow(QMainWindow):
                 'type': "CPU",
                 'status': "\n".join(status_lines),
                 'status_ready': any_ready,
+                'status_is_error': any_error,
                 'version': "\n".join(ver_lines),
                 'arch': "\n".join(arch_lines),
                 'method': "\n".join(method_lines),
@@ -469,7 +517,15 @@ class MainWindow(QMainWindow):
             })
             
         for bm in others:
-            st = "assisted/manual" if bm.status == BenchmarkStatus.READY_MANUAL else bm.status.value
+            if bm.status == BenchmarkStatus.SCAN_ERROR:
+                st = f"could not check: {bm.reason or 'unknown error'}"
+                status_is_error = True
+            elif bm.status == BenchmarkStatus.READY_MANUAL:
+                st = "assisted/manual"
+                status_is_error = False
+            else:
+                st = bm.status.value
+                status_is_error = False
             ver_text = bm.version or "None"
             arch_text = bm.architecture or "None"
             method_text = bm.detection_method or "not_found"
@@ -479,6 +535,7 @@ class MainWindow(QMainWindow):
                 'type': bm.type.value.upper(),
                 'status': st,
                 'status_ready': bm.status in (BenchmarkStatus.READY_MANUAL, BenchmarkStatus.READY_AUTO),
+                'status_is_error': status_is_error,
                 'version': ver_text,
                 'arch': arch_text,
                 'method': method_text,
@@ -491,7 +548,9 @@ class MainWindow(QMainWindow):
             self.library_table.setItem(row, 1, QTableWidgetItem(item['type']))
             
             status_item = QTableWidgetItem(item['status'])
-            if item['status_ready']:
+            if item.get('status_is_error'):
+                status_item.setForeground(QColor("#C62828"))
+            elif item['status_ready']:
                 status_item.setForeground(QColor("#2E7D32"))
             else:
                 status_item.setForeground(QColor("#757575"))
@@ -665,7 +724,10 @@ class MainWindow(QMainWindow):
             browser_combo = QComboBox()
             for bname, bdata in browser_info.items():
                 ver = bdata.get('version', 'unknown')
-                browser_combo.addItem(f"{bname} {ver}")
+                label = f"{bname} {ver}"
+                if bdata.get('found_by_fallback'):
+                    label += " (found by fallback path, unverified)"
+                browser_combo.addItem(label)
             b_layout.addWidget(browser_combo)
             layout.addWidget(browser_group)
         else:

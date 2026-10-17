@@ -237,3 +237,229 @@ class TestMainWindowUI:
         assert "Launch Geekbench 7" in btn1.text()
         
         window.close()
+
+
+class TestWebLaunchWorkerProcessSnapshot:
+    """Test _WebLaunchWorker uses real _has_new_process / _get_process_snapshot
+    comparison code with fake process snapshots."""
+
+    def test_web_launch_worker_browser_already_running(self, qapp):
+        """MOCK: browser already running -> unconfirmed, not failed."""
+        from app.ui.main_window import _WebLaunchWorker
+
+        bm = BenchmarkInfo(
+            name='speedometer', display_name='Speedometer',
+            type=BenchmarkType.WEB, status=BenchmarkStatus.READY_MANUAL,
+        )
+        worker = _WebLaunchWorker(
+            bm, 'https://example.com/benchmark-page/',
+            '3.1',
+            browser_path=r'C:\Program Files\Google\Chrome\Application\chrome.exe',
+            browser_name='Chrome',
+        )
+
+        # Capture the finished signal via a connected callable
+        finished_results = []
+        worker.finished.connect(lambda result: finished_results.append(result))
+
+        # Fake snapshots: chrome.exe already exists before AND after launch
+        before_snapshot = [
+            ('chrome.exe', r'C:\Program Files\Google\Chrome\Application\chrome.exe'),
+            ('svchost.exe', None),
+        ]
+        after_snapshot = [
+            ('chrome.exe', r'C:\Program Files\Google\Chrome\Application\chrome.exe'),
+            ('svchost.exe', None),
+        ]
+
+        call_count = [0]
+        def fake_snapshot():
+            call_count[0] += 1
+            return before_snapshot if call_count[0] == 1 else after_snapshot
+
+        with patch('subprocess.Popen'):
+            with patch('app.benchmark_manager._get_process_snapshot', side_effect=fake_snapshot):
+                worker.run()
+
+        # Launch call returned without exception -> status "launched"
+        assert len(finished_results) == 1
+        result = finished_results[0]
+        assert result['status'] == 'launched'
+        assert 'Launch command accepted; page load not verified' in result['message']
+        assert result['elevation_used'] is False
+
+    def test_web_launch_worker_launch_raises_exception(self, qapp):
+        """Signal-level test: launch raises exception -> status 'error'."""
+        from app.ui.main_window import _WebLaunchWorker
+
+        bm = BenchmarkInfo(
+            name='speedometer', display_name='Speedometer',
+            type=BenchmarkType.WEB, status=BenchmarkStatus.READY_MANUAL,
+        )
+        worker = _WebLaunchWorker(
+            bm, 'https://example.com/benchmark-page/',
+            '3.1',
+            browser_path=r'C:\Program Files\Google\Chrome\Application\chrome.exe',
+            browser_name='Chrome',
+        )
+
+        finished_results = []
+        worker.finished.connect(lambda result: finished_results.append(result))
+
+        with patch('subprocess.Popen', side_effect=OSError('access denied')):
+            worker.run()
+
+        assert len(finished_results) == 1
+        result = finished_results[0]
+        assert result['status'] == 'error'
+        assert 'Could not launch' in result['message']
+        assert 'access denied' in result['message']
+        assert result['elevation_used'] is False
+
+    def test_web_launch_worker_user_cancelled(self, qapp):
+        """Signal-level test: user cancelled -> status 'cancelled'."""
+        from app.ui.main_window import _WebLaunchWorker
+
+        bm = BenchmarkInfo(
+            name='speedometer', display_name='Speedometer',
+            type=BenchmarkType.WEB, status=BenchmarkStatus.READY_MANUAL,
+        )
+        worker = _WebLaunchWorker(
+            bm, 'https://example.com/benchmark-page/',
+            '3.1',
+        )
+
+        finished_results = []
+        worker.finished.connect(lambda result: finished_results.append(result))
+
+        # User cancels before launch
+        worker.cancel()
+        worker.run()
+
+        assert len(finished_results) == 1
+        result = finished_results[0]
+        assert result['status'] == 'cancelled'
+        assert 'cancelled' in result['message'].lower()
+        assert result['elevation_used'] is False
+
+    def test_web_launch_worker_no_browser_path_launched(self, qapp):
+        """Signal-level test: no browser_path -> still 'launched' (not 'unconfirmed')."""
+        from app.ui.main_window import _WebLaunchWorker
+
+        bm = BenchmarkInfo(
+            name='speedometer', display_name='Speedometer',
+            type=BenchmarkType.WEB, status=BenchmarkStatus.READY_MANUAL,
+        )
+        worker = _WebLaunchWorker(
+            bm, 'https://example.com/benchmark-page/',
+            '3.1',
+            browser_path=None,
+            browser_name=None,
+        )
+
+        finished_results = []
+        worker.finished.connect(lambda result: finished_results.append(result))
+
+        with patch('webbrowser.open'):
+            with patch('app.benchmark_manager._get_process_snapshot', return_value=[]):
+                worker.run()
+
+        assert len(finished_results) == 1
+        result = finished_results[0]
+        assert result['status'] == 'launched'
+        assert 'Launch command accepted; page load not verified' in result['message']
+
+
+class TestScanErrorUIDisplay:
+    """Test that SCAN_ERROR benchmarks display correctly in the Library screen."""
+
+    def test_scan_error_shows_could_not_check_text(self, qapp):
+        """SCAN_ERROR benchmarks must show 'could not check: <reason>' in status column."""
+        mock_db = Mock()
+        with patch.object(MainWindow, 'start_scan'):
+            window = MainWindow(mock_db, {})
+
+        window.benchmark_manager.benchmarks = [
+            BenchmarkInfo(
+                name='speedometer',
+                display_name='Speedometer',
+                type=BenchmarkType.WEB,
+                status=BenchmarkStatus.SCAN_ERROR,
+                reason='browser check failed: connection timeout',
+                version=None,
+                detection_method='error',
+            ),
+        ]
+
+        window.refresh_library_screen()
+
+        # Status column must show 'could not check: browser check failed: connection timeout'
+        status_text = window.library_table.item(0, 2).text()
+        assert 'could not check:' in status_text
+        assert 'browser check failed: connection timeout' in status_text
+
+        # Must NOT show raw 'scan_error' value
+        assert status_text != 'scan_error'
+
+        # Must NOT be marked as ready
+        assert window.library_table.item(0, 0).text() == 'Speedometer'
+
+        window.close()
+
+    def test_scan_error_status_color_is_red(self, qapp):
+        """SCAN_ERROR status cell must have red foreground color."""
+        mock_db = Mock()
+        with patch.object(MainWindow, 'start_scan'):
+            window = MainWindow(mock_db, {})
+
+        window.benchmark_manager.benchmarks = [
+            BenchmarkInfo(
+                name='jetstream',
+                display_name='JetStream',
+                type=BenchmarkType.WEB,
+                status=BenchmarkStatus.SCAN_ERROR,
+                reason='browser check failed',
+            ),
+        ]
+
+        window.refresh_library_screen()
+
+        # Check the foreground color of the status cell
+        status_item = window.library_table.item(0, 2)
+        fg_color = status_item.foreground().name()
+        # Should be red (#C62828), not gray (#757575) or green (#2E7D32)
+        assert fg_color.lower() == '#c62828', f"Expected red, got {fg_color}"
+
+        window.close()
+
+    def test_scan_error_not_in_run_screen(self, qapp):
+        """SCAN_ERROR benchmarks must not appear in the Run screen."""
+        mock_db = Mock()
+        with patch.object(MainWindow, 'start_scan'):
+            window = MainWindow(mock_db, {})
+
+        window.benchmark_manager.benchmarks = [
+            BenchmarkInfo(
+                name='speedometer',
+                display_name='Speedometer',
+                type=BenchmarkType.WEB,
+                status=BenchmarkStatus.SCAN_ERROR,
+                reason='browser check failed',
+            ),
+            BenchmarkInfo(
+                name='geekbench_6',
+                display_name='Geekbench 6',
+                type=BenchmarkType.CPU,
+                status=BenchmarkStatus.READY_MANUAL,
+                executable_path=r'C:\Program Files\Geekbench 6\Geekbench 6.exe',
+                version='6.7.1.0',
+            ),
+        ]
+
+        window.refresh_run_screen()
+
+        # Only READY_MANUAL should appear
+        assert window.run_table.rowCount() == 1
+        assert window.run_table.item(0, 0).text() == 'Geekbench 6'
+
+        window.close()

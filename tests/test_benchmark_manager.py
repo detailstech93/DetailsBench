@@ -956,3 +956,345 @@ class TestProcessSnapshot:
             for entry in snapshot:
                 assert isinstance(entry, tuple)
                 assert len(entry) == 2
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 17. Browser channel isolation — browser detection raises, scan continues
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestBrowserChannelIsolation:
+    """A crash in browser detection must not abort scan(): record the failure
+    in diagnostics and continue with remaining benchmarks."""
+
+    @patch.object(BenchmarkManager, '_detect_browsers')
+    @patch.object(BenchmarkManager, '_query_system_apps')
+    def test_browser_detection_crash_does_not_abort_scan(
+        self, mock_query_apps, mock_browsers
+    ):
+        """MOCK: _detect_browsers raises -> scan continues, web benchmarks
+        get NOT_INSTALLED with browser error in diagnostics."""
+        mock_query_apps.return_value = {'appx_cinebench': None, 'start_apps': []}
+        mock_browsers.side_effect = RuntimeError("simulated browser detection crash")
+
+        manager = BenchmarkManager()
+        results = manager.scan()
+
+        # All benchmark definitions must still be present
+        names = [r.name for r in results]
+        assert 'cinebench' in names
+        assert 'd3dmark' in names
+        assert 'glmark2' in names
+        assert 'speedometer' in names
+        assert 'jetstream' in names
+
+        # Web benchmarks should have browser error in diagnostics
+        web_entries = [r for r in results if r.name in ('speedometer', 'jetstream')]
+        for entry in web_entries:
+            assert entry.scan_diagnostics is not None
+            assert any('browser_detection' in d for d in entry.scan_diagnostics)
+            assert entry.status == BenchmarkStatus.SCAN_ERROR
+            assert 'browser check failed' in entry.reason
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 18. Browser already running — web benchmark launch status
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestBrowserAlreadyRunning:
+    """When the browser process is already running, the web benchmark launch
+    result must be 'launched, process not independently confirmed' — never
+    'failed' and never 'confirmed'."""
+
+    def test_web_benchmark_browser_already_running(self):
+        """MOCK: feed fake browser snapshot into REAL _is_browser_running and
+        _run_single_execution; verify launch_status is not 'failed' or 'confirmed'."""
+        manager = BenchmarkManager()
+        # Fake browser info
+        manager.browser_info = {
+            'Chrome': {
+                'path': r'C:\Program Files\Google\Chrome\Application\chrome.exe',
+                'version': '120.0.6099.71',
+                'architecture': 'x64',
+            }
+        }
+        executor = BenchmarkExecutor()
+        executor.manager = manager
+
+        web_info = BenchmarkInfo(
+            name='speedometer', display_name='Speedometer',
+            type=BenchmarkType.WEB, status=BenchmarkStatus.READY_MANUAL,
+            executable_path=None,
+        )
+
+        with patch('app.benchmark_manager._get_process_snapshot') as mock_snap:
+            mock_snap.return_value = [
+                ('chrome.exe', r'C:\Program Files\Google\Chrome\Application\chrome.exe'),
+                ('svchost.exe', None),
+            ]
+            result = executor._run_single_execution(web_info, timeout_seconds=60)
+
+        assert result['launch_status'] == 'launched, process not independently confirmed'
+        assert 'Browser already running' in result['message']
+        # Must NOT be 'failed' or 'confirmed'
+        assert result['launch_status'] != 'failed'
+        assert result['launch_status'] != 'confirmed'
+
+    def test_web_benchmark_browser_not_running(self):
+        """MOCK: no browser process in snapshot -> normal manual result."""
+        manager = BenchmarkManager()
+        manager.browser_info = {
+            'Chrome': {
+                'path': r'C:\Program Files\Google\Chrome\Application\chrome.exe',
+                'version': '120.0.6099.71',
+                'architecture': 'x64',
+            }
+        }
+        executor = BenchmarkExecutor()
+        executor.manager = manager
+
+        web_info = BenchmarkInfo(
+            name='speedometer', display_name='Speedometer',
+            type=BenchmarkType.WEB, status=BenchmarkStatus.READY_MANUAL,
+            executable_path=None,
+        )
+
+        with patch('app.benchmark_manager._get_process_snapshot') as mock_snap:
+            mock_snap.return_value = [('svchost.exe', None)]
+            result = executor._run_single_execution(web_info, timeout_seconds=60)
+
+        # Should be normal manual result (no launch_status key)
+        assert 'launch_status' not in result
+        assert result['execution_method'] == 'manual'
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 19. Fallback browser paths use os.environ (no hardcoded paths)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestFallbackBrowserPaths:
+    """Verify that _detect_browsers builds fallback paths from os.environ,
+    not from literal hardcoded paths."""
+
+    @patch('app.benchmark_manager.winreg')
+    @patch('os.path.isfile')
+    @patch('os.path.exists')
+    @patch('app.benchmark_manager.get_pe_version')
+    @patch('app.benchmark_manager.get_pe_architecture')
+    def test_fallback_browser_has_unverified_flag(
+        self, mock_arch, mock_ver, mock_exists, mock_isfile, mock_wr
+    ):
+        """MOCK: browser found via fallback path has found_by_fallback=True."""
+        mock_wr.HKEY_LOCAL_MACHINE = -2147483646
+        mock_wr.HKEY_CURRENT_USER = -2147483647
+        mock_wr.KEY_READ = 0x20019
+        mock_wr.KEY_WOW64_64KEY = 0x0100
+        mock_wr.KEY_WOW64_32KEY = 0x0200
+
+        class MockRegKey:
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                pass
+
+        # App Paths returns nothing useful
+        mock_wr.OpenKey = lambda *a, **kw: MockRegKey()
+        mock_wr.QueryInfoKey = lambda k: (0, 0, 0)
+        mock_wr.EnumKey = lambda k, i: (_ for _ in ()).throw(OSError())
+        mock_wr.QueryValueEx = lambda k, v: (_ for _ in ()).throw(OSError())
+
+        # Fallback path exists for Chrome
+        def exists_side_effect(p):
+            return 'chrome' in str(p).lower()
+        mock_exists.side_effect = exists_side_effect
+        mock_isfile.return_value = False
+        mock_ver.return_value = "120.0.6099.71"
+        mock_arch.return_value = "x64"
+
+        manager = BenchmarkManager()
+        browsers = manager._detect_browsers()
+        assert 'Chrome' in browsers
+        assert browsers['Chrome'].get('found_by_fallback') is True
+
+    @patch('app.benchmark_manager.winreg')
+    @patch('os.path.isfile')
+    @patch('os.path.exists')
+    @patch('app.benchmark_manager.get_pe_version')
+    @patch('app.benchmark_manager.get_pe_architecture')
+    def test_fallback_visible_in_reason_and_diagnostics(
+        self, mock_arch, mock_ver, mock_exists, mock_isfile, mock_wr
+    ):
+        """MOCK: when a browser is found by fallback, _discover_web reason text
+        and scan_diagnostics must say 'found by fallback path, unverified'."""
+        mock_wr.HKEY_LOCAL_MACHINE = -2147483646
+        mock_wr.HKEY_CURRENT_USER = -2147483647
+        mock_wr.KEY_READ = 0x20019
+        mock_wr.KEY_WOW64_64KEY = 0x0100
+        mock_wr.KEY_WOW64_32KEY = 0x0200
+
+        class MockRegKey:
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                pass
+
+        # App Paths returns nothing -> fallback kicks in
+        mock_wr.OpenKey = lambda *a, **kw: MockRegKey()
+        mock_wr.QueryInfoKey = lambda k: (0, 0, 0)
+        mock_wr.EnumKey = lambda k, i: (_ for _ in ()).throw(OSError())
+        mock_wr.QueryValueEx = lambda k, v: (_ for _ in ()).throw(OSError())
+
+        # Fallback path exists for Chrome
+        def exists_side_effect(p):
+            return 'chrome' in str(p).lower()
+        mock_exists.side_effect = exists_side_effect
+        mock_isfile.return_value = False
+        mock_ver.return_value = "120.0.6099.71"
+        mock_arch.return_value = "x64"
+
+        manager = BenchmarkManager()
+        from data.benchmark_definitions import DEFINITIONS_BY_ID
+        defn = DEFINITIONS_BY_ID.get('speedometer')
+        channel_errors = []
+        results = manager._discover_web(defn, channel_errors)
+
+        # The reason text must mention fallback
+        assert 'found by fallback path, unverified' in results[0].reason
+        # scan_diagnostics must also mention fallback
+        assert results[0].scan_diagnostics is not None
+        assert any('found by fallback path, unverified' in d
+                   for d in results[0].scan_diagnostics)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 11. SCAN_ERROR plumbing tests
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestScanErrorPlumbing:
+    """Verify that SCAN_ERROR entries are handled correctly in filter functions.
+
+    SCAN_ERROR must:
+     - show as \"could not check: <reason>\" in UI text
+     - NOT count as installed (status_ready is False)
+     - NOT be launchable via the normal path (is_runnable is False)
+     - NOT be described as \"not installed\"
+    """
+
+    def test_scan_error_is_not_runnable(self):
+        """SCAN_ERROR must not pass is_runnable()."""
+        info = BenchmarkInfo(
+            name='speedometer', display_name='Speedometer',
+            type=BenchmarkType.WEB, status=BenchmarkStatus.SCAN_ERROR,
+            reason='browser check failed: connection timeout',
+        )
+        assert info.is_runnable() is False
+
+    def test_scan_error_is_not_automatable(self):
+        """SCAN_ERROR must not pass is_automatable()."""
+        info = BenchmarkInfo(
+            name='speedometer', display_name='Speedometer',
+            type=BenchmarkType.WEB, status=BenchmarkStatus.SCAN_ERROR,
+            reason='browser check failed: connection timeout',
+        )
+        assert info.is_automatable() is False
+
+    def test_scan_error_reason_preserved(self):
+        """SCAN_ERROR reason must be preserved in the BenchmarkInfo."""
+        info = BenchmarkInfo(
+            name='jetstream', display_name='JetStream',
+            type=BenchmarkType.WEB, status=BenchmarkStatus.SCAN_ERROR,
+            reason='browser check failed: no browser found',
+        )
+        assert info.reason == 'browser check failed: no browser found'
+
+    def test_scan_error_not_in_runnable_list(self):
+        """SCAN_ERROR entries must not appear in the runnable filter."""
+        benchmarks = [
+            BenchmarkInfo('geekbench_6', 'Geekbench 6', BenchmarkType.CPU,
+                          BenchmarkStatus.READY_MANUAL),
+            BenchmarkInfo('speedometer', 'Speedometer', BenchmarkType.WEB,
+                          BenchmarkStatus.SCAN_ERROR,
+                          reason='browser check failed'),
+            BenchmarkInfo('cinebench', 'Cinebench', BenchmarkType.CPU,
+                          BenchmarkStatus.READY_MANUAL),
+        ]
+        runnable = [bm for bm in benchmarks if bm.is_runnable()]
+        assert len(runnable) == 2
+        names = [bm.name for bm in runnable]
+        assert 'speedometer' not in names
+        assert 'geekbench_6' in names
+        assert 'cinebench' in names
+
+    def test_scan_error_status_value(self):
+        """SCAN_ERROR status value must be 'scan_error'."""
+        assert BenchmarkStatus.SCAN_ERROR.value == 'scan_error'
+
+    def test_scan_error_file_exists_is_none_for_web(self):
+        """SCAN_ERROR web benchmarks should have file_exists=None."""
+        info = BenchmarkInfo(
+            name='speedometer', display_name='Speedometer',
+            type=BenchmarkType.WEB, status=BenchmarkStatus.SCAN_ERROR,
+            reason='browser check failed', file_exists=None,
+        )
+        assert info.file_exists is None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 12. Missing ProgramFiles env var tests
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestMissingProgramFilesEnvVar:
+    """When ProgramFiles env vars are missing, skip that root with a diagnostic note."""
+
+    def test_search_roots_skip_missing_env(self):
+        """MOCK: when ProgramFiles env vars are None, _discover_generic
+        should skip those roots and only use extra_roots."""
+        from app.benchmark_manager import BenchmarkManager
+        from data.benchmark_definitions import DEFINITIONS_BY_ID
+
+        manager = BenchmarkManager()
+        defn = DEFINITIONS_BY_ID.get('geekbench_6')
+        assert defn is not None
+
+        # Mock os.environ to have no ProgramFiles vars
+        fake_environ = {k: v for k, v in os.environ.items()
+                        if k not in ('ProgramFiles', 'ProgramFiles(x86)')}
+
+        # Mock os.path.isdir to always return False for any path
+        with patch.dict(os.environ, fake_environ, clear=False):
+            # Remove the keys
+            for k in ('ProgramFiles', 'ProgramFiles(x86)'):
+                if k in os.environ:
+                    del os.environ[k]
+
+            # Also mock filesystem so no candidates are found
+            with patch('os.path.isdir', return_value=False):
+                with patch('os.listdir', side_effect=OSError('no dir')):
+                    # Registry channel also mocked to return nothing
+                    with patch('app.benchmark_manager.winreg') as mock_wr:
+                        mock_wr.HKEY_LOCAL_MACHINE = -2147483646
+                        mock_wr.HKEY_CURRENT_USER = -2147483647
+                        mock_wr.KEY_READ = 0x20019
+                        mock_wr.KEY_WOW64_64KEY = 0x0100
+                        mock_wr.KEY_WOW64_32KEY = 0x0200
+
+                        class MockRegKey:
+                            def __enter__(self):
+                                return self
+                            def __exit__(self, *a):
+                                pass
+
+                        mock_wr.OpenKey = lambda *a, **kw: MockRegKey()
+                        mock_wr.QueryInfoKey = lambda k: (0, 0, 0)
+                        mock_wr.EnumKey = lambda k, i: (_ for _ in ()).throw(OSError())
+                        mock_wr.QueryValueEx = lambda k, v: (_ for _ in ()).throw(OSError())
+
+                        # Start Menu and Appx also return nothing
+                        with patch('subprocess.run') as mock_run:
+                            mock_run.return_value.stdout = ''
+
+                            results = manager._discover_generic(defn, channel_errors=[])
+                            # Should produce NOT_INSTALLED, not crash
+                            assert results[0].status == BenchmarkStatus.NOT_INSTALLED
+
+            # Restore env vars
+            # (they will be restored by the test environment)

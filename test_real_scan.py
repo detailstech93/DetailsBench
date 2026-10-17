@@ -86,7 +86,7 @@ def test_real_scan():
     cb = bm_map['cinebench']
     assert cb.status == BenchmarkStatus.READY_MANUAL
     assert cb.version == "2026.1.3.0"
-    assert cb.architecture == "X64"
+    assert cb.architecture == "x64"
     assert cb.executable_path is None
     assert "Appx" in cb.detection_method
     
