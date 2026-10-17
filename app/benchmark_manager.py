@@ -81,6 +81,7 @@ class BenchmarkInfo:
     additional_installs: Optional[List[dict]] = None
     file_exists: Optional[bool] = True  # None for web benchmarks (not applicable)
     scan_diagnostics: Optional[List[str]] = None  # per-scan channel failure notes
+    compatibility: Optional[dict] = None  # CompatibilityResult.to_dict() when a profile was given
 
     def is_runnable(self) -> bool:
         return self.status in (BenchmarkStatus.READY_AUTO, BenchmarkStatus.READY_MANUAL)
@@ -1388,16 +1389,39 @@ $res | ConvertTo-Json -Depth 3
 
     # ── Public scan / detect ─────────────────────────────────────────────────
 
-    def scan(self) -> List[BenchmarkInfo]:
+    def scan(self, profile=None) -> List[BenchmarkInfo]:
         """Scan system for system capabilities and benchmarks.
 
-        Never raises to the GUI — all errors are captured in diagnostics.
+        With an EnvironmentProfile, each entry also gets a compatibility
+        result, and a proven incompatibility turns a found benchmark into
+        UNSUPPORTED. Never raises to the GUI — errors go to diagnostics.
         """
         try:
             self._detect_system_capabilities()
         except Exception as exc:
             logger.error("System capability detection failed: %s", exc)
-        return self.detect_benchmarks()
+        benchmarks = self.detect_benchmarks()
+        if profile is not None:
+            self.apply_compatibility(profile)
+        return benchmarks
+
+    def apply_compatibility(self, profile) -> None:
+        from app.environment.compatibility import INCOMPATIBLE, check_compatibility
+        for bm in self.benchmarks:
+            definition = DEFINITIONS_BY_ID.get(bm.name.split('_')[0])
+            if definition is None:
+                continue
+            try:
+                result = check_compatibility(definition, profile)
+            except Exception as exc:
+                logger.error("compatibility check failed for %s: %s", bm.name, exc)
+                bm.scan_diagnostics = (bm.scan_diagnostics or []) + [f"compatibility check failed: {exc}"]
+                continue
+            bm.compatibility = result.to_dict()
+            if (result.status == INCOMPATIBLE
+                    and bm.status not in (BenchmarkStatus.NOT_INSTALLED, BenchmarkStatus.SCAN_ERROR)):
+                bm.status = BenchmarkStatus.UNSUPPORTED
+                bm.reason = "Unsupported on this system: " + "; ".join(result.reasons)
 
     def detect_benchmarks(self) -> List[BenchmarkInfo]:
         """Detect all available benchmarks on the system."""

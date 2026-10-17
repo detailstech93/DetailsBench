@@ -13,6 +13,9 @@ from __future__ import annotations
 import dataclasses
 from typing import Dict, List, Optional
 
+# Default architecture support: nothing verified on real hardware yet.
+UNVERIFIED_ARCHES = {"x64": "unverified", "x86": "unverified", "arm64": "unverified"}
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Dataclass
 # ──────────────────────────────────────────────────────────────────────────────
@@ -60,8 +63,11 @@ class BenchmarkDefinition:
     major_version_policy: str
 
     # ── Platform support ──────────────────────────────────────────────────────
-    supported_os: List[str]          # e.g. ["windows"]
-    supported_architectures: List[str]  # default ["unverified"]
+    # OS families the suite runs on: "windows", "linux", or "wsl" (inside WSL).
+    supported_os: List[str]
+    # Per native architecture (x64 / x86 / arm64): "native" | "emulated" |
+    # "unsupported" | "unverified".  Missing architectures count as "unverified".
+    supported_architectures: Dict[str, str]
 
     # ── Discovery hints ───────────────────────────────────────────────────────
     # Which discovery channels to use:
@@ -75,6 +81,9 @@ class BenchmarkDefinition:
 
     # ── License / notes ───────────────────────────────────────────────────────
     license_note: Optional[str] = None
+
+    # Graphics API the suite needs ("directx" | "vulkan" | "opengl"), or None.
+    required_graphics_api: Optional[str] = None
 
     # For web benchmarks: list of page versions.
     # Each entry: dict with keys:
@@ -124,7 +133,7 @@ BENCHMARK_DEFINITIONS: List[BenchmarkDefinition] = [
         version_normalization="commas_to_dots",
         major_version_policy="separate_per_major",
         supported_os=["windows"],
-        supported_architectures=["unverified"],
+        supported_architectures=dict(UNVERIFIED_ARCHES),
         license_note="Windows GUI requires manual execution; CLI automation needs Pro license",
         discovery_channels=["registry", "filesystem", "app_paths", "start_menu"],
     ),
@@ -141,7 +150,7 @@ BENCHMARK_DEFINITIONS: List[BenchmarkDefinition] = [
         version_normalization="commas_to_dots",
         major_version_policy="separate_per_major",
         supported_os=["windows"],
-        supported_architectures=["unverified"],
+        supported_architectures=dict(UNVERIFIED_ARCHES),
         license_note=None,
         discovery_channels=["appx", "registry", "start_menu", "filesystem"],
         editions_are_separate=True,
@@ -159,8 +168,9 @@ BENCHMARK_DEFINITIONS: List[BenchmarkDefinition] = [
         version_normalization="commas_to_dots",
         major_version_policy="separate_per_major",
         supported_os=["windows"],
-        supported_architectures=["unverified"],
+        supported_architectures=dict(UNVERIFIED_ARCHES),
         license_note=None,
+        required_graphics_api="directx",
         discovery_channels=["registry", "filesystem", "start_menu"],
     ),
 
@@ -178,8 +188,9 @@ BENCHMARK_DEFINITIONS: List[BenchmarkDefinition] = [
         version_normalization="commas_to_dots",
         major_version_policy="single_series",
         supported_os=["wsl"],
-        supported_architectures=["unverified"],
+        supported_architectures=dict(UNVERIFIED_ARCHES),
         license_note="glmark2 is a Linux OpenGL benchmark; not available natively on Windows",
+        required_graphics_api="opengl",
         discovery_channels=["registry"],  # placeholder — _discover_glmark2 bypasses channels
     ),
 
@@ -197,7 +208,7 @@ BENCHMARK_DEFINITIONS: List[BenchmarkDefinition] = [
         version_normalization="passthrough",
         major_version_policy="web",
         supported_os=["windows"],
-        supported_architectures=["unverified"],
+        supported_architectures=dict(UNVERIFIED_ARCHES),
         license_note=None,
         discovery_channels=["browser"],
         benchmark_page_versions=[
@@ -228,7 +239,7 @@ BENCHMARK_DEFINITIONS: List[BenchmarkDefinition] = [
         version_normalization="passthrough",
         major_version_policy="web",
         supported_os=["windows"],
-        supported_architectures=["unverified"],
+        supported_architectures=dict(UNVERIFIED_ARCHES),
         license_note=None,
         discovery_channels=["browser"],
         benchmark_page_versions=[
