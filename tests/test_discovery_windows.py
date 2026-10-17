@@ -7,6 +7,12 @@ from app.discovery.windows import (
 )
 
 
+@pytest.fixture(autouse=True)
+def isolated_program_data(tmp_path, monkeypatch):
+    """discover_windows reads Epic manifests under ProgramData: point it at an empty temp dir."""
+    monkeypatch.setenv("ProgramData", str(tmp_path / "ProgramData"))
+
+
 class FakeKey:
     def __init__(self, values=None, subkeys=None):
         self.values = values or {}
@@ -77,7 +83,7 @@ def test_discover_keeps_only_known_software():
     assert [s["id"] for s in result.software] == ["steam", "geekbench"]
     assert "Secret Diary" not in str(result.to_dict())
     assert result.diagnostics == []
-    assert set(result.step_seconds) == {"installed_software", "steam_client"}
+    assert set(result.step_seconds) == {"installed_software", "steam_client", "epic_games", "gog_games"}
 
 
 class TestSteamClient:
@@ -103,5 +109,41 @@ def test_failing_step_is_isolated():
         def OpenKey(self, *a, **kw):
             raise RuntimeError("registry exploded")
     result = discover_windows(Exploding({}))
-    assert len(result.diagnostics) == 2
+    assert len(result.diagnostics) == 3   # epic reads files, not the registry
     assert result.software == []
+
+
+class TestEpicGog:
+    """MOCKED: fake manifest folder / fake GOG registry into the REAL readers."""
+
+    def test_epic_manifests_read_and_bad_files_skipped(self, tmp_path):
+        from app.discovery.windows import EPIC_MANIFESTS, read_epic_games
+        folder = tmp_path / EPIC_MANIFESTS
+        folder.mkdir(parents=True)
+        (folder / "a.item").write_text('{"DisplayName": "Game A", "AppName": "a", '
+                                       '"InstallLocation": "D:/A"}', encoding="utf-8")
+        (folder / "b.item").write_text("{broken", encoding="utf-8")
+        (folder / "notes.txt").write_text("ignored", encoding="utf-8")
+        status, games = read_epic_games(str(tmp_path))
+        assert status["status"] == "detected"
+        assert [g["name"] for g in games] == ["Game A"]
+
+    def test_epic_absent(self, tmp_path):
+        from app.discovery.windows import read_epic_games
+        assert read_epic_games(str(tmp_path))[0]["status"] == "not detected"
+        assert read_epic_games(None)[0]["status"] == "not detected"
+
+    def test_gog_registry(self):
+        from app.discovery.windows import GOG_GAMES, read_gog_games
+        games_key = FakeKey(subkeys={
+            "1207658924": FakeKey({"gameName": "Witcher", "path": r"C:\GOG\Witcher", "gameID": "1207658924"}),
+            "999": FakeKey({"gameName": "No Path"}),
+        })
+        reg = FakeReg({(FakeReg.HKEY_LOCAL_MACHINE, 0, GOG_GAMES): games_key})
+        status, games = read_gog_games(reg)
+        assert status["status"] == "detected"
+        assert [(g["store"], g["app_id"], g["name"]) for g in games] == [("gog", "1207658924", "Witcher")]
+
+    def test_gog_absent(self):
+        from app.discovery.windows import read_gog_games
+        assert read_gog_games(FakeReg({}))[0]["status"] == "not detected"

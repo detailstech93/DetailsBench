@@ -9,8 +9,12 @@ from typing import Iterator, List, Optional, Tuple
 
 from app.discovery.matcher import match_software
 from app.discovery.result import DiscoveryResult, store_status
+from app.discovery.store_parsers import parse_epic_manifest, parse_gog_entry
 
 UNINSTALL = r"Software\Microsoft\Windows\CurrentVersion\Uninstall"
+# Store locations come from community documentation; not verified on this machine
+EPIC_MANIFESTS = os.path.join("Epic", "EpicGamesLauncher", "Data", "Manifests")
+GOG_GAMES = r"SOFTWARE\WOW6432Node\GOG.com\Games"
 
 
 def _uninstall_roots(reg) -> List[Tuple[int, int, str]]:
@@ -74,6 +78,48 @@ def find_steam_client(reg, isfile=os.path.isfile) -> dict:
     return store_status("not detected", None, "registry Valve\\Steam keys absent")
 
 
+def read_epic_games(program_data: Optional[str]) -> Tuple[dict, List[dict]]:
+    """Epic games from launcher manifests (*.item). Returns (store status, games)."""
+    if not program_data:
+        return store_status("not detected", None, "ProgramData env var missing"), []
+    folder = os.path.join(program_data, EPIC_MANIFESTS)
+    if not os.path.isdir(folder):
+        return store_status("not detected", folder, "manifest folder absent"), []
+    games = []
+    for name in sorted(os.listdir(folder)):
+        if not name.lower().endswith(".item"):
+            continue
+        try:
+            with open(os.path.join(folder, name), encoding="utf-8") as f:
+                game = parse_epic_manifest(f.read())
+        except (OSError, UnicodeDecodeError):
+            game = None
+        if game:
+            games.append(game)
+    return store_status("detected", folder, "Epic manifests (field names unverified)"), games
+
+
+def read_gog_games(reg) -> Tuple[dict, List[dict]]:
+    """GOG games from the GOG.com registry key. Returns (store status, games)."""
+    try:
+        root = reg.OpenKey(reg.HKEY_LOCAL_MACHINE, GOG_GAMES)
+    except OSError:
+        return store_status("not detected", None, f"registry {GOG_GAMES} absent"), []
+    games = []
+    with root:
+        for i in range(reg.QueryInfoKey(root)[0]):
+            try:
+                key_name = reg.EnumKey(root, i)
+                with reg.OpenKey(root, key_name) as sub:
+                    values = {n: _value(reg, sub, n) for n in ("gameName", "path", "gameID", "ver")}
+            except OSError:
+                continue
+            game = parse_gog_entry(key_name, values)
+            if game:
+                games.append(game)
+    return store_status("detected", None, f"registry {GOG_GAMES} (field names unverified)"), games
+
+
 def discover_windows(reg=None) -> DiscoveryResult:
     if reg is None:
         import winreg as reg
@@ -85,6 +131,16 @@ def discover_windows(reg=None) -> DiscoveryResult:
     def steam():
         result.stores["steam"] = find_steam_client(reg)
 
+    def epic():
+        result.stores["epic"], games = read_epic_games(os.environ.get("ProgramData"))
+        result.games.extend(games)
+
+    def gog():
+        result.stores["gog"], games = read_gog_games(reg)
+        result.games.extend(games)
+
     result.run_step("installed_software", installed)
     result.run_step("steam_client", steam)
+    result.run_step("epic_games", epic)
+    result.run_step("gog_games", gog)
     return result
