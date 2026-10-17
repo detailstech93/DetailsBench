@@ -20,7 +20,7 @@ from typing import Callable, List, Optional, Tuple
 
 from PySide6.QtCore import QThread, Signal, Slot
 from PySide6.QtWidgets import (
-    QComboBox, QFileDialog, QGroupBox, QHBoxLayout, QLabel, QMessageBox, QPushButton,
+    QCheckBox, QComboBox, QFileDialog, QGroupBox, QHBoxLayout, QLabel, QMessageBox, QPushButton,
     QSpinBox, QVBoxLayout,
 )
 
@@ -30,7 +30,8 @@ from app.frames.presentmon import (
     CAPTURE_FLAGS_VERIFIED, SETTING_KEY, FrameCaptureWorkload, check_presentmon_path,
 )
 from app.paths import get_data_dir, load_settings, save_setting
-from app.ui.automation_panel import STOP_SHORTCUT, AutomationWorker
+from app.telemetry import sources as telemetry_sources
+from app.ui.automation_panel import STOP_SHORTCUT, TELEMETRY_TIP, AutomationWorker
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +183,10 @@ class FrameCapturePanel(QGroupBox):
         self.seconds_spin.setRange(10, 600)
         self.seconds_spin.setValue(60)
         row2.addWidget(self.seconds_spin)
+        self.telemetry_box = QCheckBox("Record telemetry")
+        self.telemetry_box.setChecked(True)
+        self.telemetry_box.setToolTip(TELEMETRY_TIP)
+        row2.addWidget(self.telemetry_box)
         self.capture_btn = QPushButton("Capture frames...")
         self.capture_btn.clicked.connect(self.start_capture)
         row2.addWidget(self.capture_btn)
@@ -414,7 +419,8 @@ class FrameCapturePanel(QGroupBox):
         sid = self._create_session(workload, profile)
         self.last_session_id, self.last_summary = sid, None
         plan = [PlanItem(workload, repetitions=profile.repetitions, warmup_runs=profile.warmup_runs)]
-        self.worker = AutomationWorker(self.db, sid, plan, self.output_root, profile.cooldown_seconds, False)
+        self.worker = AutomationWorker(self.db, sid, plan, self.output_root, profile.cooldown_seconds, False,
+                                       telemetry_sources.new_sampler if self.telemetry_box.isChecked() else None)
         self.worker.progress.connect(self._on_progress)
         self.worker.finished_plan.connect(self._on_finished)
         self._set_running(True)
@@ -441,7 +447,7 @@ class FrameCapturePanel(QGroupBox):
 
     def _set_running(self, running: bool):
         for w in (self.capture_btn, self.select_btn, self.download_btn, self.refresh_btn,
-                  self.process_combo, self.seconds_spin):
+                  self.process_combo, self.seconds_spin, self.telemetry_box):
             w.setEnabled(not running)
         self.stop_btn.setEnabled(running)
 

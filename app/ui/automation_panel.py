@@ -27,10 +27,17 @@ from PySide6.QtWidgets import (
 from app.automation.cli_workload import load_workloads
 from app.automation.plan_text import plan_overview
 from app.automation.runner import AutomationRunner, PlanItem, RunSummary
+from app.telemetry import sources as telemetry_sources
 
 logger = logging.getLogger(__name__)
 
 STOP_SHORTCUT = "Ctrl+Shift+X"
+
+
+TELEMETRY_TIP = ("Every second during each run: CPU load and memory (psutil), NVIDIA GPU temperature, clocks, "
+                 "power and load (nvidia-smi), and CPU temperature, power and clocks when LibreHardwareMonitor "
+                 "runs with its Remote Web Server on. Sources that are not available are listed, never "
+                 "recorded as 0. Saved as telemetry.csv in each run folder.")
 
 
 class AutomationWorker(QThread):
@@ -39,13 +46,13 @@ class AutomationWorker(QThread):
     screenshot_requested = Signal(str, object)  # path, threading.Event
 
     def __init__(self, db, session_id: int, plan: List[PlanItem], output_root: Path,
-                 cooldown_seconds: float, take_screenshots: bool):
+                 cooldown_seconds: float, take_screenshots: bool, telemetry: Optional[Callable] = None):
         super().__init__()
         self.stop_event = threading.Event()
         self.runner = AutomationRunner(
             db, session_id, plan, output_root, cooldown_seconds=cooldown_seconds,
             stop_event=self.stop_event, on_progress=self.progress.emit,
-            screenshot=self._screenshot if take_screenshots else None)
+            screenshot=self._screenshot if take_screenshots else None, telemetry=telemetry)
 
     def stop(self):
         self.stop_event.set()
@@ -104,6 +111,9 @@ class AutomationPanel(QGroupBox):
         self.reload_btn = QPushButton("Reload tool specs")
         self.reload_btn.clicked.connect(self.reload)
         self.screenshot_box = QCheckBox("Screenshot on failure (whole desktop, kept in the run folder)")
+        self.telemetry_box = QCheckBox("Record telemetry")
+        self.telemetry_box.setChecked(True)
+        self.telemetry_box.setToolTip(TELEMETRY_TIP)
         self.run_btn = QPushButton("Run automated...")
         self.run_btn.clicked.connect(self.start_plan)
         self.stop_btn = QPushButton(f"Emergency stop ({STOP_SHORTCUT})")
@@ -112,6 +122,7 @@ class AutomationPanel(QGroupBox):
         self.stop_btn.clicked.connect(self.emergency_stop)
         row.addWidget(self.reload_btn)
         row.addWidget(self.screenshot_box, 1)
+        row.addWidget(self.telemetry_box)
         row.addWidget(self.run_btn)
         row.addWidget(self.stop_btn)
         layout.addLayout(row)
@@ -211,7 +222,8 @@ class AutomationPanel(QGroupBox):
         sid = self._create_session(workloads, profile)
         self.last_session_id, self.last_summary = sid, None
         self.worker = AutomationWorker(self.db, sid, plan, self.output_root, profile.cooldown_seconds,
-                                       self.screenshot_box.isChecked())
+                                       self.screenshot_box.isChecked(),
+                                       telemetry_sources.new_sampler if self.telemetry_box.isChecked() else None)
         self.worker.progress.connect(self._on_progress)
         self.worker.screenshot_requested.connect(self._on_screenshot_requested)
         self.worker.finished_plan.connect(self._on_finished)
@@ -238,6 +250,7 @@ class AutomationPanel(QGroupBox):
         self.run_btn.setEnabled(not running)
         self.reload_btn.setEnabled(not running)
         self.table.setEnabled(not running)
+        self.telemetry_box.setEnabled(not running)
         self.stop_btn.setEnabled(running)
 
     @Slot(str)

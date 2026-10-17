@@ -94,6 +94,8 @@ class AutomationRunner:
         from app.telemetry.sampler import summarize, write_csv
         try:
             result = sampler.stop()
+            missing = f"; not available: {', '.join(sorted(result.unavailable))}" if result.unavailable else ""
+            self.on_progress(f"telemetry: {len(result.samples)} samples{missing}")
             write_csv(result, run_dir / "telemetry.csv")
             (run_dir / "telemetry.json").write_text(json.dumps(
                 {"samples": len(result.samples), "unavailable": result.unavailable,

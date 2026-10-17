@@ -26,3 +26,12 @@ def _no_real_presentmon_search(monkeypatch):
     from app.frames import provision
     monkeypatch.setattr(provision, "find_local",
                         lambda *a, **k: provision.Found(error="not searched in tests"))
+
+
+@pytest.fixture(autouse=True)
+def _no_real_telemetry(monkeypatch):
+    """Runs started from the panels record telemetry by default (nvidia-smi, psutil, a local
+    LibreHardwareMonitor server). Tests must not depend on this computer, so no source is used
+    here; the sources are tested with fakes in test_telemetry_sources.py."""
+    from app.telemetry import sources
+    monkeypatch.setattr(sources, "default_sources", lambda platform_name=None: [])

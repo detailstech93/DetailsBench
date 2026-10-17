@@ -307,6 +307,30 @@ console, a 10 s capture of the script's own Direct3D 11 window gave 590 frames, 
 `completed` in fps with its metrics. Earlier captures from a Remote Desktop session (`rdp-tcp`) exited with code 0
 but recorded no frames, so no CSV was written and the runs were stored as `failed` without a score.
 
+### Telemetry
+
+**Record telemetry** (on by default, in both the Automated runs and Frame capture sections) samples once per second
+during every run. Each run folder gets `telemetry.csv` (every sample) and `telemetry.json` (sample count, sources that
+were not available and why, read errors). Completed runs also store `tel_<reading>_avg` and `tel_<reading>_max` as
+extra metrics. A reading that a source cannot give is left out, never stored as 0.
+
+| Source | Readings | Notes |
+|---|---|---|
+| psutil | CPU load, memory use; on Linux also hottest CPU temperature and live CPU clock | CPU load is computed from the app's own `cpu_times()` deltas. `psutil.cpu_percent()` is not used, because any other caller resets its shared window and it then reports a false 0. On Windows `cpu_freq()` is the static base clock, so it is not recorded. |
+| nvidia-smi | per NVIDIA GPU: temperature, SM and memory clocks, power, load | No admin rights needed; ships with the NVIDIA driver (Windows and Linux). `[N/A]` values are left out. |
+| LibreHardwareMonitor | hottest CPU temperature, CPU package power, average core clock | Windows only. Read from LibreHardwareMonitor's own local web server (`http://127.0.0.1:8085/data.json`; only a loopback address is accepted). You run LibreHardwareMonitor and turn on Options > Remote Web Server. The app never installs it or any kernel driver: Windows CPU sensors need one, the old WinRing0 driver is flagged as vulnerable (CVE-2020-14979), and LibreHardwareMonitor 0.9.5+ uses PawnIO. |
+
+HWiNFO is not used: its free version limits the shared-memory interface to 12 hours.
+
+```bash
+python scripts/verify_telemetry.py
+```
+
+Verified on this machine (2026-10-17): psutil and nvidia-smi available (RTX 5090 Laptop GPU, driver 617.42), with 6 samples
+in 5 s (for example GPU 44 C, 180 MHz SM, 405 MHz memory, 10.3 W). LibreHardwareMonitor was not running, so it was
+reported as not available, with its reason. The LibreHardwareMonitor parser follows its `HttpServer.cs` source and has
+not been checked against a running copy. Linux and ARM: not verified.
+
 ### Database Location
 
 The production database is stored per user, not in the project folder:

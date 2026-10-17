@@ -16,6 +16,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 import urllib.request
 from typing import Callable, Dict, Optional, Tuple
 from urllib.parse import urlparse
@@ -129,22 +130,46 @@ class LhmSource:
 class PsutilSource:
     name = "psutil"
 
-    def __init__(self, psutil_module=None, platform_name: str = sys.platform):
+    MIN_LOAD_WINDOW = 0.5                        # seconds; a shorter window is noise
+
+    def __init__(self, psutil_module=None, platform_name: str = sys.platform, clock: Callable = time.monotonic):
         if psutil_module is None:
             import psutil as psutil_module
         self.ps = psutil_module
         self.platform_name = platform_name
+        self.clock = clock
+        self._load_since: Optional[float] = None
+        self._times = None
+
+    def _cpu_busy_since_last(self) -> Optional[float]:
+        """CPU load from OUR OWN cpu_times() deltas. psutil.cpu_percent(None) keeps one window for the
+        whole process, so any other caller (e.g. the diagnostic snapshot) would reset it and give a 0."""
+        times = self.ps.cpu_times()
+        before, self._times = self._times, times
+        if before is None:
+            return None
+        total = sum(times) - sum(before)
+        if total <= 0:
+            return None
+        idle = times.idle - before.idle
+        return max(0.0, min(100.0, 100.0 * (1.0 - idle / total)))
 
     def available(self) -> Tuple[bool, str]:
-        self.ps.cpu_percent(interval=None)       # the first call only starts the measurement
+        self._cpu_busy_since_last()              # the first call only starts the measurement
+        self._load_since = self.clock()
         return True, "CPU load and memory" + (", CPU temperature and clock" if self._linux() else "")
 
     def _linux(self) -> bool:
         return self.platform_name.startswith("linux")
 
     def read(self) -> Reading:
-        out: Reading = {"cpu_load": (float(self.ps.cpu_percent(interval=None)), "%"),
-                        "ram_used": (float(self.ps.virtual_memory().percent), "%")}
+        out: Reading = {"ram_used": (float(self.ps.virtual_memory().percent), "%")}
+        now = self.clock()
+        if self._load_since is None or now - self._load_since >= self.MIN_LOAD_WINDOW:
+            load = self._cpu_busy_since_last()   # load since the previous call
+            if load is not None:
+                out["cpu_load"] = (round(load, 1), "%")
+            self._load_since = now
         if self._linux():
             temps = []
             for chip, entries in (getattr(self.ps, "sensors_temperatures", lambda: {})() or {}).items():
@@ -156,6 +181,12 @@ class PsutilSource:
             if freq is not None and freq.current and freq.current > 0:
                 out["cpu_clock_avg"] = (float(freq.current), "MHz")
         return out
+
+
+def new_sampler(interval_seconds: float = 1.0):
+    """A fresh, not started sampler over the default sources (one per run)."""
+    from app.telemetry.sampler import TelemetrySampler
+    return TelemetrySampler(default_sources(), interval_seconds)
 
 
 def default_sources(platform_name: str = sys.platform) -> list:

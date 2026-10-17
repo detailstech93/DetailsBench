@@ -112,18 +112,50 @@ def test_lhm_refuses_non_local_address():
     assert is_loopback_url("http://localhost:8085/data.json") and not is_loopback_url("https://127.0.0.1/x")
 
 
+class Times(tuple):
+    """Like psutil's scputimes: a tuple of (user, system, idle) with an .idle field."""
+    @property
+    def idle(self):
+        return self[2]
+
+
 def fake_psutil(temps=None, freq=3600.0):
+    ticks = iter([Times((0.0, 0.0, 0.0))] + [Times((37.5 * i, 0.0, 62.5 * i)) for i in range(1, 100)])
     return SimpleNamespace(
-        cpu_percent=lambda interval=None: 37.5,
+        cpu_times=lambda: next(ticks),
+        cpu_percent=lambda interval=None: 0.0,          # must not be used (shared window, see sources.py)
         virtual_memory=lambda: SimpleNamespace(percent=52.0),
         sensors_temperatures=lambda: temps or {},
         cpu_freq=lambda: SimpleNamespace(current=freq))
 
 
 def test_psutil_windows_has_no_clock_or_temperature():
-    src = PsutilSource(fake_psutil(), platform_name="win32")
+    now = [0.0]
+    src = PsutilSource(fake_psutil(), platform_name="win32", clock=lambda: now[0])
     assert src.available() == (True, "CPU load and memory")
+    now[0] = 1.0
     assert src.read() == {"cpu_load": (37.5, "%"), "ram_used": (52.0, "%")}
+
+
+def test_psutil_load_needs_a_measurement_window():
+    now = [0.0]
+    src = PsutilSource(fake_psutil(), platform_name="win32", clock=lambda: now[0])
+    src.available()
+    now[0] = 0.05                    # too soon after priming: no load value rather than a noisy 0
+    assert "cpu_load" not in src.read()
+    now[0] = 0.6
+    assert src.read()["cpu_load"] == (37.5, "%")
+    assert "cpu_load" not in PsutilSource(fake_psutil(), platform_name="win32").read()   # never primed
+
+
+def test_psutil_load_ignores_idle_only_or_frozen_counters():
+    flat = SimpleNamespace(cpu_times=lambda: Times((1.0, 1.0, 1.0)),
+                           virtual_memory=lambda: SimpleNamespace(percent=10.0))
+    now = [0.0]
+    src = PsutilSource(flat, platform_name="win32", clock=lambda: now[0])
+    src.available()
+    now[0] = 2.0
+    assert src.read() == {"ram_used": (10.0, "%")}          # no time passed in the counters: no value
 
 
 def test_psutil_linux_temperature_and_clock():

@@ -321,3 +321,24 @@ def test_remote_desktop_warning(qapp, tmp_path):
 def test_is_remote_session_never_raises():
     from app.ui.frame_capture_panel import is_remote_session
     assert is_remote_session() in (True, False)
+
+
+def test_telemetry_option_reaches_the_runner(qapp, panel):
+    from app.telemetry import sources
+    p, db, _ = panel
+    p.select_presentmon()
+    load_list(qapp, p)
+    p.workload_factory = partial(FrameCaptureWorkload, elevated_runner=writes_csv([10.0] * 200),
+                                 version_reader=lambda path: None)
+    assert p.telemetry_box.isChecked()
+    assert p.start_capture()
+    assert p.worker.runner.telemetry is sources.new_sampler
+    assert p.worker.wait(30000)
+    qapp.processEvents()
+    run_dirs = [d for d in (p.output_root).rglob("frames_game_r*") if d.is_dir()]
+    assert run_dirs and all((d / "telemetry.json").is_file() for d in run_dirs)
+    p.telemetry_box.setChecked(False)
+    assert p.start_capture()
+    assert p.worker.runner.telemetry is None
+    assert p.worker.wait(30000)
+    qapp.processEvents()
