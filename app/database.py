@@ -1,5 +1,6 @@
 """SQLite database models for PC Benchmark Manager."""
 
+import json
 import sqlite3
 import logging
 from typing import Optional
@@ -66,6 +67,17 @@ class Database:
                     gpu_name TEXT,
                     operating_system TEXT,
                     FOREIGN KEY (session_id) REFERENCES sessions(id)
+                )
+            """)
+
+            # Environment snapshots (Phase 3A) - one EnvironmentProfile as JSON
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS environment_snapshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id INTEGER NULL REFERENCES sessions(id),
+                    created_at TEXT NOT NULL,
+                    profile_json TEXT NOT NULL,
+                    is_test BOOLEAN DEFAULT 0
                 )
             """)
 
@@ -159,6 +171,78 @@ class Database:
 
         return result_id
     
+    def save_environment_snapshot(self, profile: dict, session_id: Optional[int] = None,
+                                  is_test: bool = False) -> int:
+        """Save an environment snapshot and return its ID."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "INSERT INTO environment_snapshots (session_id, created_at, profile_json, is_test) "
+            "VALUES (?, ?, ?, ?)",
+            (session_id, datetime.now().isoformat(), json.dumps(profile, sort_keys=True), is_test)
+        )
+
+        snapshot_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+
+        return snapshot_id
+
+    def get_environment_snapshot(self, snapshot_id: int) -> Optional[dict]:
+        """Return a single environment snapshot by ID, or None if missing."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "SELECT id, session_id, created_at, is_test, profile_json "
+            "FROM environment_snapshots WHERE id = ?",
+            (snapshot_id,)
+        )
+
+        row = cursor.fetchone()
+        conn.close()
+
+        if row is None:
+            return None
+
+        return self._snapshot_row(row)
+
+    def get_latest_environment_snapshot(self, include_test: bool = False) -> Optional[dict]:
+        """Return the newest environment snapshot, optionally including test rows."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+
+        if include_test:
+            cursor.execute(
+                "SELECT id, session_id, created_at, is_test, profile_json "
+                "FROM environment_snapshots ORDER BY id DESC LIMIT 1"
+            )
+        else:
+            cursor.execute(
+                "SELECT id, session_id, created_at, is_test, profile_json "
+                "FROM environment_snapshots WHERE is_test = 0 ORDER BY id DESC LIMIT 1"
+            )
+
+        row = cursor.fetchone()
+        conn.close()
+
+        if row is None:
+            return None
+
+        return self._snapshot_row(row)
+
+    @staticmethod
+    def _snapshot_row(row) -> dict:
+        """(id, session_id, created_at, is_test, profile_json) -> dict."""
+        return {
+            "id": row[0],
+            "session_id": row[1],
+            "created_at": row[2],
+            "is_test": bool(row[3]),
+            "profile": json.loads(row[4]),
+        }
+
     def get_session(self, session_id: int) -> Optional[dict]:
         """Get a session by its ID."""
         conn = self._get_connection()
