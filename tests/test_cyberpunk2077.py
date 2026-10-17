@@ -1,0 +1,459 @@
+"""Tests for app/games/cyberpunk2077.py."""
+
+import copy
+
+from app.games.cyberpunk2077 import (
+    Change,
+    apply,
+    find_option,
+    merge_indices,
+    observed_indices,
+    plan,
+    read_settings,
+    verify,
+)
+
+
+def _example_data():
+    return {
+        "version": 140,
+        "data": [
+            {
+                "group_name": "/graphics/presets",
+                "options": [
+                    {"name": "QuickPresets", "type": "string_list", "is_dynamic": True, "value": "Custom", "index": 0},
+                    {"name": "ResolutionScaling", "type": "string_list", "is_dynamic": True, "value": "DLSS", "index": 1},
+                    {"name": "DLSS", "type": "string_list", "is_dynamic": True, "value": "Balanced", "index": 3},
+                    {"name": "FrameGeneration", "type": "string_list", "is_dynamic": True, "value": "DLSS", "index": 1},
+                    {"name": "DLSSFrameGen", "type": "bool", "value": True, "default_value": False},
+                    {
+                        "name": "DLSS_MultiFrameGeneration",
+                        "type": "string_list",
+                        "is_dynamic": False,
+                        "value": "x4",
+                        "index": 2,
+                        "default_index": 0,
+                        "values": ["x2", "x3", "x4"],
+                    },
+                    {"name": "DynamicResolutionScaling", "type": "bool", "value": False, "default_value": False},
+                ],
+            },
+            {
+                "group_name": "/graphics/raytracing",
+                "options": [
+                    {"name": "RayTracing", "type": "bool", "value": True, "default_value": False},
+                    {
+                        "name": "RayTracedLighting",
+                        "type": "string_list",
+                        "is_dynamic": False,
+                        "value": "Psycho",
+                        "index": 3,
+                        "default_index": 0,
+                        "values": ["Off", "Medium", "Ultra", "Psycho"],
+                    },
+                    {"name": "RayTracedPathTracing", "type": "bool", "value": False, "default_value": False},
+                ],
+            },
+            {
+                "group_name": "/video/display",
+                "options": [
+                    {
+                        "name": "VSync",
+                        "type": "string_list",
+                        "is_dynamic": True,
+                        "value": "UI-Settings-Video-QualitySetting-Off",
+                        "index": 0,
+                    },
+                    {"name": "MaximumFPS_OnOff", "type": "bool", "value": False, "default_value": False},
+                    {
+                        "name": "MaximumFPS_Value",
+                        "type": "int",
+                        "value": 30,
+                        "default_value": 30,
+                        "min_value": 10,
+                        "max_value": 240,
+                    },
+                    {"name": "WindowMode", "type": "string_list", "is_dynamic": True, "value": "BorderlessWindowed", "index": 1},
+                    {"name": "Resolution", "type": "string_list", "is_dynamic": True, "value": "2560x1440", "index": 0},
+                ],
+            },
+        ],
+    }
+
+
+def test_find_option_returns_same_object():
+    data = _example_data()
+    option = find_option(data, "/video/display", "Resolution")
+    assert option is data["data"][2]["options"][4]
+
+
+def test_read_settings_on_example():
+    data = _example_data()
+    assert read_settings(data) == {
+        "resolution": "2560x1440",
+        "window_mode": "BorderlessWindowed",
+        "vsync": "UI-Settings-Video-QualitySetting-Off",
+        "fps_limit": False,
+        "preset": "Custom",
+        "upscaler": "DLSS",
+        "dlss_mode": "Balanced",
+        "dynamic_resolution": False,
+        "frame_gen": "DLSS",
+        "dlss_frame_gen": True,
+        "multi_frame_gen": "x4",
+        "ray_tracing": True,
+        "rt_lighting": "Psycho",
+        "path_tracing": False,
+    }
+
+
+def test_read_settings_missing_option_absent():
+    data = {
+        "version": 140,
+        "data": [
+            {
+                "group_name": "/graphics/presets",
+                "options": [
+                    {"name": "QuickPresets", "type": "string_list", "is_dynamic": True, "value": "Custom", "index": 0},
+                ],
+            }
+        ],
+    }
+    result = read_settings(data)
+    assert "preset" in result
+    assert "resolution" not in result
+    assert "rt_lighting" not in result
+
+
+def test_observed_indices_lists_dynamic_but_not_static():
+    data = _example_data()
+    assert observed_indices(data) == {
+        "resolution": {"2560x1440": 0},
+        "window_mode": {"BorderlessWindowed": 1},
+        "vsync": {"UI-Settings-Video-QualitySetting-Off": 0},
+        "preset": {"Custom": 0},
+        "upscaler": {"DLSS": 1},
+        "dlss_mode": {"Balanced": 3},
+        "frame_gen": {"DLSS": 1},
+    }
+
+
+def test_merge_indices_seen_wins_and_inputs_untouched():
+    known = {
+        "dlss_mode": {"Balanced": 3, "Quality": 1},
+        "resolution": {"2560x1440": 0},
+    }
+    seen = {
+        "dlss_mode": {"Quality": 2, "Performance": 0},
+        "window_mode": {"Fullscreen": 2},
+    }
+
+    known_before = copy.deepcopy(known)
+    seen_before = copy.deepcopy(seen)
+
+    merged = merge_indices(known, seen)
+
+    assert merged == {
+        "dlss_mode": {"Balanced": 3, "Quality": 2, "Performance": 0},
+        "resolution": {"2560x1440": 0},
+        "window_mode": {"Fullscreen": 2},
+    }
+    assert known == known_before
+    assert seen == seen_before
+
+
+def test_plan_no_differences():
+    data = _example_data()
+    desired = read_settings(data)
+    known = observed_indices(data)
+
+    changes, refused = plan(data, desired, known)
+
+    assert changes == []
+    assert refused == {}
+
+
+def test_plan_bool_change():
+    data = {
+        "version": 140,
+        "data": [
+            {
+                "group_name": "/graphics/presets",
+                "options": [
+                    {"name": "DLSSFrameGen", "type": "bool", "value": False, "default_value": False},
+                ],
+            }
+        ],
+    }
+
+    changes, refused = plan(data, {"dlss_frame_gen": True}, {})
+
+    assert changes == [Change("dlss_frame_gen", False, True, None)]
+    assert refused == {}
+
+
+def test_plan_bool_refusal_for_yes():
+    data = {
+        "version": 140,
+        "data": [
+            {
+                "group_name": "/graphics/presets",
+                "options": [
+                    {"name": "DLSSFrameGen", "type": "bool", "value": False, "default_value": False},
+                ],
+            }
+        ],
+    }
+
+    changes, refused = plan(data, {"dlss_frame_gen": "yes"}, {})
+
+    assert changes == []
+    assert refused == {"dlss_frame_gen": "expects true or false"}
+
+
+def test_plan_int_out_of_range_refusal():
+    data = {
+        "version": 140,
+        "data": [
+            {
+                "group_name": "/video/display",
+                "options": [
+                    {
+                        "name": "MaximumFPS_OnOff",
+                        "type": "int",
+                        "value": 30,
+                        "default_value": 30,
+                        "min_value": 10,
+                        "max_value": 240,
+                    },
+                ],
+            }
+        ],
+    }
+
+    changes, refused = plan(data, {"fps_limit": 250}, {})
+
+    assert changes == []
+    assert refused == {"fps_limit": "must be between 10 and 240"}
+
+
+def test_plan_static_list_change_with_index():
+    data = {
+        "version": 140,
+        "data": [
+            {
+                "group_name": "/graphics/raytracing",
+                "options": [
+                    {
+                        "name": "RayTracedLighting",
+                        "type": "string_list",
+                        "is_dynamic": False,
+                        "value": "Psycho",
+                        "index": 3,
+                        "default_index": 0,
+                        "values": ["Off", "Medium", "Ultra", "Psycho"],
+                    },
+                ],
+            }
+        ],
+    }
+
+    changes, refused = plan(data, {"rt_lighting": "Ultra"}, {})
+
+    assert changes == [Change("rt_lighting", "Psycho", "Ultra", 2)]
+    assert refused == {}
+
+
+def test_plan_static_list_refusal_text_exact():
+    data = {
+        "version": 140,
+        "data": [
+            {
+                "group_name": "/graphics/raytracing",
+                "options": [
+                    {
+                        "name": "RayTracedLighting",
+                        "type": "string_list",
+                        "is_dynamic": False,
+                        "value": "Psycho",
+                        "index": 3,
+                        "default_index": 0,
+                        "values": ["Off", "Medium", "Ultra", "Psycho"],
+                    },
+                ],
+            }
+        ],
+    }
+
+    changes, refused = plan(data, {"rt_lighting": "Nope"}, {})
+
+    assert changes == []
+    assert refused == {"rt_lighting": "not one of: Off, Medium, Ultra, Psycho"}
+
+
+def test_plan_dynamic_list_known_index():
+    data = {
+        "version": 140,
+        "data": [
+            {
+                "group_name": "/graphics/presets",
+                "options": [
+                    {"name": "DLSS", "type": "string_list", "is_dynamic": True, "value": "Balanced", "index": 3},
+                ],
+            }
+        ],
+    }
+
+    changes, refused = plan(data, {"dlss_mode": "Quality"}, {"dlss_mode": {"Quality": 2}})
+
+    assert changes == [Change("dlss_mode", "Balanced", "Quality", 2)]
+    assert refused == {}
+
+
+def test_plan_dynamic_list_unknown_refusal_text_exact():
+    data = {
+        "version": 140,
+        "data": [
+            {
+                "group_name": "/graphics/presets",
+                "options": [
+                    {"name": "DLSS", "type": "string_list", "is_dynamic": True, "value": "Balanced", "index": 3},
+                ],
+            }
+        ],
+    }
+
+    changes, refused = plan(data, {"dlss_mode": "Quality"}, {})
+
+    assert changes == []
+    assert refused == {
+        "dlss_mode": (
+            "the game's position for this value is unknown; "
+            "choose it once in the game's menu so the app can learn it"
+        )
+    }
+
+
+def test_plan_unknown_key():
+    data = _example_data()
+
+    changes, refused = plan(data, {"bogus": 1}, {})
+
+    assert changes == []
+    assert refused == {"bogus": "unknown setting"}
+
+
+def test_apply_does_not_mutate_input_and_sets_index():
+    data = {
+        "version": 140,
+        "data": [
+            {
+                "group_name": "/graphics/raytracing",
+                "options": [
+                    {
+                        "name": "RayTracedLighting",
+                        "type": "string_list",
+                        "is_dynamic": False,
+                        "value": "Psycho",
+                        "index": 3,
+                        "default_index": 0,
+                        "values": ["Off", "Medium", "Ultra", "Psycho"],
+                    },
+                ],
+            }
+        ],
+    }
+
+    original = copy.deepcopy(data)
+    changes = [Change("rt_lighting", "Psycho", "Ultra", 2)]
+
+    out = apply(data, changes)
+
+    assert data == original
+    option = find_option(out, "/graphics/raytracing", "RayTracedLighting")
+    assert option is not None
+    assert option["value"] == "Ultra"
+    assert option["index"] == 2
+
+
+def test_apply_without_index_keeps_old_index():
+    data = {
+        "version": 140,
+        "data": [
+            {
+                "group_name": "/graphics/raytracing",
+                "options": [
+                    {
+                        "name": "RayTracedLighting",
+                        "type": "string_list",
+                        "is_dynamic": False,
+                        "value": "Psycho",
+                        "index": 3,
+                        "default_index": 0,
+                        "values": ["Off", "Medium", "Ultra", "Psycho"],
+                    },
+                ],
+            }
+        ],
+    }
+
+    changes = [Change("rt_lighting", "Psycho", "Ultra", None)]
+    out = apply(data, changes)
+
+    option = find_option(out, "/graphics/raytracing", "RayTracedLighting")
+    assert option is not None
+    assert option["value"] == "Ultra"
+    assert option["index"] == 3
+
+
+def test_verify_empty_after_apply():
+    data = {
+        "version": 140,
+        "data": [
+            {
+                "group_name": "/graphics/raytracing",
+                "options": [
+                    {
+                        "name": "RayTracedLighting",
+                        "type": "string_list",
+                        "is_dynamic": False,
+                        "value": "Psycho",
+                        "index": 3,
+                        "default_index": 0,
+                        "values": ["Off", "Medium", "Ultra", "Psycho"],
+                    },
+                ],
+            }
+        ],
+    }
+
+    desired = {"rt_lighting": "Ultra"}
+    changes, refused = plan(data, desired, {})
+    assert refused == {}
+
+    out = apply(data, changes)
+    assert verify(out, desired) == {}
+
+
+def test_verify_reports_missing_option():
+    data = {"version": 140, "data": []}
+    desired = {"resolution": "1920x1080"}
+
+    assert verify(data, desired) == {"resolution": ("1920x1080", None)}
+
+
+def test_verify_treats_true_vs_one_as_mismatch():
+    data = {
+        "version": 140,
+        "data": [
+            {
+                "group_name": "/graphics/presets",
+                "options": [
+                    {"name": "DLSSFrameGen", "type": "bool", "value": 1, "default_value": False},
+                ],
+            }
+        ],
+    }
+
+    desired = {"dlss_frame_gen": True}
+    assert verify(data, desired) == {"dlss_frame_gen": (True, 1)}

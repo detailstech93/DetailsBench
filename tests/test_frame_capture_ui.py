@@ -457,3 +457,113 @@ def test_benchmark_game_needs_a_game_and_offers_presentmon_first(qapp, tmp_path)
     finish(qapp, p)
     assert "Frame capture needs PresentMon" in p.asked[0] and p.capture_asked == []
     assert p.status_label.text() == "Download cancelled; nothing was captured."
+
+
+class FakeForced:
+    """Stands in for app.games.settings_file.ForcedSettings (no game file is touched)."""
+
+    def __init__(self, refused=None, after=None, log=None):
+        from app.games.settings_file import SettingsRecord
+        self.refused, self.after, self.log = refused or {}, after, log if log is not None else []
+        self.SettingsRecord = SettingsRecord
+
+    def __call__(self, app_id, values, run_dir, data_dir):
+        self.record = self.SettingsRecord("UserSettings.json", dict(values))
+        self.values = values
+        return self
+
+    def apply(self):
+        self.log.append("apply")
+        self.record.refused = dict(self.refused)
+        self.record.changed = [k for k in self.values if k not in self.refused]
+        return self.record
+
+    def finish(self, restore=True):
+        self.log.append("finish")
+        self.record.mismatch_after_run = {} if self.after is None else self.after
+        self.record.restored = True
+        return self.record
+
+
+def forced_panel(qapp, panel, values):
+    from app.paths import save_setting
+    p, db, tmp = panel
+    p.select_presentmon()
+    p.games = lambda: [{"store": "steam", "app_id": "1091500", "name": "Cyberpunk 2077",
+                        "install_path": "Z:/common/CP", "installed": True}]
+    p.refresh_games()
+    save_setting(p.data_dir, "forced_game_settings", {"1091500": values})
+    return p, db
+
+
+def run_bench(qapp, p):
+    assert p.benchmark_game() is True
+    p.worker.wait(10000)
+    qapp.processEvents()
+
+
+def test_forced_settings_are_applied_checked_and_recorded(qapp, panel):
+    p, db = forced_panel(qapp, panel, {"ray_tracing": False, "dlss_mode": "Quality"})
+    assert p.game_settings_btn.isEnabled()
+    fake = FakeForced()
+    p.forced_factory, p.benchmark_factory = fake, fake_benchmark()
+    run_bench(qapp, p)
+    assert "Forced game settings: Ray tracing Off, DLSS mode Quality" in p.asked[0]
+    assert fake.log == ["apply", "finish"]
+    sid = db.get_sessions(include_test=True)[0]["id"]
+    gs = db.get_session_manifest(sid)["run_settings"]["game_settings"]
+    assert gs["requested"] == {"ray_tracing": False, "dlss_mode": "Quality"} and gs["verified"] is True
+    assert all(r["status"] == "completed" for r in db.get_runs(session_id=sid, include_test=True))
+
+
+def test_refused_setting_stops_before_the_game(qapp, panel):
+    p, db = forced_panel(qapp, panel, {"dlss_mode": "Quality"})
+    fake = FakeForced(refused={"dlss_mode": "position unknown"})
+    seen = []
+    p.forced_factory, p.benchmark_factory = fake, fake_benchmark(seen=seen)
+    run_bench(qapp, p)
+    assert seen == [] and fake.log == ["apply", "finish"] and db.get_sessions(include_test=True) == []
+    assert "dlss_mode: position unknown" in p.status_label.text() and "not started" in p.status_label.text()
+
+
+def test_settings_changed_by_the_game_make_runs_invalid(qapp, panel):
+    p, db = forced_panel(qapp, panel, {"ray_tracing": False})
+    p.forced_factory = FakeForced(after={"ray_tracing": [False, True]})
+    p.benchmark_factory = fake_benchmark()
+    run_bench(qapp, p)
+    sid = db.get_sessions(include_test=True)[0]["id"]
+    runs = db.get_runs(session_id=sid, include_test=True)
+    assert runs and all(r["status"] == "invalid" for r in runs)
+    assert db.get_session_manifest(sid)["run_settings"]["game_settings"]["verified"] is False
+
+
+def test_no_forced_settings_says_so_and_game_without_adapter_has_no_button(qapp, panel):
+    p, db, _ = panel
+    p.select_presentmon()
+    p.games = lambda: GAMES
+    p.refresh_games()
+    assert not p.game_settings_btn.isEnabled()
+    p.benchmark_factory = fake_benchmark()
+    run_bench(qapp, p)
+    assert "No game settings are forced" in p.asked[0]
+
+
+def test_game_settings_dialog_choice_is_saved(qapp, panel, monkeypatch):
+    p, db = forced_panel(qapp, panel, {})
+    import app.games.settings_file as sf
+    monkeypatch.setattr(sf, "read_for_dialog", lambda app_id, data_dir: (
+        {"ray_tracing": [True, False], "rt_lighting": ["Off", "Ultra"]}, {"ray_tracing": True}))
+
+    class Dialog:
+        def __init__(self, name, choices, current, chosen):
+            self.args = (name, choices, current, chosen)
+
+        def exec(self):
+            return True
+
+        def selection(self):
+            return {"rt_lighting": "Ultra"}
+    p.settings_dialog_factory = Dialog
+    assert p.edit_game_settings() is True
+    assert p.forced_settings_for("1091500") == {"rt_lighting": "Ultra"}
+    assert "RT lighting Ultra" in p.status_label.text()

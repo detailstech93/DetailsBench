@@ -20,7 +20,7 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import QThread, Signal, Slot
 from PySide6.QtWidgets import (
@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.automation.runner import PlanItem, RunSummary
+from app.automation.workload import WorkloadResult
 from app.frames import provision
 from app.frames.presentmon import (
     CAPTURE_FLAGS_VERIFIED, SETTING_KEY, FrameCaptureWorkload, check_presentmon_path,
@@ -126,14 +127,41 @@ class TaskWorker(QThread):
             self.done.emit(e)
 
 
+def settings_problem(rec) -> Optional[str]:
+    """Why a benchmark must not start with these settings (refused or not written as asked), or None."""
+    if rec.refused:
+        return "settings not forced: " + "; ".join(f"{k}: {why}" for k, why in rec.refused.items())
+    if rec.mismatch_before_launch:
+        return "settings not as written: " + ", ".join(
+            f"{k} is {a!r}, not {e!r}" for k, (e, a) in rec.mismatch_before_launch.items())
+    return None
+
+
+def mark_unverified(capture, rec):
+    """Runs measured with settings the game did not keep are not valid results (no score)."""
+    if rec.mismatch_after_run is None:
+        why = "the game settings could not be checked after the run"
+    elif rec.mismatch_after_run:
+        why = "the game did not keep the forced settings: " + ", ".join(
+            f"{k} was {a!r}, not {e!r}" for k, (e, a) in rec.mismatch_after_run.items())
+    else:
+        return
+    for w in getattr(capture, "windows", []):
+        if w.result.status == "completed":
+            w.result = WorkloadResult(status="invalid", error=why, command=w.result.command)
+    capture.message += "; " + why
+
+
 class GameBenchmarkWorker(QThread):
     """Records one game benchmark, then stores its windows through AutomationRunner (no GUI access)."""
     progress = Signal(str)
     finished_plan = Signal(object)              # RunSummary, or an error str
 
     def __init__(self, spec, run_dir: Path, create_session: Callable, db, output_root: Path,
-                 telemetry: Optional[Callable] = None, benchmark_factory: Optional[Callable] = None):
+                 telemetry: Optional[Callable] = None, benchmark_factory: Optional[Callable] = None,
+                 forced=None):
         super().__init__()
+        self.forced = forced                    # app.games.settings_file.ForcedSettings, or None
         import threading
         self.stop_event = threading.Event()
         self.spec = spec
@@ -153,9 +181,29 @@ class GameBenchmarkWorker(QThread):
         from app.automation.runner import AutomationRunner
         from app.frames.game_benchmark import GameBenchmark, plan_for
         try:
+            if self.forced is not None:
+                self.progress.emit("Writing the forced game settings...")
+                try:
+                    rec = self.forced.apply()
+                except (OSError, ValueError) as e:
+                    self.finished_plan.emit(f"failed: the game settings could not be forced ({e}); "
+                                            "the game was not started")
+                    return
+                problem = settings_problem(rec)
+                if problem:
+                    self.forced.finish()
+                    self.finished_plan.emit(f"failed: {problem}; your settings were put back and the game "
+                                            "was not started")
+                    return
             factory = self.benchmark_factory or GameBenchmark
-            capture = factory(self.spec, self.run_dir, self.stop_event, self.progress.emit,
-                              sampler_factory=self.telemetry).run()
+            try:
+                capture = factory(self.spec, self.run_dir, self.stop_event, self.progress.emit,
+                                  sampler_factory=self.telemetry).run()
+            finally:
+                if self.forced is not None:          # the game is closed by now: check, then put the file back
+                    self.forced.finish()
+            if self.forced is not None:
+                mark_unverified(capture, self.forced.record)
             if capture.status != "recorded":
                 self.finished_plan.emit(f"{capture.status}: {capture.message}; nothing was stored")
                 return
@@ -208,6 +256,9 @@ class FrameCapturePanel(QGroupBox):
         self.games = games
         self._after_tool: Optional[Callable[[], object]] = None
         self.benchmark_factory = None                    # tests swap in a fake GameBenchmark
+        self.forced_factory = None                       # tests swap in a fake ForcedSettings
+        from app.ui.game_settings_dialog import GameSettingsDialog
+        self.settings_dialog_factory = lambda *a: GameSettingsDialog(*a, parent=self)
 
         layout = QVBoxLayout(self)
         row1 = QHBoxLayout()
@@ -254,6 +305,7 @@ class FrameCapturePanel(QGroupBox):
         self.game_combo = QComboBox()
         self.game_combo.setMinimumWidth(260)
         row3.addWidget(self.game_combo, 1)
+        self.game_combo.currentIndexChanged.connect(lambda _i: self._show_game_settings_state())
         row3.addWidget(QLabel("Skip first (s):"))
         self.settle_spin = QSpinBox()
         self.settle_spin.setRange(0, 600)
@@ -264,6 +316,11 @@ class FrameCapturePanel(QGroupBox):
         self.game_btn.setToolTip("Starts PresentMon (one UAC prompt), launches the game through Steam, finds its "
                                  "process and captures every run by itself.")
         self.game_btn.clicked.connect(lambda: self.benchmark_game())
+        self.game_settings_btn = QPushButton("Game settings...")
+        self.game_settings_btn.setToolTip("Graphics settings forced and checked for every benchmark of this game "
+                                          "(resolution, preset, DLSS, Frame Generation, ray tracing).")
+        self.game_settings_btn.clicked.connect(lambda: self.edit_game_settings())
+        row3.addWidget(self.game_settings_btn)
         row3.addWidget(self.game_btn)
         layout.addLayout(row3)
 
@@ -273,6 +330,7 @@ class FrameCapturePanel(QGroupBox):
         layout.addWidget(self.status_label)
         self.show_path()
         self.refresh_games()
+        self._show_game_settings_state()
         self.auto_detect()
 
     # ---- PresentMon path ------------------------------------------------------
@@ -554,6 +612,50 @@ class FrameCapturePanel(QGroupBox):
             if index >= 0:
                 self.game_combo.setCurrentIndex(index)
 
+    def _show_game_settings_state(self):
+        from app.games.settings_file import adapter_for
+        game = self.game_combo.currentData()
+        ok = bool(game) and adapter_for(game.get("app_id")) is not None
+        self.game_settings_btn.setEnabled(ok and not self.is_running())
+        if not ok:
+            self.game_settings_btn.setToolTip("Forcing settings is supported for: Cyberpunk 2077.")
+
+    def forced_settings_for(self, app_id) -> Dict[str, object]:
+        from app.games.settings_file import adapter_for, saved_choice
+        if adapter_for(app_id) is None:
+            return {}
+        settings, _ = load_settings(self.data_dir)
+        return saved_choice(settings, app_id)
+
+    def edit_game_settings(self) -> bool:
+        from app.games.settings_file import SAVED_KEY, read_for_dialog
+        from app.ui.game_settings_dialog import GameSettingsDialog, describe
+        game = self.game_combo.currentData()
+        if not game:
+            return False
+        app_id = str(game.get("app_id"))
+        try:
+            choices, current = read_for_dialog(app_id, self.data_dir)
+        except (OSError, ValueError) as e:
+            self.status_label.setText(f"Game settings: {e}")
+            return False
+        dialog = self.settings_dialog_factory(str(game.get("name")), choices, current,
+                                              self.forced_settings_for(app_id))
+        if not dialog.exec():
+            return False
+        selection = dialog.selection()
+        settings, _ = load_settings(self.data_dir)
+        every = settings.get(SAVED_KEY)
+        every = dict(every) if isinstance(every, dict) else {}
+        every[app_id] = selection
+        try:
+            save_setting(self.data_dir, SAVED_KEY, every)
+        except (OSError, ValueError) as e:
+            self.status_label.setText(f"Game settings not saved: {e}")
+            return False
+        self.status_label.setText(f"{game.get('name')}: forced settings: {describe(selection) or 'none'}")
+        return True
+
     def select_game(self, app_id) -> bool:
         for i in range(self.game_combo.count()):
             if str((self.game_combo.itemData(i) or {}).get("app_id")) == str(app_id):
@@ -597,6 +699,8 @@ class FrameCapturePanel(QGroupBox):
                                  warmup_runs=profile.warmup_runs, repetitions=profile.repetitions,
                                  settle_seconds=self.settle_spin.value())
         total = spec.settle_seconds + spec.seconds * spec.count
+        from app.ui.game_settings_dialog import describe
+        forced_values = self.forced_settings_for(spec.app_id)
         text = (f"Benchmark {spec.game_name} automatically:\n\n"
                 f"1. PresentMon starts elevated: ONE UAC prompt for the whole benchmark. It records only the "
                 f"programs (.exe) in the game's folder:\n   {spec.install_path}\n"
@@ -610,6 +714,13 @@ class FrameCapturePanel(QGroupBox):
                 f"Unsaved progress in the game is lost. Only processes started inside the game's folder are "
                 f"closed, never Steam or anything else. PresentMon then ends by itself and the runs are stored.\n\n"
                 f"PresentMon: {path}")
+        if forced_values:
+            text += ("\n\nForced game settings: " + describe(forced_values) + ".\nBefore the launch the app copies "
+                     "the game's settings file into the run folder, writes these values and checks them; it does "
+                     "not start the game if one cannot be written. After the run it checks them again (runs are "
+                     "not valid if the game changed them) and puts your own file back.")
+        else:
+            text += "\n\nNo game settings are forced (Game settings... to choose them); the game's own are used."
         if self.remote_check():
             text += "\n\n" + REMOTE_WARNING
         if not self.confirm(text):
@@ -619,11 +730,16 @@ class FrameCapturePanel(QGroupBox):
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         run_dir = self.output_root / f"game_{spec.app_id}_{stamp}"
 
+        forced = None
+        if forced_values:
+            from app.games.settings_file import ForcedSettings
+            forced = (self.forced_factory or ForcedSettings)(spec.app_id, forced_values, run_dir, self.data_dir)
+
         def create_session(capture) -> int:
-            return self._create_game_session(spec, profile, environment, capture)
+            return self._create_game_session(spec, profile, environment, capture, forced)
         self.worker = GameBenchmarkWorker(spec, run_dir, create_session, self.db, self.output_root,
                                           telemetry_sources.new_sampler if self.telemetry_box.isChecked() else None,
-                                          self.benchmark_factory)
+                                          self.benchmark_factory, forced)
         self.last_session_id, self.last_summary = None, None
         self.worker.progress.connect(self._on_progress)
         self.worker.finished_plan.connect(self._on_finished)
@@ -632,14 +748,15 @@ class FrameCapturePanel(QGroupBox):
         self.worker.start()
         return True
 
-    def _create_game_session(self, spec, profile, environment, capture) -> int:
+    def _create_game_session(self, spec, profile, environment, capture, forced=None) -> int:
         from app.manifest import build_manifest, git_commit
         name = f"{spec.game_name} {datetime.now().strftime('%Y-%m-%d %H:%M')}"
         process = capture.process[0] if capture.process else "?"
         sid = self.db.create_session(name, f"Game benchmark of {spec.game_name} (Steam {spec.app_id}), "
                                            f"PresentMon capture of {process}", is_manual=False)
         settings = dict(profile.settings(), capture_seconds=spec.seconds, settle_seconds=spec.settle_seconds,
-                        steam_app_id=spec.app_id, game_process=process)
+                        steam_app_id=spec.app_id, game_process=process,
+                        game_settings=forced.record.to_dict() if forced is not None else None)
         version = None
         try:
             from app.benchmark_manager import get_pe_version
@@ -677,8 +794,10 @@ class FrameCapturePanel(QGroupBox):
 
     def _set_running(self, running: bool):
         for w in (self.capture_btn, self.select_btn, self.refresh_btn, self.process_combo, self.seconds_spin,
-                  self.telemetry_box, self.game_combo, self.settle_spin, self.game_btn):
+                  self.telemetry_box, self.game_combo, self.settle_spin, self.game_btn, self.game_settings_btn):
             w.setEnabled(not running)
+        if not running:
+            self._show_game_settings_state()
         self.stop_btn.setEnabled(running)
 
     @Slot(str)

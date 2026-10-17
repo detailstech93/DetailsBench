@@ -310,6 +310,37 @@ verified download. "No" downloads nothing and captures nothing.
 PresentMon records nothing inside a Remote Desktop session: run game benchmarks at the computer's own screen.
 Not yet verified on a real game (only with fakes in tests/test_game_benchmark.py).
 
+### Forced game settings
+
+**Game settings...** (next to Benchmark game...) picks the graphics settings forced on every benchmark of the
+selected game: resolution, window mode, VSync, FPS limit, quality preset, upscaler and DLSS mode, dynamic
+resolution, Frame Generation (DLSS, multi frame), ray tracing, RT lighting and path tracing. Each one can stay
+"keep the game's value". The choice is saved in settings.json (`forced_game_settings`). Supported so far:
+Cyberpunk 2077 (`app/games/cyberpunk2077.py`, its `%LOCALAPPDATA%/CD Projekt Red/Cyberpunk 2077/UserSettings.json`).
+
+With forced settings, Benchmark game... says so in its confirmation, then (`app/games/settings_file.py`):
+
+1. copies the game's settings file unchanged into the run folder (`game_settings_backup.json`);
+2. writes the chosen values (temporary file, then replace) and reads the file back. If a value cannot be
+   written (not offered by the game, or its position unknown) or does not read back as asked, the game is not
+   started and your file is put back;
+3. after the game was closed, reads the file again: the game rewrites it with what it really used. Runs measured
+   while the game did not keep a forced value are stored as `invalid`, without a score;
+4. copies your own file back.
+
+What was asked, your values before, what changed, what was refused and both checks are stored in the session
+manifest (`run_settings.game_settings`, with `verified`).
+
+Lists the game builds at runtime (resolution, DLSS mode, upscaler, preset, window mode, VSync) store the value's
+position in a list that is not in the file. The app learns a position each time it reads the file
+(`game_settings_indices.json` in the data folder), so the window offers only values seen before: to force another
+one, choose it once in the game's menu, close the game and open Game settings... again. Fixed lists (RT lighting,
+multi frame generation) and on/off settings offer every value at once.
+
+`scripts/verify_game_settings.py` reads the real file and writes nothing. Checked on this computer on 2026-10-18:
+every setting read, keeping the current values plans no change. Writing, then the game keeping the values, is not
+yet verified on a real run.
+
 Finding PresentMon, in this order (nothing is downloaded when a usable copy exists):
 1. a file you chose with **Select PresentMon...**;
 2. an Intel PresentMon installation (`Program Files\Intel\PresentMon\PresentMonConsoleApplication`);
