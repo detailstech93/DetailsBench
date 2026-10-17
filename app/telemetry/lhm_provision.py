@@ -216,6 +216,14 @@ def configure_web_server(exe, running: Callable[[], bool] = is_running,
     return None
 
 
+def _error_text(err) -> str:
+    try:
+        import ctypes
+        return ctypes.FormatError(err).strip() if isinstance(err, int) and err > 0 else "unknown"
+    except (AttributeError, OSError, ValueError):     # FormatError exists on Windows only
+        return "unknown"
+
+
 def launch(exe, api=None) -> Optional[str]:
     """Start it through the UAC prompt and do not wait; None when started, else the reason."""
     if sys.platform != "win32" and api is None:
@@ -224,6 +232,8 @@ def launch(exe, api=None) -> Optional[str]:
     api = api or WinApi()
     handle, err = api.shell_execute(str(exe), "", str(Path(exe).parent), SW_SHOWMINNOACTIVE)
     if handle is None:
-        return "the UAC prompt was declined" if err == ERROR_CANCELLED else f"could not start it (error {err})"
+        if err == ERROR_CANCELLED:
+            return "the UAC prompt was declined"
+        return f"could not start it (Windows error {err}: {_error_text(err)})"
     api.close(handle)
     return None
