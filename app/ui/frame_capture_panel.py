@@ -163,10 +163,7 @@ class FrameCapturePanel(QGroupBox):
         self.path_label.setWordWrap(True)
         self.select_btn = QPushButton("Select PresentMon...")
         self.select_btn.clicked.connect(self.select_presentmon)
-        self.download_btn = QPushButton("Download PresentMon..." if self.is_windows() else "Install MangoHud...")
-        self.download_btn.clicked.connect(self.download_tool)
         row1.addWidget(self.path_label, 1)
-        row1.addWidget(self.download_btn)
         row1.addWidget(self.select_btn)
         layout.addLayout(row1)
 
@@ -187,12 +184,11 @@ class FrameCapturePanel(QGroupBox):
         self.telemetry_box.setChecked(True)
         self.telemetry_box.setToolTip(TELEMETRY_TIP)
         row2.addWidget(self.telemetry_box)
-        from app.ui.lhm_setup import LhmSetupButton
-        self.lhm_btn = LhmSetupButton(lambda text: self.status_label.setText(text), self.data_dir,
-                                      arch=self.arch, platform_name=self.platform_name)
-        row2.addWidget(self.lhm_btn)
+        from app.ui.lhm_setup import LhmPreflight
+        self.lhm = LhmPreflight(lambda text: self.status_label.setText(text), self, self.data_dir,
+                                arch=self.arch, platform_name=self.platform_name)
         self.capture_btn = QPushButton("Capture frames...")
-        self.capture_btn.clicked.connect(self.start_capture)
+        self.capture_btn.clicked.connect(lambda: self.start_capture())
         row2.addWidget(self.capture_btn)
         self.stop_btn = QPushButton(f"Emergency stop ({STOP_SHORTCUT})")
         self.stop_btn.setEnabled(False)
@@ -231,7 +227,10 @@ class FrameCapturePanel(QGroupBox):
         path = self.presentmon_path()
         problem = check_presentmon_path(path)
         if problem:
-            self.path_label.setText(f"PresentMon: {problem}")
+            if self._setting_path():
+                self.path_label.setText(f"PresentMon: {problem}")
+            else:
+                self.path_label.setText("PresentMon: not on this PC yet; Capture frames... offers to download it.")
             return
         source = "" if self._setting_path() else f" [{self.detected.source}]"
         emulated = ("  x64 build under ARM64 emulation (unverified)"
@@ -247,7 +246,6 @@ class FrameCapturePanel(QGroupBox):
             return False
         self._task = TaskWorker(fn)
         self._task.done.connect(on_done)
-        self.download_btn.setEnabled(False)
         self._task.start()
         return True
 
@@ -257,7 +255,6 @@ class FrameCapturePanel(QGroupBox):
 
     @Slot(object)
     def _on_detected(self, found):
-        self.download_btn.setEnabled(True)
         if isinstance(found, provision.Found) and found.path:
             self.detected = found
         self.show_path()
@@ -266,41 +263,55 @@ class FrameCapturePanel(QGroupBox):
         return QMessageBox.question(self, "Download frame capture tool?", text,
                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes
 
-    def download_tool(self):
+    def download_tool(self) -> bool:
+        """Look again for PresentMon, else offer the download; on success the capture continues."""
         if not self.is_windows():
             self.install_mangohud()
-            return
-        self.status_label.setText("Reading the official PresentMon release list (GitHub)...")
-        self._run_task(self.planner, self._on_planned)
+            return False
+        self.status_label.setText("PresentMon is not on this PC; looking again, then reading the official "
+                                  "PresentMon release list (GitHub)...")
+
+        def detect_or_plan():
+            found = self.detector()
+            if isinstance(found, provision.Found) and found.path:
+                return found
+            return self.planner()
+        return self._run_task(detect_or_plan, self._on_planned)
 
     @Slot(object)
     def _on_planned(self, choice):
-        self.download_btn.setEnabled(True)
+        if isinstance(choice, provision.Found):
+            self.detected = choice
+            self.show_path()
+            self.start_capture()
+            return
         if not isinstance(choice, provision.AssetChoice) or choice.error:
             self.status_label.setText(f"Download not possible: {getattr(choice, 'error', choice)}")
             return
-        text = (f"Download {choice.name} (PresentMon {choice.version}, {choice.size / 1048576:.1f} MB)\n"
+        text = (f"Frame capture needs PresentMon, which is not on this PC.\n\n"
+                f"Download {choice.name} (PresentMon {choice.version}, {choice.size / 1048576:.1f} MB)\n"
                 f"from {choice.url}\nSHA-256 {choice.sha256}\n\n"
                 f"Kept only if the size, the SHA-256 published by GitHub and the Intel signature all match. "
                 f"Saved under {provision.tools_dir(self.data_dir)}.")
         if choice.emulated:
             text += ("\n\nThis PC is ARM64. Intel publishes no native ARM64 build, so the x64 build runs "
                      "under Windows x64 emulation. This is not verified on ARM hardware.")
+        text += "\n\nNo: nothing is downloaded and nothing is captured."
         if not self.confirm_download(text):
-            self.status_label.setText("Download cancelled.")
+            self.status_label.setText("Download cancelled; nothing was captured.")
             return
         self.status_label.setText(f"Downloading {choice.name}...")
         self._run_task(lambda: self.downloader(choice), self._on_downloaded)
 
     @Slot(object)
     def _on_downloaded(self, found):
-        self.download_btn.setEnabled(True)
         if not isinstance(found, provision.Found) or found.error:
             self.status_label.setText(f"Download failed, nothing kept: {getattr(found, 'error', found)}")
             return
         self.detected = found
         self.show_path()
         self.status_label.setText(f"PresentMon {found.version} ready: " + "; ".join(found.notes or ["verified"]))
+        self.start_capture()
 
     def install_mangohud(self, os_release: Optional[dict] = None, which: Callable = shutil.which):
         from app.frames.linux_install import mangohud_install_plan
@@ -324,7 +335,6 @@ class FrameCapturePanel(QGroupBox):
 
     @Slot(object)
     def _on_installed(self, result):
-        self.download_btn.setEnabled(True)
         self.status_label.setText(f"MangoHud install: {result}")
 
     def ask_presentmon_file(self) -> str:
@@ -388,21 +398,32 @@ class FrameCapturePanel(QGroupBox):
             logger.exception("Could not save session manifest")
         return sid
 
-    def start_capture(self) -> bool:
-        if self.is_running():
+    def start_capture(self, tools_ready: bool = False) -> bool:
+        if self.is_running() or self.lhm.busy():
             return False
         if self.db is None or self.output_root is None:
             self.status_label.setText("No database available; nothing was captured.")
             return False
-        path = self.presentmon_path()
-        problem = check_presentmon_path(path)
-        if problem:
-            self.status_label.setText(f"{problem}. Use 'Select PresentMon...' first.")
+        if not self.is_windows():
+            self.status_label.setText("Frame capture on Linux (MangoHud) is not implemented yet; nothing was captured.")
             return False
         target = self.process_combo.currentData()
         if not target:
             self.status_label.setText("Pick the game process first (Refresh list).")
             return False
+        path = self.presentmon_path()
+        problem = check_presentmon_path(path)
+        if problem:
+            if self._setting_path():
+                self.status_label.setText(f"{problem}. Use 'Select PresentMon...' to choose it again.")
+            elif not self.download_tool():  # asks first; continues the capture when PresentMon is ready
+                self.status_label.setText("Still looking for PresentMon; press Capture frames... again in a moment.")
+            return False
+        if self.telemetry_box.isChecked() and not tools_ready:
+            # LibreHardwareMonitor for CPU sensors: asks to download/start it only when it is not running.
+            started = []
+            self.lhm.ensure(lambda: started.append(self.start_capture(tools_ready=True)))
+            return bool(started and started[0])      # empty: it asks or downloads first, the capture starts later
         name, pid = target
         workload = self.workload_factory(path, name, seconds=self.seconds_spin.value(), process_id=pid)
         profile = self.get_profile()
@@ -450,7 +471,7 @@ class FrameCapturePanel(QGroupBox):
             self._task.wait(60000)          # a download or signature check; never cut a file write short
 
     def _set_running(self, running: bool):
-        for w in (self.capture_btn, self.select_btn, self.download_btn, self.refresh_btn,
+        for w in (self.capture_btn, self.select_btn, self.refresh_btn,
                   self.process_combo, self.seconds_spin, self.telemetry_box):
             w.setEnabled(not running)
         self.stop_btn.setEnabled(running)

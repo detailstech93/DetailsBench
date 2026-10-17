@@ -278,14 +278,19 @@ average FPS as the score and 1% low, 0.1% low and frame-time numbers as extra me
 needs administrator rights, so Windows shows its UAC prompt for each capture after you confirm; declining it
 cancels the rest of the plan (nothing is stored as a score).
 
+There is no download button. When you press **Capture frames...** (after picking the game process), the app looks
+for PresentMon; if no usable copy is found, it asks whether to download it, and the capture goes on right after a
+verified download. "No" downloads nothing and captures nothing.
+
 Finding PresentMon, in this order (nothing is downloaded when a usable copy exists):
 1. a file you chose with **Select PresentMon...**;
 2. an Intel PresentMon installation (`Program Files\Intel\PresentMon\PresentMonConsoleApplication`);
 3. a copy the app downloaded earlier (`tools\presentmon\<version>\` in the data folder);
-4. **Download PresentMon...**: the newest official file from GitHub (GameTechDev/PresentMon releases). The app shows
+4. otherwise the download offered by **Capture frames...**: the newest official file from GitHub (GameTechDev/PresentMon releases). The app shows
    the file name, version, size, URL and SHA-256 and asks first. The file is kept only when its size and SHA-256 match
    what GitHub publishes and its Authenticode signature is valid and from Intel Corporation; otherwise it is deleted.
-   Copies bundled inside other tools (FrameView) are refused.
+   Copies bundled inside other tools (FrameView) are refused. If a file you chose is gone, the app asks you to
+   choose it again instead of downloading another one.
 
 Architectures:
 - **x64**: official build (2.6.0 checked on this machine: SHA-256 equals the GitHub digest, signature valid, Intel).
@@ -293,10 +298,11 @@ Architectures:
 - **ARM64 Windows**: Intel publishes no ARM64 build (GameTechDev/PresentMon#667 closed "not planned"). The x64 file
   is used under Windows x64 emulation and the app says so; this is NOT verified on ARM hardware. A native arm64 file
   is preferred automatically if one is ever published.
-- **Linux**: PresentMon is Windows-only. The alternative is MangoHud: **Install MangoHud...** builds the command for the
-  distribution's package manager (apt-get, dnf, pacman, zypper), shows it, and runs it through `pkexec` (the system
-  password prompt) after you confirm. A MangoHud package was checked to exist for Debian on x64 and ARM64 only; other
-  combinations are marked as not verified. Capturing frames with MangoHud is not implemented yet.
+- **Linux**: PresentMon is Windows-only. The alternative is MangoHud. Capturing frames with MangoHud is not implemented
+  yet, so pressing Capture frames... on Linux says so and downloads nothing. The installer code is ready for it: it builds
+  the command for the distribution's package manager (apt-get, dnf, pacman, zypper), shows it, and runs it through
+  `pkexec` (the system password prompt) after you confirm. A MangoHud package was checked to exist for Debian on x64 and ARM64 only; other
+  combinations are marked as not verified.
 
 Frame capture does not work inside a Remote Desktop session: run it at the machine's own screen (console session).
 
@@ -324,12 +330,17 @@ extra metrics. A reading that a source cannot give is left out, never stored as 
 |---|---|---|
 | psutil | CPU load, memory use; on Linux also hottest CPU temperature and live CPU clock | CPU load is computed from the app's own `cpu_times()` deltas. `psutil.cpu_percent()` is not used, because any other caller resets its shared window and it then reports a false 0. On Windows `cpu_freq()` is the static base clock, so it is not recorded. |
 | nvidia-smi | per NVIDIA GPU: temperature, SM and memory clocks, power, load | No admin rights needed; ships with the NVIDIA driver (Windows and Linux). `[N/A]` values are left out. |
-| LibreHardwareMonitor | hottest CPU temperature, CPU package power, average core clock | Windows only. Read from LibreHardwareMonitor's own local web server (`http://127.0.0.1:8085/data.json`; only a loopback address is accepted). **Set up LibreHardwareMonitor...** (next to Record telemetry) does it for you, see below. A copy you run yourself also works when its Options > Remote Web Server is on. |
+| LibreHardwareMonitor | hottest CPU temperature, CPU package power, average core clock | Windows only. Read from LibreHardwareMonitor's own local web server (`http://127.0.0.1:8085/data.json`; only a loopback address is accepted). A run with Record telemetry checks for it when it starts and offers to set it up, see below. A copy you run yourself also works when its Options > Remote Web Server is on. |
 | RAPL | CPU package power | Linux only, from the kernel's energy counters (`/sys/class/powercap/intel-rapl:N`, also used for AMD). Since kernel 5.10 only root may read them (CVE-2020-8694); then the reason is shown and the reading is absent. CPU temperature and live clock on Linux come from psutil (hwmon). |
 
 HWiNFO is not used: its free version limits the shared-memory interface to 12 hours.
 
-**Set up LibreHardwareMonitor...** (Windows; `app/telemetry/lhm_provision.py`). Every step asks first:
+**LibreHardwareMonitor check at run start** (Windows; `app/ui/lhm_setup.py`, `app/telemetry/lhm_provision.py`).
+There is no setup button. When a run or capture starts with Record telemetry on, nothing is asked if
+LibreHardwareMonitor is already running (any copy). Otherwise ONE question lists everything below (download if this
+app has no copy yet, the password, the UAC prompt); on yes the steps run, the app waits up to 30 s until it answers,
+then the run starts. On no, or when a step fails, the run still starts, without CPU sensors, and the status line says
+why; a "no" is not asked again until the app restarts.
 
 1. Uses the copy it set up before (`<data dir>\tools\librehardwaremonitor\<version>\`), or downloads the newest stable
    release from GitHub (LibreHardwareMonitor/LibreHardwareMonitor, MPL-2.0): `LibreHardwareMonitor.zip`, the
@@ -347,7 +358,7 @@ HWiNFO is not used: its free version limits the shared-memory interface to 12 ho
 
 Windows on ARM: the same .NET Framework build runs there, but its sensor driver is not verified on ARM, so CPU
 sensors may be missing (telemetry then says so). Linux: LibreHardwareMonitor does not exist there; psutil (hwmon) and
-RAPL cover CPU temperature, clock and package power without a download, and the button is hidden.
+RAPL cover CPU temperature, clock and package power without a download, and nothing is asked.
 
 ```bash
 python scripts/verify_telemetry.py

@@ -160,8 +160,8 @@ class LhmSource:
         except urllib.error.HTTPError as e:
             if e.code == 401:
                 raise LhmAuthError("it asks for a password that is not the one in the settings of the copy this "
-                                   "app set up (another copy may be running); close it and use Set up "
-                                   "LibreHardwareMonitor again")
+                                   "app set up (another copy may be running); close it (tray icon > Exit) and the next "
+                                   "run with Record telemetry starts this app's copy")
             raise
         try:
             data = json.loads(body.decode("utf-8-sig"))

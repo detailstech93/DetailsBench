@@ -115,7 +115,7 @@ class AutomationPanel(QGroupBox):
         self.telemetry_box.setChecked(True)
         self.telemetry_box.setToolTip(TELEMETRY_TIP)
         self.run_btn = QPushButton("Run automated...")
-        self.run_btn.clicked.connect(self.start_plan)
+        self.run_btn.clicked.connect(lambda: self.start_plan())
         self.stop_btn = QPushButton(f"Emergency stop ({STOP_SHORTCUT})")
         self.stop_btn.setEnabled(False)
         self.stop_btn.setStyleSheet("QPushButton:enabled { color: white; background: #b91c1c; }")
@@ -123,9 +123,8 @@ class AutomationPanel(QGroupBox):
         row.addWidget(self.reload_btn)
         row.addWidget(self.screenshot_box, 1)
         row.addWidget(self.telemetry_box)
-        from app.ui.lhm_setup import LhmSetupButton
-        self.lhm_btn = LhmSetupButton(lambda text: self.status_label.setText(text))
-        row.addWidget(self.lhm_btn)
+        from app.ui.lhm_setup import LhmPreflight
+        self.lhm = LhmPreflight(lambda text: self.status_label.setText(text), self)
         row.addWidget(self.run_btn)
         row.addWidget(self.stop_btn)
         layout.addLayout(row)
@@ -204,8 +203,8 @@ class AutomationPanel(QGroupBox):
             logger.exception("Could not save session manifest")
         return sid
 
-    def start_plan(self) -> bool:
-        if self.is_running():
+    def start_plan(self, tools_ready: bool = False) -> bool:
+        if self.is_running() or self.lhm.busy():
             return False
         if self.db is None or self.output_root is None:
             self.status_label.setText("No database available; nothing was run.")
@@ -214,6 +213,11 @@ class AutomationPanel(QGroupBox):
         if not workloads:
             self.status_label.setText("Tick at least one available tool first.")
             return False
+        if self.telemetry_box.isChecked() and not tools_ready:
+            # LibreHardwareMonitor for CPU sensors: asks to download/start it only when it is not running.
+            started = []
+            self.lhm.ensure(lambda: started.append(self.start_plan(tools_ready=True)))
+            return bool(started and started[0])      # empty: it asks or downloads first, the run starts later
         profile = self.get_profile()
         plan = self.build_plan(workloads, profile)
         info = self.overview(plan, int(profile.cooldown_seconds))

@@ -60,7 +60,7 @@ def load_list(qapp, p):
 
 def test_select_presentmon_saves_setting(panel):
     p, _, tmp = panel
-    assert "PresentMon not selected" in p.path_label.text()
+    assert "not on this PC yet; Capture frames... offers to download it" in p.path_label.text()
     p.select_presentmon()
     assert load_settings(tmp / "data")[0] == {"presentmon_path": str(tmp / "PresentMon.exe")}
     assert str(tmp / "PresentMon.exe") in p.path_label.text() and "not yet verified" not in p.path_label.text()
@@ -76,12 +76,32 @@ def test_frameview_copy_refused(panel):
     assert "Not saved" in p.status_label.text() and load_settings(tmp / "data")[0] == {}
 
 
-def test_needs_presentmon_and_process(qapp, panel):
+def test_needs_process_then_offers_presentmon(qapp, panel):
     p, db, _ = panel
-    assert p.start_capture() is False and "Select PresentMon" in p.status_label.text()
-    p.select_presentmon()
     assert p.start_capture() is False and "Pick the game process" in p.status_label.text()
-    assert db.get_sessions(include_test=True) == [] and p.asked == []
+    load_list(qapp, p)
+    p.confirm_download = lambda text: (p.asked.append(text), False)[1]
+    p.planner = lambda: CHOICE
+    assert p.start_capture() is False                      # PresentMon missing: the download is offered first
+    finish(qapp, p)
+    assert len(p.asked) == 1 and "Frame capture needs PresentMon" in p.asked[0]
+    assert p.status_label.text() == "Download cancelled; nothing was captured."
+    assert db.get_sessions(include_test=True) == []
+
+
+def test_missing_chosen_file_is_not_replaced_by_a_download(qapp, panel):
+    p, _, tmp = panel
+    p.select_presentmon()
+    (tmp / "PresentMon.exe").unlink()
+    load_list(qapp, p)
+    p.planner = lambda: pytest.fail("no download for a file the user chose")
+    assert p.start_capture() is False and "Select PresentMon..." in p.status_label.text()
+
+
+def test_linux_capture_is_not_implemented(qapp, tmp_path):
+    p = make_panel(tmp_path, platform_name="linux")
+    finish(qapp, p)
+    assert p.start_capture() is False and "not implemented yet" in p.status_label.text()
 
 
 def test_capture_stores_fps_and_low(qapp, panel):
@@ -151,11 +171,20 @@ def make_panel(tmp_path, **kw):
     kw.setdefault("platform_name", "win32")
     kw.setdefault("remote_check", lambda: False)
     p = FrameCapturePanel(Database(str(tmp_path / "g.db")), lambda: RunProfile(name="p"), lambda: None,
-                          data_dir=tmp_path / "data", lister=lambda: [], output_root=tmp_path / "runs", **kw)
-    p.asked = []
+                          data_dir=tmp_path / "data", lister=lambda: [("game.exe", 42)],
+                          output_root=tmp_path / "runs", **kw)
+    p.asked, p.capture_asked = [], []
     p.confirm_download = lambda text: (p.asked.append(text), p.answer)[1]
+    p.confirm = lambda text: (p.capture_asked.append(text), False)[1]   # the capture itself is never run here
     p.answer = True
     return p
+
+
+def start_with_game(qapp, p):
+    """Pick the game and press Capture frames... (PresentMon is missing, so the download is offered)."""
+    finish(qapp, p)
+    load_list(qapp, p)
+    p.start_capture()
 
 
 def finish(qapp, p):
@@ -171,7 +200,6 @@ def test_auto_detect_finds_intel_install(qapp, tmp_path):
     finish(qapp, p)
     assert p.presentmon_path() == str(exe)
     assert str(exe) in p.path_label.text() and "[intel install]" in p.path_label.text()
-    assert p.download_btn.isEnabled() and p.download_btn.text() == "Download PresentMon..."
 
 
 def test_chosen_file_wins_over_detected(qapp, tmp_path):
@@ -195,32 +223,45 @@ def test_download_after_confirmation(qapp, tmp_path):
         got.write_bytes(b"MZ")
         return Found(str(got), "download", "2.6.0", notes=["size, SHA-256 and Intel signature verified"])
     p = make_panel(tmp_path, planner=lambda: CHOICE, downloader=downloader)
-    finish(qapp, p)
-    p.download_tool()
+    start_with_game(qapp, p)
     finish(qapp, p)
     assert len(p.asked) == 1 and CHOICE.url in p.asked[0] and CHOICE.sha256 in p.asked[0]
     assert "0.9 MB" in p.asked[0] and "emulation" not in p.asked[0]
     finish(qapp, p)
     assert calls == ["PresentMon-2.6.0-x64.exe"] and p.presentmon_path() == str(got)
-    assert "PresentMon 2.6.0 ready" in p.status_label.text() and "[download]" in p.path_label.text()
+    assert "[download]" in p.path_label.text()
+    assert len(p.capture_asked) == 1 and "game.exe (pid 42)" in p.capture_asked[0]   # the capture continued
+
+
+def test_presentmon_found_on_second_look_is_used_without_download(qapp, tmp_path):
+    exe = tmp_path / "PresentMon-2.6.0-x64.exe"
+    exe.write_bytes(b"MZ")
+    looks = []
+
+    def detector():
+        looks.append(1)
+        return Found(str(exe), "intel install", "2.6.0") if len(looks) > 1 else Found(error="none")
+    p = make_panel(tmp_path, detector=detector, planner=lambda: pytest.fail("no download needed"))
+    start_with_game(qapp, p)
+    finish(qapp, p)
+    assert p.asked == [] and p.presentmon_path() == str(exe) and len(p.capture_asked) == 1
 
 
 def test_download_cancelled_downloads_nothing(qapp, tmp_path):
     calls = []
     p = make_panel(tmp_path, planner=lambda: CHOICE, downloader=lambda c: calls.append(c))
     p.answer = False
+    start_with_game(qapp, p)
     finish(qapp, p)
-    p.download_tool()
-    finish(qapp, p)
-    assert calls == [] and p.status_label.text() == "Download cancelled."
+    assert calls == [] and p.status_label.text() == "Download cancelled; nothing was captured."
+    assert p.capture_asked == []
 
 
 def test_arm64_download_explains_emulation(qapp, tmp_path):
     from dataclasses import replace
     p = make_panel(tmp_path, arch="arm64", planner=lambda: replace(CHOICE, emulated=True))
     p.answer = False
-    finish(qapp, p)
-    p.download_tool()
+    start_with_game(qapp, p)
     finish(qapp, p)
     assert "no native ARM64 build" in p.asked[0] and "not verified on ARM hardware" in p.asked[0]
 
@@ -232,19 +273,18 @@ def test_arm64_download_explains_emulation(qapp, tmp_path):
 ])
 def test_download_problems_are_reported(qapp, tmp_path, planner, downloader, expected):
     p = make_panel(tmp_path, planner=planner, downloader=downloader or (lambda c: None))
-    finish(qapp, p)
-    p.download_tool()
+    start_with_game(qapp, p)
     finish(qapp, p)
     finish(qapp, p)
     assert p.status_label.text().startswith(expected) and p.presentmon_path() is None
-    assert p.download_btn.isEnabled()
+    assert p.capture_asked == []
 
 
 def test_linux_offers_mangohud_install(qapp, tmp_path):
     detected = []
     p = make_panel(tmp_path, platform_name="linux", detector=lambda: detected.append(1))
     finish(qapp, p)
-    assert detected == [] and p.download_btn.text() == "Install MangoHud..."
+    assert detected == []
     assert "Windows-only" in p.path_label.text() and "MangoHud" in p.path_label.text()
     paths = {"pkexec": "/usr/bin/pkexec", "apt-get": "/usr/bin/apt-get"}
     ran = []

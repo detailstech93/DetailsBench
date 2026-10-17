@@ -35,3 +35,20 @@ def _no_real_telemetry(monkeypatch):
     here; the sources are tested with fakes in test_telemetry_sources.py."""
     from app.telemetry import sources
     monkeypatch.setattr(sources, "default_sources", lambda platform_name=None: [])
+
+
+@pytest.fixture(autouse=True)
+def _no_real_tool_setup(request, monkeypatch):
+    """Starting a run checks for PresentMon and LibreHardwareMonitor and offers downloads. In tests
+    LibreHardwareMonitor counts as already running (nothing asked, nothing started) and no release
+    list is read from GitHub; tests of those steps pass their own fakes. The tests of these
+    functions themselves (test_lhm_provision.py) get the real ones, which they call with fakes."""
+    if request.node.module.__name__.endswith("test_lhm_provision"):
+        return
+    from app.frames import provision
+    from app.telemetry import lhm_provision
+    monkeypatch.setattr(lhm_provision, "is_running", lambda *a, **k: True)
+    monkeypatch.setattr(lhm_provision, "plan_download",
+                        lambda *a, **k: lhm_provision.LhmAsset(error="no network in tests"))
+    monkeypatch.setattr(provision, "plan_download",
+                        lambda *a, **k: provision.AssetChoice(error="no network in tests"))
