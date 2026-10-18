@@ -19,6 +19,21 @@
 | **speedometer** | Web | READY_MANUAL | 3.1 | None | *no exe path* | browser_detection | Compatible browsers detected: Chrome 155.0.8059.40, Edge 155.0.4283.45 (manual execution required) |
 | **jetstream** | Web | READY_MANUAL | 3.0 | None | *no exe path* | browser_detection | Compatible browsers detected: Chrome 155.0.8059.40, Edge 155.0.4283.45 (manual execution required) |
 
+
+### Automated runs (Phases 5-12, listed under Run Benchmarks > Automated runs)
+
+| Workload | Type | How it runs | Verified here | Evidence (2026-10-18) |
+|----------|------|-------------|---------------|-----------------------|
+| **sevenzip_benchmark** | CPU | `7z b` (tool spec `data/tools/sevenzip_benchmark.json`) | yes | raw output: Tot 173,712 MIPS; `scripts/verify_resume.py` 173,594 / 171,550 MIPS |
+| **sevenzip_fm_benchmark** | CPU | simulation script: 7zFM, Alt+T, B, read the Benchmark window | yes | `scripts/verify_simulation.py`: 170.013 and 169.841 GIPS, 10 passes, 54 s |
+| **diskspd** / **fio** | Storage | DiskSpd 2.3 / fio 3.43, SEQ1M Q8T1 and RND4K Q32T1 read/write | yes | `scripts/verify_storage.py`: DiskSpd 6,735 MiB/s seq read; fio 6,687 MiB/s |
+| **llama_benchy** | AI | llama-benchy 0.4.0 against LM Studio's local server | yes | `scripts/verify_llama_benchy.py`: gemma-4-12b-qat tg 91.6 tok/s (c1 d0), gpt2 tokenizer fallback |
+| **mlperf_client** | AI | MLPerf Client 2.0.1, phi4mini llama.cpp CUDA | yes | `scripts/verify_mlperf_client.py`: 219.9 tok/s, Results Verified false |
+| **cyberpunk2077_builtin_benchmark** | Game | simulation script: Steam launch, user starts the benchmark, result file read | **no** | not run: starting the game unattended was not allowed; result file layout assumed |
+| **selftest_python** | test | Python one-liner | yes (tests) | unavailable in the packaged app (needs Python) |
+
+Game frame capture (PresentMon, Frame capture tab) and forced settings are described in README.md.
+
 ---
 
 ## What Was Verified on This Machine
