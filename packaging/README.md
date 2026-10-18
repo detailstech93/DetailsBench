@@ -11,7 +11,7 @@ environment and the app's `.venv` stays as it is:
 
 ```
 C:\Users\<you>\AppData\Local\Programs\Python\Python310\python.exe -m venv .venv-build
-.venv-build\Scripts\python.exe -m pip install PySide6==6.12.0 psutil==7.2.2 pyinstaller==6.16.0 pytest
+.venv-build\Scripts\python.exe -m pip install PySide6==6.12.0 psutil==7.2.2 numpy==2.2.6 wgpu==0.31.0 pyinstaller==6.16.0 pytest
 .venv-build\Scripts\python.exe -m pytest -q
 .venv-build\Scripts\python.exe -m PyInstaller packaging\pc_benchmark_manager.spec --noconfirm
 ```
@@ -22,6 +22,13 @@ That environment gets pefile 2023.2.7 (PyInstaller's requirement); the whole tes
 The spec bundles `data\tools\*.json` and `data\scripts\*.json` (read from `_internal\data`) and writes
 `build_info.json` (the commit, whether there were uncommitted changes, the build time); session manifests of the
 packaged app take the commit from it, never from git.
+
+numpy and wgpu are for the stress test (`app/stress`). wgpu brings its own PyInstaller hook (`wgpu\__pyinstaller`), which
+bundles `wgpu_native-release.dll`. Built that way on 2026-10-18: 1004 tests passed in `.venv-build`, and the build
+holds `_internal
+umpy` and `_internal\wgpu
+esources\wgpu_native-release.dll`. A GPU stress run from the
+packaged app has not been tried yet.
 
 ## Check
 
