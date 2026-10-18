@@ -3,7 +3,10 @@ the step expects was read on the screen (app/frames/screen_text.py), and only in
 
     {"see": "settings", "within": 300, "press": "z", "dismiss": {"strange": "enter"}}
         wait up to `within` s until a word is on screen, then press. While waiting, a "dismiss" word (a popup)
-        gets its own key.
+        gets its own key. "settle": 2 waits that long after the word is seen before pressing (a menu that has
+        just appeared may drop keys).
+    {"see": "graphics", "within": 30, "again": {"press": "z", "every": 5}}
+        while the word is not there yet, press the previous step's key again every 5 s (it was dropped).
     {"press": "up, up, left, left, down, enter"}      chords one after another (PAUSE_SECONDS apart)
     {"hold": "x", "seconds": 1.5}                    hold a key (some menus need a long press)
     {"wait": 3}                                      let the menu open
@@ -41,6 +44,13 @@ def step_problems(steps) -> List[str]:
         chords = [c.strip() for c in str(s.get("press", "")).split(",") if c.strip()]
         chords += [str(s["hold"])] if "hold" in s else []
         chords += [str(k) for k in (s.get("dismiss") or {}).values()]
+        again = s.get("again")
+        if again is not None:
+            if not (isinstance(again, dict) and again.get("press") and isinstance(again.get("every"), (int, float))
+                    and again["every"] > 0 and "see" in s):
+                out.append(f"step {i}: 'again' needs 'see', 'press' and 'every' seconds")
+            else:
+                chords.append(str(again["press"]))
         out += [f"step {i}: unknown key {c!r}" for c in chords if parse_chord(c) is None]
         if not any(k in s for k in ("see", "press", "hold", "wait")):
             out.append(f"step {i} does nothing")
@@ -111,6 +121,8 @@ class StepPlayer:
                 self.mark_time = self.clock()
                 self.notes.append(f"benchmark started ({found!r} seen at {self._at()})")
                 self._keep_shot("benchmark_started.png")
+            if step.get("settle"):
+                self.sleep(float(step["settle"]))
         for chord in [c.strip() for c in str(step.get("press", "")).split(",") if c.strip()]:
             self._press(chord)
             self.sleep(PAUSE_SECONDS)
@@ -122,7 +134,9 @@ class StepPlayer:
     def _see(self, i: int, step: dict) -> Optional[str]:
         words = step["see"]
         dismiss = step.get("dismiss") or {}
+        again = step.get("again")
         deadline = self.clock() + float(step["within"])
+        next_again = self.clock() + float(again["every"]) if again else None
         last: List[str] = []
         error = None
         while True:
@@ -140,6 +154,10 @@ class StepPlayer:
                 if popup:
                     self._press(str(dismiss[popup]))
                     self.notes.append(f"closed a popup ({popup!r})")
+                elif again and self.clock() >= next_again:
+                    self._press(str(again["press"]))
+                    self.notes[-1] += " again"
+                    next_again = self.clock() + float(again["every"])
             if self.clock() >= deadline:
                 break
             self.sleep(LOOK_EVERY_SECONDS)

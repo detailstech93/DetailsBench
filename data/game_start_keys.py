@@ -22,8 +22,10 @@ GAME_START_KEYS: Dict[int, dict] = {}
 GAME_MENU_STEPS: Dict[int, dict] = {
     1174180: {      # Red Dead Redemption 2: main menu -> Settings (Z) -> Graphics -> hold X "Run Benchmark Test"
         "steps": [
-            {"see": "settings", "within": 300, "dismiss": {"strange": "enter"}, "press": "z", "wait": 3},
-            {"see": "graphics", "within": 30, "press": "up, up, left, left, down, enter", "wait": 3},
+            # the main menu drops a key pressed as soon as it shows (2026-10-19): wait, and press Z again if needed
+            {"see": "settings", "within": 300, "dismiss": {"strange": "enter"}, "settle": 3, "press": "z", "wait": 3},
+            {"see": "graphics", "within": 30, "again": {"press": "z", "every": 5},
+             "press": "up, up, left, left, down, enter", "wait": 3},
             {"see": "benchmark", "within": 30, "hold": "x", "seconds": 1.5, "wait": 1},
             {"press": "enter"},
             # "Stop Benchmarking" in the corner: it runs. Loading took over 3 min on the first try here

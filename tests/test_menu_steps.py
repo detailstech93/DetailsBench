@@ -214,3 +214,15 @@ def test_a_remote_desktop_capture_is_never_a_score(tmp_path):
     for w in cap.windows:
         assert w.result.status == "invalid" and w.result.score is None
         assert w.result.error.startswith("captured in a Remote Desktop session") and "not stored" in w.result.error
+
+
+def test_a_dropped_key_is_pressed_again_until_the_menu_opens(tmp_path):
+    steps = [{"see": "settings", "within": 10, "settle": 3, "press": "z"},
+             {"see": "graphics", "within": 30, "again": {"press": "z", "every": 5}, "mark": True}]
+    p, desk, clock = player(tmp_path, steps, [(0, ["Story", "Settings"]), (14, ["Settings", "Graphics"])])
+    p.run()
+    assert p.problem is None and p.mark_time >= 14
+    assert [e[1] for e in desk.events] == [parse_chord("z")] * 3     # 3 s after the menu, then again at 8 and 13 s
+    assert "pressed z again" in p.summary()
+    assert step_problems([{"see": "a", "within": 1, "again": {"press": "z"}, "mark": True}]) == [
+        "step 1: 'again' needs 'see', 'press' and 'every' seconds"]
