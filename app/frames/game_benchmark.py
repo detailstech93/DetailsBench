@@ -18,6 +18,7 @@ the moment the game was asked to close (approximate, about one second).
 
 import logging
 import os
+import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
@@ -39,6 +40,7 @@ UAC_WAIT_SECONDS = 120.0          # time to answer the UAC prompt
 LAUNCH_TIMEOUT_SECONDS = 120.0    # Steam may show its own dialog or update check first
 LOAD_FACTOR, LOAD_MARGIN_SECONDS = 1.15, 20.0   # wall time waited per second of needed game time, plus margin
 MAX_EXE_NAMES = 200
+LOG_NAME = "capture_log.txt"
 ROUTE_POLL_SECONDS = 0.05          # a route's held keys and mouse moves need finer timing than 1 s
 
 
@@ -207,6 +209,16 @@ class GameBenchmark:
             return None
 
     def run(self) -> GameCapture:
+        capture = self._run()
+        try:        # the message stays in the run folder even when the app is closed before it is read
+            (self.run_dir / LOG_NAME).write_text(
+                f"status: {capture.status}\nmessage: {capture.message}\n"
+                f"command: {subprocess.list2cmdline(capture.command or [])}\n", encoding="utf-8")
+        except OSError:
+            pass
+        return capture
+
+    def _run(self) -> GameCapture:
         spec = self.spec
         self.run_dir.mkdir(parents=True, exist_ok=True)
         exes = self.exe_lister(spec.install_path)

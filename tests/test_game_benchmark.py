@@ -301,3 +301,10 @@ def test_no_capture_file_says_how_presentmon_ended():
     assert "stopped by the app after 9 s" in presentmon_text(ElevatedOutcome("stopped", duration_seconds=9), None)
     args = capture_game_args("x.csv", ["Game.exe"], 60)
     assert args[-3:] == ["--session_name", "PCBenchmarkManager", "--stop_existing_session"]
+
+
+def test_the_capture_message_is_kept_in_the_run_folder(tmp_path):
+    fakes = Fakes(tmp_path)
+    s, cap = run(tmp_path, fakes)
+    log = (tmp_path / "run" / "capture_log.txt").read_text(encoding="utf-8")
+    assert f"status: {cap.status}" in log and cap.message in log and "PresentMon" in log
