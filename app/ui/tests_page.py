@@ -29,12 +29,13 @@ class RunState:
     done: int = 0
     total: Optional[int] = None
     text: str = ""
+    fraction: float = 0.0           # of the run going on now (a stress test knows it from its minutes)
 
 
 def progress_percent(state: RunState) -> Optional[int]:
     if not state.total:
         return None
-    return max(0, min(100, round(100 * state.done / state.total)))
+    return max(0, min(100, round(100 * (state.done + state.fraction) / state.total)))
 
 
 def elapsed_text(seconds: float) -> str:

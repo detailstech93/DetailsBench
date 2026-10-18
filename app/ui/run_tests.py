@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFormLayout
 
 from app.catalog import TestEntry
 from app.games import presets
-from app.ui.tests_page import RunState
+from app.ui.tests_page import RunState, elapsed_text
 
 logger = logging.getLogger(__name__)
 
@@ -228,6 +228,10 @@ def plan_state(panel, result: dict) -> RunState:
     if panel.is_running():
         result["started"] = True
         done, total, text = panel.step
+        progress = panel.run_progress() if hasattr(panel, "run_progress") else None
+        if progress is not None:
+            fraction, left = progress
+            return RunState(True, done, total, f"{text} ({elapsed_text(left)} left)", fraction)
         return RunState(True, done, total, text)
     if result.get("started"):
         # the thread has ended but its "finished" signal is not delivered yet: the report comes next

@@ -106,26 +106,45 @@ class GpuStress:
             values = np.random.default_rng(20261018).random(ITEMS, dtype=np.float32)
             usage = wgpu.BufferUsage
             src = device.create_buffer_with_data(data=values, usage=usage.STORAGE)
-            dst = device.create_buffer(size=values.nbytes, usage=usage.STORAGE | usage.COPY_SRC)
             params = device.create_buffer(size=8, usage=usage.UNIFORM | usage.COPY_DST)
             module = device.create_shader_module(code=SHADER)
             pipeline = device.create_compute_pipeline(layout="auto", compute={"module": module, "entry_point": "main"})
-            group = device.create_bind_group(layout=pipeline.get_bind_group_layout(0), entries=[
-                {"binding": 0, "resource": {"buffer": src}}, {"binding": 1, "resource": {"buffer": dst}},
-                {"binding": 2, "resource": {"buffer": params}}])
+            # two slots: while the answer of one pass is read and checked, the next pass is already on the GPU
+            # (with one, the GPU waits for us between passes; with the CPU stress running that was 2/3 of the time)
+            slots = []
+            for _ in range(2):
+                dst = device.create_buffer(size=values.nbytes, usage=usage.STORAGE | usage.COPY_SRC)
+                staging = device.create_buffer(size=values.nbytes, usage=usage.MAP_READ | usage.COPY_DST)
+                group = device.create_bind_group(layout=pipeline.get_bind_group_layout(0), entries=[
+                    {"binding": 0, "resource": {"buffer": src}}, {"binding": 1, "resource": {"buffer": dst}},
+                    {"binding": 2, "resource": {"buffer": params}}])
+                slots.append((dst, staging, group))
             groups = ITEMS // WORKGROUP
 
-            def one_pass(loops: int) -> bytes:
+            def submit(slot: int, loops: int):
+                dst, staging, group = slots[slot]
                 device.queue.write_buffer(params, 0, np.array([loops, ITEMS], dtype=np.uint32).tobytes())
                 enc = device.create_command_encoder()
                 cp = enc.begin_compute_pass()
                 cp.set_pipeline(pipeline)
                 cp.set_bind_group(0, group)
-                for _ in range(DISPATCHES):             # several before each check: the GPU never waits on us
+                for _ in range(DISPATCHES):
                     cp.dispatch_workgroups(min(groups, 65535), max(1, -(-groups // 65535)), 1)
                 cp.end()
+                enc.copy_buffer_to_buffer(dst, 0, staging, 0, values.nbytes)
                 device.queue.submit([enc.finish()])
-                return hashlib.sha256(device.queue.read_buffer(dst)).digest()   # waits for the pass
+
+            def answer(slot: int) -> bytes:
+                staging = slots[slot][1]
+                staging.map_sync(wgpu.MapMode.READ)          # waits for that pass only
+                try:
+                    return hashlib.sha256(staging.read_mapped(copy=False)).digest()
+                finally:
+                    staging.unmap()
+
+            def one_pass(loops: int) -> bytes:
+                submit(0, loops)
+                return answer(0)
 
             loops = 64                                    # find a pass of about target seconds
             while True:
@@ -139,9 +158,13 @@ class GpuStress:
             expected = one_pass(loops)                    # the answer, before the GPU is hot
             self._pass_started = time.monotonic()
             self._ready.set()
+            slot = 0
+            submit(slot, loops)
             while not self._stop.is_set():
-                if one_pass(loops) != expected:
+                submit(1 - slot, loops)                       # queued before we wait for this one
+                if answer(slot) != expected:
                     self.errors += 1
+                slot = 1 - slot
                 now = time.monotonic()
                 self._pass_took, self._pass_started = now - self._pass_started, now
                 self.passes += 1

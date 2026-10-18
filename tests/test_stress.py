@@ -94,6 +94,21 @@ def test_a_part_that_dies_fails_the_run_and_everything_stops(tmp_path):
     assert parts["cpu"].stopped and parts["gpu"].stopped
 
 
+def test_progress_is_known_while_running_and_cleared_after(tmp_path):
+    seen = []
+
+    class Watching(FakePart):
+        def read(self):
+            seen.append(wl_ref[0].progress)
+            return super().read()
+    wl_ref = []
+    clock = Clock()
+    wl = StressWorkload("gpu", minutes=lambda: 1, gpu_factory=lambda: Watching(clock, [10] * 70), clock=clock)
+    wl_ref.append(wl)
+    wl.run(RunContext(output_dir=tmp_path, stop_event=TickEvent(clock)))
+    assert seen[1] == (1 / 60, 59.0) and seen[-1] == (1.0, 0.0) and wl.progress is None
+
+
 def test_stop_button_cancels(tmp_path):
     result, parts = run("gpu", tmp_path, gpu=lambda c: FakePart(c, [10] * 70), stop_at=5)
     assert result.status == "cancelled" and parts["gpu"].stopped

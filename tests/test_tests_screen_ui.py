@@ -194,6 +194,17 @@ def test_plan_state_waits_for_the_finished_signal():
     assert plan_state(asked, {}).running and asked.on_plan_finished is not None
 
 
+
+def test_progress_bar_moves_during_a_long_run():
+    from types import SimpleNamespace
+    from app.ui.run_tests import plan_state
+    from app.ui.tests_page import progress_percent
+    panel = SimpleNamespace(is_running=lambda: True, step=(0, 1, "Stress test: CPU: run 1 started"),
+                            lhm=SimpleNamespace(busy=lambda: False), run_progress=lambda: (0.25, 450.0))
+    s = plan_state(panel, {})
+    assert progress_percent(s) == 25 and s.text.endswith("(7:30 left)")
+
+
 OFFERED = {"1091500": ({"resolution": ["2560x1440"], "preset": ["Custom", "Ultra"], "upscaler": ["Off", "DLSS"],
                         "ray_tracing": [True, False]}, None),
            "750920": (None, "the app cannot set this game's settings")}

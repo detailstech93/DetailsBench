@@ -69,6 +69,7 @@ class StressWorkload(Workload):
         return self.minutes() * 60 + 180            # start-up and stopping on top of the stress time
 
     verified = True
+    progress = None                                 # (fraction, seconds left) while running, for the progress bar
     fixed_counts = (0, 1)                           # no warm-up, one run: the minutes are the test
 
     def availability(self) -> Tuple[bool, str]:
@@ -104,6 +105,7 @@ class StressWorkload(Workload):
     def run(self, ctx: RunContext) -> WorkloadResult:
         seconds = self.minutes() * 60
         started = self.clock()
+        self.progress = None
         parts = self._components()
         running = {}
         try:
@@ -123,6 +125,7 @@ class StressWorkload(Workload):
                     status, error = "cancelled", "stopped by the user"
                     break
                 now = self.clock()
+                self.progress = (min(1.0, (now - t0) / seconds), max(0.0, seconds - (now - t0)))
                 times.append(round(now - started, 1))
                 for name, part in running.items():
                     done, errs = part.read()
@@ -136,6 +139,7 @@ class StressWorkload(Workload):
                     break
             measured = (t0 - started, self.clock() - started)
         finally:
+            self.progress = None
             for part in running.values():
                 part.stop()
         duration = self.clock() - started

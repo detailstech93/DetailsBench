@@ -284,6 +284,7 @@ def test_with_web_server_keeps_order_appends_new_keys_and_does_not_modify_input(
         "authenticationPassword",
         "startMinMenuItem",
         "minTrayMenuItem",
+        "gpuMenuItem",
     ]
     assert result["zeta"] == "z"
     assert result["alpha"] == "a"
@@ -294,6 +295,7 @@ def test_with_web_server_keeps_order_appends_new_keys_and_does_not_modify_input(
     assert result["authenticationPassword"] == "secret"
     assert result["startMinMenuItem"] == "true"
     assert result["minTrayMenuItem"] == "true"
+    assert result["gpuMenuItem"] == "false"
 
 
 def test_with_web_server_raises_on_empty_password_and_bad_port():

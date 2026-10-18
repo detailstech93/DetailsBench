@@ -292,6 +292,7 @@ class AutomationPanel(QGroupBox):
         return True
 
     def _start_worker(self, sid: int, plan, cooldown: float, **resume):
+        self.plan_workloads = [item.workload for item in plan]
         self.worker = AutomationWorker(self.db, sid, plan, self.output_root, cooldown,
                                        self.screenshot_box.isChecked(),
                                        telemetry_sources.new_sampler if self.telemetry_box.isChecked() else None,
@@ -431,6 +432,15 @@ class AutomationPanel(QGroupBox):
         self._start_worker(sid, plan, profile.cooldown_seconds)
         self.status_label.setText(f"Running in session #{sid} ({info['total_runs']} runs)...")
         return True
+
+    def run_progress(self):
+        """(fraction done, seconds left) of the run going on now, for a workload that knows it (a stress test
+        runs for set minutes), else None."""
+        for wl in getattr(self, "plan_workloads", []):
+            progress = getattr(wl, "progress", None)
+            if progress is not None:
+                return progress
+        return None
 
     def is_running(self) -> bool:
         return self.worker is not None and self.worker.isRunning()

@@ -27,6 +27,7 @@ WEB_SETTINGS_KEYS = (
     "authenticationPassword",
     "startMinMenuItem",
     "minTrayMenuItem",
+    "gpuMenuItem",
 )
 
 
@@ -188,6 +189,9 @@ def with_web_server(settings: dict, password: str, port: int = 8085) -> dict:
         ("authenticationPassword", password),
         ("startMinMenuItem", "true"),
         ("minTrayMenuItem", "true"),
+        # GPU readings come from nvidia-smi; LibreHardwareMonitor polling the GPU driver every second took the
+        # GPU stress from 100 % down to about 35 % (measured on an RTX 5090 Laptop with the CPU stress running)
+        ("gpuMenuItem", "false"),
     )
 
     for key, value in updates:
