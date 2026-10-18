@@ -527,6 +527,25 @@ with a warning not to use the keyboard or mouse while they run.
   folder and JSON keys are assumptions; a file that does not match gives "invalid", never 0, and is kept to fix the
   script. `python scripts/verify_simulation.py cyberpunk2077_builtin_benchmark` runs it once.
 
+### Unattended runs (Phase 12)
+
+A plan in **Automated runs** is a queue: every ticked tool, each with the profile's warm-ups and measured runs
+(3 measured + 1 warm-up by default) and the cooldown between runs, one after another without input.
+When the plan ends, the status line shows per tool the **mean of the completed measured runs** of the session,
+how many there were and the spread (CV %); warm-ups and failed runs are left out, never counted as 0.
+
+**Resume after a crash.** Before the first run and after every run the plan is written to
+`automation_runs\unfinished_plan.json` (next to the database; written to a temporary file and renamed, so a crash
+never leaves half a file): the session, the queue (with llama-benchy's chosen model and settings), the runs already
+stored and the run in progress. A plan that ends, or is stopped by the user, removes it. If the app ends during a run
+(crash, power loss, forced close), the next start shows **Resume interrupted plan (N run(s) left)...**: Resume
+stores the interrupted run as "failed" (it has no result) and runs what is left in the same session and run folder;
+Discard removes the file (stored runs stay); Later keeps it. A tool that is no longer available is skipped and named.
+`python scripts/verify_resume.py` checks it for real: a child process runs `7z b` three times on a temporary
+database, is killed by force during run 2, and a new process resumes. Raw output here: run 1 completed 173,594 MIPS,
+run 2 failed ("the app ended during this run ..."), run 3 completed 171,550 MIPS, mean 172,572 MIPS over 2 runs,
+CV 0.8 %, journal removed. Frame capture benchmarks (PresentMon, Frame capture tab) are not journaled yet.
+
 ### Telemetry
 
 **Record telemetry** (on by default, in both the Automated runs and Frame capture sections) samples once per second

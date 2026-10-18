@@ -4,7 +4,9 @@ For each plan item: warmup runs first (stored with is_warmup, run_index 0..),
 then the measured runs (run_index 1..n), with a cooldown between runs. The
 emergency stop (stop_event) ends the current run as "cancelled" and starts no
 further run; runs that never started are reported, not stored. A run that
-does not complete gets a diagnostic snapshot in its run folder.
+does not complete gets a diagnostic snapshot in its run folder. With a journal
+(app/automation/journal.py) the plan can be resumed after a crash: runs already
+done are skipped and the interrupted one is stored as failed.
 """
 
 import json
@@ -13,9 +15,10 @@ import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 from app.automation.diagnostics import write_snapshot
+from app.automation.journal import INTERRUPTED_ERROR
 from app.automation.workload import RunContext, Workload, WorkloadResult
 
 
@@ -25,6 +28,7 @@ class PlanItem:
     repetitions: int = 3
     warmup_runs: int = 1
     timeout_seconds: Optional[float] = None    # None: the workload's own default
+    settings: Optional[dict] = None            # chosen before the plan (llama-benchy), kept to resume it
 
 
 @dataclass
@@ -50,7 +54,9 @@ class AutomationRunner:
                  cooldown_seconds: float = 0.0, stop_event: Optional[threading.Event] = None,
                  on_progress: Optional[Callable[[str], None]] = None,
                  screenshot: Optional[Callable[[Path], bool]] = None,
-                 telemetry: Optional[Callable[[], object]] = None):
+                 telemetry: Optional[Callable[[], object]] = None,
+                 journal=None, done: Iterable[Tuple[str, int, bool]] = (),
+                 interrupted: Optional[Tuple[str, int, bool]] = None, stamp: Optional[str] = None):
         self.db = db
         self.session_id = session_id
         self.plan = plan
@@ -60,6 +66,10 @@ class AutomationRunner:
         self.on_progress = on_progress or (lambda message: None)
         self.screenshot = screenshot
         self.telemetry = telemetry          # factory: a new, not started TelemetrySampler per run
+        self.journal = journal              # PlanJournal, or None
+        self.done = set(done)               # resumed plan: runs stored before the crash
+        self.interrupted = interrupted      # resumed plan: the run the crash ended
+        self.stamp = stamp                  # resumed plan: the same run folder
 
     def stop(self):
         self.stop_event.set()
@@ -112,10 +122,38 @@ class AutomationRunner:
             for i in range(1, item.repetitions + 1):
                 yield item, i, False
 
+    def _store_interrupted(self, summary: RunSummary, stamp: str):
+        wid, run_index, is_warmup = self.interrupted
+        item = next((p for p in self.plan if p.workload.id == wid), None)
+        if item is None:
+            return
+        result = WorkloadResult(status="failed", error=INTERRUPTED_ERROR)
+        run_dir = self.output_root / f"session_{self.session_id}_{stamp}" / f"{wid}_{'w' if is_warmup else 'r'}{run_index}"
+        result_id = self.db.create_result(
+            self.session_id, wid, item.workload.benchmark_type, None, unit="points",
+            benchmark_version=item.workload.version(), is_test=item.workload.is_test, is_manual=False,
+            status="failed", is_warmup=is_warmup, run_index=run_index, note=INTERRUPTED_ERROR)
+        summary.records.append(RunRecord(wid, run_index, is_warmup, result, result_id, run_dir))
+        self.done.add(self.interrupted)
+        if self.journal is not None:
+            self.journal.run_done(self.interrupted)
+        self.on_progress(f"{item.workload.display_name}: {'warmup' if is_warmup else 'run'} {run_index} "
+                         f"was interrupted by a crash; stored as failed")
+
     def run(self) -> RunSummary:
         summary = RunSummary()
-        schedule = list(self._schedule())
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        stamp = self.stamp or datetime.now().strftime("%Y%m%d_%H%M%S")
+        if self.journal is not None:
+            self.journal.begin(self.session_id, stamp, self.plan, self.cooldown_seconds, sorted(self.done))
+        if self.interrupted is not None and self.interrupted not in self.done:
+            self._store_interrupted(summary, stamp)
+        schedule = [s for s in self._schedule() if (s[0].workload.id, s[1], s[2]) not in self.done]
+        summary = self._run_schedule(summary, schedule, stamp)
+        if self.journal is not None:
+            self.journal.finish()           # ended normally or stopped by the user: nothing to resume
+        return summary
+
+    def _run_schedule(self, summary: RunSummary, schedule: list, stamp: str) -> RunSummary:
         for position, (item, run_index, is_warmup) in enumerate(schedule):
             if self.stop_event.is_set():
                 summary.stopped = True
@@ -135,6 +173,9 @@ class AutomationRunner:
             self.on_progress(f"{wl.display_name}: {label} started")
             ctx = RunContext(output_dir=run_dir, timeout_seconds=item.timeout_seconds,
                              stop_event=self.stop_event, run_index=run_index, is_warmup=is_warmup)
+            key = (wl.id, run_index, is_warmup)
+            if self.journal is not None:
+                self.journal.run_started(key)
             sampler = self._start_telemetry()
             try:
                 result = wl.run(ctx)
@@ -154,6 +195,8 @@ class AutomationRunner:
                 note=result.error)
             if result.status == "completed" and (result.metrics or telemetry_metrics):
                 self._store_metrics(record.result_id, {**telemetry_metrics, **(result.metrics or {})})
+            if self.journal is not None:
+                self.journal.run_done(key)
             summary.records.append(record)
             shown = f"{result.score:g} {result.unit or ''}".strip() if result.score is not None else result.error
             self.on_progress(f"{wl.display_name}: {label} {result.status} ({shown})")
@@ -162,3 +205,26 @@ class AutomationRunner:
                 summary.not_started = len(schedule) - position - 1
                 break
         return summary
+
+
+def plan_averages(rows: List[dict]) -> Dict[str, dict]:
+    """Per benchmark: statistics of the completed measured runs of a session (Database.get_runs rows;
+    warm-ups and failures left out). Rows, not the runner's records, so a resumed plan counts the runs
+    stored before the crash too."""
+    from app.stats import compute_stats
+    scores: Dict[str, list] = {}
+    units: Dict[str, Optional[str]] = {}
+    for row in rows:
+        if row["is_warmup"] or row["status"] != "completed" or row["score"] is None:
+            continue
+        scores.setdefault(row["benchmark_name"], []).append(row["score"])
+        units.setdefault(row["benchmark_name"], row["unit"])
+    return {wid: {**compute_stats(values), "unit": units[wid]} for wid, values in scores.items()}
+
+
+def averages_text(averages: Dict[str, dict]) -> str:
+    lines = []
+    for wid, s in averages.items():
+        spread = f", CV {s['cv_percent']:.1f}%" if s.get("cv_percent") is not None else ""
+        lines.append(f"{wid}: mean {s['mean']:.6g} {s['unit'] or ''} over {s['count']} run(s){spread}".replace("  ", " "))
+    return "\n".join(lines)

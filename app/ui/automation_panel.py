@@ -29,7 +29,8 @@ from PySide6.QtWidgets import (
 
 from app.all_workloads import load_workloads
 from app.automation.plan_text import plan_overview
-from app.automation.runner import AutomationRunner, PlanItem, RunSummary
+from app.automation import journal as plan_journal
+from app.automation.runner import AutomationRunner, PlanItem, RunSummary, averages_text, plan_averages
 from app.telemetry import sources as telemetry_sources
 
 logger = logging.getLogger(__name__)
@@ -49,13 +50,14 @@ class AutomationWorker(QThread):
     screenshot_requested = Signal(str, object)  # path, threading.Event
 
     def __init__(self, db, session_id: int, plan: List[PlanItem], output_root: Path,
-                 cooldown_seconds: float, take_screenshots: bool, telemetry: Optional[Callable] = None):
+                 cooldown_seconds: float, take_screenshots: bool, telemetry: Optional[Callable] = None,
+                 **resume):
         super().__init__()
         self.stop_event = threading.Event()
         self.runner = AutomationRunner(
             db, session_id, plan, output_root, cooldown_seconds=cooldown_seconds,
             stop_event=self.stop_event, on_progress=self.progress.emit,
-            screenshot=self._screenshot if take_screenshots else None, telemetry=telemetry)
+            screenshot=self._screenshot if take_screenshots else None, telemetry=telemetry, **resume)
 
     def stop(self):
         self.stop_event.set()
@@ -184,6 +186,12 @@ class AutomationPanel(QGroupBox):
         self.report_btn.setEnabled(False)
         self.report_btn.clicked.connect(lambda: self.show_report())
         row.addWidget(self.report_btn)
+        self.resume_btn = QPushButton("Resume interrupted plan...")
+        self.resume_btn.setToolTip("A plan was still running when the app ended (crash, power loss or forced "
+                                   "close). Resume it in the same session, or discard it.")
+        self.resume_btn.setVisible(False)
+        self.resume_btn.clicked.connect(lambda: self.resume_plan())
+        row.addWidget(self.resume_btn)
         row.addWidget(self.stop_btn)
         layout.addLayout(row)
         self.status_label = QLabel("Idle. A system-wide stop hotkey is not available; "
@@ -213,6 +221,75 @@ class AutomationPanel(QGroupBox):
             self.table.setItem(r, 2, QTableWidgetItem(detail))
             self.table.setItem(r, 3, QTableWidgetItem(wl.describe_command() or "-"))
         self.errors_label.setText("Spec errors (files skipped):\n" + "\n".join(errors) if errors else "")
+        self.update_resume()
+
+    # ---- unattended runs: resume after a crash -------------------------------
+    def journal_path(self) -> Optional[Path]:
+        return Path(self.output_root) / plan_journal.JOURNAL_NAME if self.output_root is not None else None
+
+    def unfinished_plan(self) -> Optional[dict]:
+        path = self.journal_path()
+        return plan_journal.read_journal(path) if path is not None and path.is_file() else None
+
+    def update_resume(self):
+        data = None if self.is_running() else self.unfinished_plan()
+        self.resume_btn.setVisible(data is not None)
+        if data is not None:
+            left = plan_journal.remaining_runs(data)
+            self.resume_btn.setText(f"Resume interrupted plan ({left} run(s) left)...")
+
+    def ask_resume(self, text: str) -> str:
+        """'resume', 'later' or 'discard'."""
+        box = QMessageBox(QMessageBox.Question, "Resume interrupted plan?", text, parent=self)
+        resume = box.addButton("Resume", QMessageBox.AcceptRole)
+        discard = box.addButton("Discard", QMessageBox.DestructiveRole)
+        box.addButton("Later", QMessageBox.RejectRole)
+        box.exec()
+        return {resume: "resume", discard: "discard"}.get(box.clickedButton(), "later")
+
+    def resume_plan(self) -> bool:
+        if self.is_running() or self.db is None:
+            return False
+        data = self.unfinished_plan()
+        if data is None:
+            self.update_resume()
+            return False
+        plan, done, interrupted, missing = plan_journal.plan_from_journal(data, self.workloads)
+        lines = [f"A plan of session #{data['session_id']} (started {data.get('created', '?')}) did not finish.",
+                 f"{plan_journal.remaining_runs(data)} run(s) left."]
+        if interrupted:
+            lines.append(f"The run in progress ({interrupted[0]}, {'warm-up' if interrupted[2] else 'run'} "
+                         f"{interrupted[1]}) is stored as failed; it has no result.")
+        if missing:
+            lines.append("Not available now, skipped: " + ", ".join(missing))
+        warnings = [p.workload.warning for p in plan if getattr(p.workload, "warning", None)]
+        if warnings:
+            lines.append("WARNING: " + "\n".join(warnings))
+        choice = self.ask_resume("\n".join(lines))
+        if choice == "discard":
+            plan_journal.PlanJournal(self.journal_path()).finish()
+            self.status_label.setText("Interrupted plan discarded; the runs already stored stay stored.")
+            self.update_resume()
+            return False
+        if choice != "resume":
+            return False
+        sid = int(data["session_id"])
+        self.last_session_id, self.last_summary = sid, None
+        self._start_worker(sid, plan, float(data.get("cooldown_seconds") or 0),
+                           done=done, interrupted=interrupted, stamp=data["stamp"])
+        self.status_label.setText(f"Resuming session #{sid}...")
+        return True
+
+    def _start_worker(self, sid: int, plan, cooldown: float, **resume):
+        self.worker = AutomationWorker(self.db, sid, plan, self.output_root, cooldown,
+                                       self.screenshot_box.isChecked(),
+                                       telemetry_sources.new_sampler if self.telemetry_box.isChecked() else None,
+                                       journal=plan_journal.PlanJournal(self.journal_path()), **resume)
+        self.worker.progress.connect(self._on_progress)
+        self.worker.screenshot_requested.connect(self._on_screenshot_requested)
+        self.worker.finished_plan.connect(self._on_finished)
+        self._set_running(True)
+        self.worker.start()
 
     def set_checked(self, workload_id: str, checked: bool = True):
         for r, wl in enumerate(self.workloads):
@@ -298,6 +375,7 @@ class AutomationPanel(QGroupBox):
             started = []
             self.lhm.ensure(lambda: started.append(self.start_plan(tools_ready=True)))
             return bool(started and started[0])      # empty: it asks or downloads first, the run starts later
+        chosen = {}
         for wl in workloads:
             if hasattr(wl, "configure"):      # llama-benchy: model and settings are chosen for every plan
                 settings = self.choose_settings(wl)
@@ -305,8 +383,11 @@ class AutomationPanel(QGroupBox):
                     self.status_label.setText("No llama-benchy settings chosen; nothing was run.")
                     return False
                 wl.configure(settings)
+                chosen[wl.id] = settings
         profile = self.get_profile()
         plan = self.build_plan(workloads, profile)
+        for item in plan:
+            item.settings = chosen.get(item.workload.id)      # kept in the journal to resume after a crash
         info = self.overview(plan, int(profile.cooldown_seconds))
         text = (info["text"] + f"\n\nRun settings from profile {profile.name!r}. A new session is created. "
                 f"Emergency stop: the red button or {STOP_SHORTCUT}.")
@@ -318,15 +399,8 @@ class AutomationPanel(QGroupBox):
             return False
         sid = self._create_session(workloads, profile)
         self.last_session_id, self.last_summary = sid, None
-        self.worker = AutomationWorker(self.db, sid, plan, self.output_root, profile.cooldown_seconds,
-                                       self.screenshot_box.isChecked(),
-                                       telemetry_sources.new_sampler if self.telemetry_box.isChecked() else None)
-        self.worker.progress.connect(self._on_progress)
-        self.worker.screenshot_requested.connect(self._on_screenshot_requested)
-        self.worker.finished_plan.connect(self._on_finished)
-        self._set_running(True)
+        self._start_worker(sid, plan, profile.cooldown_seconds)
         self.status_label.setText(f"Running in session #{sid} ({info['total_runs']} runs)...")
-        self.worker.start()
         return True
 
     def is_running(self) -> bool:
@@ -349,6 +423,7 @@ class AutomationPanel(QGroupBox):
         self.table.setEnabled(not running)
         self.telemetry_box.setEnabled(not running)
         self.stop_btn.setEnabled(running)
+        self.resume_btn.setEnabled(not running)
 
     @Slot(str)
     def _on_progress(self, message: str):
@@ -379,7 +454,15 @@ class AutomationPanel(QGroupBox):
             text = f"Session #{self.last_session_id} done: {parts}."
             if summary.stopped:
                 text += f" Stopped; {summary.not_started} run(s) not started."
+            try:
+                averages = averages_text(plan_averages(self.db.get_runs(self.last_session_id, include_test=True)))
+            except Exception:
+                logger.exception("Could not compute the averages")
+                averages = ""
+            if averages:
+                text += "\n" + averages
         else:
             text = f"Session #{self.last_session_id}: {summary}"
         self.status_label.setText(text)
+        self.update_resume()
         self.on_session_changed()

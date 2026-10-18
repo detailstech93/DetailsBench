@@ -87,7 +87,8 @@ def test_plan_runs_in_new_test_session(qapp, tmp_path):
     assert session["is_test"] and not session["is_manual"]
     manifest = db.get_session_manifest(sid)
     assert manifest["benchmarks"][0]["name"] == "selftest_a"
-    assert panel.status_label.text() == f"Session #{sid} done: 3 completed."
+    assert panel.status_label.text() == f"Session #{sid} done: 3 completed.\nselftest_a: mean 7.5 points over 2 run(s), CV 0.0%"
+    assert not (tmp_path / "runs" / "unfinished_plan.json").exists() and not panel.resume_btn.isVisible()
     assert panel.run_btn.isEnabled() and not panel.stop_btn.isEnabled()
 
 
@@ -183,3 +184,35 @@ def test_llama_settings_dialog_and_no_server(qapp):
     got = automation_panel.choose_llama_settings(None, {"depths": [0]}, read_models=lambda: models, dialog=Accepting)
     assert got["model"] == "b" and got["depths"] == [0]
     assert "Concurrency" in ReportDialog("r", "| Concurrency |\n|---|\n| 1 |").view.toPlainText()
+
+
+def test_resume_or_discard_an_interrupted_plan(qapp, tmp_path):
+    """A journal left by a crash (written by hand here) is offered on start; resuming finishes it."""
+    import json
+    from app.automation import journal as jr
+    db = Database(str(tmp_path / "a.db"))
+    sid = db.create_session("Automated", is_test=True, is_manual=False)
+    db.create_result(sid, "selftest_a", "cpu", 7.5, status="completed", is_warmup=True, run_index=0, is_test=True)
+    journal = {"session_id": sid, "stamp": "20261018_050000", "cooldown_seconds": 0, "created": "2026-10-18T05:00:00",
+               "items": [{"workload_id": "selftest_a", "repetitions": 2, "warmup_runs": 1, "timeout_seconds": 30,
+                          "settings": None}],
+               "done": [["selftest_a", 0, True]], "current": ["selftest_a", 1, False]}
+    (tmp_path / "runs").mkdir()
+    path = tmp_path / "runs" / jr.JOURNAL_NAME
+    path.write_text(json.dumps(journal), encoding="utf-8")
+    panel, _ = make_panel(tmp_path, [workload("selftest_a", "print('SCORE=8')")])
+    assert not panel.resume_btn.isHidden() and "(2 run(s) left)" in panel.resume_btn.text()
+    asked = []
+    panel.ask_resume = lambda text: (asked.append(text), "later")[1]
+    assert panel.resume_plan() is False and path.exists()
+    assert "is stored as failed" in asked[0]
+    panel.ask_resume = lambda text: "resume"
+    assert panel.resume_plan() is True
+    finish(qapp, panel)
+    runs = [(r["run_index"], r["is_warmup"], r["status"], r["score"]) for r in db.get_runs(sid, include_test=True)]
+    assert runs == [(0, 1, "completed", 7.5), (1, 0, "failed", None), (2, 0, "completed", 8.0)]
+    assert not path.exists() and panel.resume_btn.isHidden()
+    path.write_text(json.dumps(journal), encoding="utf-8")
+    panel.reload()
+    panel.ask_resume = lambda text: "discard"
+    assert panel.resume_plan() is False and not path.exists() and "discarded" in panel.status_label.text()
