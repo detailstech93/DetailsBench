@@ -13,11 +13,12 @@ KEEP = "keep"
 RESOLUTIONS = (KEEP, "1280x720", "1920x1080", "2560x1440", "3840x2160")
 UPSCALERS = (KEEP, "off", "dlss", "fsr", "xess")
 RAY_TRACING = (KEEP, "on", "off")
-FRAME_GEN = (KEEP, "off", "on")
+FRAME_GEN = (KEEP, "off", "x2", "x3", "x4")      # off, or on with that many frames shown per rendered one
 QUALITIES = (KEEP, "low", "medium", "high", "ultra")
 
 LABELS = {KEEP: "Keep the game's own", "off": "Off", "on": "On", "dlss": "DLSS", "fsr": "FSR", "xess": "XeSS",
-          "low": "Low", "medium": "Medium", "high": "High", "ultra": "Ultra"}
+          "low": "Low", "medium": "Medium", "high": "High", "ultra": "Ultra",
+          "x2": "On, 2x", "x3": "On, 3x (multi frame)", "x4": "On, 4x (multi frame)"}
 CHOICE_NAMES = {"resolution": "Resolution", "upscaler": "Upscaler", "ray_tracing": "Ray tracing",
                 "frame_gen": "Frame generation", "quality": "Quality"}
 
@@ -44,6 +45,8 @@ class GamePreset:
         out = {}
         for key, values in allowed.items():
             value = data.get(key, KEEP)
+            if key == "frame_gen" and value == "on":
+                value = "x2"                    # saved before x2 / x3 / x4 were offered
             if key == "resolution" and isinstance(value, str) and _is_resolution(value):
                 out[key] = value
             elif value in values:
@@ -88,13 +91,13 @@ def _on_off(choice: str, offered: list) -> Optional[object]:
 
 
 def _frame_gen(choice: str, offered: list) -> Optional[object]:
-    """frame generation: an on/off switch, the Off / DLSS / FSR list (on: the DLSS value, else the only other one)
-    or the multi frame list x2 / x3 / x4 (on: x2, plain frame generation; off leaves it as it is)."""
+    """frame generation off / x2 / x3 / x4: an on/off switch, the Off / DLSS / FSR list (on: the DLSS value, else
+    the only other one) or the multi frame list x2 / x3 / x4 (that value; off leaves it as it is)."""
     if any(isinstance(v, bool) for v in offered):
-        return _on_off(choice, offered)
+        return _on_off("off" if choice == "off" else "on", offered)
     texts = [v for v in offered if isinstance(v, str)]
     if any(v.lower() == "x2" for v in texts):
-        return _exact_text("x2", texts) if choice == "on" else None
+        return _exact_text(choice, texts) if choice != "off" else None
     if choice == "off":
         return _exact_text("off", texts)
     others = [v for v in texts if v.lower() != "off"]
@@ -106,7 +109,7 @@ def _frame_gen(choice: str, offered: list) -> Optional[object]:
 class Target:
     keys: Tuple[str, ...]          # the adapter's setting keys this choice writes (all of them get the same value)
     match: Matcher
-    optional: Tuple[str, ...] = ()  # keys left as they are when no offered value matches (the rest must match)
+    when_off: Tuple[str, ...] = ()  # keys left as they are when the choice is "off" (the rest must match)
 
 
 # The settings each game's adapter knows (app/games/<game>.py SETTINGS). A choice missing here has no setting in
@@ -117,7 +120,7 @@ GAME_TARGETS: Dict[str, Dict[str, Target]] = {
         "upscaler": Target(("upscaler",), _contains),
         "ray_tracing": Target(("ray_tracing",), _on_off),
         "frame_gen": Target(("frame_gen", "dlss_frame_gen", "multi_frame_gen"), _frame_gen,
-                            optional=("multi_frame_gen",)),
+                            when_off=("multi_frame_gen",)),
         "quality": Target(("preset",), _exact_text),
     },
     "397540": {    # Borderlands 3
@@ -162,7 +165,7 @@ def plan_preset(app_id, preset: GamePreset, offered: Dict[str, list]) -> Tuple[D
             if key not in offered:
                 continue
             match = target.match(value, list(offered[key]))
-            if match is None and key in target.optional:
+            if match is None and value == "off" and key in target.when_off:
                 continue
             if match is None:
                 found = None

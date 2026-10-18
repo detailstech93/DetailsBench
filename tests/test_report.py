@@ -337,6 +337,9 @@ def test_game_section_whole_numbers_settings_and_readings():
     assert "<td>GPU temperature</td><td>75 \u00b0C</td><td>77 \u00b0C</td>" in game
     assert "<td>GPU memory clock</td><td>14,001 MHz</td>" in game
     assert "<td>CPU temperature</td><td colspan=\"2\" class=\"muted\">not measured" in game
+    assert "Rendered" not in game
+    with_fg = _game_export(None, {"rendered_fps": (91.0, "FPS")})
+    assert "Rendered (no frame gen)</div><div class=\"value\">91 <span>FPS" in render_session_report(with_fg)
 
 
 def test_game_section_without_settings_or_frames_and_only_for_games():

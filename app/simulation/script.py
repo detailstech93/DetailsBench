@@ -19,6 +19,9 @@ A script is a JSON file in data/scripts: the program to start and a list of step
                settings {label: {path} | {paths, join} | {any_true {name: path}, none}}: the settings the
                game says it used, kept as text with the run ("Resolution 2560x1440, Upscaler DLSS")
   read_frames  file, csv, column              the game's own frame-time file next to that result file:
+               optional shown {column: [keys]}: with frame generation on (that key true in the result
+               file read by read_json), the frames shown on screen are in that column: 1% low is taken
+               from it (so it matches the average) and the rendered frames give rendered_fps
                                               1% and 0.1% low FPS (app/frames/stats.py), copied to the run folder
 A Steam game with a settings adapter gets the settings chosen for it (a preset from the Tests screen, saved in
 settings.json) written before the launch and the user's own put back after the run (ForcedSettings).
@@ -280,6 +283,7 @@ class ScriptRun:
         self.settings_used: List[str] = []          # "Label value" the game reported using
         self.sources: Dict[str, Path] = {}          # wait_file name -> the game's own file
         self.found_at: Dict[str, float] = {}        # wait_file name -> seconds after the start it appeared
+        self.parsed: Dict[str, object] = {}         # wait_file name -> its JSON (read_json)
         self.window: Optional[Tuple[float, float]] = None
         self.log: List[str] = []
         self.out = Path(ctx.output_dir)
@@ -387,6 +391,7 @@ class ScriptRun:
                 data = json.loads(self.files[s["file"]].read_text(encoding="utf-8-sig"))
             except ValueError as e:
                 raise StepError("invalid", f"the result file is not JSON: {e}")
+            self.parsed[s["file"]] = data
             for name, spec in s["values"].items():
                 value = data
                 for key in spec["path"]:
@@ -412,7 +417,17 @@ class ScriptRun:
                 return
             copy = self.out / f"frames_{source.parent.name}_{source.name}"
             shutil.copyfile(source, copy)
-            times = frame_times(copy.read_text(encoding="utf-8-sig", errors="replace"), s["column"])
+            text = copy.read_text(encoding="utf-8-sig", errors="replace")
+            column = s["column"]
+            for shown, flag in (s.get("shown") or {}).items():
+                if _at(self.parsed.get(s["file"]), flag) is True:
+                    rendered = frame_times(text, column)
+                    if rendered:
+                        self.values["rendered_fps"] = (1000.0 * len(rendered) / sum(rendered), "FPS")
+                    column = shown
+                    self.note(f"frame generation on: frames shown on screen from {shown!r}")
+                    break
+            times = frame_times(text, column)
             if len(times) < 100:
                 self.note(f"{source.name}: only {len(times)} frame times: 1% low not measured")
                 return
@@ -529,6 +544,13 @@ def settings_text(data, spec: dict) -> Optional[str]:
     """One setting the game reported: a value, values joined ("2560x1440"), or the names that are true."""
     if "any_true" in spec:
         on = [name for name, path in spec["any_true"].items() if _at(data, path) is True]
+        factor = spec.get("factor")         # frame generation: "DLSS 4x" (frames shown per rendered frame)
+        if factor and on == [factor.get("only")]:
+            count = _at(data, factor["path"]) if _at(data, factor.get("when", [])) is True else None
+            n = count + factor.get("add", 0) if isinstance(count, int) and not isinstance(count, bool) else \
+                factor.get("otherwise")
+            if n:
+                return f"{on[0]} {n}x"
         return ", ".join(on) if on else spec.get("none", "Off")
     if "paths" in spec:
         parts = [_plain(_at(data, p)) for p in spec["paths"]]

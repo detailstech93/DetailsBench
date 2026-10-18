@@ -177,6 +177,9 @@ def _game_section(export: Mapping) -> str:
         tiles = [("Average", stats.get("mean")), ("1% low", mean_of("low_1pct_fps")),
                  ("0.1% low", mean_of("low_01pct_fps")), ("Lowest", lowest("min_fps")),
                  ("Highest", highest("max_fps"))]
+        rendered = _whole(mean_of("rendered_fps"))
+        if rendered is not None:
+            tiles.append(("Rendered (no frame gen)", mean_of("rendered_fps")))
         tile_html = "".join(
             f'<div class="tile"><div class="label">{label}</div><div class="value">'
             + (f"{_whole(value):,} <span>FPS</span>" if _whole(value) is not None else '<span>not measured</span>')

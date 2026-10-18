@@ -24,15 +24,19 @@
                                "FSR 2": ["Data", "FSR2Enabled"], "FSR 3": ["Data", "FSR3Enabled"],
                                "FSR 4": ["Data", "FSR4Enabled"], "XeSS": ["Data", "XeSSEnabled"]}, "none": "Off"},
       "Frame generation": {"any_true": {"DLSS": ["Data", "DLSSFrameGenEnabled"],
-                                        "DLSS multi": ["Data", "DLSSMultiFrameGenEnabled"],
                                         "FSR 3": ["Data", "FSR3FrameGenEnabled"],
-                                        "XeSS": ["Data", "XeSSFrameGenEnabled"]}, "none": "Off"},
+                                        "XeSS": ["Data", "XeSSFrameGenEnabled"]}, "none": "Off",
+                           "factor": {"only": "DLSS", "when": ["Data", "DLSSMultiFrameGenEnabled"],
+                                      "path": ["Data", "DLSSMultiFrameGenFrameToGenerate"], "add": 1, "otherwise": 2}},
       "Ray tracing": {"path": ["Data", "rayTracingEnabled"]},
       "Path tracing": {"path": ["Data", "rayTracedPathTracingEnabled"]},
       "VSync": {"path": ["Data", "verticalSync"]},
       "Game version": {"path": ["Data", "gameVersion"]}
     }},
-    {"do": "read_frames", "file": "result", "csv": "frames.csv", "column": "Frame time (ms)"}
+    {"do": "read_frames", "file": "result", "csv": "frames.csv", "column": "Frame time (ms)", "shown": {
+      "DLSS Frame Generation (ms)": ["Data", "DLSSFrameGenEnabled"],
+      "FSR3 Frame Generation (ms)": ["Data", "FSR3FrameGenEnabled"],
+      "XeSS Frame Generation (ms)": ["Data", "XeSSFrameGenEnabled"]}}
   ],
   "score": {"value": "average_fps", "unit": "FPS", "higher_is_better": true},
   "notes": "Verified on 2026-10-18 with the owner present (session 4, game version 2.31, RTX 5090 Laptop, 2560x1440): the game is started directly (bin/x64/Cyberpunk2077.exe with the arguments, so Steam asks nothing), summary.json was written to Documents\\CD Projekt Red\\Cyberpunk 2077\benchmarkResults\benchmark_<date>\\, Data.averageFps / minFps / maxFps were read (76.43 / 65.57 / 104.37 FPS) and the app closed the game. -skipStartScreen did not skip the 'press to continue' screen in 2.31: the user presses a key there, then starts the benchmark from the menu. No keys are sent. If the file or its keys differ, the run is 'invalid' (never a 0). Frame times by PresentMon are a separate capture (Frame capture tab). Since 2026-10-18 the run is automatic: -benchmark is passed so the game starts the benchmark by itself (to be confirmed on a real run)."

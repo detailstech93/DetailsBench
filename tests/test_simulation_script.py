@@ -278,9 +278,25 @@ def test_game_frames_and_settings_used(tmp_path, monkeypatch):
     assert result.status == "completed" and result.score == 76.43
     assert result.metrics["low_1pct_fps"] == (25.0, "FPS")          # the 10 slowest of 1000 frames: 40 ms
     assert result.metrics["low_01pct_fps"] == (25.0, "FPS")
+    assert "rendered_fps" not in result.metrics                     # frame generation off: one kind of frame
     assert result.note == ("Settings used: Resolution: 2560x1440, Preset: Ultra, Upscaler: DLSS, Frame generation: Off, "
                            "Ray tracing: Off, Path tracing: Off, VSync: Off, Game version: 2.31")
     assert (out / "frames_b1_frames.csv").exists()
+
+
+def test_frame_generation_on_takes_the_frames_shown_on_screen(tmp_path, monkeypatch):
+    summary = json.loads(json.dumps(SUMMARY))
+    summary["Data"]["DLSSFrameGenEnabled"] = True
+    frames = "Frame index, Frame time (ms), DLSS Frame Generation (ms)\n" + "".join(
+        f"{i}, {40.0 if i < 10 else 10.0}, {20.0 if i < 10 else 5.0}\n" for i in range(1000))
+    _, result, out = run_game(tmp_path, monkeypatch, FakeSteam(json.dumps(summary), frames_text=frames))
+    assert result.metrics["low_1pct_fps"] == (50.0, "FPS")          # shown frames: 20 ms, not the rendered 40 ms
+    assert abs(result.metrics["rendered_fps"][0] - 1000 * 1000 / (10 * 40 + 990 * 10)) < 1e-9
+    assert "Frame generation: DLSS 2x" in result.note                 # no multi frame count: plain 2x
+    summary["Data"].update(DLSSMultiFrameGenEnabled=True, DLSSMultiFrameGenFrameToGenerate=3)
+    _, four, _ = run_game(tmp_path / "x4", monkeypatch, FakeSteam(json.dumps(summary), frames_text=frames))
+    assert "Frame generation: DLSS 4x" in four.note
+    assert "frame generation on" in (out / sim.LOG_FILE).read_text(encoding="utf-8")
 
 
 def test_game_without_frames_file_still_scores(tmp_path, monkeypatch):
