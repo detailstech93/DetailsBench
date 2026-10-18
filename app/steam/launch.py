@@ -45,14 +45,16 @@ def build_launch_url(appid, discovered_appids: Iterable[str], args: Sequence[str
 
 
 def direct_exe(appid, install_path: str, args: Sequence[str] = ()) -> Optional[str]:
-    """The game's own executable to start with `args` instead of steam://run (None: use Steam)."""
-    if not args or not install_path:
+    """The game's own executable to start with `args` instead of steam://run (None: use Steam). A game in
+    SKIP_LAUNCHER is started directly even without arguments: Steam would open its launcher first."""
+    if not install_path:
         return None
-    from data.steam_benchmarks import STEAM_BENCHMARK_APPS_BY_ID
+    from data.steam_benchmarks import SKIP_LAUNCHER, STEAM_BENCHMARK_APPS_BY_ID
     try:
-        rel = STEAM_BENCHMARK_APPS_BY_ID.get(int(str(appid).strip()), {}).get("exe")
+        app = int(str(appid).strip())
     except ValueError:
         return None
+    rel = SKIP_LAUNCHER.get(app) or (STEAM_BENCHMARK_APPS_BY_ID.get(app, {}).get("exe") if args else None)
     if not rel:
         return None
     path = os.path.normpath(os.path.join(install_path, rel))        # keep the drive letter (no realpath)

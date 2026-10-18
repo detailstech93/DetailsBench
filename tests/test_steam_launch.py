@@ -138,3 +138,14 @@ def test_mapped_drive_share_spelling_counts_as_inside(monkeypatch):
     assert launch.new_processes_in_folder([], [(1, r"Z:\Lib\Game\game.exe")], r"Z:\Lib\Game") == [r"Z:\Lib\Game\game.exe"]
     from app.frames.game_close import _inside
     assert _inside(r"\server\share\Lib\Game\game.exe", r"Z:\Lib\Game") and not _inside(r"C:\x.exe", r"Z:\Lib\Game")
+
+
+def test_a_game_with_a_launcher_is_started_directly_without_args(tmp_path):
+    from app.steam.launch import direct_exe
+    from data.steam_benchmarks import SKIP_LAUNCHER
+    assert SKIP_LAUNCHER[292030] == "bin\\x64_dx12\\witcher3.exe"
+    assert direct_exe(292030, str(tmp_path), []) is None                   # not there: Steam as before
+    exe = tmp_path / "bin" / "x64_dx12" / "witcher3.exe"
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b"")
+    assert direct_exe(292030, str(tmp_path), []) == os.path.normpath(str(exe))

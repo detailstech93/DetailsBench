@@ -255,7 +255,7 @@ def plan_state(panel, result: dict) -> RunState:
         # the thread has ended but its "finished" signal is not delivered yet: the report comes next
         done, total, _ = panel.step
         return RunState(True, done, total, "Writing the report...")
-    if panel.lhm.busy():
+    if panel.lhm.active():
         return RunState(True, 0, None, "Preparing the temperature sensors (LibreHardwareMonitor)...")
     if getattr(panel, "asking", False):
         # the start question comes after the sensors are ready; the screen polls while it is open
@@ -325,7 +325,7 @@ def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_re
     panel.on_plan_finished = finished
     started = panel.start_plan(workloads=[e.ref for e in automatic], profile=plan_profile(window.selected_profile(),
                                                                                          choice))
-    if started or panel.lhm.busy():
+    if started or panel.lhm.active():
         # stay on the Tests screen: green bar, percent and Stop there (Ctrl+Shift+X still works)
         window.tests_page.watch(lambda: plan_state(panel, result), panel.emergency_stop)
     else:
@@ -352,9 +352,9 @@ def start_other(window, entry: TestEntry, choice: Optional[RunChoice] = None) ->
             frame.benchmark_game()
         else:
             frame.benchmark_game(ask_settings=False, counts=(choice.warmup_runs, choice.repetitions))
-        if frame.is_running() or frame.lhm.busy():
+        if frame.is_running() or frame.lhm.active():
             window.tests_page.watch(
-                lambda: RunState(frame.is_running() or frame.lhm.busy(), 0, None, frame.status_label.text()),
+                lambda: RunState(frame.is_running() or frame.lhm.active(), 0, None, frame.status_label.text()),
                 frame.emergency_stop)
         return True
     if entry.source == "library":

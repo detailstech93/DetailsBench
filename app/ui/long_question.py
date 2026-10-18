@@ -55,6 +55,9 @@ class LongQuestion(QDialog):
 def ask_buttons(parent, title: str, text: str, buttons: Sequence[Tuple[str, object]], default: int = 0):
     """The value of the button pressed; None when the dialog is closed."""
     dialog = LongQuestion(parent, title, text, buttons, default)
+    dialog.show()
+    dialog.raise_()
+    dialog.activateWindow()          # in front even when another program had the front (LibreHardwareMonitor)
     dialog.exec()
     return dialog.value
 

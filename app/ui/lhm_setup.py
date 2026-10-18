@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app.paths import get_data_dir
 from app.telemetry import lhm_provision
@@ -79,6 +79,7 @@ class LhmPreflight(QObject):
         self.confirm = confirm or self._ask
         self.waiter = waiter or wait_until_answering
         self.declined = False
+        self.continuing = False
         self._task = None
         self._on_done = None
 
@@ -101,12 +102,37 @@ class LhmPreflight(QObject):
         self._task.done.connect(on_done)
         self._task.start()
 
+    def active(self) -> bool:
+        """Busy, or the run is going on after the check (its next window may be open): a screen that follows
+        the run must keep waiting."""
+        return self.busy() or self.continuing
+
+    def _front(self):
+        """LibreHardwareMonitor and its UAC prompt took the front: bring this app back before the run's next
+        window, so that window does not open unseen behind them (2026-10-18)."""
+        if self.parent_widget is None:
+            return
+        try:
+            window = self.parent_widget.window()
+            if window.isMinimized():
+                window.showNormal()
+            window.raise_()
+            window.activateWindow()
+            QApplication.alert(window)
+        except Exception:
+            logger.exception("Could not bring the window to the front")
+
     def _finish(self, note: Optional[str] = None):
         if note:
             self.report(note)
         callback, self._on_done = self._on_done, None
         if callback is not None:
-            callback()
+            self._front()
+            self.continuing = True
+            try:
+                callback()
+            finally:
+                self.continuing = False
 
     def ensure(self, on_done: Callable[[], None]) -> bool:
         """Make sure LibreHardwareMonitor runs (asking first), then call on_done(). False if already busy."""

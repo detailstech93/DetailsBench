@@ -35,6 +35,13 @@ STEAM_BENCHMARK_APPS: List[Dict[str, object]] = [
 
 STEAM_BENCHMARK_APPS_BY_ID = {int(a["appid"]): a for a in STEAM_BENCHMARK_APPS}
 
+# Games whose Steam launch opens a launcher first (CD Projekt RED's REDprelauncher): the app starts the game's
+# own executable instead, inside the install folder, with no arguments (the launcher passes none:
+# launcher-configuration.json of The Witcher 3 4.x lists only bin\x64_dx12\witcher3.exe, checked 2026-10-18).
+SKIP_LAUNCHER = {
+    292030: "bin\\x64_dx12\\witcher3.exe",      # The Witcher 3: Wild Hunt (next-gen, DirectX 12)
+}
+
 # Steam components that show up as installed apps but are not games
 # (compatibility tools, runtimes, redistributables): listed, never launched.
 STEAM_TOOL_NAME_PATTERNS = [

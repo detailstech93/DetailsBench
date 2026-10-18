@@ -119,3 +119,13 @@ def test_wait_until_answering_gives_up_after_the_timeout(monkeypatch):
     assert wait_until_answering(3, sleep=sleep, clock=lambda: now[0]) == "not reachable" and len(calls) == 4
     monkeypatch.setattr(sources.LhmSource, "available", lambda self: (True, ""))
     assert wait_until_answering(3, sleep=sleep, clock=lambda: now[0]) is None
+
+
+def test_the_run_stays_followed_while_its_next_window_is_open(qapp, tmp_path):
+    # after LibreHardwareMonitor the run's next window (settings, confirm) opens inside the callback: a screen
+    # that follows the run must not take it for ended (owner, Witcher 3, 2026-10-18)
+    exe = tmp_path / "LibreHardwareMonitor.exe"
+    pre, log, asked, steps, done = make(qapp, tmp_path, answers=[True], finder=lambda: exe)
+    seen = []
+    pre.ensure(lambda: seen.append((pre.busy(), pre.active())))
+    assert seen == [(False, True)] and not pre.active()

@@ -178,7 +178,7 @@ def test_plan_state_waits_for_the_finished_signal():
     from app.ui.run_tests import plan_state
     running = [True]
     panel = SimpleNamespace(is_running=lambda: running[0], step=(1, 4, "7-Zip: run 1"),
-                            lhm=SimpleNamespace(busy=lambda: False), on_plan_finished=object())
+                            lhm=SimpleNamespace(busy=lambda: False, active=lambda: False), on_plan_finished=object())
     result = {}
     assert plan_state(panel, result).running and result["started"]
     running[0] = False                                 # thread ended, signal not delivered yet
@@ -186,10 +186,10 @@ def test_plan_state_waits_for_the_finished_signal():
     assert s.running and s.text == "Writing the report..."
     result["final"] = (4, 4, "Session #1 done.")
     assert plan_state(panel, result) == plan_state(panel, result) and not plan_state(panel, result).running
-    never = SimpleNamespace(is_running=lambda: False, step=(0, 0, ""), lhm=SimpleNamespace(busy=lambda: False),
+    never = SimpleNamespace(is_running=lambda: False, step=(0, 0, ""), lhm=SimpleNamespace(busy=lambda: False, active=lambda: False),
                             on_plan_finished=object())
     assert plan_state(never, {}).text == "Not started." and never.on_plan_finished is None
-    asked = SimpleNamespace(is_running=lambda: False, step=(0, 0, ""), lhm=SimpleNamespace(busy=lambda: False),
+    asked = SimpleNamespace(is_running=lambda: False, step=(0, 0, ""), lhm=SimpleNamespace(busy=lambda: False, active=lambda: False),
                             on_plan_finished=object(), asking=True)      # start question open after the sensors
     assert plan_state(asked, {}).running and asked.on_plan_finished is not None
 
@@ -200,7 +200,7 @@ def test_progress_bar_moves_during_a_long_run():
     from app.ui.run_tests import plan_state
     from app.ui.tests_page import progress_percent
     panel = SimpleNamespace(is_running=lambda: True, step=(0, 1, "Stress test: CPU: run 1 started"),
-                            lhm=SimpleNamespace(busy=lambda: False), run_progress=lambda: (0.25, 450.0))
+                            lhm=SimpleNamespace(busy=lambda: False, active=lambda: False), run_progress=lambda: (0.25, 450.0))
     s = plan_state(panel, {})
     assert progress_percent(s) == 25 and s.text.endswith("(7:30 left)")
 
