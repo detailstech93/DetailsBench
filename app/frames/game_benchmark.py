@@ -43,6 +43,19 @@ MAX_EXE_NAMES = 200
 LOG_NAME = "capture_log.txt"
 FRONT_WAIT_SECONDS = 600.0         # longest wait for the game's window before keys and route count anyway
 ROUTE_POLL_SECONDS = 0.05         # a route's held keys and mouse moves need finer timing than 1 s
+REMOTE_TEXT = ("captured in a Remote Desktop session: the game drew to the remote screen (32 Hz on the owner's "
+               "RDP on 2026-10-19, with a stall of about 8 s every 30 s), so its FPS is not this PC's")
+
+
+def is_remote_session() -> bool:
+    """True inside a Remote Desktop session (GetSystemMetrics SM_REMOTESESSION). Linux: False."""
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        return bool(ctypes.windll.user32.GetSystemMetrics(0x1000))
+    except Exception:
+        return False
 
 
 def game_exe_names(folder: str, walk: Callable = os.walk, limit: int = MAX_EXE_NAMES) -> List[str]:
@@ -139,7 +152,7 @@ class GameBenchmark:
                  sleep: Callable[[float], None] = time.sleep, poll_seconds: float = 1.0,
                  folder_procs: Optional[Callable[[], dict]] = None, closer: Optional[Callable[[dict], str]] = None,
                  exe_lister: Callable[[str], List[str]] = game_exe_names, desktop=None,
-                 step_player: Optional[Callable] = None):
+                 step_player: Optional[Callable] = None, remote_session: Optional[Callable[[], bool]] = None):
         self.spec = spec
         self.run_dir = Path(run_dir)
         self.stop_event = stop_event or threading.Event()
@@ -167,6 +180,7 @@ class GameBenchmark:
         self._desktop = desktop                 # app/simulation/desktop.py; made on the first key
         self.key_notes: List[str] = []
         self.step_player = step_player          # makes the menu step player (tests pass a fake)
+        self.remote_session = remote_session or is_remote_session
 
     def _desk(self):
         if self._desktop is None:
@@ -430,6 +444,7 @@ class GameBenchmark:
             frame_windows = split_frames(frametimes, windows)
         sample_windows = slice_samples(tel.samples if tel else [], offset, windows)
         common = {"command": command}
+        remote = self.remote_session()
         out = []
         for k, frames in enumerate(frame_windows):
             is_warmup = k < spec.warmup_runs
@@ -446,6 +461,9 @@ class GameBenchmark:
                 stats = compute_frame_stats(frames, spec.min_frames)
                 if stats.error:
                     result = WorkloadResult(status="invalid", error=f"capture not usable: {stats.error}", **common)
+                elif remote:            # a number, but not this PC's: never stored as a score
+                    result = WorkloadResult(status="invalid", error=f"{REMOTE_TEXT} (it showed {stats.avg_fps:.1f} "
+                                            "FPS; not stored)", **common)
                 else:
                     metrics = stats_to_metrics(stats)
                     metrics["window_start_s"] = (float(a), "s")

@@ -792,7 +792,12 @@ class FrameCapturePanel(QGroupBox):
         declared = self.declared_settings_for(spec.app_id)
         spec.launch_args = game_launch_args(spec.app_id, forced_values)
         by_launch = getattr(adapter_for(spec.app_id), "base", None) == "launch"
-        text = (f"Benchmark {spec.game_name} automatically:\n\n"
+        from app.frames.game_benchmark import is_remote_session
+        remote = ("WARNING: this is a Remote Desktop session. The game draws to the remote screen (for example "
+                  "32 Hz), so its FPS is not this PC's: the runs are recorded but stored as invalid, without a "
+                  "score. Run it at the PC itself (or after disconnecting Remote Desktop) for real results.\n\n"
+                  if is_remote_session() else "")
+        text = (remote + f"Benchmark {spec.game_name} automatically:\n\n"
                 f"1. PresentMon starts elevated: ONE UAC prompt for the whole benchmark. It records only the "
                 f"programs (.exe) in the game's folder:\n   {spec.install_path}\n"
                 f"2. {launch_url_text(spec)} is opened."

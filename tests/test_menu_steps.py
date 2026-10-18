@@ -201,3 +201,16 @@ def test_every_read_is_logged(tmp_path):
     log = (tmp_path / "screen_log.txt").read_text(encoding="utf-8").splitlines()
     assert log[0] == "0 s\tstep 1\tLoading" and log[1] == "1 s\tstep 1\tMain menu | Settings"
     assert log[-1].endswith("step 2\tStop") and p.mark_time is not None
+
+
+def test_a_remote_desktop_capture_is_never_a_score(tmp_path):
+    fakes = Fakes(tmp_path, game_frames=4000)
+    s = spec(install_path=str(fakes.install))
+    cap = GameBenchmark(s, tmp_path / "run", None, lambda m: None, elevated_runner=fakes.elevated,
+                        launcher=fakes.launcher, snapshot=fakes.snapshot, clock=fakes.clock, sleep=fakes.sleep,
+                        folder_procs=fakes.folder_procs, closer=fakes.closer, exe_lister=lambda folder: ["Game.exe"],
+                        remote_session=lambda: True).run()
+    assert cap.status == "recorded" and cap.windows
+    for w in cap.windows:
+        assert w.result.status == "invalid" and w.result.score is None
+        assert w.result.error.startswith("captured in a Remote Desktop session") and "not stored" in w.result.error

@@ -60,3 +60,11 @@ def _no_real_tools_folder(monkeypatch):
     on what this computer has installed there, so that folder is not scanned in tests."""
     from app import benchmark_manager
     monkeypatch.setattr(benchmark_manager, "app_tools_roots", lambda: [])
+
+
+@pytest.fixture(autouse=True)
+def _not_a_remote_session(monkeypatch):
+    """Game captures in a Remote Desktop session are stored as invalid. Tests must not depend on how this computer
+    is reached, so it is never a remote session here; the test of that case passes its own check."""
+    from app.frames import game_benchmark
+    monkeypatch.setattr(game_benchmark, "is_remote_session", lambda: False)
