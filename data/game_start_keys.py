@@ -27,7 +27,9 @@ GAME_MENU_STEPS: Dict[int, dict] = {
             # the settings menu starts on the item used last (Display, Camera, ...): click Graphics where it is read
             {"see": "graphics", "within": 30, "again": {"press": "z", "every": 5}, "settle": 1, "click": "graphics",
              "wait": 3},
-            {"see": "benchmark", "within": 30, "hold": "x", "seconds": 1.5, "wait": 1},
+            # the mouse highlights Graphics; if the click did not open it, Enter (Select) does
+            {"see": "benchmark", "within": 30, "again": {"press": "enter", "every": 4}, "hold": "x", "seconds": 1.5,
+             "wait": 1},
             {"press": "enter"},
             # "Stop Benchmarking" in the corner: it runs. Loading took over 3 min on the first try here
             {"see": "stop", "within": 300, "mark": True},

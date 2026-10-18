@@ -39,8 +39,8 @@ class Desk:
     def mouse_to(self, x, y):
         self.events.append(("mouse", (x, y)))
 
-    def click(self):
-        self.events.append(("click", None))
+    def mouse_button(self, down):
+        self.events.append(("button", down, self.clock.now))
 
 
 def boxed(lines):
@@ -74,15 +74,17 @@ def player(tmp_path, steps, timeline, front=lambda: True):
 
 def test_rdr2_path_presses_only_after_each_word_and_marks_the_start(tmp_path):
     timeline = [(0, ["Rockstar Games"]), (60, ["A strange man"]), (61, ["Story Mode", "Online", "Settings"]),
-                (70, ["Graphics", "Display", "Audio"]), (80, ["Resolution", "Run Benchmark Test"]),
+                (70, ["Graphics", "Display", "Audio"]), (76, ["Resolution", "Run Benchmark Test"]),
                 (120, ["Stop Benchmarking"])]
     p, desk, clock = player(tmp_path, menu_steps_for(1174180), timeline)
     p.run()
     assert p.problem is None and 120 <= p.mark_time < 122
     keys = [e[1] if e[0] == "press" else (e[0], e[1]) for e in desk.events]
-    assert keys == [parse_chord("enter"), parse_chord("z"), ("mouse", (40, 10)), ("click", None),
+    assert keys == [parse_chord("enter"), parse_chord("z"), ("mouse", (40, 10)), ("button", True), ("button", False),
                     ("down", parse_chord("x")), ("up", parse_chord("x")), parse_chord("enter")]
     assert "clicked 'graphics' at 40,10" in p.summary()
+    buttons = [e[2] for e in desk.events if e[0] == "button"]
+    assert round(buttons[1] - buttons[0], 6) == 0.15
     held = [e for e in desk.events if e[0] in ("down", "up")]
     assert held[1][2] - held[0][2] == 1.5
     assert "closed a popup ('strange')" in p.summary() and "benchmark started ('stop' seen at 12" in p.summary()

@@ -216,14 +216,14 @@ class Win32Desktop:
                                  MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE, 0, 0)
         self.user32.SendInput(1, arr, ctypes.sizeof(INPUT))
 
-    def click(self) -> None:
-        """Left click where the mouse is (down and up in one SendInput call)."""
+    def mouse_button(self, down: bool) -> None:
+        """Left button down or up where the mouse is. A click is down, a short wait, up: a game that looks at
+        the mouse once per frame misses a down and up sent together (RDR2's menu, 2026-10-19)."""
         _, MOUSEINPUT, INPUT = self._input_types()
-        arr = (INPUT * 2)()
-        for i, flag in enumerate((MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP)):
-            arr[i].type = INPUT_MOUSE
-            arr[i].u.mi = MOUSEINPUT(0, 0, 0, flag, 0, 0)
-        self.user32.SendInput(2, arr, ctypes.sizeof(INPUT))
+        arr = (INPUT * 1)()
+        arr[0].type = INPUT_MOUSE
+        arr[0].u.mi = MOUSEINPUT(0, 0, 0, MOUSEEVENTF_LEFTDOWN if down else MOUSEEVENTF_LEFTUP, 0, 0)
+        self.user32.SendInput(1, arr, ctypes.sizeof(INPUT))
 
     def close(self, hwnd: int) -> None:
         self.user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)

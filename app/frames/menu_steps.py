@@ -31,6 +31,7 @@ from app.frames.screen_text import find_word, read_screen, word_center
 PAUSE_SECONDS = 0.5
 LOOK_EVERY_SECONDS = 1.0
 CLICK_SETTLE_SECONDS = 0.3          # the menu highlights the item under the mouse before the click
+CLICK_HOLD_SECONDS = 0.15           # button down this long: a game that reads the mouse once a frame sees it
 FRONT_GRACE_SECONDS = 10.0          # the game may lose the front briefly while it changes video mode
 LOG_NAME = "screen_log.txt"          # what every read saw
 
@@ -201,7 +202,11 @@ class StepPlayer:
         self.desktop.mouse_to(*point)
         self.sleep(CLICK_SETTLE_SECONDS)
         self._check_front(f"click on {word!r}")
-        self.desktop.click()
+        self.desktop.mouse_button(True)
+        try:
+            self.sleep(CLICK_HOLD_SECONDS)
+        finally:
+            self.desktop.mouse_button(False)
         self.notes.append(f"clicked {word!r} at {point[0]},{point[1]}")
 
     def _hold(self, chord: str, seconds: float) -> None:
