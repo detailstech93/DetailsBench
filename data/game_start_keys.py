@@ -24,8 +24,9 @@ GAME_MENU_STEPS: Dict[int, dict] = {
         "steps": [
             # the main menu drops a key pressed as soon as it shows (2026-10-19): wait, and press Z again if needed
             {"see": "settings", "within": 300, "dismiss": {"strange": "enter"}, "settle": 3, "press": "z", "wait": 3},
-            {"see": "graphics", "within": 30, "again": {"press": "z", "every": 5},
-             "press": "up, up, left, left, down, enter", "wait": 3},
+            # the settings menu starts on the item used last (Display, Camera, ...): click Graphics where it is read
+            {"see": "graphics", "within": 30, "again": {"press": "z", "every": 5}, "settle": 1, "click": "graphics",
+             "wait": 3},
             {"see": "benchmark", "within": 30, "hold": "x", "seconds": 1.5, "wait": 1},
             {"press": "enter"},
             # "Stop Benchmarking" in the corner: it runs. Loading took over 3 min on the first try here

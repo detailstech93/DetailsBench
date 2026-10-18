@@ -7,6 +7,9 @@ the step expects was read on the screen (app/frames/screen_text.py), and only in
         just appeared may drop keys).
     {"see": "graphics", "within": 30, "again": {"press": "z", "every": 5}}
         while the word is not there yet, press the previous step's key again every 5 s (it was dropped).
+    {"see": "graphics", "within": 30, "click": "graphics"}
+        click the middle of that word where it was read (a menu that remembers its last item is not reached
+        the same way by arrow keys each time).
     {"press": "up, up, left, left, down, enter"}      chords one after another (PAUSE_SECONDS apart)
     {"hold": "x", "seconds": 1.5}                    hold a key (some menus need a long press)
     {"wait": 3}                                      let the menu open
@@ -23,10 +26,11 @@ import time
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from app.frames.screen_text import find_word, read_screen
+from app.frames.screen_text import find_word, read_screen, word_center
 
 PAUSE_SECONDS = 0.5
 LOOK_EVERY_SECONDS = 1.0
+CLICK_SETTLE_SECONDS = 0.3          # the menu highlights the item under the mouse before the click
 FRONT_GRACE_SECONDS = 10.0          # the game may lose the front briefly while it changes video mode
 LOG_NAME = "screen_log.txt"          # what every read saw
 
@@ -54,6 +58,8 @@ def step_problems(steps) -> List[str]:
         out += [f"step {i}: unknown key {c!r}" for c in chords if parse_chord(c) is None]
         if not any(k in s for k in ("see", "press", "hold", "wait")):
             out.append(f"step {i} does nothing")
+        if "click" in s and "see" not in s:
+            out.append(f"step {i}: 'click' needs 'see'")
         if "see" in s and not (isinstance(s.get("within"), (int, float)) and s["within"] > 0):
             out.append(f"step {i}: 'see' needs 'within' seconds")
     if not any(s.get("mark") for s in steps if isinstance(s, dict)):
@@ -79,6 +85,7 @@ class StepPlayer:
         self.done = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._t0 = None
+        self._lines: List[str] = []            # the last screen read
 
     # thread
     def start(self) -> "StepPlayer":
@@ -123,6 +130,8 @@ class StepPlayer:
                 self._keep_shot("benchmark_started.png")
             if step.get("settle"):
                 self.sleep(float(step["settle"]))
+            if "click" in step:
+                self._click(i, str(step["click"]))
         for chord in [c.strip() for c in str(step.get("press", "")).split(",") if c.strip()]:
             self._press(chord)
             self.sleep(PAUSE_SECONDS)
@@ -145,7 +154,7 @@ class StepPlayer:
             lines, error = self.reader(self.desktop, self.folder / "screen.png")
             self._log(i, lines, error)
             if not error:
-                last = lines
+                last = self._lines = lines
                 found = find_word(lines, words)
                 if found:
                     self.notes.append(f"saw {found!r} at {self._at()}")
@@ -183,6 +192,17 @@ class StepPlayer:
         self._check_front(chord)
         self.desktop.press(parse_chord(chord))
         self.notes.append(f"pressed {chord}")
+
+    def _click(self, i: int, word: str) -> None:
+        point = word_center(self._lines, word)
+        if point is None:
+            raise _Stop(f"step {i}: {word!r} was read but not where it is on the screen; nothing clicked")
+        self._check_front(f"click on {word!r}")
+        self.desktop.mouse_to(*point)
+        self.sleep(CLICK_SETTLE_SECONDS)
+        self._check_front(f"click on {word!r}")
+        self.desktop.click()
+        self.notes.append(f"clicked {word!r} at {point[0]},{point[1]}")
 
     def _hold(self, chord: str, seconds: float) -> None:
         from app.simulation.desktop import parse_chord

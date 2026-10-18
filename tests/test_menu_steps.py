@@ -36,6 +36,22 @@ class Desk:
     def key_up(self, codes):
         self.events.append(("up", codes, self.clock.now))
 
+    def mouse_to(self, x, y):
+        self.events.append(("mouse", (x, y)))
+
+    def click(self):
+        self.events.append(("click", None))
+
+
+def boxed(lines):
+    """Lines as OCR reads them: line k at y = 100 k, each word 100 px wide, one after another."""
+    out = []
+    for k, text in enumerate(lines):
+        line = screen_text.Line(text)
+        line.words = tuple((w, 100 * j, 100 * k, 80, 20) for j, w in enumerate(text.split()))
+        out.append(line)
+    return out
+
 
 def screens(clock, timeline):
     """A reader that shows the lines of the last (from second, lines) reached, and writes the 'screenshot'."""
@@ -43,7 +59,7 @@ def screens(clock, timeline):
         lines = []
         for at, shown in timeline:
             if clock.now >= at:
-                lines = shown
+                lines = boxed(shown)
         path.write_bytes(b"png:" + "|".join(lines).encode())
         return lines, None
     return reader
@@ -64,10 +80,9 @@ def test_rdr2_path_presses_only_after_each_word_and_marks_the_start(tmp_path):
     p.run()
     assert p.problem is None and 120 <= p.mark_time < 122
     keys = [e[1] if e[0] == "press" else (e[0], e[1]) for e in desk.events]
-    assert keys == [parse_chord("enter"), parse_chord("z"),
-                    parse_chord("up"), parse_chord("up"), parse_chord("left"), parse_chord("left"),
-                    parse_chord("down"), parse_chord("enter"),
+    assert keys == [parse_chord("enter"), parse_chord("z"), ("mouse", (40, 10)), ("click", None),
                     ("down", parse_chord("x")), ("up", parse_chord("x")), parse_chord("enter")]
+    assert "clicked 'graphics' at 40,10" in p.summary()
     held = [e for e in desk.events if e[0] in ("down", "up")]
     assert held[1][2] - held[0][2] == 1.5
     assert "closed a popup ('strange')" in p.summary() and "benchmark started ('stop' seen at 12" in p.summary()
@@ -127,7 +142,12 @@ def test_read_image_lines_and_errors(tmp_path, monkeypatch):
     monkeypatch.setattr(screen_text.os, "name", "nt")
     monkeypatch.setattr(subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
     ok = lambda *a, **k: SimpleNamespace(returncode=0, stdout="Story Mode\r\n\r\n Settings \r\n".encode(), stderr=b"")
+    boxes = lambda *a, **k: SimpleNamespace(returncode=0, stderr=b"",
+                                            stdout="Story Mode\r\nSettings\x1f12|30|80|20|Settings\r\n".encode())
     assert screen_text.read_image(tmp_path / "a.png", run=ok) == (["Story Mode", "Settings"], None)
+    lines = screen_text.read_image(tmp_path / "a.png", run=boxes)[0]
+    assert lines[1].words == (("Settings", 12, 30, 80, 20),) and screen_text.word_center(lines, "sett") == (52, 40)
+    assert screen_text.word_center(lines, "story") is None          # a line without word boxes
     bad = lambda *a, **k: SimpleNamespace(returncode=3, stdout=b"", stderr=b"no OCR language is installed in Windows\n")
     assert screen_text.read_image(tmp_path / "a.png", run=bad) == ([], "Windows OCR failed: no OCR language is "
                                                                      "installed in Windows")
@@ -226,3 +246,15 @@ def test_a_dropped_key_is_pressed_again_until_the_menu_opens(tmp_path):
     assert "pressed z again" in p.summary()
     assert step_problems([{"see": "a", "within": 1, "again": {"press": "z"}, "mark": True}]) == [
         "step 1: 'again' needs 'see', 'press' and 'every' seconds"]
+
+
+def test_a_click_needs_the_word_s_place(tmp_path):
+    steps = [{"see": "graphics", "within": 2, "click": "graphics", "mark": True}]
+    clock = Clock()
+    desk = Desk(clock)
+    p = StepPlayer(steps, desk, lambda: True, tmp_path, clock=clock, sleep=clock.sleep,
+                   reader=lambda d, path: (["Graphics"], None))          # text, but no word boxes
+    p.run()
+    assert desk.events == [] and p.problem == ("step 1: 'graphics' was read but not where it is on the screen; "
+                                               "nothing clicked")
+    assert step_problems([{"click": "x", "mark": True}]) == ["step 1 does nothing", "step 1: 'click' needs 'see'"]

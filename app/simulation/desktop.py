@@ -24,6 +24,9 @@ KEYEVENTF_SCANCODE = 0x0008
 INPUT_MOUSE = 0
 INPUT_KEYBOARD = 1
 MOUSEEVENTF_MOVE = 0x0001
+MOUSEEVENTF_LEFTDOWN = 0x0002
+MOUSEEVENTF_LEFTUP = 0x0004
+MOUSEEVENTF_ABSOLUTE = 0x8000
 
 VK = {"alt": 0x12, "ctrl": 0x11, "shift": 0x10, "enter": 0x0D, "esc": 0x1B, "tab": 0x09, "space": 0x20,
       "up": 0x26, "down": 0x28, "left": 0x25, "right": 0x27, "backspace": 0x08, "home": 0x24, "end": 0x23}
@@ -202,6 +205,25 @@ class Win32Desktop:
         arr[0].type = INPUT_MOUSE
         arr[0].u.mi = MOUSEINPUT(int(dx), int(dy), 0, MOUSEEVENTF_MOVE, 0, 0)
         self.user32.SendInput(1, arr, ctypes.sizeof(INPUT))
+
+    def mouse_to(self, x: int, y: int) -> None:
+        """Put the mouse on a point of the primary screen (the screenshot's pixels)."""
+        _, MOUSEINPUT, INPUT = self._input_types()
+        width, height = self.user32.GetSystemMetrics(0), self.user32.GetSystemMetrics(1)
+        arr = (INPUT * 1)()
+        arr[0].type = INPUT_MOUSE
+        arr[0].u.mi = MOUSEINPUT(int(x * 65535 / max(1, width - 1)), int(y * 65535 / max(1, height - 1)), 0,
+                                 MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE, 0, 0)
+        self.user32.SendInput(1, arr, ctypes.sizeof(INPUT))
+
+    def click(self) -> None:
+        """Left click where the mouse is (down and up in one SendInput call)."""
+        _, MOUSEINPUT, INPUT = self._input_types()
+        arr = (INPUT * 2)()
+        for i, flag in enumerate((MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP)):
+            arr[i].type = INPUT_MOUSE
+            arr[i].u.mi = MOUSEINPUT(0, 0, 0, flag, 0, 0)
+        self.user32.SendInput(2, arr, ctypes.sizeof(INPUT))
 
     def close(self, hwnd: int) -> None:
         self.user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)

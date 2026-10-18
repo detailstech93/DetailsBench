@@ -36,8 +36,44 @@ if ($engine -eq $null) { [Console]::Error.WriteLine('no OCR language is installe
 $result = Await ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
 $stream.Dispose()
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-foreach ($line in $result.Lines) { [Console]::Out.WriteLine($line.Text) }
+foreach ($line in $result.Lines) {
+    $parts = @($line.Text)
+    foreach ($w in $line.Words) {
+        $r = $w.BoundingRect
+        $parts += ('{0}|{1}|{2}|{3}|{4}' -f [int]$r.X, [int]$r.Y, [int]$r.Width, [int]$r.Height, $w.Text)
+    }
+    [Console]::Out.WriteLine($parts -join [char]0x1f)
+}
 """
+WORD_SEPARATOR = "\x1f"     # after each line's text: "x|y|width|height|word" of each of its words (screen pixels)
+
+
+class Line(str):
+    """A text line read on the screen; .words holds (word, x, y, width, height) of each of its words."""
+    words: Tuple[Tuple[str, int, int, int, int], ...] = ()
+
+
+def parse_line(raw: str) -> Line:
+    text, *boxes = raw.split(WORD_SEPARATOR)
+    line = Line(text.strip())
+    words = []
+    for box in boxes:
+        parts = box.split("|", 4)
+        try:
+            words.append((parts[4], int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])))
+        except (IndexError, ValueError):
+            continue
+    line.words = tuple(words)
+    return line
+
+
+def word_center(lines: List[str], word: str) -> Optional[Tuple[int, int]]:
+    """Screen point in the middle of the first word containing `word` (case-insensitive), or None."""
+    for line in lines:
+        for text, x, y, w, h in getattr(line, "words", ()):
+            if word.lower() in text.lower():
+                return x + w // 2, y + h // 2
+    return None
 
 
 def ocr_command(image_path) -> List[str]:
@@ -60,7 +96,8 @@ def read_image(image_path, run=subprocess.run) -> Tuple[List[str], Optional[str]
     if done.returncode != 0:
         said = done.stderr.decode("utf-8", "replace").strip().splitlines()
         return [], "Windows OCR failed: " + (said[-1] if said else f"exit code {done.returncode}")
-    return [line.strip() for line in done.stdout.decode("utf-8", "replace").splitlines() if line.strip()], None
+    lines = [parse_line(raw) for raw in done.stdout.decode("utf-8", "replace").splitlines()]
+    return [line for line in lines if line], None
 
 
 def read_screen(desktop, image_path, run=subprocess.run) -> Tuple[List[str], Optional[str]]:
