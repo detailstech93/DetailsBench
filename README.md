@@ -366,7 +366,13 @@ the files do not hold then is recorded as `unchecked` (the run is kept, `verifie
   the launch and put back afterwards if the game changed them.
 
 Not supported, checked on this computer on 2026-10-18: God of War keeps its settings inside its save file;
-Shadow of the Tomb Raider keeps them in a folder named after the Steam account (not touched).
+Shadow of the Tomb Raider had written none yet (no registry key, only a profile file in a folder named after
+the Steam account, not touched).
+
+For any game without an adapter, **Game settings...** records the settings you set in the game yourself
+(resolution, preset, upscaler and mode, frame generation, ray tracing, VSync; settings.json
+`declared_game_settings`). Benchmark game... shows them in its confirmation and stores them in the manifest as
+`{"declared": ..., "verified": false}`: entered by you, never read or checked by the app, and the runs stay valid.
 
 With forced settings, Benchmark game... says so in its confirmation, then (`app/games/settings_file.py`):
 

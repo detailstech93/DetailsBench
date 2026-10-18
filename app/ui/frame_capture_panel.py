@@ -282,6 +282,9 @@ class FrameCapturePanel(QGroupBox):
         self.settings_reader = None                      # tests swap in a fake read_for_dialog
         from app.ui.game_settings_dialog import GameSettingsDialog
         self.settings_dialog_factory = lambda *a: GameSettingsDialog(*a, parent=self)
+        from app.ui.game_settings_dialog import DECLARED_NOTE, NOT_RECORDED
+        self.declared_dialog_factory = lambda *a: GameSettingsDialog(*a, parent=self, note=DECLARED_NOTE,
+                                                                     keep=NOT_RECORDED)
 
         layout = QVBoxLayout(self)
         row1 = QHBoxLayout()
@@ -639,9 +642,31 @@ class FrameCapturePanel(QGroupBox):
         from app.games.settings_file import adapter_for
         game = self.game_combo.currentData()
         ok = bool(game) and adapter_for(game.get("app_id")) is not None
-        self.game_settings_btn.setEnabled(ok and not self.is_running())
+        self.game_settings_btn.setEnabled(bool(game) and not self.is_running())
         if not ok:
-            self.game_settings_btn.setToolTip("Forcing settings is supported for: Cyberpunk 2077, Borderlands 3, Rise of the Tomb Raider, Red Dead Redemption 2, The Witcher 3, Counter-Strike 2, DOOM (2016).")
+            self.game_settings_btn.setToolTip("Records the settings you set in this game (declared, not checked). "
+                                              "Forcing settings is supported for: Cyberpunk 2077, Borderlands 3, Rise of the Tomb Raider, Red Dead Redemption 2, The Witcher 3, Counter-Strike 2, DOOM (2016).")
+
+    def declared_settings_for(self, app_id) -> Dict[str, object]:
+        from app.games.settings_file import DECLARED_KEY, adapter_for
+        if adapter_for(app_id) is not None:
+            return {}
+        settings, _ = load_settings(self.data_dir)
+        every = settings.get(DECLARED_KEY)
+        chosen = every.get(str(app_id)) if isinstance(every, dict) else None
+        return dict(chosen) if isinstance(chosen, dict) else {}
+
+    def _save_choice(self, key: str, app_id: str, selection: dict) -> bool:
+        settings, _ = load_settings(self.data_dir)
+        every = settings.get(key)
+        every = dict(every) if isinstance(every, dict) else {}
+        every[app_id] = selection
+        try:
+            save_setting(self.data_dir, key, every)
+        except (OSError, ValueError) as e:
+            self.status_label.setText(f"Game settings not saved: {e}")
+            return False
+        return True
 
     def forced_settings_for(self, app_id) -> Dict[str, object]:
         from app.games.settings_file import adapter_for, saved_choice
@@ -661,6 +686,18 @@ class FrameCapturePanel(QGroupBox):
         if not game:
             return "unavailable"
         app_id = str(game.get("app_id"))
+        from app.games.settings_file import DECLARED_KEY, adapter_for
+        if adapter_for(app_id) is None:
+            from app.ui.game_settings_dialog import DECLARED_CHOICES
+            dialog = self.declared_dialog_factory(str(game.get("name")), DECLARED_CHOICES, {},
+                                                  self.declared_settings_for(app_id))
+            if not dialog.exec():
+                return "cancelled"
+            selection = dialog.selection()
+            if not self._save_choice(DECLARED_KEY, app_id, selection):
+                return "unavailable"
+            self.status_label.setText(f"{game.get('name')}: declared settings: {describe(selection) or 'none'}")
+            return "saved"
         try:
             choices, current = (self.settings_reader or read_for_dialog)(app_id, self.data_dir)
         except (OSError, ValueError) as e:
@@ -671,14 +708,7 @@ class FrameCapturePanel(QGroupBox):
         if not dialog.exec():
             return "cancelled"
         selection = dialog.selection()
-        settings, _ = load_settings(self.data_dir)
-        every = settings.get(SAVED_KEY)
-        every = dict(every) if isinstance(every, dict) else {}
-        every[app_id] = selection
-        try:
-            save_setting(self.data_dir, SAVED_KEY, every)
-        except (OSError, ValueError) as e:
-            self.status_label.setText(f"Game settings not saved: {e}")
+        if not self._save_choice(SAVED_KEY, app_id, selection):
             return "unavailable"
         self.status_label.setText(f"{game.get('name')}: forced settings: {describe(selection) or 'none'}")
         return "saved"
@@ -733,6 +763,7 @@ class FrameCapturePanel(QGroupBox):
             self.status_label.setText("Cancelled; nothing was started.")
             return False
         forced_values = self.forced_settings_for(spec.app_id)
+        declared = self.declared_settings_for(spec.app_id)
         spec.launch_args = game_launch_args(spec.app_id, forced_values)
         by_launch = getattr(adapter_for(spec.app_id), "base", None) == "launch"
         text = (f"Benchmark {spec.game_name} automatically:\n\n"
@@ -764,6 +795,9 @@ class FrameCapturePanel(QGroupBox):
                      "the game's settings file into the run folder, writes these values and checks them; it does "
                      "not start the game if one cannot be written. After the run it checks them again (runs are "
                      "not valid if the game changed them) and puts your own file back.")
+        elif declared:
+            text += ("\n\nGame settings declared by you (not checked; this game's settings cannot be forced): "
+                     + describe(declared) + ".")
         else:
             text += "\n\nNo game settings are forced (Game settings... to choose them); the game's own are used."
         if self.remote_check():
@@ -781,7 +815,7 @@ class FrameCapturePanel(QGroupBox):
             forced = (self.forced_factory or ForcedSettings)(spec.app_id, forced_values, run_dir, self.data_dir)
 
         def create_session(capture) -> int:
-            return self._create_game_session(spec, profile, environment, capture, forced)
+            return self._create_game_session(spec, profile, environment, capture, forced, declared)
         self.worker = GameBenchmarkWorker(spec, run_dir, create_session, self.db, self.output_root,
                                           telemetry_sources.new_sampler if self.telemetry_box.isChecked() else None,
                                           self.benchmark_factory, forced)
@@ -793,7 +827,8 @@ class FrameCapturePanel(QGroupBox):
         self.worker.start()
         return True
 
-    def _create_game_session(self, spec, profile, environment, capture, forced=None) -> int:
+    def _create_game_session(self, spec, profile, environment, capture, forced=None, declared=None) -> int:
+        from app.games.settings_file import declared_record
         from app.manifest import build_manifest, git_commit
         name = f"{spec.game_name} {datetime.now().strftime('%Y-%m-%d %H:%M')}"
         process = capture.process[0] if capture.process else "?"
@@ -801,7 +836,8 @@ class FrameCapturePanel(QGroupBox):
                                            f"PresentMon capture of {process}", is_manual=False)
         settings = dict(profile.settings(), capture_seconds=spec.seconds, settle_seconds=spec.settle_seconds,
                         steam_app_id=spec.app_id, game_process=process,
-                        game_settings=forced.record.to_dict() if forced is not None else None)
+                        game_settings=forced.record.to_dict() if forced is not None else
+                        declared_record(declared) if declared else None)
         version = None
         try:
             from app.benchmark_manager import get_pe_version

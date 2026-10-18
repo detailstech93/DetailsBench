@@ -375,6 +375,13 @@ class ForcedSettings:
 
 
 SAVED_KEY = "forced_game_settings"          # settings.json: {app_id: {key: value}}
+DECLARED_KEY = "declared_game_settings"     # games without an adapter: what the user says they set
+
+
+def declared_record(values: Mapping[str, object]) -> dict:
+    """Stored in the manifest like a SettingsRecord, but the values were only entered by the user."""
+    return {"declared": dict(values), "verified": False,
+            "notes": ["entered by the user; the app cannot read or force this game's settings"]}
 
 
 def setting_choices(adapter: Adapter, data, known: Dict[str, Dict[str, int]]) -> Dict[str, list]:

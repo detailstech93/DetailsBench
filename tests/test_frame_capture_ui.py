@@ -555,12 +555,12 @@ def test_settings_changed_by_the_game_make_runs_invalid(qapp, panel):
     assert db.get_session_manifest(sid)["run_settings"]["game_settings"]["verified"] is False
 
 
-def test_no_forced_settings_says_so_and_game_without_adapter_has_no_button(qapp, panel):
+def test_no_forced_settings_says_so_and_game_without_adapter_only_declares(qapp, panel):
     p, db, _ = panel
     p.select_presentmon()
     p.games = lambda: GAMES
     p.refresh_games()
-    assert not p.game_settings_btn.isEnabled()
+    assert p.game_settings_btn.isEnabled() and "declared, not checked" in p.game_settings_btn.toolTip()
     p.benchmark_factory = fake_benchmark()
     run_bench(qapp, p)
     assert "No game settings are forced" in p.asked[0]
@@ -616,3 +616,25 @@ def test_no_settings_file_benchmarks_without_forcing(qapp, panel):
     p.benchmark_factory = fake_benchmark()
     run_bench(qapp, p)
     assert "No game settings are forced" in p.asked[0]
+
+
+def test_declared_settings_for_a_game_the_app_cannot_force(qapp, panel):
+    p, db, tmp = panel
+    p.select_presentmon()
+    p.games = lambda: [{"store": "steam", "app_id": "1593500", "name": "God of War",
+                        "install_path": "Z:/common/GoW", "installed": True}]
+    p.refresh_games()
+    assert p.game_settings_btn.isEnabled()
+    opened = []
+    p.declared_dialog_factory = lambda *a: (opened.append(a), KeepDialog({"preset": "Ultra", "ray_tracing": False}))[1]
+    assert p.edit_game_settings() is True
+    assert opened[0][0] == "God of War" and "preset" in opened[0][1] and opened[0][3] == {}
+    assert p.declared_settings_for("1593500") == {"preset": "Ultra", "ray_tracing": False}
+    p.benchmark_factory = fake_benchmark()
+    run_bench(qapp, p)
+    assert "declared by you (not checked" in p.asked[0] and "Quality preset Ultra, Ray tracing Off" in p.asked[0]
+    sid = db.get_sessions(include_test=True)[0]["id"]
+    gs = db.get_session_manifest(sid)["run_settings"]["game_settings"]
+    assert gs["declared"] == {"preset": "Ultra", "ray_tracing": False} and gs["verified"] is False
+    assert all(r["status"] == "completed" for r in db.get_runs(session_id=sid, include_test=True))
+    assert p.declared_settings_for("1091500") == {}                  # forced games never use declared values

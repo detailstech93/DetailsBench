@@ -10,6 +10,19 @@ from typing import Dict, Optional
 from PySide6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QVBoxLayout
 
 KEEP = "(keep the game's value)"
+NOT_RECORDED = "(not recorded)"
+# Games the app cannot force: the user may record the settings they used (declared, never checked).
+DECLARED_CHOICES = {
+    "resolution": ["1280x720", "1920x1080", "2560x1440", "2560x1600", "3440x1440", "3840x2160"],
+    "preset": ["Low", "Medium", "High", "Very High", "Ultra", "Custom"],
+    "upscaler": ["Off", "DLSS", "FSR", "XeSS"],
+    "upscaler_mode": ["Native / DLAA", "Quality", "Balanced", "Performance", "Ultra Performance"],
+    "frame_gen": ["Off", "x2", "x3", "x4"],
+    "ray_tracing": [False, True],
+    "vsync": [False, True],
+}
+DECLARED_NOTE = ("The app cannot read or force this game's settings. Record the ones you set in the game; they are "
+                 "stored with each benchmark as declared by you (not checked).")
 LABELS = {
     "resolution": "Resolution", "window_mode": "Window mode", "vsync": "VSync", "fps_limit": "FPS limit",
     "preset": "Quality preset", "upscaler": "Upscaler", "dlss_mode": "DLSS mode", "texture_quality": "Texture quality",
@@ -22,7 +35,7 @@ LABELS = {
     "ray_tracing": "Ray tracing", "rt_lighting": "RT lighting", "path_tracing": "Path tracing",
     "lighting_quality": "Lighting quality", "volumetrics_quality": "Volumetrics quality",
     "reflection_quality": "Reflection quality", "msaa": "MSAA", "fsr": "FSR", "hairworks": "HairWorks",
-    "resolution_mode": "Resolution (r_mode position)",
+    "resolution_mode": "Resolution (r_mode position)", "upscaler_mode": "Upscaler mode",
 }
 
 
@@ -36,11 +49,11 @@ def value_text(value) -> str:
 
 class GameSettingsDialog(QDialog):
     def __init__(self, game_name: str, choices: Dict[str, list], current: Dict[str, object],
-                 chosen: Dict[str, object], parent=None):
+                 chosen: Dict[str, object], parent=None, note: Optional[str] = None, keep: str = KEEP):
         super().__init__(parent)
-        self.setWindowTitle(f"Forced settings: {game_name}")
+        self.setWindowTitle(f"{'Declared' if note else 'Forced'} settings: {game_name}")
         layout = QVBoxLayout(self)
-        note = QLabel("Before each benchmark the app writes these values into the game's settings file "
+        note = QLabel(note or "Before each benchmark the app writes these values into the game's settings file "
                       "(a copy is kept), checks them before and after the run, and puts your own file back "
                       "afterwards.\n\nSome settings (for example resolution, quality preset, upscaler) list only "
                       "the values this game has used so far, because its file does not hold the full list. To "
@@ -52,7 +65,7 @@ class GameSettingsDialog(QDialog):
         self.combos: Dict[str, QComboBox] = {}
         for key, values in choices.items():
             combo = QComboBox()
-            combo.addItem(KEEP, None)
+            combo.addItem(keep, None)
             for v in values:
                 mark = "  (now)" if key in current and current[key] == v and type(current[key]) is type(v) else ""
                 combo.addItem(value_text(v) + mark, v)
