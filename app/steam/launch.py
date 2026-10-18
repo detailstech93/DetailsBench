@@ -19,7 +19,7 @@ import re
 import subprocess
 import sys
 import time
-from typing import Callable, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Callable, Iterable, List, Optional, Sequence, Tuple
 
 Snapshot = List[Tuple[str, Optional[str]]]
 SAFE_ARG = re.compile(r"^(?:-{1,2}|\+)[A-Za-z][A-Za-z0-9_-]*$|^-?[0-9]+$")   # a flag, +cvar or whole number: no space, slash or quote

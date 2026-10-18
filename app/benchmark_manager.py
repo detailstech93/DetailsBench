@@ -14,10 +14,10 @@ import json
 import subprocess
 import logging
 from typing import Dict, List, Optional, Tuple, Any, Set
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
+import tempfile
 import winreg
-import platform
 import time
 from datetime import datetime
 import pefile
@@ -546,12 +546,12 @@ class BenchmarkManager:
         except Exception:
             pass
         try:
-            result = subprocess.run(['dxdiag', '/t', 'dxdiag_output.txt'],
-                                    capture_output=True, text=True, timeout=5)
-            if os.path.exists('dxdiag_output.txt'):
-                with open('dxdiag_output.txt', 'r', encoding='utf-8', errors='ignore') as f:
-                    capabilities['directx12_supported'] = 'Direct3D 12' in f.read()
-                os.remove('dxdiag_output.txt')
+            with tempfile.TemporaryDirectory() as tmp:
+                report = os.path.join(tmp, 'dxdiag_output.txt')
+                subprocess.run(['dxdiag', '/t', report], capture_output=True, text=True, timeout=5)
+                if os.path.exists(report):
+                    with open(report, 'r', encoding='utf-8', errors='ignore') as f:
+                        capabilities['directx12_supported'] = 'Direct3D 12' in f.read()
         except Exception:
             pass
         self.system_capabilities = capabilities
@@ -608,7 +608,6 @@ $res | ConvertTo-Json -Depth 3
         hints: list = []
         matched_names: set = set()          # must be a set — .add() is called below
         found_any = False
-        term_lower = definition.id.lower()
         # Guard: empty pattern list => regex '' matches everything => skip
         exclusion_re = re.compile(
             '|'.join(definition.exclusion_patterns), re.IGNORECASE

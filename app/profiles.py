@@ -1,6 +1,6 @@
 """Run profiles: named, reusable run settings recorded in each session manifest."""
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import List, Optional
 
 LIMITS = {

@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 def main():
     """Main entry point."""
     # Import system information first to populate global data
-    from app.system_info import get_system_summary, get_cpu_brand
+    from app.system_info import get_system_summary
     
     # Get system info
     system_info = get_system_summary()
@@ -22,7 +22,7 @@ def main():
     db_path, db_notes = resolve_database_path()
     db = Database(str(db_path))
 
-    print(f"PC Benchmark Manager v0.1.0")
+    print("PC Benchmark Manager v0.1.0")
     print("=" * 50)
     print(f"Database: {db_path}")
     for note in db_notes:

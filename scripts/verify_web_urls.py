@@ -12,7 +12,6 @@ import sys
 import os
 import urllib.request
 import urllib.error
-import ssl
 
 # Ensure the project root is on sys.path so data.benchmark_definitions is importable
 _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -22,7 +21,6 @@ if _project_root not in sys.path:
 from data.benchmark_definitions import (
     BENCHMARK_DEFINITIONS,
     get_all_page_urls,
-    WEB_BENCHMARK_PAGE_URLS_PATTERN,
 )
 
 

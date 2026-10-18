@@ -1,7 +1,6 @@
 """Main window and background scanning worker for PC Benchmark Manager."""
 
 import os
-import sys
 import platform
 import subprocess
 import webbrowser
@@ -9,12 +8,12 @@ import logging
 from typing import Optional, List, Dict, Any
 
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QPushButton, QSplitter, QTextEdit,
-    QMessageBox, QListWidget, QTableWidget, QTableWidgetItem,
-    QHeaderView, QGroupBox, QCheckBox, QLineEdit, QSpinBox,
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QPushButton, QTextEdit,
+    QMessageBox, QTableWidget, QTableWidgetItem,
+    QHeaderView, QGroupBox, QCheckBox, QLineEdit,
     QDialog, QDialogButtonBox, QFormLayout, QComboBox, QTabWidget,
-    QProgressBar, QFrame, QStackedWidget, QFileDialog
+    QFrame, QFileDialog
 )
 from PySide6.QtCore import Qt, Signal, Slot, QThread
 from PySide6.QtGui import QFont, QColor
@@ -30,8 +29,6 @@ from app.environment.adapters import select_adapter
 from app.environment.profile import DETECTED, UNVERIFIED, EnvironmentProfile
 from data.benchmark_definitions import (
     DEFINITIONS_BY_ID,
-    get_default_page_version,
-    get_all_page_urls,
 )
 
 logger = logging.getLogger(__name__)
