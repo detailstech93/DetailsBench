@@ -44,11 +44,16 @@ def elapsed_text(seconds: float) -> str:
         else f"{seconds // 60}:{seconds % 60:02d}"
 
 
-def installable(entry: TestEntry) -> bool:
-    """A missing test the app can install with one click (data/installers.py, or a Steam game)."""
-    from app.install.winget import plan_for
+def install_plan(entry: TestEntry, host=None) -> Optional[dict]:
+    """How a missing test can be installed with one click on this OS and architecture (app/install/plans.py),
+    or None: only its official download page."""
+    from app.install.plans import plan_for
     ref = entry.ref if isinstance(entry.ref, dict) else {}
-    return plan_for(entry.id, entry.source, ref.get("app_id", ref.get("appid"))) is not None
+    return plan_for(entry.id, entry.source, ref.get("app_id", ref.get("appid")), host)
+
+
+def installable(entry: TestEntry, host=None) -> bool:
+    return install_plan(entry, host) is not None
 
 
 def state_text(entry: TestEntry) -> str:
@@ -60,6 +65,7 @@ def state_text(entry: TestEntry) -> str:
 class TestsPage(QWidget):
     __test__ = False        # not a pytest class
     run_requested = Signal(list)      # [TestEntry], all can_run()
+    run_all_requested = Signal(list)  # every entry shown (app/ui/run_all.py offers the installs first)
     rescan_requested = Signal()
     install_requested = Signal(object)      # TestEntry: missing, with a one-click install (app/install)
 
@@ -68,6 +74,7 @@ class TestsPage(QWidget):
         self.entries: List[TestEntry] = []
         self.items: Dict[str, QTreeWidgetItem] = {}
         self.open_url = open_url or (lambda url: QDesktopServices.openUrl(QUrl(url)))
+        self.host = None            # app/install/plans.Host; None: this computer (tests set one)
 
         layout = QVBoxLayout(self)
         head = QLabel("Tests")
@@ -114,7 +121,13 @@ class TestsPage(QWidget):
         self.run_btn.setMinimumHeight(40)
         self.run_btn.setStyleSheet("QPushButton { font-size: 14px; font-weight: bold; padding: 6px 24px; }")
         self.run_btn.clicked.connect(self.run_selected)
+        self.run_all_btn = QPushButton("Run all tests...")
+        self.run_all_btn.setMinimumHeight(40)
+        self.run_all_btn.setToolTip("Every test for this PC. Tests that are not installed are listed first: install "
+                                    "them, then everything runs, or run only what is installed.")
+        self.run_all_btn.clicked.connect(lambda: self.busy or self.run_all_requested.emit(list(self.entries)))
         row.addWidget(self.hint, 1)
+        row.addWidget(self.run_all_btn)
         row.addWidget(self.run_btn)
         layout.addLayout(row)
 
@@ -218,7 +231,7 @@ class TestsPage(QWidget):
             b.clicked.connect(lambda checked=False, x=e: self.request_run([x]))
             b.setEnabled(not self.busy)
             return b
-        if e.compatible and e.state == MISSING and installable(e):
+        if e.compatible and e.state == MISSING and installable(e, self.host):
             b = QPushButton("Install")
             b.setToolTip("Download from the official source and install it (you are asked first)"
                          + (f"\nOfficial page: {e.official_url}" if e.official_url else ""))
@@ -260,6 +273,7 @@ class TestsPage(QWidget):
     def update_run_button(self):
         n = len(self.selected_ids())
         self.run_btn.setEnabled(n > 0 and not self.busy)
+        self.run_all_btn.setEnabled(bool(self.entries) and not self.busy)
         self.run_btn.setText(f"Run selected ({n})..." if n else "Run selected...")
 
     def run_selected(self):

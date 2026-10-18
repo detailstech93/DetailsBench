@@ -437,6 +437,10 @@ class MainWindow(QMainWindow):
         from app.ui.install_flow import InstallFlow
         self.install_flow = InstallFlow(self)
         self.tests_page.install_requested.connect(self.install_flow.start)
+        self.after_scan = []
+        from app.ui.run_all import RunAllFlow
+        self.run_all_flow = RunAllFlow(self)
+        self.tests_page.run_all_requested.connect(self.run_all_flow.start)
         self.pages = QStackedWidget()
         self.page_widgets = {"this_pc": self.this_pc_page, "tests": self.tests_page, "advanced": self.tabs}
         for widget in self.page_widgets.values():
@@ -1198,6 +1202,16 @@ class MainWindow(QMainWindow):
         if hasattr(self, "automation_panel"):
             self.automation_panel.reload()        # "check again" also finds newly installed command-line tools
         self.refresh_tests_page()
+        self._run_after_scan()
+
+    def _run_after_scan(self):
+        """One-shot callbacks waiting for this scan (Run all: start the tests once the installs are seen)."""
+        waiting, self.after_scan = list(getattr(self, "after_scan", [])), []
+        for fn in waiting:
+            try:
+                fn()
+            except Exception:
+                logger.exception("After-scan step failed")
     
     @Slot(str)
     def _on_scan_error(self, err_msg: str):
@@ -1206,6 +1220,7 @@ class MainWindow(QMainWindow):
         self.rescan_btn.setText("Rescan Benchmarks")
         self.status_label.setText(f"Scan error: {err_msg}")
         QMessageBox.warning(self, "Scan Error", f"An error occurred during benchmark scan:\n{err_msg}")
+        self._run_after_scan()
     
     def refresh_library_screen(self):
         """Refresh the Benchmark Library table with current benchmarks.

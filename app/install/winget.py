@@ -1,4 +1,5 @@
-"""One-click install of a missing test (data/installers.py), from the vendor's own site.
+"""One-click install of a missing test on Windows (data/installers.py), from the vendor's own site.
+Which install fits this computer is decided by app/install/plans.py.
 
 Two ways, both official:
 - winget (Microsoft's Windows Package Manager): `winget show` gives the installer URL and its SHA256. The owner
@@ -52,17 +53,6 @@ class Outcome:
     output: List[str] = field(default_factory=list)
 
 
-def plan_for(test_id: str, source: str = "", app_id=None) -> Optional[dict]:
-    """How this missing test can be installed: {"winget": id, ...}, {"steam": appid} or None (link only)."""
-    if source == "steam" and app_id is not None:
-        try:
-            return {"steam": int(app_id)}
-        except (TypeError, ValueError):
-            return None
-    entry = INSTALLERS.get(test_id)
-    return dict(entry) if entry else None
-
-
 def steam_install_url(app_id) -> str:
     return f"steam://install/{int(app_id)}"
 
@@ -113,7 +103,7 @@ def describe(test_id: str, run: Runner = subprocess.run, size_of: Optional[Calla
              ) -> Package:
     """Ask winget about the package for this test (reads only; nothing is downloaded except a HEAD request
     to the vendor's URL for the size)."""
-    entry = INSTALLERS.get(test_id) or {}
+    entry = (INSTALLERS.get(test_id) or {}).get("windows") or {}
     package_id = entry.get("winget")
     if not package_id:
         return Package(test_id, "", problem="no winget package is known for this test")

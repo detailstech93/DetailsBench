@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QApplication, QPushButton
 
 from app.catalog import INSTALLED, MISSING, TestEntry
 from app.install import winget
+from app.install.plans import Host, linux_commands, plan_for
 from app.ui.tests_page import TestsPage, installable
 from data.installers import INSTALLERS
 
@@ -91,16 +92,52 @@ def test_describe_and_install_with_a_fake_winget():
     assert winget.install(pkg, run=lambda a, **k: pytest.fail("must not run")).ok is False
 
 
+WIN_X64, WIN_ARM, WIN_X86 = Host("windows", "x64"), Host("windows", "arm64"), Host("windows", "x86")
+DEBIAN_ARM, ARCH, UNKNOWN_LINUX = Host("linux", "arm64", "debian"), Host("linux", "x64", "arch"), Host("linux", "x64")
+
+
 def test_every_installer_entry_is_well_formed():
     for test_id, entry in INSTALLERS.items():
-        assert ("winget" in entry) != ("steam" in entry), test_id
-        if "winget" in entry:
-            assert entry["hosts"] and all("/" not in h for h in entry["hosts"]), test_id
-    assert winget.plan_for("fio") == INSTALLERS["fio"]
-    assert winget.plan_for("steam_1593500", "steam", "1593500") == {"steam": 1593500}
-    assert winget.plan_for("cinebench") is None
+        assert set(entry) <= {"windows", "linux"}, test_id
+        win = entry.get("windows")
+        if win and "winget" in win:
+            assert win["hosts"] and all("/" not in h for h in win["hosts"]) and win["arch"], test_id
+            assert set(win["arch"]) <= {"x64", "arm64", "x86"}, test_id
+        for family in (entry.get("linux") or {}).get("packages", {}):
+            assert family in {"debian", "fedora", "arch", "suse"}, test_id
     assert winget.steam_install_url("223850") == "steam://install/223850"
     assert winget.size_text(None) == "not given by the server" and winget.size_text(3000) == "3 KB"
+
+
+def test_the_install_fits_the_os_and_the_architecture():
+    assert plan_for("fio", host=WIN_X64)["kind"] == "winget"
+    assert plan_for("fio", host=WIN_ARM) is None                    # winget has no arm64 fio: the page stays
+    assert plan_for("passmark_performancetest", host=WIN_ARM)["winget"] == "PassMark.PerformanceTest"
+    assert plan_for("passmark_performancetest", host=WIN_X86) is None
+    assert plan_for("diskspd", host=WIN_ARM)["path_prefix"] == "/microsoft/diskspd/"
+    assert plan_for("fio", host=DEBIAN_ARM) == {"kind": "linux", "family": "debian", "package": "fio"}
+    assert plan_for("sevenzip_benchmark", host=ARCH)["package"] == "7zip"
+    assert plan_for("fio", host=UNKNOWN_LINUX) is None              # unknown distribution: the page
+    assert plan_for("diskspd", host=DEBIAN_ARM) is None             # Windows-only tool
+    assert plan_for("passmark_performancetest", host=ARCH) is None
+    assert plan_for("d3dmark", host=WIN_X64) == {"kind": "steam", "app_id": 223850}
+    assert plan_for("d3dmark", host=ARCH) is None
+    assert plan_for("steam_1593500", "steam", "1593500", host=ARCH) == {"kind": "steam", "app_id": 1593500}
+    assert plan_for("steam_1593500", "steam", "1593500", host=Host("darwin", "arm64")) is None
+    assert plan_for("cinebench", host=WIN_X64) is None
+
+
+def test_linux_commands_go_through_pkexec():
+    found = {"apt-get": "/usr/bin/apt-get", "pkexec": "/usr/bin/pkexec", "pacman": "/usr/bin/pacman"}.get
+    cmds, problem = linux_commands("debian", "fio", which=found)
+    assert problem is None and cmds == [["/usr/bin/pkexec", "/usr/bin/apt-get", "update"],
+                                        ["/usr/bin/pkexec", "/usr/bin/apt-get", "install", "-y", "fio"]]
+    assert linux_commands("arch", "7zip", which=found)[0] == [["/usr/bin/pkexec", "/usr/bin/pacman", "-S",
+                                                               "--noconfirm", "--needed", "7zip"]]
+    assert linux_commands("fedora", "fio", which=found) == ([], "dnf not found")
+    assert "pkexec not found" in linux_commands("debian", "fio", which=lambda n: None if n == "pkexec"
+                                                else "/usr/bin/" + n)[1]
+    assert linux_commands("gentoo", "fio", which=found) == ([], "no package manager known for gentoo")
 
 
 def entry(id, state=MISSING, source="workload", ref=None, url="https://example.org/"):
@@ -111,6 +148,7 @@ def entry(id, state=MISSING, source="workload", ref=None, url="https://example.o
 
 def test_missing_tests_get_install_or_the_download_page(qapp):
     page = TestsPage(open_url=lambda url: None)
+    page.host = WIN_X64
     page.set_entries([entry("fio"), entry("cinebench"), entry("diskspd", INSTALLED),
                       entry("steam_1593500", source="steam", ref={"app_id": "1593500", "name": "GoW"})])
     texts = {i: page.tree.itemWidget(page.items[i], 5) for i in ("fio", "cinebench", "steam_1593500")}
@@ -120,7 +158,12 @@ def test_missing_tests_get_install_or_the_download_page(qapp):
     page.install_requested.connect(asked.append)
     texts["fio"].click()
     assert [e.id for e in asked] == ["fio"]
-    assert installable(entry("fio")) and not installable(entry("cinebench"))
+    assert installable(entry("fio"), WIN_X64) and not installable(entry("cinebench"), WIN_X64)
+    assert not installable(entry("fio"), WIN_ARM)
+    arm = TestsPage(open_url=lambda url: None)
+    arm.host = WIN_ARM
+    arm.set_entries([entry("fio")])
+    assert arm.tree.itemWidget(arm.items["fio"], 5).text() == "Official download page"
 
 
 class Window:
@@ -131,9 +174,11 @@ class Window:
         self.scans += 1
 
 
-def flow_for(qapp, answers, describe, install):
+def flow_for(qapp, answers, describe, install, host=None, **kw):
+    host = host or WIN_X64
     from app.ui.install_flow import InstallFlow
     page = TestsPage(open_url=lambda url: opened.append(url))
+    page.host = host
     opened = []
     win = Window(page)
     asked = []
@@ -141,7 +186,7 @@ def flow_for(qapp, answers, describe, install):
     def ask(parent, title, text):
         asked.append(text)
         return answers.pop(0)
-    flow = InstallFlow(None, ask=ask, describe=describe, install=install, start_thread=lambda fn: fn())
+    flow = InstallFlow(None, ask=ask, describe=describe, install=install, start_thread=lambda fn: fn(), **kw)
     flow.window = win
     return flow, win, asked, opened
 
@@ -183,3 +228,87 @@ def test_flow_opens_steams_install_dialog_for_a_game(qapp):
     flow, win, asked, opened = flow_for(qapp, [False], None, None)
     assert not flow.start(entry("steam_1593500", source="steam", ref={"app_id": "1593500"})) and opened == []
     assert not flow.start(entry("cinebench"))                       # no one-click install known
+
+
+def test_flow_on_linux_shows_the_commands_then_runs_them(qapp):
+    ran = []
+    cmds = [["/usr/bin/pkexec", "/usr/bin/apt-get", "install", "-y", "fio"]]
+    flow, win, asked, _ = flow_for(qapp, [True], None, None, host=DEBIAN_ARM,
+                                   linux_commands=lambda fam, pkg: (cmds, None),
+                                   run_commands=lambda c: ran.append(c) or "done")
+    assert flow.start(entry("fio"))
+    assert "/usr/bin/pkexec /usr/bin/apt-get install -y fio" in asked[0] and ran == [cmds]
+    assert win.scans == 1 and flow.state.text.startswith("fio installed.")
+    flow, win, asked, _ = flow_for(qapp, [False], None, None, host=DEBIAN_ARM,
+                                   linux_commands=lambda fam, pkg: (cmds, None),
+                                   run_commands=lambda c: pytest.fail("must not run"))
+    assert not flow.start(entry("fio")) and win.scans == 0
+
+
+class RunAllWindow(Window):
+    def __init__(self, page):
+        super().__init__(page)
+        self.after_scan, self.ran = [], []
+
+    def start_scan(self):
+        super().start_scan()
+        waiting, self.after_scan = self.after_scan, []     # the real window runs them when the scan is done
+        for fn in waiting:
+            fn()
+
+    def run_tests(self, entries):
+        self.ran.append([e.id for e in entries])
+
+
+def run_all_for(qapp, choice, entries, describe=None, install=None):
+    from app.ui.run_all import RunAllFlow
+    page = TestsPage(open_url=lambda url: None)
+    page.host = WIN_X64
+    page.set_entries(entries)
+    win = RunAllWindow(page)
+    asked = []
+    flow = RunAllFlow(None, ask=lambda parent, text: asked.append(text) or choice,
+                      describe=describe or (lambda tid: pytest.fail("no check expected")),
+                      install=install or (lambda p: pytest.fail("no install expected")),
+                      start_thread=lambda fn: fn())
+    flow.window = win
+    return flow, win, asked
+
+
+def ready(id):
+    return entry(id, state=INSTALLED)
+
+
+def test_run_all_installs_the_missing_tests_first_then_runs_everything(qapp, monkeypatch):
+    pkg = winget.parse_show(SHOW, "sevenzip_benchmark", "7zip.7zip", ["www.7-zip.org"])
+    refused = winget.Package("fio", "fio.fio", problem="winget did not find the package fio.fio")
+    installed = []
+    entries = [ready("diskspd"), entry("sevenzip_benchmark"), entry("fio"), entry("cinebench"),
+               entry("steam_397540", source="steam", ref={"app_id": "397540", "name": "BL3"})]
+    flow, win, asked = run_all_for(qapp, "install", entries,
+                                   describe=lambda tid: pkg if tid == "sevenzip_benchmark" else refused,
+                                   install=lambda p: installed.append(p) or winget.Outcome(True, "7-Zip installed."))
+    # after the install and the scan, 7-Zip can run (the real scan would show it installed)
+    monkeypatch.setattr(TestEntry, "can_run",
+                        lambda self: self.state == INSTALLED or (self.id == "sevenzip_benchmark" and bool(installed)))
+    assert flow.start(entries)
+    text = asked[0]
+    assert "https://www.7-zip.org/a/7z2604-x64.msi" in text and "winget did not find" in text
+    assert "Not downloaded here" in text and "steam_397540" in text      # Steam games are only named
+    assert "cinebench" not in text                                         # no one-click install: not offered
+    assert installed == [pkg] and win.scans == 1
+    assert win.ran == [["diskspd", "sevenzip_benchmark"]] and not flow.busy()
+
+
+def test_run_all_can_run_only_the_installed_tests_or_be_cancelled(qapp):
+    pkg = winget.parse_show(SHOW, "sevenzip_benchmark", "7zip.7zip", ["www.7-zip.org"])
+    entries = [ready("diskspd"), entry("sevenzip_benchmark")]
+    flow, win, asked = run_all_for(qapp, "installed_only", entries, describe=lambda tid: pkg)
+    flow.start(entries)
+    assert win.scans == 0 and win.ran == [["diskspd"]]
+    flow, win, asked = run_all_for(qapp, None, entries, describe=lambda tid: pkg)
+    flow.start(entries)
+    assert win.ran == [] and flow.state.text == "Cancelled; nothing was downloaded or run."
+    flow, win, asked = run_all_for(qapp, "install", [ready("diskspd")])
+    flow.start([ready("diskspd")])
+    assert asked == [] and win.ran == [["diskspd"]]                 # nothing missing: no question
