@@ -28,11 +28,14 @@ GAME_MENU_STEPS: Dict[int, dict] = {
             {"see": "graphics", "within": 30, "again": {"press": "z", "every": 5}, "settle": 1, "click": "graphics",
              "wait": 3},
             # the mouse highlights Graphics; if the click did not open it, Enter (Select) does
-            {"see": "benchmark", "within": 30, "again": {"press": "enter", "every": 4}, "hold": "x", "seconds": 1.5,
+            # holding X 1.5 s started it once and not the next time (2026-10-19): hold longer, and again while the
+            # Graphics page (its "Run Benchmark Test") is still there
+            {"see": "benchmark", "within": 30, "again": {"press": "enter", "every": 4}, "hold": "x", "seconds": 2.5,
              "wait": 1},
             {"press": "enter"},
             # "Stop Benchmarking" in the corner: it runs. Loading took over 3 min on the first try here
-            {"see": "stop", "within": 300, "mark": True},
+            {"see": "stop", "within": 300, "mark": True,
+             "again": {"hold": "x", "seconds": 2.5, "press": "enter", "every": 10, "while": "benchmark test"}},
         ],
         "verified": False,
         "note": "Settings, Graphics, hold X on Run Benchmark Test, confirm; measuring starts when "

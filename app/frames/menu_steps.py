@@ -7,6 +7,8 @@ the step expects was read on the screen (app/frames/screen_text.py), and only in
         just appeared may drop keys).
     {"see": "graphics", "within": 30, "again": {"press": "z", "every": 5}}
         while the word is not there yet, press the previous step's key again every 5 s (it was dropped).
+        "again" may also "hold" a key ("seconds") before its "press", and only while a "while" word is still on
+        the screen (the menu that should have gone away).
     {"see": "graphics", "within": 30, "click": "graphics"}
         click the middle of that word where it was read (a menu that remembers its last item is not reached
         the same way by arrow keys each time).
@@ -51,11 +53,11 @@ def step_problems(steps) -> List[str]:
         chords += [str(k) for k in (s.get("dismiss") or {}).values()]
         again = s.get("again")
         if again is not None:
-            if not (isinstance(again, dict) and again.get("press") and isinstance(again.get("every"), (int, float))
-                    and again["every"] > 0 and "see" in s):
-                out.append(f"step {i}: 'again' needs 'see', 'press' and 'every' seconds")
+            if not (isinstance(again, dict) and (again.get("press") or again.get("hold"))
+                    and isinstance(again.get("every"), (int, float)) and again["every"] > 0 and "see" in s):
+                out.append(f"step {i}: 'again' needs 'see', 'press' or 'hold', and 'every' seconds")
             else:
-                chords.append(str(again["press"]))
+                chords += [str(again[k]) for k in ("press", "hold") if again.get(k)]
         out += [f"step {i}: unknown key {c!r}" for c in chords if parse_chord(c) is None]
         if not any(k in s for k in ("see", "press", "hold", "wait")):
             out.append(f"step {i} does nothing")
@@ -164,9 +166,14 @@ class StepPlayer:
                 if popup:
                     self._press(str(dismiss[popup]))
                     self.notes.append(f"closed a popup ({popup!r})")
-                elif again and self.clock() >= next_again:
-                    self._press(str(again["press"]))
-                    self.notes[-1] += " again"
+                elif again and self.clock() >= next_again and (not again.get("while")
+                                                               or find_word(lines, again["while"])):
+                    if again.get("hold"):
+                        self._hold(str(again["hold"]), float(again.get("seconds", 1.0)))
+                        self.notes[-1] += " again"
+                    if again.get("press"):
+                        self._press(str(again["press"]))
+                        self.notes[-1] += " again"
                     next_again = self.clock() + float(again["every"])
             if self.clock() >= deadline:
                 break

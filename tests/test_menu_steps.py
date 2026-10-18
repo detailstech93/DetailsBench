@@ -74,7 +74,7 @@ def player(tmp_path, steps, timeline, front=lambda: True):
 
 def test_rdr2_path_presses_only_after_each_word_and_marks_the_start(tmp_path):
     timeline = [(0, ["Rockstar Games"]), (60, ["A strange man"]), (61, ["Story Mode", "Online", "Settings"]),
-                (70, ["Graphics", "Display", "Audio"]), (76, ["Resolution", "Run Benchmark Test"]),
+                (70, ["Graphics", "Display", "Audio"]), (76, ["Resolution", "Run Benchmark Test"]), (85, []),
                 (120, ["Stop Benchmarking"])]
     p, desk, clock = player(tmp_path, menu_steps_for(1174180), timeline)
     p.run()
@@ -86,7 +86,7 @@ def test_rdr2_path_presses_only_after_each_word_and_marks_the_start(tmp_path):
     buttons = [e[2] for e in desk.events if e[0] == "button"]
     assert round(buttons[1] - buttons[0], 6) == 0.15
     held = [e for e in desk.events if e[0] in ("down", "up")]
-    assert held[1][2] - held[0][2] == 1.5
+    assert held[1][2] - held[0][2] == 2.5
     assert "closed a popup ('strange')" in p.summary() and "benchmark started ('stop' seen at 12" in p.summary()
     assert (tmp_path / "benchmark_started.png").read_bytes() == b"png:Stop Benchmarking"
 
@@ -247,7 +247,7 @@ def test_a_dropped_key_is_pressed_again_until_the_menu_opens(tmp_path):
     assert [e[1] for e in desk.events] == [parse_chord("z")] * 3     # 3 s after the menu, then again at 8 and 13 s
     assert "pressed z again" in p.summary()
     assert step_problems([{"see": "a", "within": 1, "again": {"press": "z"}, "mark": True}]) == [
-        "step 1: 'again' needs 'see', 'press' and 'every' seconds"]
+        "step 1: 'again' needs 'see', 'press' or 'hold', and 'every' seconds"]
 
 
 def test_a_click_needs_the_word_s_place(tmp_path):
@@ -260,3 +260,15 @@ def test_a_click_needs_the_word_s_place(tmp_path):
     assert desk.events == [] and p.problem == ("step 1: 'graphics' was read but not where it is on the screen; "
                                                "nothing clicked")
     assert step_problems([{"click": "x", "mark": True}]) == ["step 1 does nothing", "step 1: 'click' needs 'see'"]
+
+
+def test_a_hold_is_tried_again_only_while_the_menu_is_still_there(tmp_path):
+    steps = [{"see": "stop", "within": 60, "mark": True,
+              "again": {"hold": "x", "seconds": 2.5, "press": "enter", "every": 10, "while": "benchmark test"}}]
+    timeline = [(0, ["Graphics", "Run Benchmark Test"]), (15, []), (40, ["Stop Benchmarking"])]
+    p, desk, clock = player(tmp_path, steps, timeline)
+    p.run()
+    assert p.problem is None and p.mark_time >= 40
+    kinds = [e[0] for e in desk.events]
+    assert kinds == ["down", "up", "press"]           # once at 10 s; the loading screen (no menu) gets nothing
+    assert "held x 2.5 s again" in p.summary() and "pressed enter again" in p.summary()
