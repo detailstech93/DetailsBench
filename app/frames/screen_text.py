@@ -1,0 +1,81 @@
+"""Read the words on the screen with Windows' own OCR (Windows.Media.Ocr), to check a game's menu before
+each key is pressed (data/game_start_keys.py "steps").
+
+Nothing is installed: Windows 10/11 ship the OCR engine and the recognizer of each display language (on this
+computer, 2026-10-18: ar-SA, en-GB, en-US; about 0.8 s per read). Windows PowerShell 5.1 reaches it through
+WinRT; the script is passed with -EncodedCommand (no file, no execution policy change). The screenshot is the
+primary screen through GDI (app/simulation/desktop.py); a game in exclusive full screen may come out black,
+then no words are seen and the step says so. Linux: not supported yet (no built-in OCR).
+"""
+
+import base64
+import os
+import subprocess
+from pathlib import Path
+from typing import List, Optional, Tuple
+
+OCR_TIMEOUT_SECONDS = 30
+
+_SCRIPT = r"""
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Runtime.WindowsRuntime
+$null = [Windows.Storage.StorageFile, Windows.Storage, ContentType = WindowsRuntime]
+$null = [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime]
+$null = [Windows.Graphics.Imaging.BitmapDecoder, Windows.Graphics, ContentType = WindowsRuntime]
+$null = [Windows.Globalization.Language, Windows.Globalization, ContentType = WindowsRuntime]
+$asTask = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and
+    $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
+function Await($op, [Type]$t) { $task = $asTask.MakeGenericMethod($t).Invoke($null, @($op)); $task.Wait(-1) | Out-Null; $task.Result }
+$file = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync('__PATH__')) ([Windows.Storage.StorageFile])
+$stream = Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
+$decoder = Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
+$bitmap = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
+$engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage([Windows.Globalization.Language]::new('en-US'))
+if ($engine -eq $null) { $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages() }
+if ($engine -eq $null) { [Console]::Error.WriteLine('no OCR language is installed in Windows'); exit 3 }
+$result = Await ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
+$stream.Dispose()
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+foreach ($line in $result.Lines) { [Console]::Out.WriteLine($line.Text) }
+"""
+
+
+def ocr_command(image_path) -> List[str]:
+    """The PowerShell command that prints the image's text lines (UTF-8, one per line)."""
+    path = str(Path(image_path).resolve()).replace("'", "''")
+    script = _SCRIPT.replace("__PATH__", path)
+    encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    return ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded]
+
+
+def read_image(image_path, run=subprocess.run) -> Tuple[List[str], Optional[str]]:
+    """(text lines, error) of one image."""
+    if os.name != "nt":
+        return [], "reading the screen works on Windows only for now"
+    try:
+        done = run(ocr_command(image_path), capture_output=True, timeout=OCR_TIMEOUT_SECONDS, shell=False,
+                   creationflags=subprocess.CREATE_NO_WINDOW)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return [], f"Windows OCR did not answer ({e})"
+    if done.returncode != 0:
+        said = done.stderr.decode("utf-8", "replace").strip().splitlines()
+        return [], "Windows OCR failed: " + (said[-1] if said else f"exit code {done.returncode}")
+    return [line.strip() for line in done.stdout.decode("utf-8", "replace").splitlines() if line.strip()], None
+
+
+def read_screen(desktop, image_path, run=subprocess.run) -> Tuple[List[str], Optional[str]]:
+    """Screenshot of the primary screen, then its text lines."""
+    try:
+        desktop.screenshot(image_path)
+    except Exception as e:
+        return [], f"no screenshot ({e})"
+    return read_image(image_path, run=run)
+
+
+def find_word(lines: List[str], words) -> Optional[str]:
+    """The first of words seen in the lines (case-insensitive, inside a line), or None."""
+    text = "\n".join(lines).lower()
+    for word in ([words] if isinstance(words, str) else words):
+        if word.lower() in text:
+            return word
+    return None

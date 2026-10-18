@@ -12,9 +12,35 @@ they are generous. Nothing is listed yet: each game's path is found together wit
 screenshot, before it is written here.
 """
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 GAME_START_KEYS: Dict[int, dict] = {}
+
+# Checked menu steps to a game's built-in benchmark (app/frames/menu_steps.py): every key waits for a word read
+# on the screen first. Paths come from LTT Labs' MarkBench harnesses (github.com/LTTLabsOSS/markbench-tests,
+# read 2026-10-18; facts only, no code taken) and stay "verified": False until watched on a real run here.
+GAME_MENU_STEPS: Dict[int, dict] = {
+    1174180: {      # Red Dead Redemption 2: main menu -> Settings (Z) -> Graphics -> hold X "Run Benchmark Test"
+        "steps": [
+            {"see": "settings", "within": 300, "dismiss": {"strange": "enter"}, "press": "z", "wait": 3},
+            {"see": "graphics", "within": 30, "press": "up, up, left, left, down, enter", "wait": 3},
+            {"see": "benchmark", "within": 30, "hold": "x", "seconds": 1.5, "wait": 1},
+            {"press": "enter"},
+            {"see": "stop", "within": 180, "mark": True},     # "Stop Benchmarking" in the corner: it runs
+        ],
+        "verified": False,
+        "note": "Settings, Graphics, hold X on Run Benchmark Test, confirm; measuring starts when "
+                "'Stop Benchmarking' shows. The whole benchmark takes about 4.5 min.",
+    },
+}
+
+
+def menu_steps_for(app_id) -> Optional[list]:
+    try:
+        entry = GAME_MENU_STEPS.get(int(app_id))
+    except (TypeError, ValueError):
+        return None
+    return [dict(s) for s in entry["steps"]] if entry else None
 
 
 def start_keys_for(app_id) -> List[Tuple[float, str]]:

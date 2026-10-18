@@ -38,7 +38,7 @@ from app.frames.presentmon import (
 from app.paths import get_data_dir, load_settings, save_setting
 from app.telemetry import sources as telemetry_sources
 from data.game_routes import route_for
-from data.game_start_keys import start_keys_for
+from data.game_start_keys import menu_steps_for, start_keys_for
 from app.ui.automation_panel import STOP_SHORTCUT, TELEMETRY_TIP, AutomationWorker
 
 logger = logging.getLogger(__name__)
@@ -766,6 +766,13 @@ class FrameCapturePanel(QGroupBox):
                                  settle_seconds=self.settle_spin.value(),
                                  launch_args=game_launch_args(game.get("app_id")),
                                  start_keys=start_keys_for(game.get("app_id")))
+        steps = menu_steps_for(spec.app_id)
+        if steps:
+            from app.frames.menu_steps import step_problems
+            if step_problems(steps):
+                logger.warning("Menu steps for %s not used: %s", spec.app_id, step_problems(steps))
+            else:
+                spec.steps = steps
         route = route_for(spec.app_id)
         if route:
             from app.frames.route import route_problems
@@ -794,7 +801,14 @@ class FrameCapturePanel(QGroupBox):
                 f"3. The app waits about {spec.wait_seconds():.0f} s. The first {spec.settle_seconds} s of the "
                 f"game (loading, menus) are not measured, then {spec.warmup_runs} warmup + {spec.repetitions} "
                 f"measured runs of {spec.seconds} s each (profile {profile.name!r}), {total} s of game time.\n"
-                + (f"   The app presses {', '.join(c for _, c in spec.start_keys)} in the game to reach the scene "
+                + ("   The app goes through the game's menus to its built-in benchmark by itself: before each key "
+                   "it reads the screen (Windows' own text recognition) and presses only when the expected word "
+                   "is there, and only into the game. Measuring starts when the benchmark starts; the "
+                   f"{spec.settle_seconds} s above count from then. If a word does not come, nothing is guessed: "
+                   "the run stops and the screenshot is kept. Keep the game in front and use borderless window "
+                   "or windowed mode (an exclusive full screen may read as black). These steps are not checked "
+                   "on a real run yet.\n" if spec.steps else
+                   f"   The app presses {', '.join(c for _, c in spec.start_keys)} in the game to reach the scene "
                    f"(only while the game is in front; these keys are not checked on a real run yet). Keep the "
                    f"game in front.\n" if spec.start_keys else
                    f"   Get to the scene you want to measure during the first {spec.settle_seconds} s and keep the "

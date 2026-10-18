@@ -72,6 +72,7 @@ class GameBenchmarkSpec:
     launch_args: List[str] = field(default_factory=list)   # from the game's adapter (app/games)
     start_keys: List[Tuple[float, str]] = field(default_factory=list)   # (s after launch, chord): data/game_start_keys
     route: Optional[dict] = None        # keys held and mouse moves during the capture: app/frames/route.py
+    steps: Optional[list] = None        # checked menu steps to a built-in benchmark: app/frames/menu_steps.py
 
     @property
     def count(self) -> int:
@@ -86,8 +87,15 @@ class GameBenchmarkSpec:
 
     def max_record_seconds(self) -> int:
         """PresentMon's --timed upper limit; normally it ends earlier, when the game is closed."""
-        front = FRONT_WAIT_SECONDS if self.route or self.start_keys else 0     # keys and route wait for the window
-        return int(UAC_WAIT_SECONDS + LAUNCH_TIMEOUT_SECONDS + front + self.wait_seconds() + 120)
+        front = FRONT_WAIT_SECONDS if self.route or self.start_keys or self.steps else 0
+        return int(UAC_WAIT_SECONDS + LAUNCH_TIMEOUT_SECONDS + front + self.steps_seconds() + self.wait_seconds() + 120)
+
+    def steps_seconds(self) -> float:
+        """Longest time the menu steps can take before the benchmark starts."""
+        total = 0.0
+        for s in self.steps or []:
+            total += float(s.get("within", 0)) + float(s.get("wait", 0)) + float(s.get("seconds", 0)) + 5
+        return total
 
 
 @dataclass
@@ -130,7 +138,8 @@ class GameBenchmark:
                  snapshot: Optional[Callable] = None, clock: Callable[[], float] = time.monotonic,
                  sleep: Callable[[float], None] = time.sleep, poll_seconds: float = 1.0,
                  folder_procs: Optional[Callable[[], dict]] = None, closer: Optional[Callable[[dict], str]] = None,
-                 exe_lister: Callable[[str], List[str]] = game_exe_names, desktop=None):
+                 exe_lister: Callable[[str], List[str]] = game_exe_names, desktop=None,
+                 step_player: Optional[Callable] = None):
         self.spec = spec
         self.run_dir = Path(run_dir)
         self.stop_event = stop_event or threading.Event()
@@ -157,12 +166,19 @@ class GameBenchmark:
         self._started: dict = {}
         self._desktop = desktop                 # app/simulation/desktop.py; made on the first key
         self.key_notes: List[str] = []
+        self.step_player = step_player          # makes the menu step player (tests pass a fake)
 
     def _desk(self):
         if self._desktop is None:
             from app.simulation.desktop import default_desktop
             self._desktop = default_desktop()
         return self._desktop
+
+    def _steps(self):
+        if self.step_player is not None:
+            return self.step_player(self.spec.steps)
+        from app.frames.menu_steps import StepPlayer
+        return StepPlayer(self.spec.steps, self._desk(), self._game_in_front, self.run_dir)
 
     def _game_in_front(self) -> bool:
         return self._desk().foreground_pid() in self._started
@@ -300,7 +316,9 @@ class GameBenchmark:
         # keys and a route are timed from the moment the game's window first comes to the front, not from the
         # launch: a game loading from a slow drive showed its window 3.7 min after the launch (The Witcher 3
         # from a network share, 2026-10-18). The measured windows already start at the first frame.
-        t_front = t0 if not pending and player is None else None
+        t_front = t0 if not pending and player is None and not spec.steps else None
+        steps = None                    # menu step player, started when the game is in front
+        t_mark = None                   # clock() when the steps saw the benchmark start: measuring starts there
         try:
             while True:
                 if self.stop_event.is_set():
@@ -329,7 +347,22 @@ class GameBenchmark:
                                              "loading). Keys and route start when it is in front.")
                         self.sleep(self.poll_seconds)
                         continue
-                elapsed = self.clock() - t_front
+                if spec.steps and steps is None:
+                    steps = self._steps().start()
+                if steps is not None and t_mark is None:
+                    if steps.mark_time is not None:
+                        t_mark = steps.mark_time
+                    elif steps.done.is_set():
+                        break           # the menus did not lead to the benchmark: failed below
+                    else:
+                        now = int(self.clock() - t_front)
+                        if now != shown:
+                            shown = now
+                            self.on_progress(f"{spec.game_name}: going through its menus to the benchmark "
+                                             f"({now} s); keep the game in front.")
+                        self.sleep(self.poll_seconds)
+                        continue
+                elapsed = self.clock() - (t_mark if t_mark is not None else t_front)
                 if elapsed >= wait:
                     break
                 if pending:
@@ -347,6 +380,9 @@ class GameBenchmark:
                                      "closed at the end.")
                 self.sleep(min(self.poll_seconds, ROUTE_POLL_SECONDS) if player is not None else self.poll_seconds)
         finally:
+            if steps is not None:
+                steps.stop.set()
+                steps.join(5)
             if player is not None:
                 try:
                     player.release_all()
@@ -359,6 +395,12 @@ class GameBenchmark:
             closed += "; start keys: " + ", ".join(self.key_notes)
         if player is not None:
             closed += "; " + player.summary()
+        if steps is not None:
+            closed += "; " + steps.summary()
+            if t_mark is None and not stopped:
+                if sampler is not None:
+                    sampler.stop()
+                return GameCapture("failed", "the app did not reach the game's benchmark" + closed, command=command)
         tel = sampler.stop() if sampler is not None else None
         text = self._read_csv()
         started_names = {os.path.basename(i.exe) for i in self._started.values()}
@@ -376,11 +418,16 @@ class GameBenchmark:
                                + "; a Remote Desktop session records none)" + closed, command=command)
         parsed = parse_presentmon_csv(text, process_id=pick[1])
         windows = spec.windows()
+        mark_shift = 0.0
         frametimes = parsed.frametimes_ms if not parsed.error else []
         recorded = game_seconds(frametimes)
         frame_windows = split_frames(frametimes, windows)
         # the game stops presenting when it is asked to close, so its first frame was `recorded` s earlier
         offset = first_frame_offset(t_close, recorded)
+        if t_mark is not None:          # windows count from the benchmark's start, not the game's first frame
+            mark_shift = max(0.0, (t_mark - t0) - offset)
+            windows = [(a + mark_shift, b + mark_shift) for a, b in windows]
+            frame_windows = split_frames(frametimes, windows)
         sample_windows = slice_samples(tel.samples if tel else [], offset, windows)
         common = {"command": command}
         out = []
