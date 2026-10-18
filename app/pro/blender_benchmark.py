@@ -247,7 +247,7 @@ def run_note(records: List[dict], scenes) -> str:
 class BlenderBenchmarkWorkload(Workload):
     benchmark_type = "cpu"
     timeout_seconds = 3600
-    verified = False                  # set True only after a real run on this computer was checked
+    verified = True                   # GPU (OPTIX, 8,472) and CPU (465) runs checked by the owner, 2026-10-18
 
     def __init__(self, device_type: str = "CPU", exe: Optional[Path] = None, version: str = BLENDER_VERSION,
                  scenes=SCENES, cache: Optional[Path] = None):
