@@ -29,10 +29,9 @@ class ProcInfo:
 
 
 def _inside(path: Optional[str], folder: str) -> bool:
-    if not path:
-        return False
-    root = os.path.normcase(os.path.normpath(folder)) + os.sep
-    return os.path.normcase(os.path.normpath(path)).startswith(root)
+    """Also true for the share spelling of a mapped network drive (app/steam/launch.py folder_roots)."""
+    from app.steam.launch import folder_roots, inside
+    return inside(path, folder_roots(folder))
 
 
 def processes_in_folder(folder: str, iter_procs: Optional[Callable[[], Iterable]] = None) -> Dict[int, ProcInfo]:

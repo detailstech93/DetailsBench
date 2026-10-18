@@ -55,9 +55,8 @@ def direct_exe(appid, install_path: str, args: Sequence[str] = ()) -> Optional[s
         return None
     if not rel:
         return None
-    root = os.path.normcase(os.path.realpath(install_path)) + os.sep
-    path = os.path.realpath(os.path.join(install_path, rel))
-    if not os.path.normcase(path).startswith(root) or not os.path.isfile(path):
+    path = os.path.normpath(os.path.join(install_path, rel))        # keep the drive letter (no realpath)
+    if not inside(path, folder_roots(install_path)) or not os.path.isfile(path):
         return None
     return path
 
@@ -76,17 +75,32 @@ def open_url(url: str) -> None:
         subprocess.Popen(["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def folder_roots(folder: str) -> Tuple[str, ...]:
+    """The folder as written and as resolved: a mapped network drive (Z:\...) is also seen by Windows as its
+    share (\\server\share\...), and a process started from it may report either spelling."""
+    roots = {os.path.normcase(os.path.normpath(folder)) + os.sep}
+    try:
+        roots.add(os.path.normcase(os.path.realpath(folder)) + os.sep)
+    except (OSError, ValueError):
+        pass
+    return tuple(sorted(roots))
+
+
+def inside(path: Optional[str], roots: Sequence[str]) -> bool:
+    return bool(path) and os.path.normcase(os.path.normpath(path)).startswith(tuple(roots))
+
+
 def new_processes_in_folder(before: Snapshot, after: Snapshot, folder: str) -> List[str]:
     """Executables under `folder` that appear in `after` more often than in `before`."""
-    root = os.path.normcase(os.path.normpath(folder)) + os.sep
+    roots = folder_roots(folder)
 
     def key(path: str) -> str:
         return os.path.normcase(os.path.normpath(path))
 
-    remaining = [key(p) for _, p in before if p and key(p).startswith(root)]
+    remaining = [key(p) for _, p in before if inside(p, roots)]
     new = []
     for _, path in after:
-        if not path or not key(path).startswith(root):
+        if not inside(path, roots):
             continue
         if key(path) in remaining:
             remaining.remove(key(path))

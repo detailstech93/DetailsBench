@@ -108,7 +108,7 @@ def test_known_exe_is_started_directly_with_args(tmp_path):
     exe.parent.mkdir(parents=True)
     exe.write_bytes(b"")
     assert direct_exe(1091500, str(tmp_path), []) is None                 # no args: Steam as before
-    assert direct_exe(1091500, str(tmp_path), ["--launcher-skip"]) == os.path.realpath(str(exe))
+    assert direct_exe(1091500, str(tmp_path), ["--launcher-skip"]) == os.path.normpath(str(exe))
     assert direct_exe(391220, str(tmp_path), ["-x"]) is None               # no exe listed for this game
     started, opened = [], []
     snaps = iter([[], [(1, str(exe))]])
@@ -116,7 +116,7 @@ def test_known_exe_is_started_directly_with_args(tmp_path):
                              opener=opened.append, starter=started.append, sleep=lambda s: None,
                              args=["--launcher-skip", "-skipStartScreen"])
     assert res["status"] == "launched" and not opened
-    assert started == [[os.path.realpath(str(exe)), "--launcher-skip", "-skipStartScreen"]]
+    assert started == [[os.path.normpath(str(exe)), "--launcher-skip", "-skipStartScreen"]]
 
 
 def test_missing_exe_falls_back_to_steam(tmp_path):
@@ -126,3 +126,15 @@ def test_missing_exe_falls_back_to_steam(tmp_path):
                              starter=lambda c: (_ for _ in ()).throw(AssertionError("no exe")),
                              sleep=lambda s: None, timeout=0, args=["--launcher-skip"])
     assert opened == ["steam://run/1091500//--launcher-skip/"] and res["status"] == "unconfirmed"
+
+
+def test_mapped_drive_share_spelling_counts_as_inside(monkeypatch):
+    import app.steam.launch as launch
+    real = {r"Z:\Lib\Game": r"\server\share\Lib\Game"}
+    monkeypatch.setattr(launch.os.path, "realpath", lambda p: real.get(p, p))
+    before = []
+    after = [(1, r"\server\share\Lib\Game\bin\game.exe"), (2, r"C:\Other\x.exe")]
+    assert launch.new_processes_in_folder(before, after, r"Z:\Lib\Game") == [r"\server\share\Lib\Game\bin\game.exe"]
+    assert launch.new_processes_in_folder([], [(1, r"Z:\Lib\Game\game.exe")], r"Z:\Lib\Game") == [r"Z:\Lib\Game\game.exe"]
+    from app.frames.game_close import _inside
+    assert _inside(r"\server\share\Lib\Game\game.exe", r"Z:\Lib\Game") and not _inside(r"C:\x.exe", r"Z:\Lib\Game")
