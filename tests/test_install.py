@@ -88,6 +88,17 @@ def test_describe_and_install_with_a_fake_winget():
                                                                                    "Successfully installed"]
     bad = winget.install(pkg, run=lambda a, **k: done("Installer hash does not match.\n", 2316632107))
     assert not bad.ok and "Installer hash does not match." in bad.message
+    # real case (PassMark, 2026-10-18): installed, yet winget ends with 0x8A15002B; its list holds the package
+    listed = "Name    Id         Version Source\n------\n7-Zip   7zip.7zip  26.04   winget\n"
+    calls = []
+
+    def already(args, **k):
+        calls.append(args[1])
+        return done("No newer package versions are available from the configured sources.\n", 2316632107) \
+            if args[1] == "install" else done(listed)
+    out = winget.install(pkg, run=already)
+    assert out.ok and "is installed (winget ended with code 2316632107" in out.message
+    assert calls == ["install", "list"] and winget.list_args("7zip.7zip")[:3] == ["winget", "list", "--id"]
     pkg.problem = "refused"
     assert winget.install(pkg, run=lambda a, **k: pytest.fail("must not run")).ok is False
 
@@ -312,3 +323,13 @@ def test_run_all_can_run_only_the_installed_tests_or_be_cancelled(qapp):
     flow, win, asked = run_all_for(qapp, "install", [ready("diskspd")])
     flow.start([ready("diskspd")])
     assert asked == [] and win.ran == [["diskspd"]]                 # nothing missing: no question
+
+
+def test_passmark_is_found_by_its_real_names():
+    import re
+    from data.benchmark_definitions import BENCHMARK_DEFINITIONS
+    d = next(x for x in BENCHMARK_DEFINITIONS if x.id == "passmark_performancetest")
+    name = re.compile("|".join(d.name_patterns), re.IGNORECASE)
+    # the uninstall entry and the folder as PerformanceTest 11.1 writes them (2026-10-18)
+    assert name.search("PerformanceTest 11") and name.search("PerformanceTest") and name.search("PerformanceTest64.exe")
+    assert not name.search("PerformanceTest_Help") and not name.search("My PerformanceTest Notes")

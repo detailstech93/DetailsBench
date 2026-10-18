@@ -92,6 +92,21 @@ def show_args(package_id: str) -> List[str]:
     return ["winget", "show", "--id", package_id, "--exact", "--source", "winget", "--disable-interactivity"]
 
 
+def list_args(package_id: str) -> List[str]:
+    return ["winget", "list", "--id", package_id, "--exact", "--source", "winget", "--disable-interactivity"]
+
+
+def is_installed(package_id: str, run: Runner = subprocess.run) -> bool:
+    """winget's own list of installed programs holds this package (reads only)."""
+    try:
+        done = run(list_args(package_id), capture_output=True, text=True, encoding="utf-8", errors="replace",
+                   timeout=SHOW_TIMEOUT_SECONDS, creationflags=NO_WINDOW)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return done.returncode == 0 and any(package_id.lower() in ln.lower().split()
+                                        for ln in (done.stdout or "").splitlines())
+
+
 def install_args(package_id: str, version: str) -> List[str]:
     """The exact version the owner was shown (a newer one published meanwhile is not installed instead)."""
     args = ["winget", "install", "--id", package_id, "--exact", "--source", "winget", "--disable-interactivity",
@@ -166,5 +181,9 @@ def install(pkg: Package, run: Runner = subprocess.run, on_line: Callable[[str],
         on_line(ln)
     if done.returncode == 0:
         return Outcome(True, f"{pkg.name} {pkg.version} installed.", lines)
+    if is_installed(pkg.package_id, run):
+        # e.g. 0x8A15002B "No newer package versions are available": the installer already put it there
+        return Outcome(True, f"{pkg.name} is installed (winget ended with code {done.returncode}, but its list of "
+                             "installed programs holds it).", lines)
     last = lines[-1] if lines else ""
     return Outcome(False, f"winget could not install {pkg.name} (code {done.returncode}). {last}".strip(), lines)
