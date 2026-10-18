@@ -29,7 +29,7 @@
 | **diskspd** / **fio** | Storage | DiskSpd 2.3 / fio 3.43, SEQ1M Q8T1 and RND4K Q32T1 read/write | yes | `scripts/verify_storage.py`: DiskSpd 6,735 MiB/s seq read; fio 6,687 MiB/s |
 | **llama_benchy** | AI | llama-benchy 0.4.0 against LM Studio's local server | yes | `scripts/verify_llama_benchy.py`: gemma-4-12b-qat tg 91.6 tok/s (c1 d0), gpt2 tokenizer fallback |
 | **mlperf_client** | AI | MLPerf Client 2.0.1, phi4mini llama.cpp CUDA | yes | `scripts/verify_mlperf_client.py`: 219.9 tok/s, Results Verified false |
-| **cyberpunk2077_builtin_benchmark** | Game | simulation script: Steam launch, user starts the benchmark, result file read | **no** | not run: starting the game unattended was not allowed; result file layout assumed |
+| **cyberpunk2077_builtin_benchmark** | Game | simulation script: Steam launch, user starts the benchmark, result file read | **yes** (2026-10-18, owner present) | 76.43 FPS avg at 2560x1440 (game 2.31); started directly without the Steam dialog, closed by the app; the user presses a key at 'press to continue' and starts the benchmark |
 | **selftest_python** | test | Python one-liner | yes (tests) | unavailable in the packaged app (needs Python) |
 
 Game frame capture (PresentMon, Frame capture tab) and forced settings are described in README.md.

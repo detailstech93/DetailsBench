@@ -4,7 +4,7 @@
   "benchmark_type": "game",
   "steam_app": 1091500,
   "timeout_seconds": 1200,
-  "verified": false,
+  "verified": true,
   "warning": "Cyberpunk 2077 starts through Steam. When its main menu shows, start the built-in benchmark yourself (Settings, then Run Benchmark); the app waits up to 15 minutes for the result file and then closes the game. Do not use the computer otherwise meanwhile.",
   "steps": [
     {"do": "launch_steam", "args": ["--launcher-skip", "-skipStartScreen"], "timeout": 120},
@@ -20,5 +20,5 @@
     }}
   ],
   "score": {"value": "average_fps", "unit": "FPS", "higher_is_better": true},
-  "notes": "NOT VERIFIED. Running the game was not allowed while the user was away (2026-10-18), so the menu keys, the result folder and the JSON keys (Data.averageFps / minFps / maxFps) are assumptions from public descriptions of the game's benchmark. No keys are sent: the user starts the benchmark. If the file or its keys differ, the run is 'invalid' (never a 0) and the file is copied to the run folder to fix this script. Frame times by PresentMon are a separate capture (Frame capture tab)."
+  "notes": "Verified on 2026-10-18 with the owner present (session 4, game version 2.31, RTX 5090 Laptop, 2560x1440): the game is started directly (bin/x64/Cyberpunk2077.exe with the arguments, so Steam asks nothing), summary.json was written to Documents\\CD Projekt Red\\Cyberpunk 2077\benchmarkResults\benchmark_<date>\\, Data.averageFps / minFps / maxFps were read (76.43 / 65.57 / 104.37 FPS) and the app closed the game. -skipStartScreen did not skip the 'press to continue' screen in 2.31: the user presses a key there, then starts the benchmark from the menu. No keys are sent. If the file or its keys differ, the run is 'invalid' (never a 0). Frame times by PresentMon are a separate capture (Frame capture tab)."
 }

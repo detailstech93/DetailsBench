@@ -226,10 +226,10 @@ def run_game(tmp_path, monkeypatch, steam, timeout=60):
 
 
 def test_steam_game_script_reads_the_result_file_and_closes_only_new_processes(tmp_path, monkeypatch):
-    # the JSON layout is this script's (unverified) assumption, not a recorded file
+    # the JSON layout (Data.averageFps ...) matches the summary.json of the real run on 2026-10-18
     steam = FakeSteam(json.dumps({"Data": {"averageFps": 88.5, "minFps": 70.25, "maxFps": 120}}))
     wl, result, out = run_game(tmp_path, monkeypatch, steam)
-    assert wl.availability() == (True, "found (Steam library)") and wl.verified is False
+    assert wl.availability() == (True, "found (Steam library)") and wl.verified is True
     assert result.status == "completed" and result.score == 88.5 and result.unit == "FPS"
     assert result.metrics == {"min_fps": (70.25, "FPS"), "max_fps": (120.0, "FPS")}
     assert steam.launched == (1091500, "Z:/Steam/common/Cyberpunk 2077", ["--launcher-skip", "-skipStartScreen"])
