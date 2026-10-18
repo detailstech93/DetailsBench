@@ -41,6 +41,29 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 """
 
 
+def pass_loops(one_pass, target: float, clock=time.perf_counter, start: int = 64, limit: int = 1 << 24) -> int:
+    """Loops for a pass of about target seconds of GPU work. A pass also costs a fixed time on the CPU side
+    (submit, read back, check), which is long and uneven while the CPU stress starts or sensors are read: the GPU
+    time is taken from the difference between a pass of n and of 8n loops (the fixed part cancels out), each the
+    fastest of three (a hiccup only makes a pass slower). Timing one pass picked 6 ms passes there, and the GPU
+    then waited on us two thirds of the time."""
+    def fastest(n):
+        best = None
+        for _ in range(3):
+            t0 = clock()
+            one_pass(n)
+            took = clock() - t0
+            best = took if best is None else min(best, took)
+        return best
+    n = start
+    while True:
+        small, big = fastest(n), fastest(8 * n)
+        per_loop = (big - small) / (7 * n)
+        if big >= target / 2 or 8 * n >= limit:
+            return max(1, min(limit, int(target / per_loop))) if per_loop > 0 else 8 * n
+        n *= 8
+
+
 def available() -> tuple:
     try:
         import wgpu
@@ -59,7 +82,7 @@ def available() -> tuple:
 class GpuStress:
     """start() a thread that keeps the GPU busy, read() (passes so far, errors so far), stop()."""
 
-    def __init__(self, target_pass_seconds: float = 0.25):
+    def __init__(self, target_pass_seconds: float = 0.1):
         self.target = target_pass_seconds
         self.passes = 0
         self.errors = 0
@@ -83,7 +106,7 @@ class GpuStress:
         """Passes done, counting the running pass by how far it is (a pass takes about a quarter second: whole
         passes alone would make each second's work jump between 3, 4 and 5)."""
         passes, started, took = self.passes, self._pass_started, self._pass_took
-        part = min(0.99, (time.monotonic() - started) / took) if took > 0 and started else 0.0
+        part = min(0.99, (time.perf_counter() - started) / took) if took > 0 and started else 0.0
         return passes + part, self.errors
 
     def alive(self) -> bool:
@@ -146,17 +169,9 @@ class GpuStress:
                 submit(0, loops)
                 return answer(0)
 
-            loops = 64                                    # find a pass of about target seconds
-            while True:
-                t0 = time.monotonic()
-                one_pass(loops)
-                took = time.monotonic() - t0
-                if took >= self.target / 2 or loops >= 1 << 20:
-                    loops = max(1, int(loops * self.target / max(took, 1e-6)))
-                    break
-                loops *= 4
+            loops = self.loops = pass_loops(one_pass, self.target)
             expected = one_pass(loops)                    # the answer, before the GPU is hot
-            self._pass_started = time.monotonic()
+            self._pass_started = time.perf_counter()
             self._ready.set()
             slot = 0
             submit(slot, loops)
@@ -165,8 +180,11 @@ class GpuStress:
                 if answer(slot) != expected:
                     self.errors += 1
                 slot = 1 - slot
-                now = time.monotonic()
-                self._pass_took, self._pass_started = now - self._pass_started, now
+                now = time.perf_counter()
+                # two passes are in flight, so answers can come in pairs: a running average of the gap
+                gap = now - self._pass_started
+                self._pass_took = gap if not self._pass_took else 0.8 * self._pass_took + 0.2 * gap
+                self._pass_started = now
                 self.passes += 1
         except Exception as e:
             self.failure = f"GPU stress stopped: {e}"

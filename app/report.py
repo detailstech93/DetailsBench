@@ -224,7 +224,7 @@ def _stress_section(export: Mapping) -> str:
             score, errors = value(f"{part}_stability"), value(f"{part}_errors")
             if score is None and errors is None:
                 continue
-            bad = bool(errors) or (judged and score is not None and score < 97)
+            bad = bool(errors) or (judged and score is not None and round(score) < 97)
             unstable = unstable or bad
             tiles.append((f"{part.upper()} stability", f"{_whole(score)} <span>%</span>" if _whole(score) is not None
                           else "<span>not measured</span>", bad))
@@ -252,8 +252,8 @@ def _stress_section(export: Mapping) -> str:
         rows = _readings_rows(_mapping(metrics.get(name)) or {})
         blocks.append(
             f'<div class="game"><h3>{title}</h3><div class="tiles">{tile_html}</div>'
-            f'<p class="muted">{_text(last.get("note"))}. Stable means: no wrong answer and the slowest 10 seconds '
-            "did at least 97 % of the work of the fastest 10 seconds (no throttling); the warm-up at the start "
+            f'<p class="muted">{_text(last.get("note"))}. Stable means: no wrong answer and the slowest 30 seconds '
+            "did at least 97 % of the work of the fastest 30 seconds (no throttling); the warm-up at the start "
             "(the first minute of a run of 3 minutes or more) is left out."
             + (" With both together a laptop shares one power limit between them: when the GPU takes more power "
                "the CPU slows down, and that shows here as lower CPU stability." if name == "stress_cpu_gpu" else "")

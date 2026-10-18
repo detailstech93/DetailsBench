@@ -2,7 +2,7 @@
 minutes (settings.json "stress_minutes", chosen in the run dialog).
 
 Every second the work done is recorded (CPU answers, GPU passes). The score is the stability: the slowest
-10-second stretch as a percentage of the fastest one (like 3DMark's stress tests; 97 % or more is stable).
+30-second stretch as a percentage of the fastest one (like 3DMark's stress tests; 97 % or more is stable).
 A wrong answer from the self-check is an error: the run still completes (its charts and numbers are kept) but it
 is marked NOT stable. Power, temperatures and clocks come from the run's telemetry like every other test.
 """
@@ -15,7 +15,7 @@ from app.automation.workload import RunContext, Workload, WorkloadResult
 MINUTES_KEY = "stress_minutes"
 DEFAULT_MINUTES = 10
 MINUTE_CHOICES = (1, 5, 10, 20, 30, 60)
-WINDOW_SECONDS = 10
+WINDOW_SECONDS = 30                                 # like 3DMark's loops: short power swings even out
 STABLE_PERCENT = 97.0
 JUDGE_MINUTES = 3                                   # shorter runs are mostly warm-up: no stable / NOT stable
 MODES = {
@@ -37,7 +37,7 @@ def stress_minutes(data_dir=None) -> int:
 def warm_up_seconds(total: int) -> int:
     """Seconds left out of the stability at the start: the parts speed up and (on a laptop) share out the power
     over the first half minute, so a run of 3 minutes or more skips its first minute, a shorter one 10 s."""
-    return 60 if total >= 180 else WINDOW_SECONDS
+    return 60 if total >= 180 else 10
 
 
 def stability(per_second: List[float], window: int = WINDOW_SECONDS, skip: Optional[int] = None) -> Optional[float]:
@@ -95,11 +95,12 @@ class StressWorkload(Workload):
         from app.stress.cpu import CpuStress
         from app.stress.gpu import GpuStress
         out = {}
+        if self.mode in ("gpu", "both"):
+            # the GPU first: it sizes its passes on a quiet machine, before the CPU stress starts
+            out["gpu"] = (self.gpu_factory or GpuStress)()
         if self.mode in ("cpu", "both"):
             workers = max(1, (os.cpu_count() or 2) - 1) if self.mode == "both" else None   # one CPU feeds the GPU
             out["cpu"] = (self.cpu_factory or (lambda: CpuStress(workers, low_priority=self.mode == "both")))()
-        if self.mode in ("gpu", "both"):
-            out["gpu"] = (self.gpu_factory or GpuStress)()
         return out
 
     def run(self, ctx: RunContext) -> WorkloadResult:
@@ -159,7 +160,9 @@ class StressWorkload(Workload):
             best = max(work) if work else 0
             series[f"{name}_work"] = ("% of best second", [(t, 100.0 * w / best if best else 0.0)
                                                          for t, w in zip(times, work)])
-            verdict = ("NOT stable" if errors or (score is not None and score < STABLE_PERCENT) else "stable")                 if judged or errors else f"too short to judge (run {JUDGE_MINUTES} min or more)"
+            unstable = bool(errors) or (score is not None and round(score) < STABLE_PERCENT)   # as shown
+            verdict = ("NOT stable" if unstable else "stable") if judged or errors else \
+                f"too short to judge (run {JUDGE_MINUTES} min or more)"
             notes.append(f"{name.upper()} {verdict}: stability {score:.0f} %, {errors} wrong answers"
                          if score is not None else f"{name.upper()}: too short to judge, {errors} wrong answers")
         if not scores:

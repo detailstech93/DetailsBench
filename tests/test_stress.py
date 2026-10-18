@@ -64,7 +64,10 @@ def run(mode, tmp_path, cpu=None, gpu=None, minutes=1, stop_at=None):
 
 def test_stability_is_slowest_over_fastest_window():
     assert stability([100.0] * 60) == 100.0
-    assert round(stability([50.0] * 10 + [100.0] * 30 + [90.0] * 20)) == 90      # ramp up skipped, then 10 % drop
+    assert round(stability([50.0] * 10 + [100.0] * 30 + [90.0] * 20, window=10)) == 90   # ramp skipped, 10 % drop
+    swings = [100.0, 100, 100, 100, 100, 86, 88, 90, 100, 100] * 18          # a laptop sharing out its power
+    assert round(stability(swings, window=10)) >= 99 and round(stability(swings)) >= 99
+    assert stability(swings[:120] + [80.0] * 90) < 90                           # a lasting drop still shows
     assert stability([1.0] * 5) is None
 
 
@@ -199,3 +202,15 @@ def test_a_run_under_three_minutes_is_not_judged_unless_it_gave_wrong_answers(tm
     wrong = render_session_report(_stress_export({"cpu_stability": (99.0, "%"), "cpu_errors": (1, "count"),
                                                   "stress_minutes": (1.0, "min")}, {}))
     assert ">NOT stable</div>" in wrong
+
+
+def test_gpu_pass_size_ignores_the_fixed_cost_and_hiccups():
+    from app.stress.gpu import pass_loops
+    now = [0.0]
+    calls = [0]
+
+    def one_pass(loops):                     # 40 ms fixed CPU-side cost, 1 us per loop, every 4th pass a hiccup
+        calls[0] += 1
+        now[0] += 0.040 + loops * 1e-6 + (0.5 if calls[0] % 4 == 0 else 0.0)
+    loops = pass_loops(one_pass, 0.25, clock=lambda: now[0])
+    assert 240_000 <= loops <= 260_000       # 0.25 s of GPU work, not 0.25 s including the fixed cost
