@@ -434,6 +434,16 @@ console, a 10 s capture of the script's own Direct3D 11 window gave 590 frames, 
 `completed` in fps with its metrics. Earlier captures from a Remote Desktop session (`rdp-tcp`) exited with code 0
 but recorded no frames, so no CSV was written and the runs were stored as `failed` without a score.
 
+### AI benchmarks (Phase 9, in progress)
+
+An AI result measures the software, the model and the hardware together, so each AI run records the model,
+its quantization, the backend and the context length. `app/ai/lmstudio.py` reads them from LM Studio, read
+only: the local server's `GET /api/v0/models` (id, type, architecture, format, quantization, state, maximum and
+loaded context length) and `lms runtime ls` (the selected engine per model format, for example
+`llama.cpp-win-x86_64-nvidia-cuda12-avx2@2.60.0` for GGUF). A value LM Studio does not report is left out.
+`python scripts/verify_lmstudio.py` prints what it reads on this computer. Planned next: llama-benchy against
+LM Studio and MLPerf Client (both need installing first, with permission).
+
 ### Telemetry
 
 **Record telemetry** (on by default, in both the Automated runs and Frame capture sections) samples once per second
