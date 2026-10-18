@@ -31,6 +31,7 @@ _GROUP_IDS = {g for g, _ in GROUPS}
 
 @dataclass
 class TestEntry:
+    __test__ = False        # not a pytest class
     id: str
     name: str
     group: str

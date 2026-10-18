@@ -146,6 +146,7 @@ class AutomationPanel(QGroupBox):
         self.last_session_id: Optional[int] = None
         self.last_summary = None
         self.reports: list = []
+        self.on_plan_finished: Optional[Callable[[int, str], None]] = None    # set by the Tests screen
 
         layout = QVBoxLayout(self)
         self.table = QTableWidget(0, 4)
@@ -366,20 +367,24 @@ class AutomationPanel(QGroupBox):
             logger.exception("Could not save session manifest")
         return sid
 
-    def start_plan(self, tools_ready: bool = False) -> bool:
+    def start_plan(self, tools_ready: bool = False, workloads: Optional[list] = None, profile=None) -> bool:
+        """Run the ticked tools, or `workloads` with `profile` (the Tests screen passes both)."""
         if self.is_running() or self.lhm.busy():
             return False
         if self.db is None or self.output_root is None:
             self.status_label.setText("No database available; nothing was run.")
             return False
-        workloads = self.selected_workloads()
+        if workloads is None:
+            workloads = self.selected_workloads()
+        else:
+            workloads = [wl for wl in workloads if wl.availability()[0]]   # never run a tool that is gone
         if not workloads:
             self.status_label.setText("Tick at least one available tool first.")
             return False
         if self.telemetry_box.isChecked() and not tools_ready:
             # LibreHardwareMonitor for CPU sensors: asks to download/start it only when it is not running.
             started = []
-            self.lhm.ensure(lambda: started.append(self.start_plan(tools_ready=True)))
+            self.lhm.ensure(lambda: started.append(self.start_plan(True, workloads, profile)))
             return bool(started and started[0])      # empty: it asks or downloads first, the run starts later
         chosen = {}
         for wl in workloads:
@@ -390,7 +395,7 @@ class AutomationPanel(QGroupBox):
                     return False
                 wl.configure(settings)
                 chosen[wl.id] = settings
-        profile = self.get_profile()
+        profile = profile or self.get_profile()
         plan = self.build_plan(workloads, profile)
         for item in plan:
             item.settings = chosen.get(item.workload.id)      # kept in the journal to resume after a crash
@@ -472,3 +477,6 @@ class AutomationPanel(QGroupBox):
         self.status_label.setText(text)
         self.update_resume()
         self.on_session_changed()
+        if self.on_plan_finished is not None and self.last_session_id is not None:
+            callback, self.on_plan_finished = self.on_plan_finished, None     # one plan, one callback
+            callback(self.last_session_id, text)

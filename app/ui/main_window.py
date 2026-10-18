@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QMessageBox, QTableWidget, QTableWidgetItem,
     QHeaderView, QGroupBox, QCheckBox, QLineEdit,
     QDialog, QDialogButtonBox, QFormLayout, QComboBox, QTabWidget,
-    QFrame, QFileDialog
+    QFrame, QFileDialog, QStackedWidget
 )
 from PySide6.QtCore import Qt, Signal, Slot, QThread
 from PySide6.QtGui import QFont, QColor
@@ -359,6 +359,15 @@ class MainWindow(QMainWindow):
         
         header_layout.addWidget(title_label)
         header_layout.addSpacing(20)
+        # Navigation: This PC (start) -> Tests -> Advanced (every earlier tab)
+        self.nav_buttons: Dict[str, QPushButton] = {}
+        for key, text in (("this_pc", "This PC"), ("tests", "Tests"), ("advanced", "Advanced")):
+            b = QPushButton(text)
+            b.setCheckable(True)
+            b.clicked.connect(lambda checked=False, k=key: self.show_page(k))
+            self.nav_buttons[key] = b
+            header_layout.addWidget(b)
+        header_layout.addSpacing(12)
         header_layout.addWidget(self.status_label, 1)
         header_layout.addWidget(self.rescan_btn)
         
@@ -391,7 +400,46 @@ class MainWindow(QMainWindow):
         self.steam_tab = self._create_steam_tab()
         self.tabs.addTab(self.steam_tab, "Steam")
         
-        main_layout.addWidget(self.tabs, 1)
+        from app.ui.this_pc_page import ThisPcPage
+        from app.ui.tests_page import TestsPage
+        self.this_pc_page = ThisPcPage(self.system_info)
+        self.this_pc_page.choose_tests.connect(lambda: self.show_page("tests"))
+        self.tests_page = TestsPage()
+        self.tests_page.rescan_requested.connect(self.start_scan)
+        self.tests_page.run_requested.connect(self.run_tests)
+        self.pages = QStackedWidget()
+        self.page_widgets = {"this_pc": self.this_pc_page, "tests": self.tests_page, "advanced": self.tabs}
+        for widget in self.page_widgets.values():
+            self.pages.addWidget(widget)
+        main_layout.addWidget(self.pages, 1)
+        self.show_page("this_pc")
+
+    def show_page(self, key: str):
+        self.pages.setCurrentWidget(self.page_widgets[key])
+        for k, b in self.nav_buttons.items():
+            b.setChecked(k == key)
+
+    def show_tab(self, tab: QWidget):
+        """Open one of the earlier tabs (under Advanced)."""
+        self.tabs.setCurrentWidget(tab)
+        self.show_page("advanced")
+
+    def refresh_tests_page(self):
+        """Rebuild the Tests screen from every source the app has loaded so far."""
+        from app.catalog import build_catalog
+        env = self.environment_profile.to_dict() if self.environment_profile else None
+        workloads = getattr(self.automation_panel, "workloads", []) if hasattr(self, "automation_panel") else []
+        try:
+            entries = build_catalog(workloads, self.benchmark_manager.benchmarks, self.steam_games(), env)
+        except Exception:
+            logger.exception("Could not build the test list")
+            entries = []
+        self.tests_page.set_entries(entries)
+
+    def run_tests(self, entries: list):
+        """Run one or more tests from the Tests screen (repetitions dialog, then the plan)."""
+        from app.ui.run_tests import start_tests
+        start_tests(self, entries)
     
     def _create_dashboard_tab(self) -> QWidget:
         """Create Dashboard tab with system specs."""
@@ -711,7 +759,7 @@ class MainWindow(QMainWindow):
         if not self.frame_panel.select_game(game["app_id"]):
             self.steam_log.setText(f"{game['name']} cannot be benchmarked (not fully installed).")
             return
-        self.tabs.setCurrentWidget(self.run_tab)
+        self.show_tab(self.run_tab)
         self.frame_panel.benchmark_game()
 
     @Slot(dict)
@@ -1079,6 +1127,8 @@ class MainWindow(QMainWindow):
         """Store and show the profile, and save it as an environment snapshot."""
         self.environment_profile = profile
         self.refresh_environment_view()
+        self.this_pc_page.set_profile(profile.to_dict())
+        self.refresh_tests_page()
         if self.db is not None:
             try:
                 self.environment_snapshot_id = self.db.save_environment_snapshot(profile.to_dict())
@@ -1091,6 +1141,7 @@ class MainWindow(QMainWindow):
         self.discovery = result
         self.refresh_tools_view()
         self.refresh_steam_view()
+        self.refresh_tests_page()
         if self.db is not None:
             try:
                 self.db.save_discovery_snapshot(result.to_dict(), self.environment_snapshot_id)
@@ -1114,6 +1165,9 @@ class MainWindow(QMainWindow):
         self.refresh_library_screen()
         self.refresh_run_screen()
         self.refresh_history_screen()
+        if hasattr(self, "automation_panel"):
+            self.automation_panel.reload()        # "check again" also finds newly installed command-line tools
+        self.refresh_tests_page()
     
     @Slot(str)
     def _on_scan_error(self, err_msg: str):
