@@ -6,6 +6,9 @@ tool is a self-test). Emergency stop: the button or Ctrl+Shift+X while this
 window has focus. There is no system-wide hotkey. A stop or timeout terminates only
 the process tree the app itself started.
 
+llama-benchy (AI, against LM Studio) is listed with the tool specs; its model is picked from LM Studio's
+models before each plan, and the confirmation warns not to use LM Studio for anything else meanwhile.
+
 Screenshots on failure are off by default (they capture the whole desktop) and
 are kept only in the run folder. Qt may grab the screen only on the GUI thread,
 so the worker asks the panel for one and waits at most 10 s for it.
@@ -20,11 +23,11 @@ from typing import Callable, List, Optional, Tuple
 from PySide6.QtCore import QThread, Qt, Signal, Slot
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
-    QCheckBox, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QMessageBox,
+    QCheckBox, QGroupBox, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QMessageBox,
     QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout,
 )
 
-from app.automation.cli_workload import load_workloads
+from app.ai.llama_benchy import load_workloads
 from app.automation.plan_text import plan_overview
 from app.automation.runner import AutomationRunner, PlanItem, RunSummary
 from app.telemetry import sources as telemetry_sources
@@ -68,6 +71,32 @@ class AutomationWorker(QThread):
         except Exception as e:   # e.g. database error; the runs already stored stay stored
             logger.exception("Automated plan failed")
             self.finished_plan.emit(f"plan aborted: {e}")
+
+
+def _spec_value(wl, name: str):
+    """timeout_seconds / verified from the tool spec, or from the workload itself (llama-benchy)."""
+    spec = getattr(wl, "spec", None)
+    return getattr(spec, name) if spec is not None else getattr(wl, name)
+
+
+def choose_model(parent, read_models=None) -> Optional[str]:
+    """LM Studio model for llama-benchy (loaded ones first); None when cancelled or the server is not reachable.
+    Reads LM Studio's local server once (5 s limit)."""
+    from app.ai import lmstudio
+    try:
+        models = (read_models or lmstudio.read_models)()
+    except (OSError, ValueError) as e:
+        QMessageBox.warning(parent, "llama-benchy", f"LM Studio's server is not reachable: {e}\n"
+                            "Start the server in LM Studio (Developer tab) and try again.")
+        return None
+    models = [m for m in models if m.get("type") in (None, "llm", "vlm")]
+    models.sort(key=lambda m: m.get("state") != "loaded")
+    if not models:
+        QMessageBox.warning(parent, "llama-benchy", "LM Studio lists no language models.")
+        return None
+    labels = [f"{m['id']}  ({m.get('quantization', '?')}, {m.get('state', '?')})" for m in models]
+    label, ok = QInputDialog.getItem(parent, "llama-benchy model", "Model to measure (LM Studio):", labels, 0, False)
+    return models[labels.index(label)]["id"] if ok else None
 
 
 class AutomationPanel(QGroupBox):
@@ -170,15 +199,18 @@ class AutomationPanel(QGroupBox):
     # ---- plan --------------------------------------------------------------
     def build_plan(self, workloads, profile) -> List[PlanItem]:
         return [PlanItem(wl, repetitions=profile.repetitions, warmup_runs=profile.warmup_runs,
-                         timeout_seconds=wl.spec.timeout_seconds) for wl in workloads]
+                         timeout_seconds=_spec_value(wl, "timeout_seconds")) for wl in workloads]
 
     def overview(self, plan: List[PlanItem], cooldown: int) -> dict:
         return plan_overview([{"display_name": p.workload.display_name,
                                "command": p.workload.describe_command(),
                                "repetitions": p.repetitions, "warmup_runs": p.warmup_runs,
                                "timeout_seconds": int(p.timeout_seconds),
-                               "verified": p.workload.spec.verified, "is_test": p.workload.is_test}
+                               "verified": _spec_value(p.workload, "verified"), "is_test": p.workload.is_test}
                               for p in plan], cooldown)
+
+    def choose_model(self) -> Optional[str]:
+        return choose_model(self)
 
     def confirm(self, text: str) -> bool:
         return QMessageBox.question(self, "Run automated benchmarks?", text,
@@ -194,7 +226,8 @@ class AutomationPanel(QGroupBox):
             run_settings=profile.settings(), environment=self.get_environment(),
             benchmarks_used=[{"name": wl.id, "display_name": wl.display_name, "version": wl.version(),
                               "executable_path": wl.executable()[0],
-                              "detection_method": "tool spec " + wl.executable()[1]}
+                              "detection_method": "tool spec " + wl.executable()[1],
+                              **({"model": wl.model} if getattr(wl, "model", None) else {})}
                              for wl in workloads],
             commit=git_commit())
         try:
@@ -218,11 +251,20 @@ class AutomationPanel(QGroupBox):
             started = []
             self.lhm.ensure(lambda: started.append(self.start_plan(tools_ready=True)))
             return bool(started and started[0])      # empty: it asks or downloads first, the run starts later
+        for wl in workloads:
+            if hasattr(wl, "model"):          # llama-benchy: the model is chosen for every plan
+                wl.model = self.choose_model()
+                if not wl.model:
+                    self.status_label.setText("No llama-benchy model chosen; nothing was run.")
+                    return False
         profile = self.get_profile()
         plan = self.build_plan(workloads, profile)
         info = self.overview(plan, int(profile.cooldown_seconds))
         text = (info["text"] + f"\n\nRun settings from profile {profile.name!r}. A new session is created. "
                 f"Emergency stop: the red button or {STOP_SHORTCUT}.")
+        warnings = [wl.warning for wl in workloads if getattr(wl, "warning", None)]
+        if warnings:
+            text += "\n\nWARNING: " + "\n".join(warnings)
         if not self.confirm(text):
             self.status_label.setText("Cancelled; nothing was run.")
             return False

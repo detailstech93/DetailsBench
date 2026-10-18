@@ -28,6 +28,8 @@ from app.automation.workload import RunContext, Workload, WorkloadResult
 VERSION = "0.4.0"
 RESULT_FILE = "llama_benchy.json"
 FALLBACK = "Falling back to 'gpt2' tokenizer"
+WARNING = ("Do not use LM Studio for anything else during this run (for example a local coding agent on this "
+           "computer): the numbers would measure both.")
 METRICS = (("pp_throughput", "pp", "tok/s"), ("tg_throughput", "tg", "tok/s"),
            ("ttfr", "ttfr", "ms"), ("e2e_ttft", "e2e_ttft", "ms"))
 
@@ -89,9 +91,12 @@ class LlamaBenchyWorkload(Workload):
     id = "llama_benchy"
     display_name = "llama-benchy (LM Studio)"
     benchmark_type = "ai"
+    timeout_seconds = 1800
+    verified = True                   # checked with a real run on this computer (2026-10-18)
+    warning = WARNING
 
-    def __init__(self, model: str, base_url: str = lmstudio.DEFAULT_URL, pp: int = 512, tg: int = 128,
-                 depths: Sequence[int] = (0,), runs: int = 3, exe: Optional[Path] = None,
+    def __init__(self, model: Optional[str], base_url: str = lmstudio.DEFAULT_URL, pp: int = 512, tg: int = 128,
+                 depths: Sequence[int] = (0,), runs: int = 1, exe: Optional[Path] = None,
                  read_models: Callable = lmstudio.read_models,
                  read_runtimes: Callable[[], Dict[str, str]] = lambda: lmstudio.read_runtimes(lmstudio.lms_path())):
         self.model, self.base_url, self.pp, self.tg = model, base_url, pp, tg
@@ -102,6 +107,9 @@ class LlamaBenchyWorkload(Workload):
     def availability(self) -> Tuple[bool, str]:
         return (True, str(self.exe)) if self.exe else (False, "llama-benchy not installed in the app's Python")
 
+    def executable(self) -> Tuple[Optional[str], str]:
+        return (str(self.exe) if self.exe else None), "app Python scripts folder"
+
     def version(self) -> Optional[str]:
         return VERSION
 
@@ -111,7 +119,7 @@ class LlamaBenchyWorkload(Workload):
         return subprocess.list2cmdline(self._command("<run folder>/" + RESULT_FILE))
 
     def _command(self, result_path: str) -> List[str]:
-        return build_command(str(self.exe), self.base_url, self.model, self.pp, self.tg, self.depths,
+        return build_command(str(self.exe), self.base_url, self.model or "<model>", self.pp, self.tg, self.depths,
                              self.runs, result_path)
 
     def _model_record(self) -> Dict[str, object]:
@@ -125,6 +133,8 @@ class LlamaBenchyWorkload(Workload):
     def run(self, ctx: RunContext) -> WorkloadResult:
         if not self.exe:
             return WorkloadResult(status="skipped", error="llama-benchy not installed in the app's Python")
+        if not self.model:
+            return WorkloadResult(status="skipped", error="no model chosen")
         folder = Path(ctx.output_dir)
         result_path = folder / RESULT_FILE
         command = self._command(str(result_path))
@@ -159,3 +169,10 @@ class LlamaBenchyWorkload(Workload):
             return WorkloadResult(status="invalid", error=f"output not usable: {error}", metrics=metrics, **common)
         metrics.update({k: v for k, v in ai_run.items() if isinstance(v, str)})
         return WorkloadResult(status="completed", score=score, unit="tok/s", metrics=metrics, **common)
+
+
+def load_workloads():
+    """Automated runs: the tool specs in data/tools plus llama-benchy (its model is chosen before each plan)."""
+    from app.automation.cli_workload import load_workloads as load_cli
+    workloads, errors = load_cli()
+    return workloads + [LlamaBenchyWorkload(None)], errors

@@ -38,6 +38,7 @@ def _benchmark_entry(bm: Mapping) -> dict:
         "detection_method": bm.get("detection_method"),
         "compatibility": compat.get("status"),
         "comparable_to_native": compat.get("comparable_to_native", True),
+        **({"model": bm["model"]} if bm.get("model") else {}),       # AI tools: the model measured
     }
 
 

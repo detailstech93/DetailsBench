@@ -452,7 +452,11 @@ tokenizer used: when the model's Hugging Face tokenizer cannot be loaded, llama-
 the record says the token counts are approximate. Its first run downloads a Project Gutenberg text (prompt
 source) into `~/.cache/llama-benchy`. Do not run it while LM Studio is used for anything else (for example a
 local coding agent). `python scripts/verify_llama_benchy.py <model id> <folder>` runs one short real check.
-Planned next: wiring into the app's runs, then MLPerf Client (needs installing first, with permission).
+In the app it is listed under **Automated runs** as "llama-benchy (LM Studio)": before each plan you pick the
+model from LM Studio's language models (loaded ones first; LM Studio's server must be running), and the
+confirmation warns not to use LM Studio for anything else during the run. Each run uses `--runs 1` (the
+profile's repetitions and warm-up repeat it), a 30 minute limit, and the session manifest records the model.
+Planned next: MLPerf Client (needs installing first, with permission).
 
 ### Telemetry
 

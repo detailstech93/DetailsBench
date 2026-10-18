@@ -126,3 +126,38 @@ def test_main_window_has_panel_and_shuts_it_down(qapp, tmp_path):
     with patch.object(w.automation_panel, "shutdown") as shutdown:
         w.close()
     shutdown.assert_called_once()
+
+
+def test_llama_benchy_asks_model_and_warns(qapp, tmp_path):
+    import json
+    from tests.test_llama_benchy import RESULT, PyBenchy, _fake
+    from app.ai import llama_benchy
+    assert "llama_benchy" in [w.id for w in llama_benchy.load_workloads()[0]]
+    script = _fake(tmp_path, f"open(out, 'w').write({json.dumps(json.dumps(RESULT))})\n")
+    wl = PyBenchy(script)
+    wl.model = None
+    profile = RunProfile(name="one", repetitions=1, warmup_runs=0, cooldown_seconds=0)
+    panel, db = make_panel(tmp_path, [wl], profile=profile)
+    panel.set_checked("llama_benchy")
+    panel.telemetry_box.setChecked(False)
+    panel.choose_model = lambda: None
+    assert panel.start_plan() is False and "No llama-benchy model chosen" in panel.status_label.text()
+    panel.choose_model = lambda: "google/gemma-4-12b-qat"
+    assert panel.start_plan() is True
+    assert "WARNING: Do not use LM Studio for anything else" in panel.asked[0]
+    finish(qapp, panel)
+    runs = db.get_runs(panel.last_session_id, include_test=True)
+    assert [(r["score"], r["status"]) for r in runs] == [(14.098, "completed")]
+    assert db.get_session_manifest(panel.last_session_id)["benchmarks"][0]["model"] == "google/gemma-4-12b-qat"
+
+
+def test_choose_model_lists_loaded_first_and_handles_no_server(qapp):
+    from app.ui import automation_panel
+    with patch.object(automation_panel.QMessageBox, "warning") as warn:
+        assert automation_panel.choose_model(None, read_models=lambda: (_ for _ in ()).throw(OSError("refused"))) is None
+        assert "not reachable" in warn.call_args[0][2]
+    models = [{"id": "a", "type": "llm", "state": "not-loaded"}, {"id": "emb", "type": "embeddings"},
+              {"id": "b", "type": "vlm", "quantization": "Q4_K_M", "state": "loaded"}]
+    with patch.object(automation_panel.QInputDialog, "getItem", side_effect=lambda *a: (a[3][0], True)) as get:
+        assert automation_panel.choose_model(None, read_models=lambda: models) == "b"
+        assert get.call_args[0][3] == ["b  (Q4_K_M, loaded)", "a  (?, not-loaded)"]
