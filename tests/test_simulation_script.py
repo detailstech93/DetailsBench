@@ -243,7 +243,8 @@ def test_steam_game_script_reads_the_result_file_and_closes_only_new_processes(t
     assert wl.availability() == (True, "found (Steam library)") and wl.verified is True
     assert result.status == "completed" and result.score == 88.5 and result.unit == "FPS"
     assert result.metrics == {"min_fps": (70.25, "FPS"), "max_fps": (120.0, "FPS")}
-    assert steam.launched == (1091500, "Z:/Steam/common/Cyberpunk 2077", ["--launcher-skip", "-skipStartScreen"])
+    assert steam.launched == (1091500, "Z:/Steam/common/Cyberpunk 2077", ["--launcher-skip", "-skipStartScreen",
+                                                                         "-benchmark"])
     assert steam.closed == [50]                                   # never the helper that ran before
     assert (out / "result_b1_summary.json").exists() and (out / "screenshot_menu.png").exists()
 

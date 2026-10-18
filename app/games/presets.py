@@ -1,4 +1,4 @@
-"""Game presets: four simple choices (resolution, upscaler, ray tracing, quality) turned into each game's settings.
+"""Game presets: five simple choices (resolution, upscaler, ray tracing, frame generation, quality) turned into each game's settings.
 
 The run dialog asks these once for one game or for every selected game. Per game, a choice becomes a value the
 game's adapter can write and check (app/games/settings_file.py ForcedSettings), using only values the adapter
@@ -13,12 +13,13 @@ KEEP = "keep"
 RESOLUTIONS = (KEEP, "1280x720", "1920x1080", "2560x1440", "3840x2160")
 UPSCALERS = (KEEP, "off", "dlss", "fsr", "xess")
 RAY_TRACING = (KEEP, "on", "off")
+FRAME_GEN = (KEEP, "off", "on")
 QUALITIES = (KEEP, "low", "medium", "high", "ultra")
 
 LABELS = {KEEP: "Keep the game's own", "off": "Off", "on": "On", "dlss": "DLSS", "fsr": "FSR", "xess": "XeSS",
           "low": "Low", "medium": "Medium", "high": "High", "ultra": "Ultra"}
 CHOICE_NAMES = {"resolution": "Resolution", "upscaler": "Upscaler", "ray_tracing": "Ray tracing",
-                "quality": "Quality"}
+                "frame_gen": "Frame generation", "quality": "Quality"}
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,7 @@ class GamePreset:
     upscaler: str = KEEP
     ray_tracing: str = KEEP
     quality: str = KEEP
+    frame_gen: str = KEEP
 
     def chosen(self) -> Dict[str, str]:
         return {k: v for k, v in self.__dict__.items() if v != KEEP}
@@ -38,7 +40,7 @@ class GamePreset:
     def from_dict(data) -> "GamePreset":
         data = data if isinstance(data, dict) else {}
         allowed = {"resolution": RESOLUTIONS, "upscaler": UPSCALERS, "ray_tracing": RAY_TRACING,
-                   "quality": QUALITIES}
+                   "frame_gen": FRAME_GEN, "quality": QUALITIES}
         out = {}
         for key, values in allowed.items():
             value = data.get(key, KEEP)
@@ -85,10 +87,26 @@ def _on_off(choice: str, offered: list) -> Optional[object]:
     return value if value in offered and any(isinstance(v, bool) for v in offered) else None
 
 
+def _frame_gen(choice: str, offered: list) -> Optional[object]:
+    """frame generation: an on/off switch, the Off / DLSS / FSR list (on: the DLSS value, else the only other one)
+    or the multi frame list x2 / x3 / x4 (on: x2, plain frame generation; off leaves it as it is)."""
+    if any(isinstance(v, bool) for v in offered):
+        return _on_off(choice, offered)
+    texts = [v for v in offered if isinstance(v, str)]
+    if any(v.lower() == "x2" for v in texts):
+        return _exact_text("x2", texts) if choice == "on" else None
+    if choice == "off":
+        return _exact_text("off", texts)
+    others = [v for v in texts if v.lower() != "off"]
+    dlss = [v for v in others if "dlss" in v.lower()]
+    return dlss[0] if dlss else (others[0] if len(others) == 1 else None)
+
+
 @dataclass(frozen=True)
 class Target:
     keys: Tuple[str, ...]          # the adapter's setting keys this choice writes (all of them get the same value)
     match: Matcher
+    optional: Tuple[str, ...] = ()  # keys left as they are when no offered value matches (the rest must match)
 
 
 # The settings each game's adapter knows (app/games/<game>.py SETTINGS). A choice missing here has no setting in
@@ -98,6 +116,8 @@ GAME_TARGETS: Dict[str, Dict[str, Target]] = {
         "resolution": Target(("resolution",), _exact_text),
         "upscaler": Target(("upscaler",), _contains),
         "ray_tracing": Target(("ray_tracing",), _on_off),
+        "frame_gen": Target(("frame_gen", "dlss_frame_gen", "multi_frame_gen"), _frame_gen,
+                            optional=("multi_frame_gen",)),
         "quality": Target(("preset",), _exact_text),
     },
     "397540": {    # Borderlands 3
@@ -142,6 +162,8 @@ def plan_preset(app_id, preset: GamePreset, offered: Dict[str, list]) -> Tuple[D
             if key not in offered:
                 continue
             match = target.match(value, list(offered[key]))
+            if match is None and key in target.optional:
+                continue
             if match is None:
                 found = None
                 break

@@ -1,17 +1,17 @@
 {
   "id": "cyberpunk2077_builtin_benchmark",
-  "display_name": "Cyberpunk 2077 built-in benchmark (assisted: you start it from the menu)",
+  "display_name": "Cyberpunk 2077 built-in benchmark",
   "benchmark_type": "game",
   "steam_app": 1091500,
   "timeout_seconds": 1200,
   "verified": true,
-  "warning": "Cyberpunk 2077 starts through Steam. When its main menu shows, start the built-in benchmark yourself (Settings, then Run Benchmark); the app waits up to 15 minutes for the result file and then closes the game. Do not use the computer otherwise meanwhile.",
+  "warning": "Cyberpunk 2077 starts by itself with -benchmark (the argument the Phoronix Test Suite uses): the game loads straight into its built-in benchmark, the app waits up to 10 minutes for the result file and then closes the game. Do not use the computer meanwhile.",
   "steps": [
-    {"do": "launch_steam", "args": ["--launcher-skip", "-skipStartScreen"], "timeout": 120},
+    {"do": "launch_steam", "args": ["--launcher-skip", "-skipStartScreen", "-benchmark"], "timeout": 120},
     {"do": "wait_window", "name": "game", "timeout": 120},
     {"do": "wait", "seconds": 20},
     {"do": "screenshot", "name": "menu"},
-    {"do": "wait_file", "name": "result", "glob": "%USERPROFILE%\\Documents\\CD Projekt Red\\Cyberpunk 2077\\benchmarkResults\\*\\summary.json", "timeout": 900, "settle": 3},
+    {"do": "wait_file", "name": "result", "glob": "%USERPROFILE%\\Documents\\CD Projekt Red\\Cyberpunk 2077\\benchmarkResults\\*\\summary.json", "timeout": 600, "settle": 3},
     {"do": "screenshot", "name": "result"},
     {"do": "read_json", "file": "result", "values": {
       "average_fps": {"path": ["Data", "averageFps"], "unit": "FPS"},
@@ -35,5 +35,5 @@
     {"do": "read_frames", "file": "result", "csv": "frames.csv", "column": "Frame time (ms)"}
   ],
   "score": {"value": "average_fps", "unit": "FPS", "higher_is_better": true},
-  "notes": "Verified on 2026-10-18 with the owner present (session 4, game version 2.31, RTX 5090 Laptop, 2560x1440): the game is started directly (bin/x64/Cyberpunk2077.exe with the arguments, so Steam asks nothing), summary.json was written to Documents\\CD Projekt Red\\Cyberpunk 2077\benchmarkResults\benchmark_<date>\\, Data.averageFps / minFps / maxFps were read (76.43 / 65.57 / 104.37 FPS) and the app closed the game. -skipStartScreen did not skip the 'press to continue' screen in 2.31: the user presses a key there, then starts the benchmark from the menu. No keys are sent. If the file or its keys differ, the run is 'invalid' (never a 0). Frame times by PresentMon are a separate capture (Frame capture tab)."
+  "notes": "Verified on 2026-10-18 with the owner present (session 4, game version 2.31, RTX 5090 Laptop, 2560x1440): the game is started directly (bin/x64/Cyberpunk2077.exe with the arguments, so Steam asks nothing), summary.json was written to Documents\\CD Projekt Red\\Cyberpunk 2077\benchmarkResults\benchmark_<date>\\, Data.averageFps / minFps / maxFps were read (76.43 / 65.57 / 104.37 FPS) and the app closed the game. -skipStartScreen did not skip the 'press to continue' screen in 2.31: the user presses a key there, then starts the benchmark from the menu. No keys are sent. If the file or its keys differ, the run is 'invalid' (never a 0). Frame times by PresentMon are a separate capture (Frame capture tab). Since 2026-10-18 the run is automatic: -benchmark is passed so the game starts the benchmark by itself (to be confirmed on a real run)."
 }

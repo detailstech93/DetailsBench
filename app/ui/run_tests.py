@@ -95,7 +95,8 @@ class PresetBox(QGroupBox):
         form = QFormLayout(self)
         self.combos: Dict[str, QComboBox] = {}
         values = {"resolution": presets.resolutions_offered([o for o, _ in offered.values() if o]),
-                  "upscaler": presets.UPSCALERS, "ray_tracing": presets.RAY_TRACING, "quality": presets.QUALITIES}
+                  "upscaler": presets.UPSCALERS, "ray_tracing": presets.RAY_TRACING,
+                  "frame_gen": presets.FRAME_GEN, "quality": presets.QUALITIES}
         for key, options in values.items():
             combo = QComboBox()
             for value in options:
