@@ -189,3 +189,68 @@ def test_plan_state_waits_for_the_finished_signal():
     never = SimpleNamespace(is_running=lambda: False, step=(0, 0, ""), lhm=SimpleNamespace(busy=lambda: False),
                             on_plan_finished=object())
     assert plan_state(never, {}).text == "Not started." and never.on_plan_finished is None
+
+
+OFFERED = {"1091500": ({"resolution": ["2560x1440"], "preset": ["Custom", "Ultra"], "upscaler": ["Off", "DLSS"],
+                        "ray_tracing": [True, False]}, None),
+           "750920": (None, "the app cannot set this game's settings")}
+
+
+def test_preset_box_shows_what_each_game_gets(qapp):
+    from app.games.presets import GamePreset
+    from app.ui.run_tests import PresetBox
+    box = PresetBox([("1091500", "Cyberpunk 2077"), ("750920", "Shadow of the Tomb Raider")], OFFERED,
+                    GamePreset(ray_tracing="on"))
+    assert box.preset() == GamePreset(ray_tracing="on")
+    box.combos["quality"].setCurrentIndex(box.combos["quality"].findData("high"))
+    box.combos["upscaler"].setCurrentIndex(box.combos["upscaler"].findData("dlss"))
+    text = box.summary.text()
+    assert "Cyberpunk 2077: Upscaler DLSS, Ray tracing On." in text
+    assert "not set: Quality High (the game was never seen" in text
+    assert "Shadow of the Tomb Raider: settings cannot be set (the app cannot set this game's settings)" in text
+    assert [box.combos["resolution"].itemData(i) for i in range(box.combos["resolution"].count())][:3] == \
+        ["keep", "1280x720", "1920x1080"]
+
+
+def test_one_game_from_the_tests_screen_asks_counts_and_preset_then_starts_without_the_settings_window(
+        qapp, tmp_path, monkeypatch):
+    import app.ui.run_tests as rt
+    from app.games.presets import GamePreset
+    from app.games.settings_file import SAVED_KEY
+    from app.paths import load_settings
+    with patch.object(MainWindow, "start_scan"):
+        w = MainWindow(Database(str(tmp_path / "w.db")), {"cpu_brand": "quick name"})
+    try:
+        frame = w.frame_panel
+        frame.data_dir = tmp_path / "data"                       # never the settings of this PC
+        monkeypatch.setattr(rt, "read_offered", lambda games, data_dir: dict(OFFERED))
+        calls = []
+        monkeypatch.setattr(frame, "refresh_games", lambda: None)
+        monkeypatch.setattr(frame, "select_game", lambda app_id: calls.append(("select", app_id)) or True)
+        monkeypatch.setattr(frame, "benchmark_game", lambda **kw: calls.append(("bench", kw)) or True)
+        asked = []
+
+        def ask(window, entries, profile, others, games, offered, initial):
+            asked.append((games, initial))
+            return RunChoice(5, 2, 0, GamePreset("keep", "dlss", "off", "ultra"))
+        game = entry("cp", mode=ASSISTED, group="games", source="steam",
+                     ref={"app_id": "1091500", "name": "Cyberpunk 2077", "store": "steam"})
+        assert start_tests(w, [game], ask=ask)
+        assert asked == [([("1091500", "Cyberpunk 2077")], GamePreset())]
+        assert calls == [("select", "1091500"), ("bench", {"ask_settings": False, "counts": (2, 5)})]
+        saved, _ = load_settings(tmp_path / "data")
+        assert saved[SAVED_KEY] == {"1091500": {"upscaler": "DLSS", "ray_tracing": False, "preset": "Ultra"}}
+        assert rt.last_preset(tmp_path / "data") == GamePreset("keep", "dlss", "off", "ultra")   # offered next time
+        assert "Cyberpunk 2077: Upscaler DLSS, Ray tracing Off, Quality Ultra." in w.status_label.text()
+    finally:
+        w.close()
+
+
+def test_game_of_finds_steam_games_and_game_scripts():
+    from types import SimpleNamespace
+    from app.ui.run_tests import game_of
+    assert game_of(entry("a", source="steam", ref={"appid": 391220, "name": "ROTTR"})) == ("391220", "ROTTR")
+    script = SimpleNamespace(script={"steam_app": 1091500})
+    assert game_of(entry("cyberpunk", ref=script)) == ("1091500", "cyberpunk")
+    assert game_of(entry("7zip", ref=SimpleNamespace(script={}))) is None
+    assert game_of(entry("lib", source="library", ref=object())) is None

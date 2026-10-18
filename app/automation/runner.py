@@ -197,7 +197,7 @@ class AutomationRunner:
                 self.session_id, wl.id, wl.benchmark_type, result.score, unit=result.unit or "points",
                 benchmark_version=wl.version(), is_test=wl.is_test, is_manual=False,
                 status=result.status, is_warmup=is_warmup, run_index=run_index,
-                note=result.error)
+                note=result.error or result.note)
             if result.status == "completed" and (result.metrics or telemetry_metrics):
                 self._store_metrics(record.result_id, {**telemetry_metrics, **(result.metrics or {})})
             if self.journal is not None:

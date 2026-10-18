@@ -13,6 +13,7 @@ UAC prompt for PresentMon, the game is launched through Steam, its process is fo
 the warmup and measured windows are captured and stored without any further step.
 """
 
+import dataclasses
 import logging
 import os
 import shutil
@@ -720,7 +721,10 @@ class FrameCapturePanel(QGroupBox):
                 return True
         return False
 
-    def benchmark_game(self, tools_ready: bool = False) -> bool:
+    def benchmark_game(self, tools_ready: bool = False, ask_settings: bool = True,
+                       counts: Optional[Tuple[int, int]] = None) -> bool:
+        """ask_settings False: the settings already chosen (Tests screen preset) are used without the settings
+        window; counts (warm-up, measured) replace the profile's."""
         """PresentMon and (with telemetry) LibreHardwareMonitor first, then one confirmation; the rest is automatic."""
         if self.is_running() or self.lhm.busy():
             return False
@@ -745,10 +749,13 @@ class FrameCapturePanel(QGroupBox):
             return False
         if self.telemetry_box.isChecked() and not tools_ready:
             started = []
-            self.lhm.ensure(lambda: started.append(self.benchmark_game(tools_ready=True)))
+            self.lhm.ensure(lambda: started.append(self.benchmark_game(tools_ready=True, ask_settings=ask_settings,
+                                                                       counts=counts)))
             return bool(started and started[0])
         from app.frames.game_benchmark import GameBenchmarkSpec
         profile = self.get_profile()
+        if counts is not None:
+            profile = dataclasses.replace(profile, warmup_runs=counts[0], repetitions=counts[1])
         appids = [str(g.get("app_id")) for g in (self.games() or [])]
         spec = GameBenchmarkSpec(game_name=str(game.get("name")), app_id=str(game.get("app_id")),
                                  install_path=str(game.get("install_path")), discovered_appids=appids,
@@ -759,7 +766,7 @@ class FrameCapturePanel(QGroupBox):
         total = spec.settle_seconds + spec.seconds * spec.count
         from app.games.settings_file import adapter_for
         from app.ui.game_settings_dialog import describe
-        if adapter_for(spec.app_id) is not None and self._ask_game_settings() == "cancelled":
+        if ask_settings and adapter_for(spec.app_id) is not None and self._ask_game_settings() == "cancelled":
             self.status_label.setText("Cancelled; nothing was started.")
             return False
         forced_values = self.forced_settings_for(spec.app_id)

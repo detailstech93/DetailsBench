@@ -1,4 +1,5 @@
-"""Tests screen -> run: ask how many times, run the automatic tests as one plan, then open the report.
+"""Tests screen -> run: ask how many times (and, for games, a preset), run the automatic tests as one plan,
+then open the report.
 
 Automatic tests (tool specs, storage, AI, simulation scripts) run together in the automation runner.
 Assisted and manual tests (Steam built-in benchmarks, library entries) keep their own flows: one of them
@@ -11,12 +12,13 @@ import os
 import sys
 import webbrowser
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
-from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFormLayout, QLabel, QMessageBox, QSpinBox,
-                               QVBoxLayout)
+from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFormLayout, QGroupBox, QLabel, QMessageBox,
+                               QSpinBox, QVBoxLayout)
 
 from app.catalog import TestEntry
+from app.games import presets
 from app.ui.tests_page import RunState
 
 logger = logging.getLogger(__name__)
@@ -27,6 +29,104 @@ class RunChoice:
     repetitions: int
     warmup_runs: int
     cooldown_seconds: int
+    preset: Optional[presets.GamePreset] = None      # None: no game selected (or the dialog had no preset)
+
+
+PRESET_KEY = "game_preset"          # settings.json: the last preset chosen on the Tests screen
+Offered = Dict[str, Tuple[Optional[dict], Optional[str]]]     # app_id -> (adapter choices, or None + why)
+
+
+def game_of(entry: TestEntry) -> Optional[Tuple[str, str]]:
+    """(Steam app id, name) of a game test (a Steam built-in benchmark or a game script), else None."""
+    if entry.source == "steam" and isinstance(entry.ref, dict):
+        app_id = entry.ref.get("app_id", entry.ref.get("appid"))
+        return (str(app_id), entry.ref.get("name") or entry.name) if app_id is not None else None
+    script = getattr(entry.ref, "script", None)
+    if entry.source == "workload" and isinstance(script, dict) and script.get("steam_app") is not None:
+        return str(script["steam_app"]), entry.name
+    return None
+
+
+def read_offered(games: List[Tuple[str, str]], data_dir) -> Offered:
+    """What each game's settings allow (read now, so values the game was seen using are learned)."""
+    from app.games.settings_file import adapter_for, read_for_dialog
+    out: Offered = {}
+    for app_id, _ in games:
+        if adapter_for(app_id) is None:
+            out[app_id] = (None, "the app cannot set this game's settings")
+            continue
+        try:
+            out[app_id] = (read_for_dialog(app_id, data_dir)[0], None)
+        except (OSError, ValueError) as e:
+            out[app_id] = (None, str(e))
+    return out
+
+
+def save_preset(data_dir, games: List[Tuple[str, str]], preset: "presets.GamePreset", offered: Offered) -> List[str]:
+    """Store the preset and, per game, the settings it becomes (what every game benchmark then forces).
+    Returns the lines that describe it."""
+    from app.games.settings_file import SAVED_KEY
+    from app.paths import load_settings, save_setting
+    settings, _ = load_settings(data_dir)
+    every = settings.get(SAVED_KEY)
+    every = dict(every) if isinstance(every, dict) else {}
+    lines = []
+    for app_id, name in games:
+        choices, problem = offered.get(app_id, (None, None))
+        lines += presets.summary_lines(app_id, name, preset, choices, problem)
+        if choices is not None:
+            every[app_id] = presets.plan_preset(app_id, preset, choices)[0]
+    save_setting(data_dir, SAVED_KEY, every)
+    save_setting(data_dir, PRESET_KEY, preset.to_dict())
+    return lines
+
+
+def last_preset(data_dir) -> "presets.GamePreset":
+    from app.paths import load_settings
+    return presets.GamePreset.from_dict(load_settings(data_dir)[0].get(PRESET_KEY))
+
+
+class PresetBox(QGroupBox):
+    """Resolution, upscaler, ray tracing and quality for the selected games, with what each game will get."""
+
+    def __init__(self, games: List[Tuple[str, str]], offered: Offered, initial: "presets.GamePreset", parent=None):
+        super().__init__("Game settings (one preset for every selected game)", parent)
+        self.games, self.offered = games, offered
+        form = QFormLayout(self)
+        self.combos: Dict[str, QComboBox] = {}
+        values = {"resolution": presets.resolutions_offered([o for o, _ in offered.values() if o]),
+                  "upscaler": presets.UPSCALERS, "ray_tracing": presets.RAY_TRACING, "quality": presets.QUALITIES}
+        for key, options in values.items():
+            combo = QComboBox()
+            for value in options:
+                combo.addItem(presets.LABELS.get(value, value), value)
+            combo.setCurrentIndex(max(0, combo.findData(getattr(initial, key))))
+            combo.currentIndexChanged.connect(self.update_summary)
+            form.addRow(presets.CHOICE_NAMES[key] + ":", combo)
+            self.combos[key] = combo
+        self.summary = QLabel()
+        self.summary.setWordWrap(True)
+        form.addRow(self.summary)
+        note = QLabel("Before each game starts, the app copies its settings, writes these values and checks them; "
+                      "after the run it puts your own settings back.")
+        note.setWordWrap(True)
+        note.setStyleSheet("color: gray;")
+        form.addRow(note)
+        self.update_summary()
+
+    def preset(self) -> "presets.GamePreset":
+        return presets.GamePreset(**{k: c.currentData() for k, c in self.combos.items()})
+
+    def lines(self) -> List[str]:
+        p = self.preset()
+        out = []
+        for app_id, name in self.games:
+            choices, problem = self.offered.get(app_id, (None, None))
+            out += presets.summary_lines(app_id, name, p, choices, problem)
+        return out
+
+    def update_summary(self, *_):
+        self.summary.setText("\n".join(self.lines()))
 
 
 def split_entries(entries: List[TestEntry]):
@@ -36,7 +136,9 @@ def split_entries(entries: List[TestEntry]):
 
 
 class RunTestsDialog(QDialog):
-    def __init__(self, entries: List[TestEntry], profile, others: List[TestEntry], parent=None):
+    def __init__(self, entries: List[TestEntry], profile, others: List[TestEntry], parent=None,
+                 games: Optional[List[Tuple[str, str]]] = None, offered: Optional[Offered] = None,
+                 initial: Optional["presets.GamePreset"] = None):
         super().__init__(parent)
         self.setWindowTitle("Run tests")
         layout = QVBoxLayout(self)
@@ -57,6 +159,10 @@ class RunTestsDialog(QDialog):
         form.addRow("Warm-up runs before them (not counted):", self.warmup)
         form.addRow("Pause between runs:", self.cooldown)
         layout.addLayout(form)
+        self.preset_box = None
+        if games:
+            self.preset_box = PresetBox(games, offered or {}, initial or presets.GamePreset())
+            layout.addWidget(self.preset_box)
         if others:
             note = QLabel("Not in this plan (they need you, start them after it from the Tests screen):\n"
                           + "\n".join(f"  • {e.name}" for e in others))
@@ -69,11 +175,12 @@ class RunTestsDialog(QDialog):
         layout.addWidget(buttons)
 
     def choice(self) -> RunChoice:
-        return RunChoice(self.repetitions.value(), self.warmup.value(), self.cooldown.value())
+        return RunChoice(self.repetitions.value(), self.warmup.value(), self.cooldown.value(),
+                         self.preset_box.preset() if self.preset_box is not None else None)
 
 
-def ask_choice(window, entries, profile, others) -> Optional[RunChoice]:
-    dialog = RunTestsDialog(entries, profile, others, window)
+def ask_choice(window, entries, profile, others, games=None, offered=None, initial=None) -> Optional[RunChoice]:
+    dialog = RunTestsDialog(entries, profile, others, window, games, offered, initial)
     return dialog.choice() if dialog.exec() == QDialog.Accepted else None
 
 
@@ -122,18 +229,32 @@ def plan_state(panel, result: dict) -> RunState:
 
 def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_report) -> bool:
     automatic, others = split_entries(entries)
-    if not automatic and len(others) == 1:
+    lone_game = not automatic and len(others) == 1 and others[0].source == "steam"
+    if not automatic and len(others) == 1 and not lone_game:
         return start_other(window, others[0])
-    if not automatic:
+    if not automatic and not lone_game:
         QMessageBox.information(window, "Run tests", "These tests need you; start them one at a time.")
         return False
     panel = window.automation_panel
     if panel.is_running() or window.frame_panel.is_running():
         QMessageBox.information(window, "Run tests", "A run is already going on; wait for it or stop it first.")
         return False
-    choice = ask(window, automatic, window.selected_profile(), others)
+    data_dir = window.frame_panel.data_dir
+    games = [g for g in (game_of(e) for e in automatic + others) if g]
+    offered = read_offered(games, data_dir) if games else {}
+    choice = ask(window, automatic or others, window.selected_profile(), [] if lone_game else others,
+                 games, offered, last_preset(data_dir) if games else None)
     if choice is None:
         return False
+    if games and choice.preset is not None:
+        try:
+            lines = save_preset(data_dir, games, choice.preset, offered)
+            window.status_label.setText(" ".join(line.strip() for line in lines)[:300])
+        except (OSError, ValueError) as e:
+            QMessageBox.warning(window, "Run tests", f"The game settings could not be saved: {e}")
+            return False
+    if lone_game:
+        return start_other(window, others[0], choice)
     folder = Path(panel.output_root).parent / "reports" if panel.output_root else None
     result: dict = {}
 
@@ -167,8 +288,9 @@ def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_re
     return started
 
 
-def start_other(window, entry: TestEntry) -> bool:
-    """One assisted or manual test: hand it to the flow that already runs it."""
+def start_other(window, entry: TestEntry, choice: Optional[RunChoice] = None) -> bool:
+    """One assisted or manual test: hand it to the flow that already runs it. With a choice from the run
+    dialog, a Steam game uses its counts and the preset saved for it (no settings window)."""
     if window.automation_panel.is_running() or window.frame_panel.is_running():
         QMessageBox.information(window, "Run tests", "A run is already going on; wait for it or stop it first.")
         return False
@@ -181,7 +303,10 @@ def start_other(window, entry: TestEntry) -> bool:
         if not frame.select_game(game["app_id"]):
             QMessageBox.information(window, "Run tests", f"{game['name']} is not fully installed.")
             return False
-        frame.benchmark_game()
+        if choice is None:
+            frame.benchmark_game()
+        else:
+            frame.benchmark_game(ask_settings=False, counts=(choice.warmup_runs, choice.repetitions))
         if frame.is_running() or frame.lhm.busy():
             window.tests_page.watch(
                 lambda: RunState(frame.is_running() or frame.lhm.busy(), 0, None, frame.status_label.text()),

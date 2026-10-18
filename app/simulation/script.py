@@ -13,7 +13,13 @@ A script is a JSON file in data/scripts: the program to start and a list of step
   screenshot   name                           save the screen as screenshot_<name>.png in the run folder
   wait_file    name, glob (%VARS%)            wait for a file written after the start (the game's own result
                                               file); a copy goes to the run folder
-  read_json    file, values {name: {path [keys], unit}}   read numbers from that file
+  read_json    file, values {name: {path [keys], unit}}   read numbers from that file; optional
+               settings {label: {path} | {paths, join} | {any_true {name: path}, none}}: the settings the
+               game says it used, kept as text with the run ("Resolution 2560x1440, Upscaler DLSS")
+  read_frames  file, csv, column              the game's own frame-time file next to that result file:
+                                              1% and 0.1% low FPS (app/frames/stats.py), copied to the run folder
+A Steam game with a settings adapter gets the settings chosen for it (a preset from the Tests screen, saved in
+settings.json) written before the launch and the user's own put back after the run (ForcedSettings).
 The program and everything it started is closed at the end (politely, then by force after a grace
 time), whatever happened. A run with a value missing is "invalid"; a key is never sent unless the
 focused window is ours (app/simulation/desktop.py); a script whose result was never seen on a real
@@ -42,7 +48,7 @@ CLOSE_GRACE_SECONDS = 10.0
 POLL_SECONDS = 0.5
 ENDED_GRACE_SECONDS = 10.0    # a launcher may end before the game it starts shows up: wait before "ended"
 STEP_KINDS = ("launch", "launch_steam", "wait_window", "keys", "wait", "wait_control", "read", "screenshot",
-              "wait_file", "read_json")
+              "wait_file", "read_json", "read_frames")
 
 
 class StepError(Exception):
@@ -79,7 +85,7 @@ def validate_script(data) -> List[str]:
             errors.append(f"step {i + 1}: a key name is not known")
         if kind == "wait_file":
             files.add(step.get("name"))
-        if kind == "read_json" and step.get("file") not in files:
+        if kind in ("read_json", "read_frames") and step.get("file") not in files:
             errors.append(f"step {i + 1}: file {step.get('file')!r} is not waited for before")
     reads = [n for s in steps if isinstance(s, dict) and s.get("do") in ("read", "read_json")
              for n in s.get("values", {})]
@@ -91,8 +97,11 @@ def validate_script(data) -> List[str]:
 class SimulationWorkload(Workload):
     def __init__(self, script: dict, env=None, exists: Callable[[str], bool] = os.path.isfile,
                  which: Callable[[str], Optional[str]] = shutil.which, desktop=None,
-                 find_game: Optional[Callable[[int], Optional[str]]] = None, steam_hooks=None):
+                 find_game: Optional[Callable[[int], Optional[str]]] = None, steam_hooks=None,
+                 data_dir: Optional[Path] = None, forced_factory=None):
         self.script = script
+        self.data_dir = data_dir                    # settings.json and learned game values (None: the user's)
+        self.forced_factory = forced_factory        # tests swap in a fake ForcedSettings
         self.id = script["id"]
         self.display_name = script["display_name"]
         self.benchmark_type = script.get("benchmark_type", "cpu")
@@ -140,8 +149,72 @@ class SimulationWorkload(Workload):
         desktop = self._desktop or default_desktop()
         if desktop is None:
             return WorkloadResult("skipped", error="simulation scripts run on Windows only")
-        return ScriptRun(self.script, path, desktop, ctx, env=self.env,
-                         steam=self.steam_hooks or SteamHooks()).run()
+        forced = self._forced(ctx)
+        if forced is not None:
+            try:
+                rec = forced.apply()
+            except (OSError, ValueError) as e:
+                forced.finish()                     # puts back whatever was written before the error
+                return WorkloadResult("failed", error=f"the game settings could not be set: {e}")
+            problem = settings_problem(rec)
+            if problem:
+                forced.finish()
+                return WorkloadResult("failed", error=problem)
+        try:
+            result = ScriptRun(self.script, path, desktop, ctx, env=self.env,
+                               steam=self.steam_hooks or SteamHooks()).run()
+        finally:
+            if forced is not None:
+                forced.finish()                     # the game is closed by now: check, then put the user's back
+        if forced is not None:
+            result = with_settings_record(result, forced.record, Path(ctx.output_dir))
+        return result
+
+    def _forced(self, ctx: RunContext):
+        """ForcedSettings for the values chosen for this game (Tests screen preset), or None."""
+        app_id = self.script.get("steam_app")
+        if app_id is None:
+            return None
+        from app.games.settings_file import adapter_for, saved_choice
+        from app.paths import get_data_dir, load_settings
+        if adapter_for(app_id) is None:
+            return None
+        data_dir = Path(self.data_dir) if self.data_dir is not None else get_data_dir()
+        values = saved_choice(load_settings(data_dir)[0], app_id)
+        if not values:
+            return None
+        from app.games.settings_file import ForcedSettings
+        return (self.forced_factory or ForcedSettings)(app_id, values, Path(ctx.output_dir), data_dir)
+
+
+def settings_problem(rec) -> Optional[str]:
+    """Why the game must not start with these settings (not written as asked), or None. Values the preset
+    could not map were never requested; a value the adapter refuses fails the run instead of being skipped."""
+    if rec.refused:
+        return "settings not set: " + "; ".join(f"{k}: {why}" for k, why in rec.refused.items())
+    if rec.mismatch_before_launch:
+        return "settings not written as asked: " + ", ".join(rec.mismatch_before_launch)
+    return None
+
+
+def with_settings_record(result: WorkloadResult, record, out: Path) -> WorkloadResult:
+    """Keep the record in the run folder; a completed run whose settings the game changed is not valid."""
+    try:
+        (out / "game_settings.json").write_text(json.dumps(record.to_dict(), indent=1, ensure_ascii=False),
+                                                encoding="utf-8")
+    except OSError:
+        pass
+    forced = "Forced: " + ", ".join(f"{k} {v}" for k, v in record.requested.items())
+    if record.restored is False:
+        forced += "; your own settings were NOT put back: " + "; ".join(record.notes)
+    if result.status == "completed" and record.mismatch_after_run:
+        return WorkloadResult("invalid", error="the game did not keep the forced settings: " + ", ".join(
+            f"{k} {exp} -> {act}" for k, (exp, act) in record.mismatch_after_run.items()) + ". " + forced,
+            duration_seconds=result.duration_seconds, command=result.command)
+    result.note = "; ".join(x for x in (result.note, forced) if x)
+    if result.status != "completed":
+        result.error = "; ".join(x for x in (result.error, forced) if x)
+    return result
 
 
 def find_steam_game(appid: int) -> Optional[str]:
@@ -202,6 +275,8 @@ class ScriptRun:
         self.procs: Dict[int, object] = {}
         self.windows: Dict[str, int] = {}
         self.values: Dict[str, Tuple[float, Optional[str]]] = {}
+        self.settings_used: List[str] = []          # "Label value" the game reported using
+        self.sources: Dict[str, Path] = {}          # wait_file name -> the game's own file
         self.log: List[str] = []
         self.out = Path(ctx.output_dir)
 
@@ -300,6 +375,7 @@ class ScriptRun:
             copy = self.out / f"result_{path.parent.name}_{path.name}"
             shutil.copyfile(path, copy)
             self.files[s["name"]] = copy
+            self.sources[s["name"]] = path
             self.note(f"result file {s['name']!r}: {path.name} (copied to {copy.name})")
         elif kind == "read_json":
             try:
@@ -313,6 +389,27 @@ class ScriptRun:
                 if isinstance(value, (int, float)) and not isinstance(value, bool):
                     self.values[name] = (float(value), spec.get("unit"))
             self.note("read " + ", ".join(f"{k}={v[0]}" for k, v in self.values.items()))
+            self.settings_used = [f"{label} {text}" for label, text in
+                                  ((label, settings_text(data, spec)) for label, spec in s.get("settings", {}).items())
+                                  if text is not None]
+            if self.settings_used:
+                self.note("settings used: " + ", ".join(self.settings_used))
+        elif kind == "read_frames":
+            source = self.sources[s["file"]].parent / s["csv"]
+            if not source.is_file():
+                self.note(f"no frame-time file {s['csv']} next to the result: 1% low not measured")
+                return
+            copy = self.out / f"frames_{source.parent.name}_{source.name}"
+            shutil.copyfile(source, copy)
+            times = frame_times(copy.read_text(encoding="utf-8-sig", errors="replace"), s["column"])
+            if len(times) < 100:
+                self.note(f"{source.name}: only {len(times)} frame times: 1% low not measured")
+                return
+            from app.frames.stats import low_fps
+            self.values["low_1pct_fps"] = (low_fps(times, 0.01), "FPS")
+            self.values["low_01pct_fps"] = (low_fps(times, 0.001), "FPS")
+            self.note(f"{source.name}: {len(times)} frames, 1% low {self.values['low_1pct_fps'][0]:.1f} FPS, "
+                      f"0.1% low {self.values['low_01pct_fps'][0]:.1f} FPS")
         elif kind == "wait_window":
             win = self.until(f"window {s['name']!r}", s.get("timeout", 30), lambda: self.window_matching(s))
             self.windows[s["name"]] = win.hwnd
@@ -389,7 +486,56 @@ class ScriptRun:
         score, unit = self.values[score_name]
         metrics = {k: v for k, v in self.values.items() if k != score_name}
         return WorkloadResult("completed", score=score, unit=unit or self.script["score"].get("unit"),
-                              metrics=metrics, duration_seconds=duration, command=[self.exe])
+                              metrics=metrics, duration_seconds=duration, command=[self.exe],
+                              note=("Settings used: " + ", ".join(self.settings_used)) if self.settings_used else None)
+
+
+def _at(data, path):
+    for key in path:
+        data = data.get(key) if isinstance(data, dict) else None
+    return data
+
+
+def _plain(value) -> Optional[str]:
+    if isinstance(value, bool):
+        return "On" if value else "Off"
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    if isinstance(value, (int, float, str)):
+        return str(value)
+    return None
+
+
+def settings_text(data, spec: dict) -> Optional[str]:
+    """One setting the game reported: a value, values joined ("2560x1440"), or the names that are true."""
+    if "any_true" in spec:
+        on = [name for name, path in spec["any_true"].items() if _at(data, path) is True]
+        return ", ".join(on) if on else spec.get("none", "Off")
+    if "paths" in spec:
+        parts = [_plain(_at(data, p)) for p in spec["paths"]]
+        return spec.get("join", " ").join(parts) if all(parts) else None
+    return _plain(_at(data, spec.get("path", [])))
+
+
+def frame_times(text: str, column: str) -> List[float]:
+    """Positive frame times (ms) from a CSV with a header row; the column is found by name."""
+    lines = [line for line in text.splitlines() if line.strip()]
+    if not lines:
+        return []
+    header = [h.strip().lower() for h in lines[0].split(",")]
+    if column.strip().lower() not in header:
+        return []
+    i = header.index(column.strip().lower())
+    out = []
+    for line in lines[1:]:
+        cells = line.split(",")
+        try:
+            value = float(cells[i])
+        except (IndexError, ValueError):
+            continue
+        if value > 0:
+            out.append(value)
+    return out
 
 
 def load_scripts(directory: Path = SCRIPTS_DIR) -> Tuple[List[SimulationWorkload], List[str]]:

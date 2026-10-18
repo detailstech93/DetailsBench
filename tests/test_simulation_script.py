@@ -8,6 +8,15 @@ from app.automation.workload import RunContext
 from app.simulation import script as sim
 from app.simulation.desktop import Window, parse_chord
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def no_user_settings(tmp_path, monkeypatch):
+    """Steam scripts read the settings chosen for the game: never the real ones of this PC."""
+    import app.paths
+    monkeypatch.setattr(app.paths, "get_data_dir", lambda env=None: tmp_path / "pcbm_data")
+
 DATA = Path(__file__).parent / "data"
 SCRIPT = json.loads((Path(sim.SCRIPTS_DIR) / "sevenzip_fm_benchmark.json").read_text(encoding="utf-8"))
 # control texts of 7-Zip 26.04's Benchmark window after 10 passes, development computer 2026-10-18
@@ -182,8 +191,8 @@ GAME = json.loads((Path(sim.SCRIPTS_DIR) / "cyberpunk2077_benchmark.json").read_
 class FakeSteam:
     """Plays Steam and the game: launching adds a process in the folder that writes a result file."""
 
-    def __init__(self, result_text, status="launched"):
-        self.result_text, self.status = result_text, status
+    def __init__(self, result_text, status="launched", frames_text=None):
+        self.result_text, self.status, self.frames_text = result_text, status, frames_text
         self.procs, self.closed, self.launched = {7: "steam_helper"}, None, None
         self.write_to = None
 
@@ -194,6 +203,8 @@ class FakeSteam:
             if self.result_text is not None:
                 self.write_to.parent.mkdir(parents=True)
                 self.write_to.write_text(self.result_text, encoding="utf-8")
+                if self.frames_text is not None:
+                    (self.write_to.parent / "frames.csv").write_text(self.frames_text, encoding="utf-8")
         return {"status": self.status, "message": "new process in the game folder: Cyberpunk2077.exe"}
 
     def folder_procs(self, folder):
@@ -215,12 +226,12 @@ class GameDesktop(FakeDesktop):
         Path(path).write_bytes(b"png")
 
 
-def run_game(tmp_path, monkeypatch, steam, timeout=60):
+def run_game(tmp_path, monkeypatch, steam, timeout=60, **kw):
     monkeypatch.setattr(sim.ScriptRun, "pause", lambda self, s: None)
     steam.write_to = tmp_path / "home" / "Documents" / "CD Projekt Red" / "Cyberpunk 2077" / "benchmarkResults" / "b1" / "summary.json"
     wl = sim.SimulationWorkload(GAME, env={"USERPROFILE": str(tmp_path / "home")}, desktop=GameDesktop(),
                                 find_game=lambda appid: "Z:/Steam/common/Cyberpunk 2077" if appid == 1091500 else None,
-                                steam_hooks=steam)
+                                steam_hooks=steam, **kw)
     out = tmp_path / "run"
     return wl, wl.run(RunContext(output_dir=out, timeout_seconds=timeout)), out
 
@@ -251,3 +262,101 @@ def test_steam_game_failures_never_score(tmp_path, monkeypatch):
     assert no_file.status == "timed_out" and no_file.score is None
     missing = sim.SimulationWorkload(GAME, find_game=lambda appid: None)
     assert missing.availability()[0] is False
+
+
+SUMMARY = {"Data": {"averageFps": 76.43, "minFps": 65.5, "maxFps": 104.4, "renderWidth": 2560,
+                    "renderHeight": 1440, "presetName": "Ultra", "DLSSEnabled": True, "FSR3Enabled": False,
+                    "rayTracingEnabled": False, "rayTracedPathTracingEnabled": False, "verticalSync": False,
+                    "gameVersion": "2.31"}}
+FRAMES = "Frame index, Frame time (ms), DLSS Frame Generation (ms)\n" + "".join(
+    f"{i}, {40.0 if i < 10 else 10.0}, 0\n" for i in range(1000))
+
+
+def test_game_frames_and_settings_used(tmp_path, monkeypatch):
+    _, result, out = run_game(tmp_path, monkeypatch, FakeSteam(json.dumps(SUMMARY), frames_text=FRAMES))
+    assert result.status == "completed" and result.score == 76.43
+    assert result.metrics["low_1pct_fps"] == (25.0, "FPS")          # the 10 slowest of 1000 frames: 40 ms
+    assert result.metrics["low_01pct_fps"] == (25.0, "FPS")
+    assert result.note == ("Settings used: Resolution 2560x1440, Preset Ultra, Upscaler DLSS, Frame generation Off, "
+                           "Ray tracing Off, Path tracing Off, VSync Off, Game version 2.31")
+    assert (out / "frames_b1_frames.csv").exists()
+
+
+def test_game_without_frames_file_still_scores(tmp_path, monkeypatch):
+    _, result, out = run_game(tmp_path, monkeypatch, FakeSteam(json.dumps(SUMMARY)))
+    assert result.status == "completed" and "low_1pct_fps" not in result.metrics
+    assert "1% low not measured" in (out / sim.LOG_FILE).read_text(encoding="utf-8")
+
+
+def test_settings_text_and_frame_times():
+    data = {"D": {"w": 1920, "h": 1080.0, "a": True, "b": False, "rt": True}}
+    assert sim.settings_text(data, {"paths": [["D", "w"], ["D", "h"]], "join": "x"}) == "1920x1080"
+    assert sim.settings_text(data, {"any_true": {"A": ["D", "a"], "B": ["D", "b"]}, "none": "Off"}) == "A"
+    assert sim.settings_text(data, {"any_true": {"B": ["D", "b"]}, "none": "Off"}) == "Off"
+    assert sim.settings_text(data, {"path": ["D", "rt"]}) == "On"
+    assert sim.settings_text(data, {"path": ["D", "missing"]}) is None
+    assert sim.frame_times("a, Frame time (ms)\n0, 10\n1, x\n2, -1\n3, 12.5\n", "frame time (ms)") == [10.0, 12.5]
+    assert sim.frame_times("a,b\n1,2\n", "Frame time (ms)") == []
+
+
+class FakeForced:
+    def __init__(self, refused=None, mismatch_after=None, fail=None):
+        from app.games.settings_file import SettingsRecord
+        self.record = SettingsRecord("UserSettings.json", {"ray_tracing": True})
+        self.refused, self.mismatch_after, self.fail = refused or {}, mismatch_after, fail
+        self.calls = []
+
+    def __call__(self, app_id, values, run_dir, data_dir):
+        self.calls.append(("new", str(app_id), dict(values)))
+        return self
+
+    def apply(self):
+        self.calls.append("apply")
+        if self.fail:
+            raise OSError(self.fail)
+        self.record.refused = dict(self.refused)
+        return self.record
+
+    def finish(self):
+        self.calls.append("finish")
+        self.record.mismatch_after_run = self.mismatch_after or {}
+        self.record.restored = True
+        return self.record
+
+
+def save_choice(data_dir, values):
+    from app.games.settings_file import SAVED_KEY
+    from app.paths import save_setting
+    save_setting(data_dir, SAVED_KEY, {"1091500": values})
+
+
+def test_chosen_settings_are_forced_then_put_back(tmp_path, monkeypatch):
+    save_choice(tmp_path / "data", {"ray_tracing": True})
+    forced = FakeForced()
+    steam = FakeSteam(json.dumps(SUMMARY))
+    _, result, out = run_game(tmp_path, monkeypatch, steam, data_dir=tmp_path / "data", forced_factory=forced)
+    assert forced.calls == [("new", "1091500", {"ray_tracing": True}), "apply", "finish"]
+    assert result.status == "completed" and "Forced: ray_tracing True" in result.note
+    assert json.loads((out / "game_settings.json").read_text(encoding="utf-8"))["restored"] is True
+
+
+def test_settings_problems_never_score(tmp_path, monkeypatch):
+    save_choice(tmp_path / "data", {"ray_tracing": True})
+    steam = FakeSteam(json.dumps(SUMMARY))
+    refused = FakeForced(refused={"ray_tracing": "unknown"})
+    _, r1, _ = run_game(tmp_path / "a", monkeypatch, steam, data_dir=tmp_path / "data", forced_factory=refused)
+    assert r1.status == "failed" and "settings not set" in r1.error and refused.calls[-1] == "finish"
+    assert steam.launched is None                                   # the game was never started
+    broken = FakeForced(fail="file locked")
+    _, r2, _ = run_game(tmp_path / "b", monkeypatch, steam, data_dir=tmp_path / "data", forced_factory=broken)
+    assert r2.status == "failed" and "file locked" in r2.error and broken.calls[-1] == "finish"
+    changed = FakeForced(mismatch_after={"ray_tracing": [True, False]})
+    _, r3, _ = run_game(tmp_path / "c", monkeypatch, steam, data_dir=tmp_path / "data", forced_factory=changed)
+    assert r3.status == "invalid" and r3.score is None and "did not keep" in r3.error
+
+
+def test_nothing_forced_without_a_choice(tmp_path, monkeypatch):
+    forced = FakeForced()
+    _, result, _ = run_game(tmp_path, monkeypatch, FakeSteam(json.dumps(SUMMARY)), data_dir=tmp_path / "data",
+                            forced_factory=forced)
+    assert forced.calls == [] and result.status == "completed" and "Forced" not in (result.note or "")
