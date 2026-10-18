@@ -766,7 +766,8 @@ class FrameCapturePanel(QGroupBox):
                                  warmup_runs=profile.warmup_runs, repetitions=profile.repetitions,
                                  settle_seconds=self.settle_spin.value(),
                                  launch_args=game_launch_args(game.get("app_id")),
-                                 start_keys=start_keys_for(game.get("app_id")))
+                                 start_keys=start_keys_for(game.get("app_id")),
+                                 version=str(game["version"]) if game.get("version") else None)
         steps = menu_steps_for(spec.app_id)
         if steps:
             from app.frames.menu_steps import step_problems

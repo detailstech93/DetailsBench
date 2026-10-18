@@ -89,6 +89,7 @@ def test_rdr2_path_presses_only_after_each_word_and_marks_the_start(tmp_path):
     assert held[1][2] - held[0][2] == 2.5
     assert "closed a popup ('strange')" in p.summary() and "benchmark started ('stop' seen at 12" in p.summary()
     assert (tmp_path / "benchmark_started.png").read_bytes() == b"png:Stop Benchmarking"
+    assert p.started_shot == str(tmp_path / "benchmark_started.png")
 
 
 def test_a_word_that_never_comes_stops_without_guessing(tmp_path):
@@ -205,6 +206,19 @@ def test_measuring_starts_when_the_benchmark_starts(tmp_path):
     assert 98 <= starts[0] - 10 <= 100                 # shifted past the time spent in the menus
     assert all(w.result.status == "completed" for w in cap.windows)
     assert s.max_record_seconds() > spec().max_record_seconds()
+    assert all(w.result.note is None for w in cap.windows)        # no screenshot kept: no proof line
+
+
+def test_the_runs_carry_the_proof_screenshot_and_the_game_build(tmp_path):
+    from app.frames.game_benchmark import plan_for
+    fakes = Fakes(tmp_path, game_frames=4000)
+    steps = FakeSteps(fakes, mark_after=40)
+    steps.started_shot = str(tmp_path / "run" / "benchmark_started.png")
+    s, cap = bench(tmp_path, fakes, steps)
+    assert {w.result.note for w in cap.windows} == {f"Proof screenshot: {steps.started_shot}"}
+    s.version = "15427801"
+    assert plan_for(cap, s)[0].workload.version() == "15427801"
+    assert plan_for(cap, s, "1")[0].workload.version() == "1"
 
 
 def test_menus_that_do_not_reach_the_benchmark_store_nothing(tmp_path):

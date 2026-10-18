@@ -6,6 +6,7 @@ escaped by esc(). Drafted by the local agent, reviewed.
 
 import html
 import math
+import re
 from collections.abc import Mapping
 from typing import Any, Optional
 
@@ -124,9 +125,34 @@ def _note_parts(note: Any) -> dict:
     out = {}
     for part in str(note or "").split("; "):
         key, sep, value = part.partition(": ")
-        if sep and key in ("Settings used", "Forced", "Readings"):
+        if sep and key in ("Settings used", "Forced", "Readings", "Proof screenshot"):
             out[key] = value
     return out
+
+
+PROOF_MAX_BYTES = 6 * 1024 ** 2
+PROOF_ATTR = re.compile(r'(<img class="proof" alt="[^"<>]*" )data-proof="([A-Za-z0-9+/=]+)"')
+
+
+def _proof_html(path: Any) -> str:
+    """The screen the app saw when the built-in benchmark started (menu steps), put into the report itself so it
+    still shows when the report is sent alone. Only a PNG the app wrote, and not a huge one."""
+    if not path:
+        return ""
+    import base64
+    from pathlib import Path
+    p = Path(str(path))
+    try:
+        data = p.read_bytes() if p.name == "benchmark_started.png" and p.stat().st_size <= PROOF_MAX_BYTES else b""
+    except OSError:
+        data = b""
+    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ""
+    return ("<h4>When the benchmark started</h4>"
+            f'<img class="proof" alt="The game\'s screen when its benchmark started" '
+            f'data-proof="{base64.b64encode(data).decode("ascii")}">'
+            '<p class="muted">The screen the app read when the game\'s own benchmark began; the measured windows '
+            "count from this moment.</p>")
 
 
 def _game_runs(export: Mapping) -> dict:
@@ -325,11 +351,15 @@ def _game_section(export: Mapping) -> str:
 
         rows = _readings_rows(extra)
         span = parts.get("Readings") or "the whole run (game start to close)"
+        build = runs[-1].get("benchmark_version")
+        if build:
+            runs_text += f". Game build {build} (Steam's build number)"
         blocks.append(
             f'<div class="game"><h3 dir="auto">{title}</h3>'
             f'<div class="tiles">{tile_html}</div>'
             f'<p class="muted">{esc(runs_text)}.</p>'
-            "<h4>Settings used</h4>" + settings_html
+            + _proof_html(parts.get("Proof screenshot"))
+            + "<h4>Settings used</h4>" + settings_html
             + "<h4>During the benchmark</h4>"
             f'<p class="muted">Readings over {esc(span)}.</p>'
             '<div class="table-wrap"><table><thead><tr><th>Reading</th><th>Average</th><th>Highest</th></tr>'
@@ -1030,6 +1060,7 @@ def _style_block() -> str:
         ".tile.good .value{color:#1a7f37;}"
         ".tile.bad .value{color:var(--test);}"
         "table.kv th{text-align:left;padding-right:16px;}"
+        "img.proof{max-width:100%;height:auto;border-radius:6px;}"
         "@media (max-width:600px){body{padding:16px;}section{padding:14px;}}"
         ".footer{"
         "color:var(--muted);"
@@ -1078,4 +1109,7 @@ def render_session_report(export: Mapping) -> str:
         "</html>"
     )
 
-    return document.replace("src=", "src&#61;")
+    # nothing in the report loads anything: every "src=" is broken, then only the app's own proof screenshots
+    # (written by _proof_html, base64 only; any text from a run is escaped, so it has no raw quote) get theirs back
+    document = document.replace("src=", "src&#61;")
+    return PROOF_ATTR.sub(lambda m: f'{m.group(1)}src="data:image/png;base64,{m.group(2)}"', document)

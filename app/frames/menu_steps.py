@@ -84,6 +84,7 @@ class StepPlayer:
         self.reader = reader
         self.stop = stop or threading.Event()
         self.notes: List[str] = []
+        self.started_shot: Optional[str] = None     # benchmark_started.png, kept for the report
         self.problem: Optional[str] = None
         self.mark_time: Optional[float] = None       # clock() when the mark step's word was seen
         self.done = threading.Event()
@@ -131,7 +132,7 @@ class StepPlayer:
             if step.get("mark"):
                 self.mark_time = self.clock()
                 self.notes.append(f"benchmark started ({found!r} seen at {self._at()})")
-                self._keep_shot("benchmark_started.png")
+                self.started_shot = self._keep_shot("benchmark_started.png")
             if step.get("settle"):
                 self.sleep(float(step["settle"]))
             if "click" in step:

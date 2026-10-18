@@ -110,6 +110,7 @@ class GameBenchmarkSpec:
     route: Optional[dict] = None        # keys held and mouse moves during the capture: app/frames/route.py
     steps: Optional[list] = None        # checked menu steps to a built-in benchmark: app/frames/menu_steps.py
     benchmark_seconds: Optional[int] = None     # the built-in benchmark's length after its start mark
+    version: Optional[str] = None       # the game's build: Steam's buildid from its appmanifest (app/steam/library)
 
     @property
     def count(self) -> int:
@@ -493,6 +494,8 @@ class GameBenchmark:
                     metrics["window_start_s"] = (float(a), "s")
                     result = WorkloadResult(status="completed", score=stats.avg_fps, unit="fps",
                                             metrics=metrics, duration_seconds=float(b - a), **common)
+                    if getattr(steps, "started_shot", None):
+                        result.note = f"Proof screenshot: {steps.started_shot}"
             out.append(WindowOutcome(is_warmup, run_index, result, sample_windows[k]))
         return GameCapture("recorded", f"{recorded:.0f} s of {pick[0]} recorded" + closed, process=pick,
                            windows=out, command=command,
@@ -532,5 +535,5 @@ def plan_for(capture: GameCapture, spec: GameBenchmarkSpec, version: Optional[st
     from app.automation.runner import PlanItem
     name = capture.process[0] if capture.process else spec.game_name
     workload = RecordedWindow(workload_id_for(name), f"Game benchmark: {spec.game_name}",
-                              capture.windows, version, capture.telemetry_unavailable)
+                              capture.windows, version or spec.version, capture.telemetry_unavailable)
     return [PlanItem(workload, repetitions=spec.repetitions, warmup_runs=spec.warmup_runs)]

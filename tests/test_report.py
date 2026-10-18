@@ -392,3 +392,25 @@ def test_blender_section_old_run_and_failed_run():
     failed = render_session_report(_blender_export("junkshop: exit code 1", status="failed"))
     assert "No score" in failed and "junkshop&#58; exit code 1" in failed
     assert "<h2>Blender Benchmark</h2>" not in render_session_report(_game_export(None, {}))
+
+
+def test_game_build_and_the_proof_screenshot_are_in_the_report(tmp_path):
+    shot = tmp_path / "benchmark_started.png"
+    shot.write_bytes(b"\x89PNG\r\n\x1a\n" + b"pixels")
+    export = _game_export(f"Proof screenshot: {shot}", {})
+    export["runs"][0]["benchmark_version"] = "15427801"
+    game = render_session_report(export)
+    game = game[game.index("Game results"):game.index("<h2>Summary")]
+    assert "Game build 15427801 (Steam&#x27;s build number)" in game
+    assert '<img class="proof"' in game and "data:image/png;base64,iVBORw0KGgpwaXhlbHM=\"" in game
+    other = tmp_path / "secret.png"                    # only the screenshot the app writes, and only a PNG
+    other.write_bytes(shot.read_bytes())
+    fake = tmp_path / "x" / "benchmark_started.png"
+    fake.parent.mkdir()
+    fake.write_bytes(b"not a png")
+    for path in (other, fake, tmp_path / "gone" / "benchmark_started.png"):
+        assert "<img" not in render_session_report(_game_export(f"Proof screenshot: {path}", {}))
+    hostile = _game_export('<img class="proof" alt="x" data-proof="AAAA"> data-proof="AAAA"', {})
+    hostile["runs"].append({**hostile["runs"][0], "benchmark_name": "other", "benchmark_type": "cpu",
+                            "note": 'x <img class="proof" alt="x" data-proof="AAAA">'})
+    assert "src=" not in render_session_report(hostile)
