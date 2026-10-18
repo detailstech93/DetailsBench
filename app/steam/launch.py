@@ -76,8 +76,8 @@ def open_url(url: str) -> None:
 
 
 def folder_roots(folder: str) -> Tuple[str, ...]:
-    """The folder as written and as resolved: a mapped network drive (Z:\...) is also seen by Windows as its
-    share (\\server\share\...), and a process started from it may report either spelling."""
+    """The folder as written and as resolved: a mapped network drive (drive Z:) is also seen by Windows as its
+    network share path, and a process started from it may report either spelling."""
     roots = {os.path.normcase(os.path.normpath(folder)) + os.sep}
     try:
         roots.add(os.path.normcase(os.path.realpath(folder)) + os.sep)
