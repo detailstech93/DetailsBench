@@ -1,12 +1,14 @@
 """Tests: every test this PC can run, grouped, with an installed mark, how it runs and a download link
 for the ones that are missing. Ticking tests and pressing Run hands them to `run_requested`."""
 
+import time
+from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional
 
-from PySide6.QtCore import QUrl, Qt, Signal
+from PySide6.QtCore import QTimer, QUrl, Qt, Signal
 from PySide6.QtGui import QDesktopServices, QFont
-from PySide6.QtWidgets import (QCheckBox, QHBoxLayout, QHeaderView, QLabel, QPushButton, QTreeWidget,
-                               QTreeWidgetItem, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QFrame, QHBoxLayout, QHeaderView, QLabel, QProgressBar, QPushButton,
+                               QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from app.catalog import ASSISTED, AUTOMATIC, GROUPS, INSTALLED, MISSING, TestEntry, counts
 
@@ -14,6 +16,31 @@ COLUMNS = ["Test", "Installed", "How it runs", "Verified", "Time", ""]
 MODE_TEXT = {AUTOMATIC: "Automatic", ASSISTED: "Assisted (you start it)", "manual": "Manual (you type the score)"}
 STATE_TEXT = {INSTALLED: "✔ installed", MISSING: "⬇ not installed", "unusable": "⚠ cannot run"}
 STATE_COLOR = {INSTALLED: "#15803d", MISSING: "#757575", "unusable": "#B26A00"}
+
+
+BAR_STYLE = ("QProgressBar { border: 1px solid #3f3f46; border-radius: 5px; text-align: center; height: 22px; "
+             "font-weight: bold; } QProgressBar::chunk { background-color: #16a34a; border-radius: 4px; }")
+
+
+@dataclass
+class RunState:
+    """What is running now, for the progress bar. total None = no run count (a game capture)."""
+    running: bool = False
+    done: int = 0
+    total: Optional[int] = None
+    text: str = ""
+
+
+def progress_percent(state: RunState) -> Optional[int]:
+    if not state.total:
+        return None
+    return max(0, min(100, round(100 * state.done / state.total)))
+
+
+def elapsed_text(seconds: float) -> str:
+    seconds = int(seconds)
+    return f"{seconds // 3600}:{seconds // 60 % 60:02d}:{seconds % 60:02d}" if seconds >= 3600 \
+        else f"{seconds // 60}:{seconds % 60:02d}"
 
 
 def state_text(entry: TestEntry) -> str:
@@ -81,6 +108,43 @@ class TestsPage(QWidget):
         row.addWidget(self.hint, 1)
         row.addWidget(self.run_btn)
         layout.addLayout(row)
+
+        # progress while a test runs: green bar, percent, what is running, time, stop
+        self.progress_box = QFrame()
+        self.progress_box.setFrameShape(QFrame.StyledPanel)
+        box = QVBoxLayout(self.progress_box)
+        line = QHBoxLayout()
+        self.progress_label = QLabel("")
+        self.progress_label.setWordWrap(True)
+        self.elapsed_label = QLabel("")
+        line.addWidget(self.progress_label, 1)
+        line.addWidget(self.elapsed_label)
+        box.addLayout(line)
+        bar_row = QHBoxLayout()
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setStyleSheet(BAR_STYLE)
+        self.progress_bar.setFormat("%p%")
+        self.record_btn = QPushButton("Enter the score...")
+        self.record_btn.setVisible(False)
+        self.record_btn.clicked.connect(self._record)
+        self.stop_btn = QPushButton("Stop")
+        self.stop_btn.setStyleSheet("QPushButton:enabled { color: white; background: #b91c1c; padding: 4px 18px; }")
+        self.stop_btn.clicked.connect(self._stop)
+        bar_row.addWidget(self.progress_bar, 1)
+        bar_row.addWidget(self.record_btn)
+        bar_row.addWidget(self.stop_btn)
+        box.addLayout(bar_row)
+        self.progress_box.setVisible(False)
+        layout.addWidget(self.progress_box)
+
+        self.get_state: Callable[[], RunState] = RunState
+        self.stop_fn: Callable[[], object] = lambda: None
+        self.record_fn: Optional[Callable[[], object]] = None
+        self.busy = False
+        self.started_at: Optional[float] = None
+        self.timer = QTimer(self)
+        self.timer.setInterval(300)
+        self.timer.timeout.connect(self.refresh_progress)
         self.update_run_button()
 
     # ---- list ----------------------------------------------------------------
@@ -137,7 +201,8 @@ class TestsPage(QWidget):
     def _action_button(self, e: TestEntry) -> Optional[QPushButton]:
         if e.can_run():
             b = QPushButton("Run...")
-            b.clicked.connect(lambda checked=False, x=e: self.run_requested.emit([x]))
+            b.clicked.connect(lambda checked=False, x=e: self.request_run([x]))
+            b.setEnabled(not self.busy)
             return b
         if e.compatible and e.state == MISSING and e.official_url:
             b = QPushButton("Official download page")
@@ -173,20 +238,91 @@ class TestsPage(QWidget):
 
     def update_run_button(self):
         n = len(self.selected_ids())
-        self.run_btn.setEnabled(n > 0)
+        self.run_btn.setEnabled(n > 0 and not self.busy)
         self.run_btn.setText(f"Run selected ({n})..." if n else "Run selected...")
 
     def run_selected(self):
         chosen = self.selected()
         if chosen:
-            self.run_requested.emit(chosen)
+            self.request_run(chosen)
+
+    def request_run(self, entries: List[TestEntry]):
+        if not self.busy:           # one test (or plan) at a time
+            self.run_requested.emit(entries)
+
+    # ---- progress ------------------------------------------------------------------
+    def watch(self, get_state: Callable[[], RunState], stop: Callable[[], object]):
+        """Follow a run started from this screen until it ends."""
+        self.get_state, self.stop_fn = get_state, stop
+        self.started_at = time.monotonic()
+        self.stop_btn.setEnabled(True)
+        self.stop_btn.setText("Stop")
+        self.progress_box.setVisible(True)
+        self.set_busy(True)
+        self.refresh_progress()
+        self.timer.start()
+
+    def offer_record(self, text: str, record: Callable[[], object]):
+        """A manual test was started: the bar waits, the score is typed in when it ends."""
+        self.record_fn = record
+        self.record_btn.setVisible(True)
+        self.watch(lambda: RunState(True, 0, None, text), self._end_manual)
+
+    def _end_manual(self):
+        self.record_fn = None
+        self.record_btn.setVisible(False)
+        self.get_state = RunState
+
+    def _record(self):
+        if self.record_fn is not None:
+            self.record_fn()
+            self._end_manual()
+            self.refresh_progress()
+
+    def _stop(self):
+        self.stop_btn.setEnabled(False)
+        self.stop_btn.setText("Stopping...")
+        self.stop_fn()
+
+    def set_busy(self, busy: bool):
+        self.busy = busy
+        for widget in (self.all_btn, self.clear_btn, self.rescan_btn):
+            widget.setEnabled(not busy)
+        for item in self.items.values():
+            button = self.tree.itemWidget(item, 5)
+            if isinstance(button, QPushButton) and button.text() == "Run...":
+                button.setEnabled(not busy)
+        self.tree.setEnabled(not busy)
+        self.update_run_button()
+
+    def refresh_progress(self):
+        state = self.get_state()
+        if self.started_at is not None:
+            self.elapsed_label.setText(elapsed_text(time.monotonic() - self.started_at))
+        if state.running:
+            percent = progress_percent(state)
+            if percent is None:
+                self.progress_bar.setRange(0, 0)          # moving bar: no run count to show
+            else:
+                self.progress_bar.setRange(0, 100)
+                self.progress_bar.setValue(percent)
+            runs = f"Run {min(state.done + 1, state.total)} of {state.total}: " if state.total else ""
+            self.progress_label.setText(runs + state.text)
+            return
+        self.timer.stop()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(100 if state.total and state.done >= state.total else self.progress_bar.value())
+        self.progress_label.setText(state.text or "Finished.")
+        self.stop_btn.setEnabled(False)
+        self.stop_btn.setText("Stop")
+        self.set_busy(False)
 
     def _on_double_click(self, item: QTreeWidgetItem, column: int):
         e = self.entry(item.data(0, Qt.UserRole) or "")
         if e is None:
             return
         if e.can_run():
-            self.run_requested.emit([e])
+            self.request_run([e])
         elif e.compatible and e.state == MISSING and e.official_url:
             self.open_url(e.official_url)
 

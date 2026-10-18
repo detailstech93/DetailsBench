@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFormLayout, QLabel, Q
                                QVBoxLayout)
 
 from app.catalog import TestEntry
+from app.ui.tests_page import RunState
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,24 @@ def open_report(path: Path) -> bool:
     return bool(webbrowser.open(path.resolve().as_uri()))
 
 
+def plan_state(panel, result: dict) -> RunState:
+    """Progress of the automation plan (also while LibreHardwareMonitor is being prepared before it)."""
+    if "final" in result:
+        return RunState(False, *result["final"])
+    if panel.is_running():
+        result["started"] = True
+        done, total, text = panel.step
+        return RunState(True, done, total, text)
+    if result.get("started"):
+        # the thread has ended but its "finished" signal is not delivered yet: the report comes next
+        done, total, _ = panel.step
+        return RunState(True, done, total, "Writing the report...")
+    if panel.lhm.busy():
+        return RunState(True, 0, None, "Preparing the temperature sensors (LibreHardwareMonitor)...")
+    panel.on_plan_finished = None          # it never started: a later plan must not open this report
+    return RunState(False, 0, None, "Not started.")
+
+
 def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_report) -> bool:
     automatic, others = split_entries(entries)
     if not automatic and len(others) == 1:
@@ -107,40 +126,60 @@ def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_re
     if choice is None:
         return False
     folder = Path(panel.output_root).parent / "reports" if panel.output_root else None
+    result: dict = {}
 
     def finished(session_id: int, text: str):
-        window.status_label.setText(text.splitlines()[0])
+        done, total, _ = panel.step
+        first = text.splitlines()[0]
+        result["final"] = (done, total, first)
+        window.status_label.setText(first)
         if folder is None:
             return
         try:
             path = write_report(window.db, session_id, folder)
         except Exception as e:
             logger.exception("Could not write the report")
+            result["final"] = (done, total, f"{first} The report could not be written: {e}")
             window.status_label.setText(f"Session #{session_id} done; the report could not be written: {e}")
             return
+        result["final"] = (done, total, f"{first} Report opened: {path.name}")
         window.status_label.setText(f"Session #{session_id} done. Report: {path}")
         opener(path)
 
     panel.on_plan_finished = finished
     started = panel.start_plan(workloads=[e.ref for e in automatic], profile=plan_profile(window.selected_profile(),
                                                                                          choice))
-    if started:
-        window.show_tab(window.run_tab)        # progress and the emergency stop are there
-    elif not panel.lhm.busy():
+    if started or panel.lhm.busy():
+        # stay on the Tests screen: green bar, percent and Stop there (Ctrl+Shift+X still works)
+        window.tests_page.watch(lambda: plan_state(panel, result), panel.emergency_stop)
+    else:
         panel.on_plan_finished = None          # cancelled; a later plan must not open this report
     return started
 
 
 def start_other(window, entry: TestEntry) -> bool:
     """One assisted or manual test: hand it to the flow that already runs it."""
+    if window.automation_panel.is_running() or window.frame_panel.is_running():
+        QMessageBox.information(window, "Run tests", "A run is already going on; wait for it or stop it first.")
+        return False
     if entry.source == "steam":
         game = entry.ref if isinstance(entry.ref, dict) and entry.ref.get("store") == "steam" else None
+        frame = window.frame_panel
         if game is None:
             return False
-        window._on_steam_benchmark_clicked(game)
+        frame.refresh_games()
+        if not frame.select_game(game["app_id"]):
+            QMessageBox.information(window, "Run tests", f"{game['name']} is not fully installed.")
+            return False
+        frame.benchmark_game()
+        if frame.is_running() or frame.lhm.busy():
+            window.tests_page.watch(
+                lambda: RunState(frame.is_running() or frame.lhm.busy(), 0, None, frame.status_label.text()),
+                frame.emergency_stop)
         return True
     if entry.source == "library":
-        window.show_tab(window.run_tab)
         window._on_launch_clicked(entry.ref)
+        window.tests_page.offer_record(f"{entry.name} was started. Run its benchmark, then enter the score.",
+                                       lambda: window._on_record_clicked(entry.ref))
         return True
     return False

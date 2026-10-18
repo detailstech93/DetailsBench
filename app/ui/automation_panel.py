@@ -46,6 +46,7 @@ TELEMETRY_TIP = ("Every second during each run: CPU load and memory (psutil), NV
 
 class AutomationWorker(QThread):
     progress = Signal(str)
+    step = Signal(int, int, str)                # runs finished, runs planned, what is happening
     finished_plan = Signal(object)              # RunSummary, or an error str
     screenshot_requested = Signal(str, object)  # path, threading.Event
 
@@ -57,7 +58,8 @@ class AutomationWorker(QThread):
         self.runner = AutomationRunner(
             db, session_id, plan, output_root, cooldown_seconds=cooldown_seconds,
             stop_event=self.stop_event, on_progress=self.progress.emit,
-            screenshot=self._screenshot if take_screenshots else None, telemetry=telemetry, **resume)
+            screenshot=self._screenshot if take_screenshots else None, telemetry=telemetry,
+            on_step=self.step.emit, **resume)
 
     def stop(self):
         self.stop_event.set()
@@ -147,6 +149,7 @@ class AutomationPanel(QGroupBox):
         self.last_summary = None
         self.reports: list = []
         self.on_plan_finished: Optional[Callable[[int, str], None]] = None    # set by the Tests screen
+        self.step: Tuple[int, int, str] = (0, 0, "")                          # progress of the running plan
 
         layout = QVBoxLayout(self)
         self.table = QTableWidget(0, 4)
@@ -293,6 +296,10 @@ class AutomationPanel(QGroupBox):
                                        telemetry_sources.new_sampler if self.telemetry_box.isChecked() else None,
                                        journal=plan_journal.PlanJournal(self.journal_path()), **resume)
         self.worker.progress.connect(self._on_progress)
+        runner = self.worker.runner
+        self.step = (0, sum((s[0].workload.id, s[1], s[2]) not in runner.done for s in runner._schedule()),
+                     "Starting...")
+        self.worker.step.connect(self._on_step)
         self.worker.screenshot_requested.connect(self._on_screenshot_requested)
         self.worker.finished_plan.connect(self._on_finished)
         self._set_running(True)
@@ -439,6 +446,10 @@ class AutomationPanel(QGroupBox):
     @Slot(str)
     def _on_progress(self, message: str):
         self.status_label.setText(message)
+
+    @Slot(int, int, str)
+    def _on_step(self, done: int, total: int, text: str):
+        self.step = (done, total, text)
 
     @Slot(str, object)
     def _on_screenshot_requested(self, path: str, done: threading.Event):

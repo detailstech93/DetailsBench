@@ -113,11 +113,20 @@ def test_window_starts_on_this_pc_and_runs_tests_with_chosen_count_then_opens_re
         opened = []
         started = start_tests(w, [entry("py_score", ref=wl)], ask=lambda *a: RunChoice(2, 0, 0),
                               opener=opened.append)
-        assert started and w.pages.currentWidget() is w.tabs and w.tabs.currentWidget() is w.run_tab
+        page = w.tests_page
+        assert started and w.pages.currentWidget() is page          # stays on Tests
         assert "2" in panel.asked[0]
+        assert page.progress_box.isVisibleTo(w) and page.busy and not page.run_btn.isEnabled()
+        seen = []
+        page.run_requested.connect(seen.append)
+        page.request_run([entry("py_score", ref=wl)])                # a second test must wait
+        assert seen == []
         while panel.worker.isRunning():
             qapp.processEvents()
         qapp.processEvents()
+        page.refresh_progress()
+        assert not page.busy and page.progress_bar.value() == 100
+        assert "Report opened" in page.progress_label.text()
         runs = w.db.get_runs(panel.last_session_id, include_test=True)
         assert [r["status"] for r in runs] == ["completed", "completed"] and runs[0]["score"] == 42
         assert len(opened) == 1 and opened[0].parent == tmp_path / "reports"
@@ -130,3 +139,50 @@ def test_window_starts_on_this_pc_and_runs_tests_with_chosen_count_then_opens_re
     finally:
         with patch.object(w.automation_panel, "shutdown"):
             w.close()
+
+
+def test_progress_helpers_and_stop(qapp):
+    from app.ui.tests_page import RunState, elapsed_text, progress_percent
+    assert progress_percent(RunState(True, 1, 4)) == 25 and progress_percent(RunState(True, 0, None)) is None
+    assert elapsed_text(65) == "1:05" and elapsed_text(3725) == "1:02:05"
+    page = TestsPage()
+    page.set_entries([entry("a")])
+    state, stops = RunState(True, 1, 4, "7-Zip: run 1"), []
+    page.watch(lambda: state, lambda: stops.append(1))
+    assert page.progress_bar.value() == 25 and page.progress_label.text() == "Run 2 of 4: 7-Zip: run 1"
+    assert not page.tree.itemWidget(page.items["a"], 5).isEnabled()
+    page.stop_btn.click()
+    assert stops == [1] and page.stop_btn.text() == "Stopping..."
+    state = RunState(True, 0, None, "game capture")
+    page.refresh_progress()
+    assert page.progress_bar.maximum() == 0                      # moving bar without a run count
+    state = RunState(False, 2, 4, "Session #3 done: 1 cancelled.")
+    page.refresh_progress()
+    assert not page.busy and page.progress_label.text() == "Session #3 done: 1 cancelled."
+    assert page.tree.itemWidget(page.items["a"], 5).isEnabled() and not page.timer.isActive()
+
+
+def test_manual_test_waits_for_the_score(qapp):
+    page, recorded = TestsPage(), []
+    page.offer_record("Cinebench was started.", lambda: recorded.append(1))
+    assert page.busy and page.record_btn.isVisibleTo(page) and page.progress_bar.maximum() == 0
+    page.record_btn.click()
+    assert recorded == [1] and not page.busy and not page.record_btn.isVisibleTo(page)
+
+
+def test_plan_state_waits_for_the_finished_signal():
+    from types import SimpleNamespace
+    from app.ui.run_tests import plan_state
+    running = [True]
+    panel = SimpleNamespace(is_running=lambda: running[0], step=(1, 4, "7-Zip: run 1"),
+                            lhm=SimpleNamespace(busy=lambda: False), on_plan_finished=object())
+    result = {}
+    assert plan_state(panel, result).running and result["started"]
+    running[0] = False                                 # thread ended, signal not delivered yet
+    s = plan_state(panel, result)
+    assert s.running and s.text == "Writing the report..."
+    result["final"] = (4, 4, "Session #1 done.")
+    assert plan_state(panel, result) == plan_state(panel, result) and not plan_state(panel, result).running
+    never = SimpleNamespace(is_running=lambda: False, step=(0, 0, ""), lhm=SimpleNamespace(busy=lambda: False),
+                            on_plan_finished=object())
+    assert plan_state(never, {}).text == "Not started." and never.on_plan_finished is None

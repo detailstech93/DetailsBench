@@ -56,8 +56,10 @@ class AutomationRunner:
                  screenshot: Optional[Callable[[Path], bool]] = None,
                  telemetry: Optional[Callable[[], object]] = None,
                  journal=None, done: Iterable[Tuple[str, int, bool]] = (),
-                 interrupted: Optional[Tuple[str, int, bool]] = None, stamp: Optional[str] = None):
+                 interrupted: Optional[Tuple[str, int, bool]] = None, stamp: Optional[str] = None,
+                 on_step: Optional[Callable[[int, int, str], None]] = None):
         self.db = db
+        self.on_step = on_step or (lambda done, total, text: None)   # runs finished, runs planned, now doing
         self.session_id = session_id
         self.plan = plan
         self.output_root = Path(output_root)
@@ -154,6 +156,7 @@ class AutomationRunner:
         return summary
 
     def _run_schedule(self, summary: RunSummary, schedule: list, stamp: str) -> RunSummary:
+        total = len(schedule)
         for position, (item, run_index, is_warmup) in enumerate(schedule):
             if self.stop_event.is_set():
                 summary.stopped = True
@@ -161,6 +164,7 @@ class AutomationRunner:
                 break
             if position and self.cooldown_seconds > 0:
                 self.on_progress(f"Cooling down {self.cooldown_seconds:g} s")
+                self.on_step(position, total, f"Pause {self.cooldown_seconds:g} s before the next run")
                 if self.stop_event.wait(self.cooldown_seconds):
                     summary.stopped = True
                     summary.not_started = len(schedule) - position
@@ -171,6 +175,7 @@ class AutomationRunner:
                        / f"{wl.id}_{'w' if is_warmup else 'r'}{run_index}")
             run_dir.mkdir(parents=True, exist_ok=True)
             self.on_progress(f"{wl.display_name}: {label} started")
+            self.on_step(position, total, f"{wl.display_name}: {label}")
             ctx = RunContext(output_dir=run_dir, timeout_seconds=item.timeout_seconds,
                              stop_event=self.stop_event, run_index=run_index, is_warmup=is_warmup)
             key = (wl.id, run_index, is_warmup)
@@ -200,6 +205,7 @@ class AutomationRunner:
             summary.records.append(record)
             shown = f"{result.score:g} {result.unit or ''}".strip() if result.score is not None else result.error
             self.on_progress(f"{wl.display_name}: {label} {result.status} ({shown})")
+            self.on_step(position + 1, total, f"{wl.display_name}: {label} {result.status} ({shown})")
             if result.status == "cancelled":
                 summary.stopped = True
                 summary.not_started = len(schedule) - position - 1
