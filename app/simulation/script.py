@@ -13,7 +13,9 @@ A script is a JSON file in data/scripts: the program to start and a list of step
   screenshot   name                           save the screen as screenshot_<name>.png in the run folder
   wait_file    name, glob (%VARS%)            wait for a file written after the start (the game's own result
                                               file); a copy goes to the run folder
-  read_json    file, values {name: {path [keys], unit}}   read numbers from that file; optional
+  read_json    file, values {name: {path [keys], unit}}   read numbers from that file; optional duration
+               [keys]: how long the measured part lasted (it ended when the file appeared: telemetry is
+               summarized over those seconds only); optional
                settings {label: {path} | {paths, join} | {any_true {name: path}, none}}: the settings the
                game says it used, kept as text with the run ("Resolution 2560x1440, Upscaler DLSS")
   read_frames  file, csv, column              the game's own frame-time file next to that result file:
@@ -277,6 +279,8 @@ class ScriptRun:
         self.values: Dict[str, Tuple[float, Optional[str]]] = {}
         self.settings_used: List[str] = []          # "Label value" the game reported using
         self.sources: Dict[str, Path] = {}          # wait_file name -> the game's own file
+        self.found_at: Dict[str, float] = {}        # wait_file name -> seconds after the start it appeared
+        self.window: Optional[Tuple[float, float]] = None
         self.log: List[str] = []
         self.out = Path(ctx.output_dir)
 
@@ -371,6 +375,7 @@ class ScriptRun:
                 found = [f for f in glob.glob(pattern) if os.path.getmtime(f) >= self.wall_start - 1]
                 return max(found, key=os.path.getmtime) if found else None
             path = Path(self.until(f"result file {s['name']!r}", s.get("timeout", 600), newest))
+            self.found_at[s["name"]] = self.clock() - self.start
             self.pause(s.get("settle", 2))                  # let the game finish writing it
             copy = self.out / f"result_{path.parent.name}_{path.name}"
             shutil.copyfile(path, copy)
@@ -389,7 +394,13 @@ class ScriptRun:
                 if isinstance(value, (int, float)) and not isinstance(value, bool):
                     self.values[name] = (float(value), spec.get("unit"))
             self.note("read " + ", ".join(f"{k}={v[0]}" for k, v in self.values.items()))
-            self.settings_used = [f"{label} {text}" for label, text in
+            seconds = _at(data, s["duration"]) if "duration" in s else None
+            if isinstance(seconds, (int, float)) and not isinstance(seconds, bool) and 0 < seconds:
+                end = self.found_at.get(s["file"])
+                if end is not None:
+                    self.window = (max(0.0, end - float(seconds) - POLL_SECONDS), end)
+                    self.note(f"measured part: {self.window[0]:.0f}-{self.window[1]:.0f} s ({seconds:.0f} s)")
+            self.settings_used = [f"{label}: {text}" for label, text in
                                   ((label, settings_text(data, spec)) for label, spec in s.get("settings", {}).items())
                                   if text is not None]
             if self.settings_used:
@@ -487,7 +498,15 @@ class ScriptRun:
         metrics = {k: v for k, v in self.values.items() if k != score_name}
         return WorkloadResult("completed", score=score, unit=unit or self.script["score"].get("unit"),
                               metrics=metrics, duration_seconds=duration, command=[self.exe],
-                              note=("Settings used: " + ", ".join(self.settings_used)) if self.settings_used else None)
+                              note=self.result_note(), measured_window=self.window)
+
+    def result_note(self) -> Optional[str]:
+        parts = []
+        if self.settings_used:
+            parts.append("Settings used: " + ", ".join(self.settings_used))
+        if self.window is not None:
+            parts.append(f"Readings: the benchmark scene only ({self.window[1] - self.window[0]:.0f} s)")
+        return "; ".join(parts) or None
 
 
 def _at(data, path):

@@ -277,8 +277,8 @@ def test_game_frames_and_settings_used(tmp_path, monkeypatch):
     assert result.status == "completed" and result.score == 76.43
     assert result.metrics["low_1pct_fps"] == (25.0, "FPS")          # the 10 slowest of 1000 frames: 40 ms
     assert result.metrics["low_01pct_fps"] == (25.0, "FPS")
-    assert result.note == ("Settings used: Resolution 2560x1440, Preset Ultra, Upscaler DLSS, Frame generation Off, "
-                           "Ray tracing Off, Path tracing Off, VSync Off, Game version 2.31")
+    assert result.note == ("Settings used: Resolution: 2560x1440, Preset: Ultra, Upscaler: DLSS, Frame generation: Off, "
+                           "Ray tracing: Off, Path tracing: Off, VSync: Off, Game version: 2.31")
     assert (out / "frames_b1_frames.csv").exists()
 
 
@@ -360,3 +360,22 @@ def test_nothing_forced_without_a_choice(tmp_path, monkeypatch):
     _, result, _ = run_game(tmp_path, monkeypatch, FakeSteam(json.dumps(SUMMARY)), data_dir=tmp_path / "data",
                             forced_factory=forced)
     assert forced.calls == [] and result.status == "completed" and "Forced" not in (result.note or "")
+
+
+def test_measured_part_is_the_benchmark_scene(tmp_path, monkeypatch):
+    summary = json.loads(json.dumps(SUMMARY))
+    summary["Data"]["time"] = 64.2
+    _, result, _ = run_game(tmp_path, monkeypatch, FakeSteam(json.dumps(summary)))
+    start, end = result.measured_window                  # the scene ended when summary.json appeared
+    assert 0 <= end < 5 and start == max(0.0, end - 64.2 - sim.POLL_SECONDS)
+    _, no_time, _ = run_game(tmp_path / "b", monkeypatch, FakeSteam(json.dumps(SUMMARY)))
+    assert no_time.measured_window is None                # unknown length: telemetry over the whole run
+    assert "Readings: the benchmark scene only (" in result.note and "Readings" not in (no_time.note or "")
+
+
+def test_telemetry_summary_over_the_measured_window_only():
+    from app.telemetry.sampler import TelemetryResult, summarize
+    result = TelemetryResult(samples=[(1.0, {"gpu0_load": (10.0, "%")}), (50.0, {"gpu0_load": (90.0, "%")}),
+                                      (60.0, {"gpu0_load": (100.0, "%")})])
+    assert summarize(result)["tel_gpu0_load_avg"] == (200 / 3, "%")
+    assert summarize(result, (40.0, 70.0)) == {"tel_gpu0_load_avg": (95.0, "%"), "tel_gpu0_load_max": (100.0, "%")}

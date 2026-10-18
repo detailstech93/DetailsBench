@@ -97,6 +97,131 @@ def _format_environment_value(value: Any) -> str:
     return esc(value)
 
 
+def _whole(value: Any) -> Optional[int]:
+    """76.43 -> 76: game numbers are shown without decimals."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return None
+    return int(round(value))
+
+
+# (label, telemetry key, unit shown): what the game section reports about the PC during the benchmark
+GAME_READINGS = (
+    ("CPU load", ("cpu_load",), "%"),
+    ("CPU temperature", ("cpu_temperature_hottest",), "\u00b0C"),
+    ("CPU clock", ("cpu_core_clock_avg", "cpu_clock_avg"), "MHz"),
+    ("CPU power", ("cpu_package_power",), "W"),
+    ("GPU load", ("gpu0_load",), "%"),
+    ("GPU temperature", ("gpu0_temperature",), "\u00b0C"),
+    ("GPU power", ("gpu0_power",), "W"),
+    ("GPU clock", ("gpu0_sm_clock",), "MHz"),
+    ("GPU memory clock", ("gpu0_mem_clock",), "MHz"),
+    ("RAM used", ("ram_used",), "%"),
+)
+
+
+def _note_parts(note: Any) -> dict:
+    """"Settings used: a, b; Forced: c; Readings: ..." -> {"Settings used": "a, b", ...}."""
+    out = {}
+    for part in str(note or "").split("; "):
+        key, sep, value = part.partition(": ")
+        if sep and key in ("Settings used", "Forced", "Readings"):
+            out[key] = value
+    return out
+
+
+def _game_runs(export: Mapping) -> dict:
+    """{benchmark: [measured runs]} for game benchmarks (completed, not warm-up; test runs only in a test session)."""
+    session_is_test = _truthy((_mapping(export.get("session")) or {}).get("is_test"))
+    out: dict = {}
+    for run in export.get("runs") or []:
+        m = _mapping(run) or {}
+        if m.get("benchmark_type") != "game":
+            continue
+        out.setdefault(str(m.get("benchmark_name") or "-"), [])
+        if (m.get("status") == "completed" and not _truthy(m.get("is_warmup"))
+                and (session_is_test or not _truthy(m.get("is_test")))):
+            out[str(m.get("benchmark_name") or "-")].append(m)
+    return out
+
+
+def _game_section(export: Mapping) -> str:
+    """Per game: big whole numbers (average, 1% and 0.1% low, min, max), the settings the game used and how the
+    CPU and GPU behaved during the benchmark."""
+    games = _game_runs(export)
+    if not games:
+        return ""
+    summaries = _mapping(export.get("summaries")) or {}
+    metrics = _mapping(export.get("metric_summaries")) or {}
+    used = (_mapping(export.get("manifest")) or {}).get("benchmarks") or []
+    titles = {str(b.get("name")): str(b.get("display_name")).split(" (")[0] for b in used
+              if isinstance(b, Mapping) and b.get("display_name")}
+    blocks = []
+    for name, runs in sorted(games.items()):
+        title = esc(titles.get(name, name))
+        if not runs:
+            blocks.append(f'<div class="game"><h3 dir="auto">{title}</h3>'
+                          "<p>No completed run: there are no results to show.</p></div>")
+            continue
+        stats = _mapping((_mapping(summaries.get(name)) or {}).get("stats")) or {}
+        extra = _mapping(metrics.get(name)) or {}
+
+        def mean_of(key):
+            return (_mapping(extra.get(key)) or {}).get("mean")
+
+        def lowest(key):
+            return (_mapping(extra.get(key)) or {}).get("min")
+
+        def highest(key):
+            return (_mapping(extra.get(key)) or {}).get("max")
+
+        tiles = [("Average", stats.get("mean")), ("1% low", mean_of("low_1pct_fps")),
+                 ("0.1% low", mean_of("low_01pct_fps")), ("Lowest", lowest("min_fps")),
+                 ("Highest", highest("max_fps"))]
+        tile_html = "".join(
+            f'<div class="tile"><div class="label">{label}</div><div class="value">'
+            + (f"{_whole(value):,} <span>FPS</span>" if _whole(value) is not None else '<span>not measured</span>')
+            + "</div></div>"
+            for label, value in tiles)
+        count = len(runs)
+        runs_text = f"{count} measured run" + ("" if count == 1 else "s") + (
+            " (numbers are the average of the runs; lowest and highest over all of them)" if count > 1 else "")
+
+        parts = _note_parts(runs[-1].get("note"))
+        if parts.get("Settings used"):
+            settings_rows = "".join(
+                "<tr><th>{}</th><td>{}</td></tr>".format(*(esc(x) for x in item.partition(": ")[::2]))
+                for item in parts["Settings used"].split(", "))
+            settings_html = ('<table class="kv">' + settings_rows + "</table>")
+        else:
+            settings_html = "<p>The game did not report its settings for this run.</p>"
+        if parts.get("Forced"):
+            settings_html += f'<p class="muted">Set by the app before the run: {esc(parts["Forced"])}.</p>'
+
+        rows = []
+        for label, keys, unit in GAME_READINGS:
+            key = next((k for k in keys if f"tel_{k}_avg" in extra), None)
+            avg = _whole(mean_of(f"tel_{key}_avg")) if key else None
+            top = _whole(highest(f"tel_{key}_max")) if key else None
+            if avg is None and top is None:
+                rows.append(f'<tr><td>{label}</td><td colspan="2" class="muted">not measured (no reading '
+                            "in this run)</td></tr>")
+                continue
+            rows.append(f"<tr><td>{label}</td>"
+                        f"<td>{'-' if avg is None else f'{avg:,} {unit}'}</td>"
+                        f"<td>{'-' if top is None else f'{top:,} {unit}'}</td></tr>")
+        span = parts.get("Readings") or "the whole run (game start to close)"
+        blocks.append(
+            f'<div class="game"><h3 dir="auto">{title}</h3>'
+            f'<div class="tiles">{tile_html}</div>'
+            f'<p class="muted">{esc(runs_text)}.</p>'
+            "<h4>Settings used</h4>" + settings_html
+            + "<h4>During the benchmark</h4>"
+            f'<p class="muted">Readings over {esc(span)}.</p>'
+            '<div class="table-wrap"><table><thead><tr><th>Reading</th><th>Average</th><th>Highest</th></tr>'
+            "</thead><tbody>" + "".join(rows) + "</tbody></table></div></div>")
+    return "<section><h2>Game results</h2>" + "".join(blocks) + "</section>"
+
+
 def _session_name(session: Any) -> str:
     mapping = _mapping(session)
     if mapping is not None:
@@ -576,6 +701,14 @@ def _style_block() -> str:
         "border-bottom:none;"
         "}"
         "td.note{white-space:normal;min-width:220px;}"
+        ".tiles{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0;}"
+        ".tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 16px;"
+        "min-width:110px;}"
+        ".tile .label{color:var(--muted);font-size:13px;}"
+        ".tile .value{font-size:30px;font-weight:700;}"
+        ".tile .value span{font-size:14px;font-weight:400;color:var(--muted);}"
+        ".muted{color:var(--muted);}"
+        "table.kv th{text-align:left;padding-right:16px;}"
         "@media (max-width:600px){body{padding:16px;}section{padding:14px;}}"
         ".footer{"
         "color:var(--muted);"
@@ -602,6 +735,7 @@ def render_session_report(export: Mapping) -> str:
         "<body>"
         "<main>"
         + _header_section(export_mapping)
+        + _game_section(export_mapping)
         + _summary_section(export_mapping)
         + _charts_section(export_mapping)
         + _metrics_section(export_mapping)

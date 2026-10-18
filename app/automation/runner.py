@@ -99,8 +99,9 @@ class AutomationRunner:
             self.on_progress(f"telemetry not started: {e}")
             return None
 
-    def _finish_telemetry(self, sampler, run_dir: Path) -> dict:
-        """Stop sampling; keep telemetry.csv and telemetry.json in the run folder; return summary metrics."""
+    def _finish_telemetry(self, sampler, run_dir: Path, window=None) -> dict:
+        """Stop sampling; keep telemetry.csv and telemetry.json in the run folder; return summary metrics
+        (over the measured window only, when the workload says which seconds were measured)."""
         if sampler is None:
             return {}
         from app.telemetry.sampler import summarize, write_csv
@@ -111,8 +112,10 @@ class AutomationRunner:
             write_csv(result, run_dir / "telemetry.csv")
             (run_dir / "telemetry.json").write_text(json.dumps(
                 {"samples": len(result.samples), "unavailable": result.unavailable,
-                 "read_errors": result.errors, "last_error": result.last_error}, indent=2), encoding="utf-8")
-            return summarize(result)
+                 "read_errors": result.errors, "last_error": result.last_error,
+                 "summary_window_seconds": list(window) if window else None}, indent=2), encoding="utf-8")
+            summary = summarize(result, window) if window else {}
+            return summary or summarize(result)
         except Exception as e:
             self.on_progress(f"telemetry not stored: {e}")
             return {}
@@ -186,7 +189,7 @@ class AutomationRunner:
                 result = wl.run(ctx)
             except Exception as e:      # a broken workload must not end the whole plan
                 result = WorkloadResult(status="failed", error=f"workload raised: {e}")
-            telemetry_metrics = self._finish_telemetry(sampler, run_dir)
+            telemetry_metrics = self._finish_telemetry(sampler, run_dir, result.measured_window)
             record = RunRecord(wl.id, run_index, is_warmup, result, None, run_dir)
             if result.status != "completed":
                 record.diagnostics = write_snapshot(

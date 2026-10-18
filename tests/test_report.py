@@ -308,3 +308,46 @@ def test_chart_title_uses_the_display_name_from_the_manifest():
     export = {"manifest": {"benchmarks": [{"name": "7zip", "display_name": "7-Zip benchmark"}]},
               "runs": [_run("7zip", 1, 1), _run("7zip", 2, 2)]}
     assert "7-Zip benchmark, each measured run" in render_session_report(export)
+
+
+def _game_export(note, metrics, is_test=False):
+    run = {"benchmark_name": "cp", "benchmark_type": "game", "status": "completed", "score": 76.43, "unit": "FPS",
+           "run_index": 1, "is_warmup": False, "is_test": is_test, "note": note}
+    m = {k: {"unit": u, "count": 1, "mean": v, "min": v, "max": v, "mixed_units": False} for k, (v, u) in metrics.items()}
+    return {"session": {"id": 1, "name": "s"}, "runs": [run],
+            "summaries": {"cp": {"included": 1, "stats": {"mean": 76.43}}}, "metric_summaries": {"cp": m},
+            "manifest": {"benchmarks": [{"name": "cp", "display_name": "Cyberpunk 2077 built-in benchmark (assisted)"}]}}
+
+
+def test_game_section_whole_numbers_settings_and_readings():
+    export = _game_export(
+        "Settings used: Resolution: 2560x1440, Frame generation: Off; Forced: upscaler DLSS; "
+        "Readings: the benchmark scene only (66 s)",
+        {"low_1pct_fps": (57.8, "FPS"), "low_01pct_fps": (39.7, "FPS"), "min_fps": (65.5, "FPS"),
+         "max_fps": (104.4, "FPS"), "tel_gpu0_temperature_avg": (75.4, "C"), "tel_gpu0_temperature_max": (77.0, "C"),
+         "tel_gpu0_mem_clock_avg": (14001.0, "MHz"), "tel_gpu0_mem_clock_max": (14001.0, "MHz")})
+    page = render_session_report(export)
+    game = page[page.index("Game results"):page.index("<h2>Summary")]
+    assert "Cyberpunk 2077 built-in benchmark</h3>" in game
+    for number in ("76 <span>FPS", "58 <span>FPS", "40 <span>FPS", "66 <span>FPS", "104 <span>FPS"):
+        assert number in game
+    assert "76.43" not in game and "57.8" not in game
+    assert "<tr><th>Frame generation</th><td>Off</td></tr>" in game
+    assert "Set by the app before the run" in game and "benchmark scene only (66 s)" in game
+    assert "<td>GPU temperature</td><td>75 \u00b0C</td><td>77 \u00b0C</td>" in game
+    assert "<td>GPU memory clock</td><td>14,001 MHz</td>" in game
+    assert "<td>CPU temperature</td><td colspan=\"2\" class=\"muted\">not measured" in game
+
+
+def test_game_section_without_settings_or_frames_and_only_for_games():
+    page = render_session_report(_game_export(None, {}))
+    assert "did not report its settings" in page and "the whole run" in page
+    assert "1% low</div><div class=\"value\"><span>not measured" in page
+    export = _game_export(None, {})
+    export["runs"][0]["benchmark_type"] = "cpu"
+    assert "Game results" not in render_session_report(export)
+    export = _game_export(None, {})
+    export["runs"][0]["status"] = "failed"
+    assert "No completed run" in render_session_report(export)
+    hostile = render_session_report(_game_export('Settings used: Res: <script>http://x</script>', {}))
+    assert "<script" not in hostile and "http://" not in hostile

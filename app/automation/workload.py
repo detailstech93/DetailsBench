@@ -33,6 +33,8 @@ class WorkloadResult:
     stdout_path: Optional[str] = None
     stderr_path: Optional[str] = None
     note: Optional[str] = None             # text kept with a completed run (e.g. the game settings it used)
+    measured_window: Optional[tuple] = None   # (from, to) seconds after the run started: the part that was
+                                              # measured (a game's benchmark scene); telemetry is kept for it only
 
     def __post_init__(self):
         if self.status not in RESULT_STATUSES:

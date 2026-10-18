@@ -17,7 +17,7 @@
       "average_fps": {"path": ["Data", "averageFps"], "unit": "FPS"},
       "min_fps": {"path": ["Data", "minFps"], "unit": "FPS"},
       "max_fps": {"path": ["Data", "maxFps"], "unit": "FPS"}
-    }, "settings": {
+    }, "duration": ["Data", "time"], "settings": {
       "Resolution": {"paths": [["Data", "renderWidth"], ["Data", "renderHeight"]], "join": "x"},
       "Preset": {"path": ["Data", "presetName"]},
       "Upscaler": {"any_true": {"DLSS": ["Data", "DLSSEnabled"], "DLAA": ["Data", "DLAAEnabled"],

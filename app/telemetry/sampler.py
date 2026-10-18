@@ -84,11 +84,14 @@ class TelemetrySampler:
         return self.result
 
 
-def summarize(result: TelemetryResult) -> Dict[str, Tuple[float, str]]:
-    """{tel_<key>_avg / tel_<key>_max: (value, unit)} for every key read at least once."""
+def summarize(result: TelemetryResult, window: Optional[Tuple[float, float]] = None) -> Dict[str, Tuple[float, str]]:
+    """{tel_<key>_avg / tel_<key>_max: (value, unit)} for every key read at least once (only samples taken
+    within window (from, to) seconds, when given)."""
     values: Dict[str, List[float]] = {}
     units: Dict[str, str] = {}
-    for _, reading in result.samples:
+    for t, reading in result.samples:
+        if window is not None and not window[0] <= t <= window[1]:
+            continue
         for key, (value, unit) in reading.items():
             values.setdefault(key, []).append(value)
             units[key] = unit
