@@ -531,6 +531,25 @@ def _header_section(export: Mapping) -> str:
     return "".join(parts)
 
 
+def _each_run(export: Mapping, name: Any) -> str:
+    """Every run's own result for one benchmark, in run order: the warm-up first (not counted), then each
+    measured run, so the summary shows each result before the mean."""
+    runs = export.get("runs") if isinstance(export.get("runs"), list) else []
+    own = [r for r in runs if isinstance(r, Mapping) and r.get("benchmark_name") == name
+           and not _truthy(r.get("is_test"))]
+    own.sort(key=lambda r: (not _truthy(r.get("is_warmup")), r.get("run_index") or 0))
+    parts = []
+    for r in own:
+        label = "Warm-up" if _truthy(r.get("is_warmup")) else f"Run {r.get('run_index')}"
+        score = r.get("score")
+        ok = isinstance(score, (int, float)) and not isinstance(score, bool)
+        value = (_format_number(score) + (f" {esc(r.get('unit'))}" if r.get("unit") else "")) if ok \
+            else esc(r.get("status") or "no result")
+        extra = " (not counted)" if _truthy(r.get("is_warmup")) else ""
+        parts.append(f"{label}: {value}{extra}")
+    return "<br>".join(parts) or "-"
+
+
 def _summary_section(export: Mapping) -> str:
     summaries = _mapping(export.get("summaries"))
     if summaries is None or not summaries:
@@ -563,6 +582,7 @@ def _summary_section(export: Mapping) -> str:
             "<tr>"
             f'<td dir="auto">{esc(name)}</td>'
             f"<td>{runs_used}</td>"
+            f'<td class="each-run">{_each_run(export, name)}</td>'
             f"<td>{mean}</td>"
             f"<td>{median}</td>"
             f"<td>{minimum}</td>"
@@ -579,6 +599,7 @@ def _summary_section(export: Mapping) -> str:
         "<tr>"
         "<th>Benchmark</th>"
         "<th>Runs used</th>"
+        "<th>Each run</th>"
         "<th>Mean</th>"
         "<th>Median</th>"
         "<th>Min</th>"

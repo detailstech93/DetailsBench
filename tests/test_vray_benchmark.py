@@ -119,7 +119,8 @@ def test_gpu_run_lists_devices_answers_the_license_and_reads_the_file(tmp_path, 
         calls.append((command, Path(stdin_path).read_text(encoding="ascii")))
         err.write_text("", encoding="utf-8")
         if "--list-devices" in command:
-            out.write_text("[0]: Intel(R) Core(TM) Ultra 9 275HX\r\n[1]: NVIDIA GeForce RTX 5090 Laptop GPU\r\n\r\n"
+            # real output of --mode vray-gpu --rtx --list-devices: no CPU in RTX mode, so the GPU is [0]
+            out.write_text("[0]: NVIDIA GeForce RTX 5090 Laptop GPU\r\n\r\n"
                            "Automatic installation was successful!\r\n", encoding="utf-8")
         else:
             Path(command[command.index("--output") + 1]).write_text(json.dumps({
@@ -131,8 +132,8 @@ def test_gpu_run_lists_devices_answers_the_license_and_reads_the_file(tmp_path, 
     w = vb.VRayBenchmarkWorkload("vray_benchmark_rtx", exe=exe, data_dir=tmp_path)
     result = w.run(RunContext(output_dir=tmp_path / "r", timeout_seconds=600))
     assert result.status == "completed" and result.score == 7123.4 and result.unit == "vrays"
-    assert calls[0][0][-1] == "--list-devices" and calls[1][0][1:6] == ["--mode", "vray-gpu", "--rtx",
-                                                                        "--with-devices", "1"]
+    assert calls[0][0][1:] == ["--mode", "vray-gpu", "--rtx", "--list-devices"]
+    assert calls[1][0][1:6] == ["--mode", "vray-gpu", "--rtx", "--with-devices", "0"]
     assert all(answer == "y\n" for _, answer in calls)
     assert result.note == ("V-Ray Benchmark: 6.00.02; Engine: GPU, RTX; "
                            "Devices: NVIDIA GeForce RTX 5090 Laptop GPU")
@@ -155,6 +156,20 @@ def test_no_nvidia_gpu_skips_and_no_file_is_invalid(tmp_path, monkeypatch):
     cpu = vb.VRayBenchmarkWorkload("vray_benchmark", exe=exe, data_dir=tmp_path)
     result = cpu.run(RunContext(output_dir=tmp_path / "c"))
     assert result.status == "invalid" and "no result file" in result.error and result.score is None
+
+
+def test_the_programs_own_error_is_shown(tmp_path, monkeypatch):
+    vb.accept_license(tmp_path)
+
+    def fake(command, out, err, timeout, stop, cwd=None, env=None, stdin_path=None):
+        out.write_text("Automatic installation was successful!\n", encoding="utf-8")
+        err.write_text("V-Ray Benchmark (CLI).exe: Invalid device index: 1\n", encoding="utf-8")
+        return ProcessOutcome(0, False, False, 8.0)     # the real program exits 0 here
+    monkeypatch.setattr(vb, "run_process", fake)
+    w = vb.VRayBenchmarkWorkload("vray_benchmark", exe=_exe(tmp_path), data_dir=tmp_path)
+    result = w.run(RunContext(output_dir=tmp_path / "r"))
+    assert result.status == "invalid" and result.score is None
+    assert result.error == "the benchmark wrote no result file (V-Ray Benchmark (CLI).exe: Invalid device index: 1)"
 
 
 def test_the_license_is_asked_once_before_the_run():
@@ -196,3 +211,17 @@ def test_vray_report_section():
     assert "7,123 <span>vrays</span>" in part and "V-Ray (CPU)" in part and "no score" in part
     assert "<tr><th>Devices</th><td>NVIDIA GeForce RTX 5090 Laptop GPU</td></tr>" in part
     assert "cannot be compared" in part and "Blender" not in part
+
+
+def test_summary_shows_each_run_then_the_mean():
+    export = _vray_export()
+    export["runs"] = [{"benchmark_name": "vray_benchmark", "status": "completed", "score": s, "unit": "vsamples",
+                       "run_index": i, "is_warmup": i == 0, "is_test": False}
+                      for i, s in enumerate((34745, 34347, 34214, 34347))]
+    export["summaries"] = {"vray_benchmark": {"included": 3, "stats": {"mean": 34302.67}}}
+    page = render_session_report(export)
+    part = page[page.index("<h2>Summary</h2>"):]
+    part = part[:part.index("</table>")]
+    assert "<th>Each run</th><th>Mean</th>" in part
+    assert ("Warm-up: 34,745.00 vsamples (not counted)<br>Run 1: 34,347.00 vsamples<br>Run 2: 34,214.00 vsamples<br>"
+            "Run 3: 34,347.00 vsamples</td><td>34,302.67") in part

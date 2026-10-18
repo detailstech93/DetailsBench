@@ -211,7 +211,8 @@ class VRayBenchmarkWorkload(Workload):
         folder.mkdir(parents=True, exist_ok=True)
         devices, used = None, []
         if self.mode != "vray":
-            command = [str(self.exe), "--mode", self.mode, "--list-devices"]
+            # the indexes depend on the engine: CUDA lists the CPU too ([0] CPU, [1] GPU), RTX only the RTX GPUs
+            command = [str(self.exe), "--mode", self.mode] + (["--rtx"] if self.rtx else []) + ["--list-devices"]
             outcome, out, err = self._run(command, folder, "devices", 300, ctx)
             common = {"command": command, "exit_code": outcome.exit_code, "stdout_path": str(out),
                       "stderr_path": str(err)}
@@ -240,7 +241,9 @@ class VRayBenchmarkWorkload(Workload):
         if outcome.exit_code != 0:
             return WorkloadResult(status="failed", error=f"exit code {outcome.exit_code}", **common)
         if not result_file.is_file():
-            return WorkloadResult(status="invalid", error="the benchmark wrote no result file", **common)
+            said = err.read_text(encoding="utf-8", errors="replace").strip().splitlines()
+            return WorkloadResult(status="invalid", error="the benchmark wrote no result file"
+                                  + (f" ({said[-1].strip()})" if said else ""), **common)
         score, details, error = parse_result(result_file.read_text(encoding="utf-8", errors="replace"), self.rtx)
         if error:
             return WorkloadResult(status="invalid", error=error, **common)
