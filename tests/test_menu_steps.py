@@ -192,3 +192,12 @@ def test_menus_that_do_not_reach_the_benchmark_store_nothing(tmp_path):
     assert cap.message.startswith("the app did not reach the game's benchmark; game closed (Game.exe)")
     assert cap.message.endswith("menu steps: test; step 1: 'stop' did not appear within 60 s")
     assert fakes.closed == [[7]]
+
+
+def test_every_read_is_logged(tmp_path):
+    steps = [{"see": "menu", "within": 2, "press": "enter"}, {"see": "stop", "within": 1, "mark": True}]
+    p, desk, clock = player(tmp_path, steps, [(0, ["Loading"]), (1, ["Main menu", "Settings"]), (2, ["Stop"])])
+    p.run()
+    log = (tmp_path / "screen_log.txt").read_text(encoding="utf-8").splitlines()
+    assert log[0] == "0 s\tstep 1\tLoading" and log[1] == "1 s\tstep 1\tMain menu | Settings"
+    assert log[-1].endswith("step 2\tStop") and p.mark_time is not None

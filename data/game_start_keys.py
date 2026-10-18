@@ -26,7 +26,8 @@ GAME_MENU_STEPS: Dict[int, dict] = {
             {"see": "graphics", "within": 30, "press": "up, up, left, left, down, enter", "wait": 3},
             {"see": "benchmark", "within": 30, "hold": "x", "seconds": 1.5, "wait": 1},
             {"press": "enter"},
-            {"see": "stop", "within": 180, "mark": True},     # "Stop Benchmarking" in the corner: it runs
+            # "Stop Benchmarking" in the corner: it runs. Loading took over 3 min on the first try here
+            {"see": "stop", "within": 300, "mark": True},
         ],
         "verified": False,
         "note": "Settings, Graphics, hold X on Run Benchmark Test, confirm; measuring starts when "

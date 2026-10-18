@@ -25,6 +25,7 @@ from app.frames.screen_text import find_word, read_screen
 PAUSE_SECONDS = 0.5
 LOOK_EVERY_SECONDS = 1.0
 FRONT_GRACE_SECONDS = 10.0          # the game may lose the front briefly while it changes video mode
+LOG_NAME = "screen_log.txt"          # what every read saw
 
 
 def step_problems(steps) -> List[str]:
@@ -128,6 +129,7 @@ class StepPlayer:
             if self.stop.is_set():
                 raise _Stop("stopped")
             lines, error = self.reader(self.desktop, self.folder / "screen.png")
+            self._log(i, lines, error)
             if not error:
                 last = lines
                 found = find_word(lines, words)
@@ -174,6 +176,16 @@ class StepPlayer:
         finally:
             self.desktop.key_up(codes)
         self.notes.append(f"held {chord} {seconds:g} s")
+
+    def _log(self, i: int, lines: List[str], error: Optional[str]) -> None:
+        """What each read saw, one line per read (screen_log.txt in the run folder): shows afterwards where a
+        game stayed, without keeping a full screenshot every second."""
+        said = error or (" | ".join(lines)[:300] if lines else "(no words)")
+        try:
+            with open(self.folder / LOG_NAME, "a", encoding="utf-8") as f:
+                f.write(f"{self._at()}\tstep {i}\t{said}\n")
+        except OSError:
+            pass
 
     def _keep_shot(self, name: str) -> Optional[str]:
         src = self.folder / "screen.png"
