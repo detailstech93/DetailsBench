@@ -158,17 +158,24 @@ def library_entries(benchmarks) -> List[TestEntry]:
     return entries
 
 
-def steam_entries(games: List[dict], environment: Optional[dict], covered_app_ids=()) -> List[TestEntry]:
-    """Games believed to have a built-in benchmark (frame capture runs them), installed or not, then every
-    other installed Steam game as a gameplay capture (the app starts it, records a fixed time of play with
-    PresentMon and closes it). App ids already covered by a simulation script are left out."""
+# Gameplay captures (installed games without a built-in benchmark: a fixed time of play, a route) are hidden
+# for now; only games with a built-in benchmark are listed (owner, 2026-10-18). True brings them back.
+SHOW_GAMEPLAY_CAPTURES = False
+
+
+def steam_entries(games: List[dict], environment: Optional[dict], covered_app_ids=(),
+                  gameplay_captures: bool = SHOW_GAMEPLAY_CAPTURES) -> List[TestEntry]:
+    """Games believed to have a built-in benchmark (frame capture runs them), installed or not, then (with
+    gameplay_captures) every other installed Steam game as a gameplay capture (the app starts it, records a
+    fixed time of play with PresentMon and closes it). App ids already covered by a simulation script are
+    left out."""
     installed = {str(g.get("app_id")): g for g in games or []
                  if g.get("store") == "steam" and g.get("installed") is True}
     covered = {str(a) for a in covered_app_ids}
     entries = []
     listed = {str(app["appid"]) for app in STEAM_BENCHMARK_APPS}
     for app_id, game in installed.items():
-        if app_id in listed or app_id in covered or game.get("kind") == "tool":
+        if not gameplay_captures or app_id in listed or app_id in covered or game.get("kind") == "tool":
             continue
         ok, comp = check_platform({"supported_os": ["windows", "linux"]}, environment)
         entries.append(TestEntry(

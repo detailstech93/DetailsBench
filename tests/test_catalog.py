@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from app.benchmark_manager import BenchmarkInfo, BenchmarkStatus, BenchmarkType
 from app.catalog import (ASSISTED, AUTOMATIC, INSTALLED, MANUAL, MISSING, UNUSABLE, build_catalog,
-                         check_platform, counts)
+                         check_platform, counts, steam_entries)
 
 WIN_X64 = {"os_family": {"value": "windows", "status": "detected"},
            "native_arch": {"value": "x64", "status": "detected"}}
@@ -108,6 +108,14 @@ def test_a_script_can_say_it_is_automatic():
     assert e["odd_script"].mode == AUTOMATIC                          # unknown mode: decided by its steps
 
 
+def test_games_without_a_built_in_benchmark_are_hidden_for_now():
+    games = [{"store": "steam", "app_id": "1593500", "name": "God of War", "installed": True, "kind": "game"},
+             {"store": "steam", "app_id": "286690", "name": "Metro 2033 Redux", "installed": True, "kind": "game"}]
+    e = by_id(build_catalog([], [], games, WIN_X64))
+    assert "steam_1593500" not in e
+    assert e["steam_286690"].name == "Metro 2033 Redux (built-in benchmark)" and e["steam_286690"].state == INSTALLED
+
+
 def test_installed_games_without_a_benchmark_are_gameplay_captures():
     games = [{"store": "steam", "app_id": "1593500", "name": "God of War", "installed": True, "kind": "game"},
              {"store": "steam", "app_id": "292030", "name": "The Witcher 3", "installed": False, "kind": "game"},
@@ -117,7 +125,8 @@ def test_installed_games_without_a_benchmark_are_gameplay_captures():
              {"store": "steam", "app_id": "1091500", "name": "Cyberpunk", "installed": True, "kind": "game"}]
     script = FakeWorkload("cyberpunk2077_builtin_benchmark", benchmark_type="game",
                           script={"steam_app": 1091500, "steps": []})
-    entries = build_catalog([script], [], games, WIN_X64)
+    entries = [x for x in build_catalog([script], [], games, WIN_X64) if x.source != "steam"]
+    entries += steam_entries(games, WIN_X64, [1091500], gameplay_captures=True)
     e = by_id(entries)
     gow = e["steam_1593500"]
     assert gow.name == "God of War (gameplay capture)" and gow.group == "game" and gow.mode == ASSISTED

@@ -31,15 +31,21 @@ STEAM_BENCHMARK_APPS: List[Dict[str, object]] = [
      "builtin_benchmark": "unverified", "appid_verified": "2026-10-17"},
     {"appid": 2369390, "store_name": "Far Cry® 6", "kind": "game",
      "builtin_benchmark": "unverified", "appid_verified": "2026-10-18"},
+    # its benchmark is its own program, metro_benchmark.exe, in the install folder (seen 2026-10-18; see
+    # SKIP_LAUNCHER): it opens a settings window and the owner presses its Run button
+    {"appid": 286690, "store_name": "Metro 2033 Redux", "kind": "game",
+     "builtin_benchmark": "unverified", "appid_verified": "2026-10-18"},
 ]
 
 STEAM_BENCHMARK_APPS_BY_ID = {int(a["appid"]): a for a in STEAM_BENCHMARK_APPS}
 
-# Games whose Steam launch opens a launcher first (CD Projekt RED's REDprelauncher): the app starts the game's
-# own executable instead, inside the install folder, with no arguments (the launcher passes none:
-# launcher-configuration.json of The Witcher 3 4.x lists only bin\x64_dx12\witcher3.exe, checked 2026-10-18).
+# Games the app starts by a file in their install folder, with no arguments, instead of through Steam:
+# - Steam would open a launcher first (CD Projekt RED's REDprelauncher; launcher-configuration.json of The
+#   Witcher 3 4.x lists only bin\x64_dx12\witcher3.exe, checked 2026-10-18);
+# - the built-in benchmark is its own program (Metro 2033 Redux).
 SKIP_LAUNCHER = {
     292030: "bin\\x64_dx12\\witcher3.exe",      # The Witcher 3: Wild Hunt (next-gen, DirectX 12)
+    286690: "metro_benchmark.exe",               # Metro 2033 Redux: its benchmark program
 }
 
 # Steam components that show up as installed apps but are not games
