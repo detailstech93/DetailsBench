@@ -102,6 +102,9 @@ py -3.10 -m venv .venv
 `requirements.txt` holds the runtime dependencies (PySide6, pefile, psutil);
 `requirements-dev.txt` adds pytest on top of them.
 
+A packaged build that runs without Python (PyInstaller, one folder, `dist\PCBenchmarkManager\PCBenchmarkManager.exe`)
+is described in [packaging/README.md](packaging/README.md), with what it cannot do.
+
 ## Usage
 
 ### Launching the Application

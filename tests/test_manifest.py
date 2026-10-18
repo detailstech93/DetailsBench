@@ -54,3 +54,11 @@ def test_store_once_and_read_back(tmp_path):
     with pytest.raises(ValueError):
         db.save_session_manifest(sid, m)
     assert db.get_session_manifest(999) is None
+
+
+def test_packaged_app_reads_the_commit_it_was_built_from(tmp_path):
+    (tmp_path / "build_info.json").write_text('{"commit": "' + "a" * 40 + '"}', encoding="utf-8")
+    assert git_commit(frozen_dir=str(tmp_path)) == "a" * 40
+    (tmp_path / "build_info.json").write_text('{"commit": null}', encoding="utf-8")
+    assert git_commit(frozen_dir=str(tmp_path)) is None
+    assert git_commit(frozen_dir=str(tmp_path / "missing")) is None      # never falls back to git

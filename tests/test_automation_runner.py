@@ -107,3 +107,11 @@ def test_screenshot_function_used(db, tmp_path):
     diag = json.loads(summary.records[0].diagnostics.read_text(encoding="utf-8"))
     assert diag["screenshot"]["taken"] is True
     assert (summary.records[0].run_dir / "screenshot.png").read_bytes() == b"png"
+
+
+def test_python_spec_is_unavailable_in_the_packaged_app():
+    from app.automation.cli_workload import CliWorkload, load_tool_specs
+    spec = next(s for s in load_tool_specs()[0] if s.id == "selftest_python")
+    packaged = CliWorkload(spec, python_executable=None)
+    assert packaged.availability() == (False, "needs Python, which the packaged app does not include")
+    assert CliWorkload(spec, python_executable="py.exe").availability()[0]

@@ -25,7 +25,7 @@ TOOLS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "tools"
 class CliWorkload(Workload):
     def __init__(self, spec: ToolSpec, env=None, exists: Callable[[str], bool] = os.path.isfile,
                  which: Callable[[str], Optional[str]] = shutil.which,
-                 python_executable: str = sys.executable):
+                 python_executable: Optional[str] = None if getattr(sys, "frozen", False) else sys.executable):
         self.spec = spec
         self.id = spec.id
         self.display_name = spec.display_name
@@ -41,7 +41,7 @@ class CliWorkload(Workload):
     def availability(self) -> Tuple[bool, str]:
         path, how = self.executable()
         if path is None:
-            return False, "not found"
+            return False, how if how != "not found" else "not found"
         return True, f"{path} ({how})" + ("" if self.spec.verified else "; spec unverified")
 
     def version(self) -> Optional[str]:

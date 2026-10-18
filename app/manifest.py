@@ -4,20 +4,33 @@ Built once per session and stored as JSON (table session_manifests). Only the
 benchmarks and games actually used in the session are included (privacy).
 """
 
+import json
 import os
 import platform
 import subprocess
+import sys
 from datetime import datetime
 from typing import Iterable, List, Mapping, Optional
 
 MANIFEST_SCHEMA_VERSION = 1
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BUILD_INFO = "build_info.json"
 
 DEFAULT_RUN_SETTINGS = {"repetitions": 3, "warmup_runs": 1, "timeout_seconds": 600, "cooldown_seconds": 0}
 
 
-def git_commit(root: str = _PROJECT_ROOT) -> Optional[str]:
-    """Current commit of the app's own repository, or None (not a repo / git missing)."""
+def git_commit(root: str = _PROJECT_ROOT, frozen_dir: Optional[str] = None) -> Optional[str]:
+    """Current commit of the app's own repository, or None (not a repo / git missing).
+    The packaged app reads the commit it was built from (build_info.json, written by the PyInstaller
+    spec); it never asks git, which could answer for some other repository around the install folder."""
+    frozen_dir = frozen_dir or getattr(sys, "_MEIPASS", None)
+    if frozen_dir:
+        try:
+            with open(os.path.join(frozen_dir, BUILD_INFO), encoding="utf-8") as f:
+                commit = json.load(f).get("commit")
+        except (OSError, ValueError, AttributeError):
+            return None
+        return commit if isinstance(commit, str) and len(commit) == 40 else None
     try:
         res = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"],
                              capture_output=True, text=True, timeout=5)

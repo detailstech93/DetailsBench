@@ -23,3 +23,7 @@ venv/
 
 # Accidental reserved-name file in the project root
 /nul
+# PyInstaller build output and its separate build environment (packaging/README.md)
+/build/
+/dist/
+.venv-build/

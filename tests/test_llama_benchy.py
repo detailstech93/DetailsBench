@@ -124,3 +124,12 @@ def test_workload_failures_never_score(tmp_path):
     missing.exe = None
     assert missing.run(RunContext(output_dir=tmp_path)).status == "skipped"
     assert missing.availability()[0] is False
+
+
+def test_benchy_path_override_and_packaged_app(tmp_path):
+    from app.ai.llama_benchy import benchy_path
+    exe = tmp_path / "llama-benchy.exe"
+    exe.write_bytes(b"")
+    assert benchy_path("C:/nowhere/python.exe", env={"PCBM_LLAMA_BENCHY": str(exe)}) == exe
+    assert benchy_path(str(tmp_path / "python.exe"), env={}, frozen=False) == exe
+    assert benchy_path(str(tmp_path / "python.exe"), env={}, frozen=True) is None    # packaged: no Python folder

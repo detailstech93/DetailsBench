@@ -24,6 +24,7 @@ agent): the numbers would measure both. Status mapping is the same as CliWorkloa
 """
 
 import json
+import os
 import math
 import subprocess
 import sys
@@ -49,8 +50,15 @@ COLUMNS = (("pp_throughput", "pp_tok_s", "tok/s", "pp (tok/s)"),
            ("e2e_ttft", "e2e_ttft_ms", "ms", "E2E TTFT (ms)"))
 
 
-def benchy_path(python: str = sys.executable) -> Optional[Path]:
-    """llama-benchy's script next to the app's Python (installed into .venv with pip)."""
+def benchy_path(python: str = sys.executable, env=None, frozen: Optional[bool] = None) -> Optional[Path]:
+    """llama-benchy's script: PCBM_LLAMA_BENCHY, else next to the app's Python (installed into .venv with pip).
+    The packaged app has no Python folder, so there only PCBM_LLAMA_BENCHY is used."""
+    env = os.environ if env is None else env
+    override = env.get("PCBM_LLAMA_BENCHY")
+    if override and Path(override).is_file():
+        return Path(override)
+    if getattr(sys, "frozen", False) if frozen is None else frozen:
+        return None
     folder = Path(python).parent
     for name in ("llama-benchy.exe", "llama-benchy"):
         if (folder / name).is_file():
@@ -186,7 +194,7 @@ class LlamaBenchyWorkload(Workload):
                 setattr(self, key, settings[key])
 
     def availability(self) -> Tuple[bool, str]:
-        return (True, str(self.exe)) if self.exe else (False, "llama-benchy not installed in the app's Python")
+        return (True, str(self.exe)) if self.exe else (False, "llama-benchy not installed in the app's Python (or set PCBM_LLAMA_BENCHY)")
 
     def executable(self) -> Tuple[Optional[str], str]:
         return (str(self.exe) if self.exe else None), "app Python scripts folder"

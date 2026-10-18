@@ -293,6 +293,8 @@ def resolve_executable(
     executable = spec.executable
 
     if executable.get("python") is True:
+        if not python_executable:          # the packaged app (PyInstaller) has no separate Python
+            return (None, "needs Python, which the packaged app does not include")
         return (python_executable, "python interpreter")
 
     candidates = executable.get("candidates", [])
