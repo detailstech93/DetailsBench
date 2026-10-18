@@ -102,6 +102,30 @@ def summarize(result: TelemetryResult, window: Optional[Tuple[float, float]] = N
     return out
 
 
+CHART_KEYS = ("cpu_load", "cpu_temperature_hottest", "cpu_package_power", "cpu_core_clock_avg", "cpu_clock_avg",
+              "gpu0_load", "gpu0_temperature", "gpu0_power", "gpu0_sm_clock")
+
+
+def chart_series(result: TelemetryResult, keys=CHART_KEYS, max_points: int = 300) -> Dict[str, tuple]:
+    """{tel_<key>: (unit, [(t, value)])} for the readings drawn in reports; long runs are thinned to max_points
+    (the average of each group of samples, so a short spike is softened, never invented)."""
+    out = {}
+    for key in keys:
+        points, unit = [], None
+        for t, reading in result.samples:
+            if key in reading and _finite(reading[key][0]):
+                points.append((t, float(reading[key][0])))
+                unit = reading[key][1]
+        if not points:
+            continue
+        step = max(1, math.ceil(len(points) / max_points))
+        if step > 1:
+            points = [(sum(p[0] for p in g) / len(g), sum(p[1] for p in g) / len(g))
+                      for g in (points[i:i + step] for i in range(0, len(points), step))]
+        out[f"tel_{key}"] = (unit, points)
+    return out
+
+
 def write_csv(result: TelemetryResult, path: Path) -> Optional[Path]:
     """One row per sample, one column per key (empty when not read in that sample)."""
     if not result.samples:

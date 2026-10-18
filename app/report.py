@@ -144,6 +144,122 @@ def _game_runs(export: Mapping) -> dict:
     return out
 
 
+def _readings_rows(extra: Mapping) -> list:
+    """Table rows (reading, average, highest) in whole numbers from a benchmark's metric summaries."""
+    rows = []
+    for label, keys, unit in GAME_READINGS:
+        key = next((k for k in keys if f"tel_{k}_avg" in extra), None)
+        avg = _whole((_mapping(extra.get(f"tel_{key}_avg")) or {}).get("mean")) if key else None
+        top = _whole((_mapping(extra.get(f"tel_{key}_max")) or {}).get("max")) if key else None
+        if avg is None and top is None:
+            rows.append(f'<tr><td>{label}</td><td colspan="2" class="muted">not measured (no reading '
+                        "in this run)</td></tr>")
+            continue
+        rows.append(f"<tr><td>{label}</td>"
+                    f"<td>{'-' if avg is None else f'{avg:,} {unit}'}</td>"
+                    f"<td>{'-' if top is None else f'{top:,} {unit}'}</td></tr>")
+    return rows
+
+
+# (chart title, [series names], unit shown): the charts of a stress test, from its stored series
+STRESS_CHARTS = (
+    ("Work done each second (stability)", ("cpu_work", "gpu_work"), "%"),
+    ("Power", ("tel_cpu_package_power", "tel_gpu0_power"), "W"),
+    ("Temperature", ("tel_cpu_temperature_hottest", "tel_gpu0_temperature"), "\u00b0C"),
+    ("Clock", ("tel_cpu_core_clock_avg", "tel_cpu_clock_avg", "tel_gpu0_sm_clock"), "MHz"),
+    ("Load", ("tel_cpu_load", "tel_gpu0_load"), "%"),
+)
+SERIES_NAMES = {"cpu_work": "CPU", "gpu_work": "GPU", "tel_cpu_package_power": "CPU", "tel_gpu0_power": "GPU",
+                "tel_cpu_temperature_hottest": "CPU (hottest core)", "tel_gpu0_temperature": "GPU",
+                "tel_cpu_core_clock_avg": "CPU", "tel_cpu_clock_avg": "CPU", "tel_gpu0_sm_clock": "GPU",
+                "tel_cpu_load": "CPU", "tel_gpu0_load": "GPU"}
+
+
+def _safe_svg(svg: str) -> str:
+    # inline SVG needs no xmlns in HTML; no ":" may reach the page (see esc)
+    return svg.replace(' xmlns="http://www.w3.org/2000/svg"', "").replace(":", "&#58;")
+
+
+def _stress_section(export: Mapping) -> str:
+    """Per stress test: stable or not (big), stability and wrong answers per part, power / temperature / clock
+    numbers, and a chart over time for each reading of the last measured run."""
+    from app.charts import line_chart
+    session_is_test = _truthy((_mapping(export.get("session")) or {}).get("is_test"))
+    by_test: dict = {}
+    for run in export.get("runs") or []:
+        m = _mapping(run) or {}
+        if m.get("benchmark_type") != "stress":
+            continue
+        by_test.setdefault(str(m.get("benchmark_name") or "-"), [])
+        if (m.get("status") == "completed" and not _truthy(m.get("is_warmup"))
+                and (session_is_test or not _truthy(m.get("is_test")))):
+            by_test[str(m.get("benchmark_name") or "-")].append(m)
+        elif m.get("status") not in ("completed",) and not _truthy(m.get("is_warmup")):
+            by_test[str(m.get("benchmark_name") or "-")].append(m)
+    if not by_test:
+        return ""
+    metrics = _mapping(export.get("metric_summaries")) or {}
+    blocks = []
+    for name, runs in sorted(by_test.items()):
+        title = esc({"stress_cpu": "CPU stress test", "stress_gpu": "GPU stress test",
+                     "stress_cpu_gpu": "CPU + GPU stress test"}.get(name, name))
+        if not runs:
+            blocks.append(f'<div class="game"><h3>{title}</h3><p>No run.</p></div>')
+            continue
+        last = runs[-1]
+        if last.get("status") != "completed":
+            blocks.append(f'<div class="game"><h3>{title}</h3><div class="tiles"><div class="tile bad">'
+                          '<div class="label">Result</div><div class="value">NOT stable</div></div></div>'
+                          f'<p>The test did not finish: {_text(last.get("note"))}.</p></div>')
+            continue
+        m = _mapping(last.get("metrics")) or {}
+
+        def value(key):
+            return (_mapping(m.get(key)) or {}).get("value")
+
+        tiles, unstable = [], False
+        for part in ("cpu", "gpu"):
+            score, errors = value(f"{part}_stability"), value(f"{part}_errors")
+            if score is None and errors is None:
+                continue
+            bad = bool(errors) or (score is not None and score < 97)
+            unstable = unstable or bad
+            tiles.append((f"{part.upper()} stability", f"{_whole(score)} <span>%</span>" if _whole(score) is not None
+                          else "<span>not measured</span>", bad))
+            tiles.append((f"{part.upper()} wrong answers", f"{_whole(errors) or 0}", bool(errors)))
+        verdict = ('<div class="tile {}"><div class="label">Result</div><div class="value">{}</div></div>'
+                   .format("bad" if unstable else "good", "NOT stable" if unstable else "Stable"))
+        tile_html = verdict + "".join(
+            f'<div class="tile{" bad" if bad else ""}"><div class="label">{label}</div>'
+            f'<div class="value">{text}</div></div>' for label, text, bad in tiles)
+        series = _mapping(last.get("series")) or {}
+        charts = []
+        for chart_title, names, unit in STRESS_CHARTS:
+            for s_name in names:
+                s = _mapping(series.get(s_name))
+                points = (s or {}).get("points") or []
+                if len(points) < 2:
+                    continue
+                if s_name == "tel_cpu_clock_avg" and "tel_cpu_core_clock_avg" in series:
+                    continue
+                svg = line_chart(f"{chart_title}: {SERIES_NAMES.get(s_name, s_name)}", [p[0] for p in points],
+                                 [p[1] for p in points], x_unit="s", y_unit=unit)
+                if svg:
+                    charts.append(f'<div class="chart">{_safe_svg(svg)}</div>')
+        rows = _readings_rows(_mapping(metrics.get(name)) or {})
+        blocks.append(
+            f'<div class="game"><h3>{title}</h3><div class="tiles">{tile_html}</div>'
+            f'<p class="muted">{_text(last.get("note"))}. Stable means: no wrong answer and the slowest 10 seconds '
+            "did at least 97 % of the work of the fastest 10 seconds (no throttling).</p>"
+            "<h4>Power, temperature and clocks</h4>"
+            '<div class="table-wrap"><table><thead><tr><th>Reading</th><th>Average</th><th>Highest</th></tr>'
+            "</thead><tbody>" + "".join(rows) + "</tbody></table></div>"
+            + ("<h4>Over time</h4>" + "".join(charts) if charts else
+               "<p class=\"muted\">No readings over time were stored for this run.</p>")
+            + "</div>")
+    return "<section><h2>Stress tests</h2>" + "".join(blocks) + "</section>"
+
+
 def _game_section(export: Mapping) -> str:
     """Per game: big whole numbers (average, 1% and 0.1% low, min, max), the settings the game used and how the
     CPU and GPU behaved during the benchmark."""
@@ -200,18 +316,7 @@ def _game_section(export: Mapping) -> str:
         if parts.get("Forced"):
             settings_html += f'<p class="muted">Set by the app before the run: {esc(parts["Forced"])}.</p>'
 
-        rows = []
-        for label, keys, unit in GAME_READINGS:
-            key = next((k for k in keys if f"tel_{k}_avg" in extra), None)
-            avg = _whole(mean_of(f"tel_{key}_avg")) if key else None
-            top = _whole(highest(f"tel_{key}_max")) if key else None
-            if avg is None and top is None:
-                rows.append(f'<tr><td>{label}</td><td colspan="2" class="muted">not measured (no reading '
-                            "in this run)</td></tr>")
-                continue
-            rows.append(f"<tr><td>{label}</td>"
-                        f"<td>{'-' if avg is None else f'{avg:,} {unit}'}</td>"
-                        f"<td>{'-' if top is None else f'{top:,} {unit}'}</td></tr>")
+        rows = _readings_rows(extra)
         span = parts.get("Readings") or "the whole run (game start to close)"
         blocks.append(
             f'<div class="game"><h3 dir="auto">{title}</h3>'
@@ -711,6 +816,8 @@ def _style_block() -> str:
         ".tile .value{font-size:30px;font-weight:700;}"
         ".tile .value span{font-size:14px;font-weight:400;color:var(--muted);}"
         ".muted{color:var(--muted);}"
+        ".tile.good .value{color:#1a7f37;}"
+        ".tile.bad .value{color:var(--test);}"
         "table.kv th{text-align:left;padding-right:16px;}"
         "@media (max-width:600px){body{padding:16px;}section{padding:14px;}}"
         ".footer{"
@@ -739,6 +846,7 @@ def render_session_report(export: Mapping) -> str:
         "<main>"
         + _header_section(export_mapping)
         + _game_section(export_mapping)
+        + _stress_section(export_mapping)
         + _summary_section(export_mapping)
         + _charts_section(export_mapping)
         + _metrics_section(export_mapping)

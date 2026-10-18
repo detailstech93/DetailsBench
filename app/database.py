@@ -126,6 +126,17 @@ class Database:
                 )
             """)
 
+            # Values over time of one run, for charts (stress tests: work per second, telemetry readings).
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS result_series (
+                    result_id INTEGER NOT NULL REFERENCES results(id),
+                    name TEXT NOT NULL,
+                    unit TEXT,
+                    points_json TEXT NOT NULL,
+                    PRIMARY KEY (result_id, name)
+                )
+            """)
+
             # ── Additive migrations ──────────────────────────────────────────
             cursor.execute("PRAGMA table_info(results)")
             results_cols = [col[1] for col in cursor.fetchall()]
@@ -465,6 +476,42 @@ class Database:
         finally:
             conn.close()
         return len(rows)
+
+    def save_result_series(self, result_id: int, series: dict) -> int:
+        """Store {name: (unit, [(t, value)])} for a completed run; finite points only. Returns how many series."""
+        import math
+        rows = []
+        for name, (unit, points) in series.items():
+            clean = [[float(t), float(v)] for t, v in points
+                     if all(isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
+                            for x in (t, v))]
+            if clean:
+                rows.append((result_id, str(name), unit, json.dumps(clean, separators=(",", ":"))))
+        if not rows:
+            return 0
+        conn = self._get_connection()
+        try:
+            row = conn.execute("SELECT status FROM results WHERE id = ?", (result_id,)).fetchone()
+            if row is None or row[0] != "completed":
+                raise ValueError(f"result {result_id} is not a completed run; no series stored")
+            conn.executemany("INSERT INTO result_series (result_id, name, unit, points_json) VALUES (?, ?, ?, ?)",
+                             rows)
+            conn.commit()
+        except sqlite3.IntegrityError as exc:
+            raise ValueError(f"series not stored for result {result_id}: {exc}")
+        finally:
+            conn.close()
+        return len(rows)
+
+    def get_result_series(self, result_id: int) -> dict:
+        """{name: {"unit": unit, "points": [[t, value], ...]}}; {} when the run has none."""
+        conn = self._get_connection()
+        try:
+            rows = conn.execute("SELECT name, unit, points_json FROM result_series WHERE result_id = ? ORDER BY name",
+                                (result_id,)).fetchall()
+        finally:
+            conn.close()
+        return {name: {"unit": unit, "points": json.loads(points)} for name, unit, points in rows}
 
     def get_result_metrics(self, result_id: int) -> dict:
         """{name: (value, unit)}; {} when the run has none."""

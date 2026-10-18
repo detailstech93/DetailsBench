@@ -102,11 +102,16 @@ class AutomationRunner:
     def _finish_telemetry(self, sampler, run_dir: Path, window=None) -> dict:
         """Stop sampling; keep telemetry.csv and telemetry.json in the run folder; return summary metrics
         (over the measured window only, when the workload says which seconds were measured)."""
+        self._telemetry_series = {}
         if sampler is None:
             return {}
-        from app.telemetry.sampler import summarize, write_csv
+        from app.telemetry.sampler import chart_series, summarize, write_csv
         try:
             result = sampler.stop()
+            try:
+                self._telemetry_series = chart_series(result)
+            except Exception:
+                self._telemetry_series = {}
             missing = f"; not available: {', '.join(sorted(result.unavailable))}" if result.unavailable else ""
             self.on_progress(f"telemetry: {len(result.samples)} samples{missing}")
             write_csv(result, run_dir / "telemetry.csv")
@@ -203,6 +208,12 @@ class AutomationRunner:
                 note=result.error or result.note)
             if result.status == "completed" and (result.metrics or telemetry_metrics):
                 self._store_metrics(record.result_id, {**telemetry_metrics, **(result.metrics or {})})
+            if result.status == "completed" and (result.series or getattr(self, "_telemetry_series", None)):
+                try:
+                    self.db.save_result_series(record.result_id,
+                                               {**getattr(self, "_telemetry_series", {}), **(result.series or {})})
+                except Exception as e:
+                    self.on_progress(f"charts not stored: {e}")
             if self.journal is not None:
                 self.journal.run_done(key)
             summary.records.append(record)

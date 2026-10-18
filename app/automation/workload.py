@@ -35,6 +35,7 @@ class WorkloadResult:
     note: Optional[str] = None             # text kept with a completed run (e.g. the game settings it used)
     measured_window: Optional[tuple] = None   # (from, to) seconds after the run started: the part that was
                                               # measured (a game's benchmark scene); telemetry is kept for it only
+    series: dict = field(default_factory=dict)   # {name: (unit, [(seconds after the start, value)])} kept for charts
 
     def __post_init__(self):
         if self.status not in RESULT_STATUSES:

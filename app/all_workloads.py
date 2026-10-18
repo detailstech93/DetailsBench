@@ -9,7 +9,8 @@ def load_workloads() -> Tuple[list, List[str]]:
     from app.automation.cli_workload import load_workloads as load_cli
     from app.simulation.script import load_scripts
     from app.storage.disk_tools import storage_workloads
+    from app.stress.workload import stress_workloads
     workloads, errors = load_cli()
     scripts, script_errors = load_scripts()
-    return (workloads + [LlamaBenchyWorkload(None), MlperfClientWorkload()] + storage_workloads() + scripts,
+    return (workloads + [LlamaBenchyWorkload(None), MlperfClientWorkload()] + storage_workloads() + stress_workloads() + scripts,
             errors + script_errors)

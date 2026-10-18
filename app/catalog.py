@@ -24,7 +24,7 @@ INSTALLED = "installed"
 MISSING = "missing"
 UNUSABLE = "unusable"       # found, but cannot run now (prerequisite, license, scan error)
 
-GROUPS = (("cpu", "CPU"), ("gpu", "GPU"), ("game", "Games"), ("storage", "Storage"),
+GROUPS = (("cpu", "CPU"), ("gpu", "GPU"), ("game", "Games"), ("stress", "Stress tests"), ("storage", "Storage"),
           ("ai", "AI"), ("web", "Web"), ("other", "Other"))
 _GROUP_IDS = {g for g, _ in GROUPS}
 

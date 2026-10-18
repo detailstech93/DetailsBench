@@ -30,6 +30,7 @@ class RunChoice:
     warmup_runs: int
     cooldown_seconds: int
     preset: Optional[presets.GamePreset] = None      # None: no game selected (or the dialog had no preset)
+    stress_minutes: Optional[int] = None             # None: no stress test selected
 
 
 PRESET_KEY = "game_preset"          # settings.json: the last preset chosen on the Tests screen
@@ -159,6 +160,15 @@ class RunTestsDialog(QDialog):
         form.addRow("How many times (measured runs):", self.repetitions)
         form.addRow("Warm-up runs before them (not counted):", self.warmup)
         form.addRow("Pause between runs:", self.cooldown)
+        self.stress_minutes = None
+        if any(e.id.startswith("stress_") for e in entries):
+            from app.stress.workload import MINUTE_CHOICES, stress_minutes
+            self.stress_minutes = QComboBox()
+            for m in MINUTE_CHOICES:
+                self.stress_minutes.addItem(f"{m} min", m)
+            current = stress_minutes()
+            self.stress_minutes.setCurrentIndex(max(0, self.stress_minutes.findData(current)))
+            form.addRow("Stress test length (each run):", self.stress_minutes)
         layout.addLayout(form)
         self.preset_box = None
         if games:
@@ -177,7 +187,8 @@ class RunTestsDialog(QDialog):
 
     def choice(self) -> RunChoice:
         return RunChoice(self.repetitions.value(), self.warmup.value(), self.cooldown.value(),
-                         self.preset_box.preset() if self.preset_box is not None else None)
+                         self.preset_box.preset() if self.preset_box is not None else None,
+                         self.stress_minutes.currentData() if self.stress_minutes is not None else None)
 
 
 def ask_choice(window, entries, profile, others, games=None, offered=None, initial=None) -> Optional[RunChoice]:
@@ -253,6 +264,14 @@ def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_re
             window.status_label.setText(" ".join(line.strip() for line in lines)[:300])
         except (OSError, ValueError) as e:
             QMessageBox.warning(window, "Run tests", f"The game settings could not be saved: {e}")
+            return False
+    if choice.stress_minutes is not None:
+        from app.paths import save_setting
+        from app.stress.workload import MINUTES_KEY
+        try:
+            save_setting(data_dir, MINUTES_KEY, int(choice.stress_minutes))
+        except (OSError, ValueError) as e:
+            QMessageBox.warning(window, "Run tests", f"The stress test length could not be saved: {e}")
             return False
     if lone_game:
         return start_other(window, others[0], choice)
