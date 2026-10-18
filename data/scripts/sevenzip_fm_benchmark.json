@@ -1,0 +1,38 @@
+{
+  "id": "sevenzip_fm_benchmark",
+  "display_name": "7-Zip File Manager benchmark (simulated: Tools > Benchmark, 10 passes)",
+  "benchmark_type": "cpu",
+  "version": "7-Zip 26.04",
+  "executable": {
+    "candidates": [
+      "%PCBM_7ZIPFM%",
+      "%ProgramFiles%\\7-Zip\\7zFM.exe",
+      "%ProgramFiles(x86)%\\7-Zip\\7zFM.exe",
+      "%USERPROFILE%\\Tools\\7-ZipFM\\7zFM.exe"
+    ]
+  },
+  "timeout_seconds": 600,
+  "verified": true,
+  "warning": "Keys are typed into 7-Zip's window: do not use the keyboard or mouse until the run ends.",
+  "steps": [
+    {"do": "launch"},
+    {"do": "wait_window", "name": "main", "class": "7-Zip::FM", "timeout": 30},
+    {"do": "keys", "window": "main", "keys": ["alt+t", "b"], "gap": 0.8},
+    {"do": "wait_window", "name": "bench", "class": "#32770", "title": "^Benchmark$", "timeout": 30},
+    {"do": "wait_control", "window": "bench", "control": 142, "pattern": "^(\\d+) /", "min": 10, "timeout": 400},
+    {"do": "wait", "seconds": 1},
+    {"do": "read", "window": "bench", "values": {
+      "total_rating": {"control": 130, "pattern": "^([\\d.]+) GIPS$", "unit": "GIPS"},
+      "compress_rating": {"control": 113, "pattern": "^([\\d.]+) GIPS$", "unit": "GIPS"},
+      "decompress_rating": {"control": 121, "pattern": "^([\\d.]+) GIPS$", "unit": "GIPS"},
+      "usage_percent": {"control": 133, "pattern": "^(\\d+)%$", "unit": "%"},
+      "compress_kb_s": {"control": 111, "pattern": "^(\\d+) KB/s$", "unit": "KB/s"},
+      "decompress_kb_s": {"control": 119, "pattern": "^(\\d+) KB/s$", "unit": "KB/s"},
+      "passes": {"control": 142, "pattern": "^(\\d+) /", "unit": null},
+      "elapsed_s": {"control": 140, "pattern": "^([\\d.]+) s$", "unit": "s"}
+    }}
+  ],
+  "score": {"value": "total_rating", "unit": "GIPS", "higher_is_better": true},
+  "license": "7-Zip: GNU LGPL (with unRAR restriction); free, no registration",
+  "notes": "Opens 7-Zip File Manager, presses Alt+T then B (Tools > Benchmark; 7zFM shows it in a 7zG.exe window), waits for 10 passes and reads the Total Rating row (the 'Resulting' average). Control ids read from 7-Zip 26.04 x64 on the development computer on 2026-10-18 (Total Rating 168.183 GIPS after 10 passes, 51.5 s). 1 GIPS = 1000 MIPS, the unit of `7z b`."
+}

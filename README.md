@@ -500,6 +500,24 @@ publishes and they are kept outside the project, in `%USERPROFILE%\Tools` (nothi
 Blender's benchmark is not added: its launcher downloads Blender and the scenes itself, and its JSON output is a
 list that the spec parser does not read yet.
 
+### Simulation scripts (Phase 11)
+
+Some benchmarks have no command line: a person opens a menu and reads the result off the window.
+`app/simulation/script.py` runs a JSON script from `data/scripts` that does the same: start the program, wait for
+a window of the program (class / title), press keys, wait until a control shows the expected text, read values
+from the window's controls, then close everything the program started (politely, by force after 10 s).
+Keys are typed with SendInput only while the focused window belongs to the started program; when Windows will not
+bring it to the front, nothing is typed and the run fails. Every run writes `simulation_log.txt` (each step with its
+time) and `window_controls.json` (the texts read) to its run folder. Scripts are listed under **Automated runs**
+with a warning not to use the keyboard or mouse while they run.
+
+- **7-Zip File Manager benchmark** (`data/scripts/sevenzip_fm_benchmark.json`): opens `7zFM.exe`, presses Alt+T, B
+  (Tools > Benchmark, shown by 7-Zip in a `7zG.exe` window), waits for 10 passes and reads the Total Rating
+  (GIPS; 1 GIPS = 1000 MIPS of `7z b`), the compress / decompress ratings and speeds and CPU usage. 7zFM comes from
+  the official 7-Zip 26.04 x64 installer (SHA-256 checked), unpacked with 7za to `%USERPROFILE%\Tools\7-ZipFM`
+  (or `PCBM_7ZIPFM`, or an installed 7-Zip). Real run here: 170.013 GIPS after 10 passes in 54 s, window closed.
+  `python scripts/verify_simulation.py` repeats it.
+
 ### Telemetry
 
 **Record telemetry** (on by default, in both the Automated runs and Frame capture sections) samples once per second

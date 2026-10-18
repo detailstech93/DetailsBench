@@ -132,7 +132,8 @@ def test_llama_benchy_asks_settings_warns_and_shows_report(qapp, tmp_path):
     import json
     from tests.test_llama_benchy import RESULT, PyBenchy, _fake
     from app.all_workloads import load_workloads as load_all
-    assert {"llama_benchy", "mlperf_client", "diskspd", "fio", "sevenzip_benchmark"} <= {w.id for w in load_all()[0]}
+    assert {"llama_benchy", "mlperf_client", "diskspd", "fio", "sevenzip_benchmark",
+            "sevenzip_fm_benchmark"} <= {w.id for w in load_all()[0]}
     script = _fake(tmp_path, f"open(out, 'w').write({json.dumps(json.dumps(RESULT))})\n")
     wl = PyBenchy(script)
     wl.model = None
