@@ -131,8 +131,8 @@ def test_main_window_has_panel_and_shuts_it_down(qapp, tmp_path):
 def test_llama_benchy_asks_settings_warns_and_shows_report(qapp, tmp_path):
     import json
     from tests.test_llama_benchy import RESULT, PyBenchy, _fake
-    from app.ai import llama_benchy
-    assert "llama_benchy" in [w.id for w in llama_benchy.load_workloads()[0]]
+    from app.all_workloads import load_workloads as load_all
+    assert {"llama_benchy", "mlperf_client", "diskspd", "fio", "sevenzip_benchmark"} <= {w.id for w in load_all()[0]}
     script = _fake(tmp_path, f"open(out, 'w').write({json.dumps(json.dumps(RESULT))})\n")
     wl = PyBenchy(script)
     wl.model = None

@@ -477,6 +477,29 @@ version and MLPerf Client's own `Results Verified` flag (false on the first real
 config downloads its model (phi4mini: 2.33 GB). First real run on this computer: 219.9 tok/s, time to first
 token 0.069 s (Phi-4-mini Q4_0, llama.cpp CUDA, RTX 5090 Laptop GPU).
 
+### CPU and storage tools (Phase 10)
+
+All three are listed under **Automated runs**; their downloads were checked against the SHA-256 digests GitHub
+publishes and they are kept outside the project, in `%USERPROFILE%\Tools` (nothing is installed system-wide).
+
+- **7-Zip benchmark** (`data/tools/sevenzip_benchmark.json`, LGPL): `7z b`, all threads. Score = total rating (MIPS)
+  from the `Tot:` line; CPU usage % and R/U MIPS are metrics. Uses `%PCBM_7ZIP%`, the installed 7-Zip,
+  `%USERPROFILE%\Tools\7-Zip\x64\7za.exe` (7-Zip Extra 26.04 from the official ip7z/7zip release) or PATH.
+  Real run here: 173,712 MIPS (Core Ultra 9 275HX, 24 threads).
+- **DiskSpd 2.3** (Microsoft, MIT; `%USERPROFILE%\Tools\DiskSpd\amd64\diskspd.exe` or `PCBM_DISKSPD`) and **fio 3.43**
+  (GPL-2.0; the official MSI extracted with `msiexec /a` to `%USERPROFILE%\Tools\fio`, or `PCBM_FIO`):
+  `app/storage/disk_tools.py` runs four tests like CrystalDiskMark's defaults: SEQ1M Q8T1 and RND4K Q32T1, each
+  read and write, 5 s after a 2 s warm-up, OS cache off (`-Sh` / `--direct=1`), on a 1 GiB test file in the run
+  folder (the drive holding the app's data is measured). The app deletes only that test file afterwards.
+  Score = SEQ1M read (MiB/s); MiB/s, IOPS and mean latency of every test are metrics (`rnd4k_q32t1_write_iops`,
+  ...), `storage_report.md` holds the table and **Show report** opens it. A test whose output has no value
+  is shown with its reason, never as 0. Real runs here (NVMe): DiskSpd 6,735 / 6,224 MiB/s sequential read /
+  write, 208k / 148k IOPS random 4K; fio 6,687 / 6,158 MiB/s, 180k / 123k IOPS.
+  `python scripts/verify_storage.py <folder>` repeats both.
+
+Blender's benchmark is not added: its launcher downloads Blender and the scenes itself, and its JSON output is a
+list that the spec parser does not read yet.
+
 ### Telemetry
 
 **Record telemetry** (on by default, in both the Automated runs and Frame capture sections) samples once per second

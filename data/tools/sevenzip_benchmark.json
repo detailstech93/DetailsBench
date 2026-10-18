@@ -1,0 +1,25 @@
+{
+  "id": "sevenzip_benchmark",
+  "display_name": "7-Zip built-in benchmark (CPU, all threads)",
+  "executable": {
+    "candidates": [
+      "%PCBM_7ZIP%",
+      "%ProgramFiles%\\7-Zip\\7z.exe",
+      "%ProgramFiles(x86)%\\7-Zip\\7z.exe",
+      "%USERPROFILE%\\Tools\\7-Zip\\x64\\7za.exe"
+    ],
+    "path_names": ["7z", "7za"]
+  },
+  "args": ["b"],
+  "timeout_seconds": 900,
+  "success_exit_codes": [0],
+  "parser": {
+    "type": "regex",
+    "pattern": "^Tot:\\s+(?P<usage_percent>\\d+)\\s+(?P<ru_mips>\\d+)\\s+(?P<score>\\d+)\\s*$",
+    "unit": "MIPS",
+    "higher_is_better": true
+  },
+  "verified": true,
+  "license": "7-Zip: GNU LGPL (with unRAR restriction); free, no registration",
+  "notes": "`7z b` is 7-Zip's documented benchmark command (7za.exe from 7-Zip Extra or 7z.exe from the installer). Score = total rating (MIPS) from the Tot: line (columns: usage %, R/U MIPS, rating MIPS). Verified with raw output of 7-Zip 26.04 x64 (7za.exe) on the development computer on 2026-10-18: Tot: 2169 8005 173712."
+}

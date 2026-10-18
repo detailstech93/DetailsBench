@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
     QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout,
 )
 
-from app.ai.llama_benchy import load_workloads
+from app.all_workloads import load_workloads
 from app.automation.plan_text import plan_overview
 from app.automation.runner import AutomationRunner, PlanItem, RunSummary
 from app.telemetry import sources as telemetry_sources
@@ -108,14 +108,16 @@ def choose_llama_settings(parent, current=None, read_models=None, dialog=None) -
 
 
 def find_reports(summary) -> list:
-    """(title, path) of the reports written by the runs of a finished plan (llama-benchy)."""
-    from app.ai.llama_benchy import REPORT_FILE
+    """(title, path) of the reports written by the runs of a finished plan (llama-benchy, storage tools)."""
+    from app.ai.llama_benchy import REPORT_FILE as AI_REPORT
+    from app.storage.disk_tools import REPORT_FILE as STORAGE_REPORT
     out = []
     for rec in getattr(summary, "records", []) or []:
-        path = Path(rec.run_dir) / REPORT_FILE if rec.run_dir else None
-        if path and path.is_file():
-            kind = "warm-up" if rec.is_warmup else f"run {rec.run_index}"
-            out.append((f"{rec.workload_id} ({kind})", path))
+        for name in (AI_REPORT, STORAGE_REPORT):
+            path = Path(rec.run_dir) / name if rec.run_dir else None
+            if path and path.is_file():
+                kind = "warm-up" if rec.is_warmup else f"run {rec.run_index}"
+                out.append((f"{rec.workload_id} ({kind})", path))
     return out
 
 
@@ -177,8 +179,8 @@ class AutomationPanel(QGroupBox):
         self.lhm = LhmPreflight(lambda text: self.status_label.setText(text), self)
         row.addWidget(self.run_btn)
         self.report_btn = QPushButton("Show report")
-        self.report_btn.setToolTip("Results table of the last plan's llama-benchy run (llama_benchy_report.md "
-                                   "in the run folder).")
+        self.report_btn.setToolTip("Results tables of the last plan's runs that write a report (llama-benchy, "
+                                   "DiskSpd, fio; the .md file in each run folder).")
         self.report_btn.setEnabled(False)
         self.report_btn.clicked.connect(lambda: self.show_report())
         row.addWidget(self.report_btn)
@@ -240,11 +242,22 @@ class AutomationPanel(QGroupBox):
         current = {k: getattr(workload, k) for k in ("model", "pp", "tg", "depths", "concurrency", "prefix_caching")}
         return choose_llama_settings(self, current)
 
-    def show_report(self, index: int = -1):
+    def report_text(self) -> str:
+        """Every report of the last plan, each under its run's title, one after another."""
+        parts = []
+        for title, path in self.reports:
+            try:
+                text = path.read_text(encoding="utf-8")
+                parts.append(f"## {title}\n\n" + "\n".join("###" + line[1:] if line.startswith("# ") else line
+                                                         for line in text.splitlines()) + "\n")
+            except OSError as e:
+                parts.append(f"## {title}\n\nReport not readable: {e}\n")
+        return "\n".join(parts)
+
+    def show_report(self):
         from app.ui.llama_benchy_dialog import ReportDialog
         if self.reports:
-            title, path = self.reports[index]
-            ReportDialog(f"Report: {title}", path.read_text(encoding="utf-8"), self).exec()
+            ReportDialog(f"Reports: session #{self.last_session_id}", self.report_text(), self).exec()
 
     def confirm(self, text: str) -> bool:
         return QMessageBox.question(self, "Run automated benchmarks?", text,

@@ -253,11 +253,3 @@ class LlamaBenchyWorkload(Workload):
         metrics.update({k: v for k, v in ai_run.items() if isinstance(v, str)})
         return WorkloadResult(status="completed", score=score, unit="tok/s", metrics=metrics, **common)
 
-
-def load_workloads():
-    """Automated runs: the tool specs in data/tools, llama-benchy (its settings are chosen before each plan) and
-    MLPerf Client (phi4mini, llama.cpp CUDA)."""
-    from app.ai.mlperf_client import MlperfClientWorkload
-    from app.automation.cli_workload import load_workloads as load_cli
-    workloads, errors = load_cli()
-    return workloads + [LlamaBenchyWorkload(None), MlperfClientWorkload()], errors
