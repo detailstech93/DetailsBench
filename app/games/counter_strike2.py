@@ -1,11 +1,12 @@
-"""Force Counter-Strike 2 resolution and window mode with launch arguments (-w/-h, -fullscreen/-windowed/-noborder).
+"""Force Counter-Strike 2 settings with launch arguments: -w/-h, -fullscreen/-windowed/-noborder, +fps_max.
 
-The game's video settings are in Steam/userdata/<account>/730/local/cfg/cs2_video.txt (KeyValues text).
-That folder is named after the Steam account, so the app only reads the file (allowed by the user on
-2026-10-18), never writes it, and never stores or shows its real path (where says <account>). On this
-computer the file did not exist yet on 2026-10-18 (CS2 not started since then): the window still offers the
-common resolutions and every window mode, and the values are checked after the run once the game wrote it.
-More than one account with a cs2_video.txt: none is read (which one is in use is not known).
+Steam/userdata/<account>/730/local/cfg holds cs2_video.txt (resolution, window mode) and
+cs2_machine_convars.vcfg (fps_max), both KeyValues text. That folder is named after the Steam account, so
+the app only reads these two files (allowed by the user on 2026-10-18), never writes them, and never stores
+or shows its real path (where says <account>). On this computer CS2 wrote no cs2_video.txt on 2026-10-18,
+even after a video setting was applied: resolution and window mode are then recorded as not checked; the
+window still offers the common resolutions and every window mode. More than one account folder with these
+files: none is read (which one is in use is not known).
 """
 
 import os
@@ -18,9 +19,11 @@ from app.games.launch_settings import Change, Option  # noqa: F401  (Change is u
 
 APP_ID = 730
 LAUNCH_ARGS: List[str] = []
-RESTORE = False                                   # read only: the file is in the account's folder
-WHERE = "Steam/userdata/<account>/730/local/cfg/cs2_video.txt"
+RESTORE = False                                   # read only: the files are in the account's folder
+FILES = ("cs2_video.txt", "cs2_machine_convars.vcfg")
+WHERE = "Steam/userdata/<account>/730/local/cfg (" + ", ".join(FILES) + ")"
 COMMON = tuple((r, "") for r in ("1280x720", "1920x1080", "2560x1440", "3840x2160"))
+FPS = tuple((f, "") for f in ("0", "60", "144", "240"))         # fps_max 0: no limit
 WINDOW_ARGS = {"fullscreen": ["-fullscreen"], "borderless": ["-windowed", "-noborder"], "windowed": ["-windowed"]}
 
 SETTINGS = {
@@ -29,6 +32,7 @@ SETTINGS = {
     "window_mode": Option("map", ("pcbm.window",),
                           (("Fullscreen", "fullscreen"), ("Borderless", "borderless"), ("Windowed", "windowed")),
                           lambda t: list(WINDOW_ARGS[t])),
+    "fps_limit": Option("learned", ("fps_max",), FPS, lambda v: ["+fps_max", v]),
 }
 
 
@@ -47,14 +51,17 @@ def _steam_root(env: Mapping[str, str]) -> Optional[Path]:
 
 def settings_files(env: Mapping[str, str]) -> Tuple[Dict[str, Path], str]:
     root = _steam_root(env)
-    found = sorted(root.glob("userdata/*/730/local/cfg/cs2_video.txt")) if root else []
-    if len(found) > 1:
-        return {}, WHERE + " (more than one Steam account has one; none is read)"
-    return {"cs2_video.txt": found[0]} if found else {}, WHERE
+    found = [p.parent for name in FILES for p in root.glob("userdata/*/730/local/cfg/" + name)] if root else []
+    folders = sorted(set(found))
+    if len(folders) > 1:
+        return {}, WHERE + " (more than one Steam account has them; none is read)"
+    return ({name: folders[0] / name for name in FILES} if folders else {}), WHERE
 
 
 def parse(files: Dict[str, str]) -> Dict[str, str]:
-    data = dict(re.findall(r'"([^"]+)"\s+"([^"]*)"', (files or {}).get("cs2_video.txt", "")))
+    data = {}
+    for name in FILES:
+        data.update(re.findall(r'"([^"]+)"\s+"([^"]*)"', (files or {}).get(name, "")))
     if data.get("setting.fullscreen") == "1":
         data["pcbm.window"] = "fullscreen"
     elif data.get("setting.nowindowborder") == "1":

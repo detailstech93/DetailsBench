@@ -71,13 +71,27 @@ def cs2_root(tmp_path, *accounts):
 def test_cs2_reads_one_account_and_never_names_it(tmp_path):
     env = cs2_root(tmp_path, "123456789")
     files, where = cs2.settings_files(env)
-    assert "123456789" not in where and list(files) == ["cs2_video.txt"]
+    assert "123456789" not in where and list(files) == ["cs2_video.txt", "cs2_machine_convars.vcfg"]
     choices, current = read_for_dialog("730", tmp_path / "data", env=env)
-    assert current == {"resolution": "2560x1440", "window_mode": "Fullscreen"}
+    assert current == {"resolution": "2560x1440", "window_mode": "Fullscreen"}           # no convars file
     assert choices["resolution"] == ["1280x720", "1920x1080", "2560x1440", "3840x2160"]
     assert choices["window_mode"] == ["Fullscreen", "Borderless", "Windowed"]
     files, where = cs2.settings_files(cs2_root(tmp_path / "two", "1", "2"))
     assert files == {} and "more than one" in where
+
+
+def test_cs2_fps_max_from_the_machine_convars_only(tmp_path):
+    cfg = tmp_path / "steam" / "userdata" / "7" / "730" / "local" / "cfg"
+    cfg.mkdir(parents=True)
+    (cfg / "cs2_machine_convars.vcfg").write_text('"config"\n{\n\t"convars"\n\t{\n\t\t"fps_max"\t\t"400"\n\t}\n}\n')
+    env = {"PCBM_STEAM_ROOT": str(tmp_path / "steam")}
+    choices, current = read_for_dialog("730", tmp_path / "data", env=env)
+    assert current == {"fps_limit": "400"} and choices["fps_limit"] == ["0", "60", "144", "240", "400"]
+    fs = ForcedSettings("730", {"fps_limit": "144", "resolution": "1920x1080"}, tmp_path / "run",
+                        tmp_path / "data", env=env)
+    assert fs.apply().launch_args == ["-w", "1920", "-h", "1080", "+fps_max", "144"]
+    rec = fs.finish()                                   # the game did not save fps_max 144
+    assert rec.unchecked == ["resolution"] and rec.mismatch_after_run == {"fps_limit": ["144", "400"]}
 
 
 def test_cs2_without_a_file_launches_and_records_unchecked(tmp_path):

@@ -5,9 +5,9 @@ only. The game's own settings files are read (current values in the window, valu
 read again after the run, when the game may have saved what it used; a value the files do not hold is
 recorded as not checked, never as matching. data is a flat {name: text} made by the game module's parse.
 
-Option kinds: "map" offers every value in Option.values ((shown value, file text), ...); "learned" offers
-only values this game has written before; "resolution" ("WIDTHxHEIGHT" from two names) offers the values
-in Option.values plus those seen. Option.args turns the file text (map) or the value into arguments.
+Option kinds: "map" offers every value in Option.values ((shown value, file text), ...); "learned" (one
+name) and "resolution" ("WIDTHxHEIGHT" from two names) offer the values in Option.values (text presets, may
+be empty) plus those this game has written before. Option.args turns the file text (map) or the value into arguments.
 """
 
 from dataclasses import dataclass
@@ -53,20 +53,12 @@ def _seen(known, key) -> List[str]:
 def _allowed(o: Option, key, known) -> list:
     if o.kind == "map":
         return [shown for shown, _ in o.values]
-    return sorted(set(_seen(known, key)) | ({v for v, _ in o.values} if o.kind == "resolution" else set()))
+    return sorted(set(_seen(known, key)) | {v for v, _ in o.values}, key=lambda v: (len(v), v))   # 60 < 144
 
 
 def choices(spec, data, known) -> Dict[str, list]:
     """Every option is offered, also when the files do not hold it yet (the argument still applies)."""
-    now = read_settings(spec, data)
-    out = {}
-    for key, o in spec.items():
-        values = _allowed(o, key, known)
-        if key in now and now[key] not in values:
-            values = sorted(values + [now[key]]) if o.kind != "map" else values
-        if values:
-            out[key] = values
-    return out
+    return {key: _allowed(o, key, known) for key, o in spec.items() if _allowed(o, key, known)}
 
 
 def plan(spec, data, desired, known) -> Tuple[List[Change], Dict[str, str]]:

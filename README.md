@@ -329,7 +329,7 @@ resolution, Frame Generation (DLSS, multi frame), ray tracing, RT lighting and p
 | Rise of the Tomb Raider | `app/games/rise_tomb_raider.py` | registry: `HKEY_CURRENT_USER/Software/Crystal Dynamics/Rise of the Tomb Raider/Graphics` |
 | Red Dead Redemption 2 | `app/games/red_dead_redemption2.py` | `Documents/Rockstar Games/Red Dead Redemption 2/Settings/system.xml` |
 | The Witcher 3 | `app/games/witcher3.py` | `Documents/The Witcher 3/dx12user.settings` |
-| Counter-Strike 2 | `app/games/counter_strike2.py` | launch arguments; reads `Steam/userdata/<account>/730/local/cfg/cs2_video.txt` |
+| Counter-Strike 2 | `app/games/counter_strike2.py` | launch arguments; reads `Steam/userdata/<account>/730/local/cfg/cs2_video.txt`, `cs2_machine_convars.vcfg` |
 | DOOM (2016) | `app/games/doom2016.py` | launch arguments; `Saved Games/id Software/DOOM/base/DOOMConfig.cfg`, `.local` |
 
 Borderlands 3 offers resolution, window mode, VSync, frame rate limit, quality preset, resolution scale, dynamic
@@ -356,9 +356,11 @@ flag, a `+cvar` or a whole number), and the game's settings files are read after
 the files do not hold then is recorded as `unchecked` (the run is kept, `verified` is false).
 
 - Counter-Strike 2 (`app/games/counter_strike2.py`): resolution (`-w`/`-h`; common resolutions are offered) and
-  window mode (`-fullscreen`, `-windowed`, `-windowed -noborder`). Its `cs2_video.txt` is in a folder named after
-  the Steam account: allowed to be read only (2026-10-18), never written, and recorded as
-  `Steam/userdata/<account>/...`. If the game saves the forced values, the run notes say to set them back in its menu.
+  window mode (`-fullscreen`, `-windowed`, `-windowed -noborder`), and FPS limit (`+fps_max`; 0, 60, 144, 240 and
+  values seen). Its `cs2_video.txt` and `cs2_machine_convars.vcfg` are in a folder named after the Steam account:
+  allowed to be read only (2026-10-18), never written, and recorded as `Steam/userdata/<account>/...`. On this
+  computer CS2 wrote no `cs2_video.txt`, so resolution and window mode are recorded as not checked; `fps_max` is
+  checked. If the game saves the forced values, the run notes say to set them back in its menu.
 - DOOM (2016) (`app/games/doom2016.py`): `+r_mode` (resolution position, learned), `+r_renderAPI` (OpenGL/Vulkan)
   and `+r_swapInterval` (VSync). `Saved Games/id Software/DOOM/base/DOOMConfig.cfg` and `.local` are copied before
   the launch and put back afterwards if the game changed them.
