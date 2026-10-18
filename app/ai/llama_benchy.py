@@ -1,14 +1,23 @@
 """llama-benchy 0.4.0 (MIT) against LM Studio's OpenAI-compatible server, as a Workload.
 
-One run: `llama-benchy --base-url <server>/v1 --model <id> --pp N --tg N --depth D... --runs R
---format json --save-result <run folder>/llama_benchy.json`. Score = token generation (tok/s) of the first
-measured depth; prompt processing (tok/s) and time to first response (ms) are metrics per depth.
-JSON shape read from a real 0.4.0 run on this computer (2026-10-18).
+One run: `llama-benchy --base-url <server>/v1 --model <id> --pp N --tg N --depth D... --concurrency C...
+[--enable-prefix-caching] --runs R --format json --save-result <run folder>/llama_benchy.json`.
+JSON shape read from real 0.4.0 runs on this computer (2026-10-18), including several depths and
+concurrency levels with prefix caching.
+
+The result has one row per concurrency level and context depth: prompt processing (pp, tok/s), token
+generation (tg, tok/s; total and per request), time to first response (TTFR, ms) and end-to-end time to
+first token (E2E TTFT, ms). With prefix caching, each depth above 0 also has a "context prefill" row: the
+first request that loads the context, measured separately from the follow-up that reuses the cache.
+Score = tg (total tok/s) of the lowest concurrency at the lowest depth, measured phase. Every row is a
+metric (pp_tok_s@d2048_c2, ctx_pp_tok_s@d2048_c1, ...) and llama_benchy_report.md is written to the
+run folder.
 
 Recorded with every run (ai_run.json in the run folder): LM Studio's model record (model, quantization,
-arch, format, backend, context), the llama-benchy version and the tokenizer it used. When the model's
-Hugging Face tokenizer cannot be loaded, llama-benchy falls back to the gpt2 tokenizer: token counts
-are then an approximation, and that is recorded, never hidden.
+arch, format, backend, context), the llama-benchy version, the tokenizer it used, depths, concurrency
+levels, prefix caching and latency mode. When the model's Hugging Face tokenizer cannot be loaded,
+llama-benchy falls back to the gpt2 tokenizer: token counts are then an approximation, and that is
+recorded, never hidden.
 
 Do not run while LM Studio is used for something else on this computer (for example a local coding
 agent): the numbers would measure both. Status mapping is the same as CliWorkload.
@@ -19,7 +28,7 @@ import math
 import subprocess
 import sys
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from app.ai import lmstudio
 from app.automation.process import run_process
@@ -27,11 +36,17 @@ from app.automation.workload import RunContext, Workload, WorkloadResult
 
 VERSION = "0.4.0"
 RESULT_FILE = "llama_benchy.json"
+REPORT_FILE = "llama_benchy_report.md"
 FALLBACK = "Falling back to 'gpt2' tokenizer"
 WARNING = ("Do not use LM Studio for anything else during this run (for example a local coding agent on this "
            "computer): the numbers would measure both.")
-METRICS = (("pp_throughput", "pp", "tok/s"), ("tg_throughput", "tg", "tok/s"),
-           ("ttfr", "ttfr", "ms"), ("e2e_ttft", "e2e_ttft", "ms"))
+# (JSON key, metric name, unit, report column)
+COLUMNS = (("pp_throughput", "pp_tok_s", "tok/s", "pp (tok/s)"),
+           ("tg_throughput", "tg_tok_s", "tok/s", "tg total (tok/s)"),
+           ("tg_req_throughput", "tg_req_tok_s", "tok/s", "tg per request (tok/s)"),
+           ("peak_throughput", "peak_tok_s", "tok/s", "tg peak (tok/s)"),
+           ("ttfr", "ttfr_ms", "ms", "TTFR (ms)"),
+           ("e2e_ttft", "e2e_ttft_ms", "ms", "E2E TTFT (ms)"))
 
 
 def benchy_path(python: str = sys.executable) -> Optional[Path]:
@@ -44,47 +59,105 @@ def benchy_path(python: str = sys.executable) -> Optional[Path]:
 
 
 def build_command(exe: str, base_url: str, model: str, pp: int, tg: int, depths: Sequence[int],
-                  runs: int, result_path: str) -> List[str]:
+                  runs: int, result_path: str, concurrency: Sequence[int] = (1,),
+                  prefix_caching: bool = False) -> List[str]:
     return [exe, "--base-url", base_url.rstrip("/") + "/v1", "--model", model,
             "--pp", str(pp), "--tg", str(tg), "--depth", *[str(d) for d in depths],
+            "--concurrency", *[str(c) for c in concurrency],
+            *(["--enable-prefix-caching"] if prefix_caching else []),
             "--runs", str(runs), "--format", "json", "--save-result", result_path]
 
 
 def _mean(entry) -> Optional[float]:
-    value = entry.get("mean") if isinstance(entry, dict) else None
+    value = entry.get("mean") if isinstance(entry, dict) else entry
     ok = isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value > 0
     return float(value) if ok else None
 
 
+def result_rows(data: Mapping) -> List[Dict[str, object]]:
+    """One row per benchmark entry: concurrency, depth, phase and the COLUMNS means (missing ones left out)."""
+    rows = []
+    for b in data.get("benchmarks") or []:
+        if not isinstance(b, dict):
+            continue
+        row = {"concurrency": b.get("concurrency", 1), "depth": b.get("context_size", 0),
+               "phase": "context prefill" if b.get("is_context_prefill_phase") else "measured"}
+        for key, name, _unit, _col in COLUMNS:
+            value = _mean(b.get(key))
+            if value is not None:
+                row[name] = round(value, 3)
+        rows.append(row)
+    return rows
+
+
 def parse_result(text: str) -> Tuple[Optional[float], Dict[str, object], Optional[str]]:
-    """(score tok/s, metrics, error). Metrics are named like tg_tok_s@d0; a missing value is left out."""
+    """(score tok/s, metrics, error). A missing value is left out, never 0."""
     try:
         data = json.loads(text)
     except ValueError as e:
         return None, {}, f"not JSON: {e}"
-    benches = [b for b in data.get("benchmarks") or [] if isinstance(b, dict)
-               and not b.get("is_context_prefill_phase")] if isinstance(data, dict) else []
+    if not isinstance(data, dict):
+        return None, {}, "not a result object"
+    rows = result_rows(data)
     metrics: Dict[str, object] = {}
-    score = None
-    for b in benches:
-        depth = b.get("context_size", 0)
-        for key, short, unit in METRICS:
-            value = _mean(b.get(key))
-            if value is not None:
-                metrics[f"{short}_{unit.replace('/', '_')}@d{depth}"] = (round(value, 3), unit)
-        if score is None:
-            score = _mean(b.get("tg_throughput"))
-    if score is None:
+    for row in rows:
+        prefix = "ctx_" if row["phase"] == "context prefill" else ""
+        for _key, name, unit, _col in COLUMNS:
+            if name in row:
+                metrics[f"{prefix}{name}@d{row['depth']}_c{row['concurrency']}"] = (row[name], unit)
+    measured = sorted((r for r in rows if r["phase"] == "measured" and "tg_tok_s" in r),
+                      key=lambda r: (r["concurrency"], r["depth"]))
+    if not measured:
         return None, metrics, "no token generation throughput in the result"
-    latency = _mean({"mean": data.get("latency_ms")})
+    latency = _mean(data.get("latency_ms"))
     if latency is not None:
         metrics["api_latency_ms"] = (round(latency, 3), "ms")
     metrics["llama_benchy_version"] = str(data.get("version", ""))
-    return round(score, 3), metrics, None
+    metrics["prefix_caching"] = str(bool(data.get("prefix_caching_enabled")))
+    metrics["latency_mode"] = str(data.get("latency_mode", ""))
+    return measured[0]["tg_tok_s"], metrics, None
+
+
+def report_markdown(data: Mapping, ai_run: Mapping) -> str:
+    """The run as a readable report: settings, then one table row per concurrency level and depth."""
+    def fmt(v):
+        return "-" if v is None else (f"{v:,.1f}" if isinstance(v, float) else str(v))
+    lines = [f"# llama-benchy report: {ai_run.get('model', data.get('model', '?'))}", ""]
+    for label, key in (("Server", "server"), ("Quantization", "quantization"), ("Architecture", "arch"),
+                       ("Backend", "backend"), ("Loaded context", "context_length"), ("Tokenizer", "tokenizer"),
+                       ("llama-benchy", "tool_version")):
+        if ai_run.get(key) is not None:
+            lines.append(f"- {label}: {ai_run[key]}")
+    lines += [f"- Prompt / generated tokens: {ai_run.get('pp')} / {ai_run.get('tg')}",
+              f"- Context depths: {', '.join(str(d) for d in ai_run.get('depths', []))}",
+              f"- Concurrency levels: {', '.join(str(c) for c in ai_run.get('concurrency', []))}",
+              f"- Prefix caching: {'on' if data.get('prefix_caching_enabled') else 'off'}",
+              f"- Runs per test: {ai_run.get('runs')}",
+              f"- Latency mode: {data.get('latency_mode', '-')}, API latency: {fmt(_mean(data.get('latency_ms')))} ms",
+              "", "| Concurrency | Depth | Phase | " + " | ".join(c[3] for c in COLUMNS) + " |",
+              "|" + "---|" * (3 + len(COLUMNS))]
+    for row in sorted(result_rows(data), key=lambda r: (r["concurrency"], r["depth"], r["phase"] == "measured")):
+        lines.append(f"| {row['concurrency']} | {row['depth']} | {row['phase']} | "
+                     + " | ".join(fmt(row.get(c[1])) for c in COLUMNS) + " |")
+    lines += ["", "pp = prompt processing, tg = token generation, TTFR = time to first response, "
+              "E2E TTFT = end-to-end time to first token. A context prefill row is the request that loads the "
+              "context (prefix caching on); the measured row after it reuses the cache. '-' = not reported."]
+    if str(ai_run.get("tokenizer", "")).startswith("gpt2"):
+        lines.append("Token counts use the gpt2 tokenizer (the model's own was not available): approximate.")
+    return "\n".join(lines) + "\n"
 
 
 def tokenizer_used(log_text: str, model: str) -> str:
     return "gpt2 (fallback; token counts are approximate)" if FALLBACK in log_text else model
+
+
+def parse_ints(text: str, minimum: int) -> Optional[List[int]]:
+    """'0 4096, 8192' -> [0, 4096, 8192] (sorted, no duplicates); None when any value is not a whole number."""
+    try:
+        values = sorted({int(v) for v in text.replace(",", " ").split()})
+    except ValueError:
+        return None
+    return values if values and values[0] >= minimum else None
 
 
 class LlamaBenchyWorkload(Workload):
@@ -92,17 +165,25 @@ class LlamaBenchyWorkload(Workload):
     display_name = "llama-benchy (LM Studio)"
     benchmark_type = "ai"
     timeout_seconds = 1800
-    verified = True                   # checked with a real run on this computer (2026-10-18)
+    verified = True                   # checked with real runs on this computer (2026-10-18)
     warning = WARNING
 
     def __init__(self, model: Optional[str], base_url: str = lmstudio.DEFAULT_URL, pp: int = 512, tg: int = 128,
                  depths: Sequence[int] = (0,), runs: int = 1, exe: Optional[Path] = None,
                  read_models: Callable = lmstudio.read_models,
-                 read_runtimes: Callable[[], Dict[str, str]] = lambda: lmstudio.read_runtimes(lmstudio.lms_path())):
+                 read_runtimes: Callable[[], Dict[str, str]] = lambda: lmstudio.read_runtimes(lmstudio.lms_path()),
+                 concurrency: Sequence[int] = (1,), prefix_caching: bool = False):
         self.model, self.base_url, self.pp, self.tg = model, base_url, pp, tg
         self.depths, self.runs = list(depths), runs
+        self.concurrency, self.prefix_caching = list(concurrency), prefix_caching
         self.exe = exe if exe is not None else benchy_path()
         self._read_models, self._read_runtimes = read_models, read_runtimes
+
+    def configure(self, settings: Mapping):
+        """Settings from the panel's dialog: model, pp, tg, depths, concurrency, prefix_caching."""
+        for key in ("model", "pp", "tg", "depths", "concurrency", "prefix_caching"):
+            if key in settings:
+                setattr(self, key, settings[key])
 
     def availability(self) -> Tuple[bool, str]:
         return (True, str(self.exe)) if self.exe else (False, "llama-benchy not installed in the app's Python")
@@ -120,7 +201,7 @@ class LlamaBenchyWorkload(Workload):
 
     def _command(self, result_path: str) -> List[str]:
         return build_command(str(self.exe), self.base_url, self.model or "<model>", self.pp, self.tg, self.depths,
-                             self.runs, result_path)
+                             self.runs, result_path, self.concurrency, self.prefix_caching)
 
     def _model_record(self) -> Dict[str, object]:
         try:
@@ -158,7 +239,8 @@ class LlamaBenchyWorkload(Workload):
             record = after if "context_length" in after else record
         ai_run = {**record, "tool": "llama-benchy", "tool_version": VERSION,
                   "tokenizer": tokenizer_used(log, self.model), "pp": self.pp, "tg": self.tg,
-                  "depths": self.depths, "runs": self.runs}
+                  "depths": self.depths, "concurrency": self.concurrency, "prefix_caching": self.prefix_caching,
+                  "runs": self.runs}
         (folder / "ai_run.json").write_text(json.dumps(ai_run, indent=2), encoding="utf-8")
         try:
             text = result_path.read_text(encoding="utf-8")
@@ -167,12 +249,13 @@ class LlamaBenchyWorkload(Workload):
         score, metrics, error = parse_result(text)
         if error:
             return WorkloadResult(status="invalid", error=f"output not usable: {error}", metrics=metrics, **common)
+        (folder / REPORT_FILE).write_text(report_markdown(json.loads(text), ai_run), encoding="utf-8")
         metrics.update({k: v for k, v in ai_run.items() if isinstance(v, str)})
         return WorkloadResult(status="completed", score=score, unit="tok/s", metrics=metrics, **common)
 
 
 def load_workloads():
-    """Automated runs: the tool specs in data/tools, llama-benchy (its model is chosen before each plan) and
+    """Automated runs: the tool specs in data/tools, llama-benchy (its settings are chosen before each plan) and
     MLPerf Client (phi4mini, llama.cpp CUDA)."""
     from app.ai.mlperf_client import MlperfClientWorkload
     from app.automation.cli_workload import load_workloads as load_cli

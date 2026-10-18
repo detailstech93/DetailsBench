@@ -23,7 +23,7 @@ from typing import Callable, List, Optional, Tuple
 from PySide6.QtCore import QThread, Qt, Signal, Slot
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
-    QCheckBox, QGroupBox, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QMessageBox,
+    QCheckBox, QDialog, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QMessageBox,
     QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout,
 )
 
@@ -79,8 +79,8 @@ def _spec_value(wl, name: str):
     return getattr(spec, name) if spec is not None else getattr(wl, name)
 
 
-def choose_model(parent, read_models=None) -> Optional[str]:
-    """LM Studio model for llama-benchy (loaded ones first); None when cancelled or the server is not reachable.
+def language_models(parent, read_models=None) -> Optional[list]:
+    """LM Studio's language models (loaded ones first); None (with a message) when there are none to measure.
     Reads LM Studio's local server once (5 s limit)."""
     from app.ai import lmstudio
     try:
@@ -94,9 +94,29 @@ def choose_model(parent, read_models=None) -> Optional[str]:
     if not models:
         QMessageBox.warning(parent, "llama-benchy", "LM Studio lists no language models.")
         return None
-    labels = [f"{m['id']}  ({m.get('quantization', '?')}, {m.get('state', '?')})" for m in models]
-    label, ok = QInputDialog.getItem(parent, "llama-benchy model", "Model to measure (LM Studio):", labels, 0, False)
-    return models[labels.index(label)]["id"] if ok else None
+    return models
+
+
+def choose_llama_settings(parent, current=None, read_models=None, dialog=None) -> Optional[dict]:
+    """Model, pp, tg, depths, concurrency and prefix caching for llama-benchy; None when cancelled."""
+    from app.ui.llama_benchy_dialog import LlamaBenchyDialog
+    models = language_models(parent, read_models)
+    if models is None:
+        return None
+    box = (dialog or LlamaBenchyDialog)(models, current, parent)
+    return box.values() if box.exec() == QDialog.Accepted else None
+
+
+def find_reports(summary) -> list:
+    """(title, path) of the reports written by the runs of a finished plan (llama-benchy)."""
+    from app.ai.llama_benchy import REPORT_FILE
+    out = []
+    for rec in getattr(summary, "records", []) or []:
+        path = Path(rec.run_dir) / REPORT_FILE if rec.run_dir else None
+        if path and path.is_file():
+            kind = "warm-up" if rec.is_warmup else f"run {rec.run_index}"
+            out.append((f"{rec.workload_id} ({kind})", path))
+    return out
 
 
 class AutomationPanel(QGroupBox):
@@ -121,6 +141,7 @@ class AutomationPanel(QGroupBox):
         self.worker: Optional[AutomationWorker] = None
         self.last_session_id: Optional[int] = None
         self.last_summary = None
+        self.reports: list = []
 
         layout = QVBoxLayout(self)
         self.table = QTableWidget(0, 4)
@@ -155,6 +176,12 @@ class AutomationPanel(QGroupBox):
         from app.ui.lhm_setup import LhmPreflight
         self.lhm = LhmPreflight(lambda text: self.status_label.setText(text), self)
         row.addWidget(self.run_btn)
+        self.report_btn = QPushButton("Show report")
+        self.report_btn.setToolTip("Results table of the last plan's llama-benchy run (llama_benchy_report.md "
+                                   "in the run folder).")
+        self.report_btn.setEnabled(False)
+        self.report_btn.clicked.connect(lambda: self.show_report())
+        row.addWidget(self.report_btn)
         row.addWidget(self.stop_btn)
         layout.addLayout(row)
         self.status_label = QLabel("Idle. A system-wide stop hotkey is not available; "
@@ -209,8 +236,15 @@ class AutomationPanel(QGroupBox):
                                "verified": _spec_value(p.workload, "verified"), "is_test": p.workload.is_test}
                               for p in plan], cooldown)
 
-    def choose_model(self) -> Optional[str]:
-        return choose_model(self)
+    def choose_settings(self, workload) -> Optional[dict]:
+        current = {k: getattr(workload, k) for k in ("model", "pp", "tg", "depths", "concurrency", "prefix_caching")}
+        return choose_llama_settings(self, current)
+
+    def show_report(self, index: int = -1):
+        from app.ui.llama_benchy_dialog import ReportDialog
+        if self.reports:
+            title, path = self.reports[index]
+            ReportDialog(f"Report: {title}", path.read_text(encoding="utf-8"), self).exec()
 
     def confirm(self, text: str) -> bool:
         return QMessageBox.question(self, "Run automated benchmarks?", text,
@@ -252,11 +286,12 @@ class AutomationPanel(QGroupBox):
             self.lhm.ensure(lambda: started.append(self.start_plan(tools_ready=True)))
             return bool(started and started[0])      # empty: it asks or downloads first, the run starts later
         for wl in workloads:
-            if hasattr(wl, "model"):          # llama-benchy: the model is chosen for every plan
-                wl.model = self.choose_model()
-                if not wl.model:
-                    self.status_label.setText("No llama-benchy model chosen; nothing was run.")
+            if hasattr(wl, "configure"):      # llama-benchy: model and settings are chosen for every plan
+                settings = self.choose_settings(wl)
+                if not settings:
+                    self.status_label.setText("No llama-benchy settings chosen; nothing was run.")
                     return False
+                wl.configure(settings)
         profile = self.get_profile()
         plan = self.build_plan(workloads, profile)
         info = self.overview(plan, int(profile.cooldown_seconds))
@@ -321,6 +356,8 @@ class AutomationPanel(QGroupBox):
     def _on_finished(self, summary):
         self._set_running(False)
         self.last_summary = summary
+        self.reports = find_reports(summary)
+        self.report_btn.setEnabled(bool(self.reports))
         if isinstance(summary, RunSummary):
             counts = {}
             for rec in summary.records:

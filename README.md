@@ -444,16 +444,24 @@ loaded context length) and `lms runtime ls` (the selected engine per model forma
 `python scripts/verify_lmstudio.py` prints what it reads on this computer.
 
 `app/ai/llama_benchy.py` runs llama-benchy 0.4.0 (MIT, `pip install llama-benchy==0.4.0` into the app's
-Python) against LM Studio's OpenAI-compatible server: `--pp`, `--tg`, `--depth`, `--runs`, `--format json`,
-`--save-result` into the run folder. Score = token generation (tok/s) at the first depth; prompt processing
-(tok/s), time to first response and end-to-end time to first token (ms) per depth, and the API latency, are
-metrics. `ai_run.json` in the run folder records LM Studio's model record, the llama-benchy version and the
-tokenizer used: when the model's Hugging Face tokenizer cannot be loaded, llama-benchy falls back to gpt2 and
-the record says the token counts are approximate. Its first run downloads a Project Gutenberg text (prompt
-source) into `~/.cache/llama-benchy`. Do not run it while LM Studio is used for anything else (for example a
-local coding agent). `python scripts/verify_llama_benchy.py <model id> <folder>` runs one short real check.
-In the app it is listed under **Automated runs** as "llama-benchy (LM Studio)": before each plan you pick the
-model from LM Studio's language models (loaded ones first; LM Studio's server must be running), and the
+Python) against LM Studio's OpenAI-compatible server: `--pp`, `--tg`, `--depth`, `--concurrency`,
+`--enable-prefix-caching` (when chosen), `--runs`, `--format json`, `--save-result` into the run folder.
+Every context depth runs at every concurrency level. For each pair the run records prompt processing (pp,
+tok/s), token generation (tg total, per request and peak, tok/s), time to first response (TTFR, ms) and
+end-to-end time to first token (E2E TTFT, ms), as metrics named like `tg_tok_s@d2048_c2`. With prefix caching,
+each depth above 0 also has a context prefill row (`ctx_...`): the request that loads the context, apart from
+the follow-up that reuses the cache. Score = tg total at the lowest concurrency and depth. The API latency,
+latency mode and prefix caching are recorded too. `llama_benchy_report.md` in the run folder holds the settings
+and the whole table; **Show report** in Automated runs opens it after a plan. `ai_run.json` records LM Studio's
+model record, the llama-benchy version, depths, concurrency levels, prefix caching and the tokenizer used: when
+the model's Hugging Face tokenizer cannot be loaded, llama-benchy falls back to gpt2 and the record and report
+say the token counts are approximate. Its first run downloads a Project Gutenberg text (prompt source) into
+`~/.cache/llama-benchy`. Do not run it while LM Studio is used for anything else (for example a local coding
+agent). `python scripts/verify_llama_benchy.py <model id> <folder>` runs one short real check (depths 0 and
+2048, concurrency 1 and 2, prefix caching) and prints the report.
+In the app it is listed under **Automated runs** as "llama-benchy (LM Studio)": before each plan a settings
+window asks for the model (LM Studio's language models, loaded ones first; LM Studio's server must be
+running), prompt and generated tokens, context depths, concurrency levels and prefix caching, and the
 confirmation warns not to use LM Studio for anything else during the run. Each run uses `--runs 1` (the
 profile's repetitions and warm-up repeat it), a 30 minute limit, and the session manifest records the model.
 

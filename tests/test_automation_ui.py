@@ -128,7 +128,7 @@ def test_main_window_has_panel_and_shuts_it_down(qapp, tmp_path):
     shutdown.assert_called_once()
 
 
-def test_llama_benchy_asks_model_and_warns(qapp, tmp_path):
+def test_llama_benchy_asks_settings_warns_and_shows_report(qapp, tmp_path):
     import json
     from tests.test_llama_benchy import RESULT, PyBenchy, _fake
     from app.ai import llama_benchy
@@ -140,24 +140,45 @@ def test_llama_benchy_asks_model_and_warns(qapp, tmp_path):
     panel, db = make_panel(tmp_path, [wl], profile=profile)
     panel.set_checked("llama_benchy")
     panel.telemetry_box.setChecked(False)
-    panel.choose_model = lambda: None
-    assert panel.start_plan() is False and "No llama-benchy model chosen" in panel.status_label.text()
-    panel.choose_model = lambda: "google/gemma-4-12b-qat"
+    panel.choose_settings = lambda w: None
+    assert panel.start_plan() is False and "No llama-benchy settings chosen" in panel.status_label.text()
+    panel.choose_settings = lambda w: {"model": "google/gemma-4-12b-qat", "depths": [0, 4096],
+                                       "concurrency": [1, 2], "prefix_caching": True}
+    assert not panel.report_btn.isEnabled()
     assert panel.start_plan() is True
     assert "WARNING: Do not use LM Studio for anything else" in panel.asked[0]
+    assert "--concurrency 1 2 --enable-prefix-caching" in panel.asked[0]
     finish(qapp, panel)
     runs = db.get_runs(panel.last_session_id, include_test=True)
     assert [(r["score"], r["status"]) for r in runs] == [(14.098, "completed")]
     assert db.get_session_manifest(panel.last_session_id)["benchmarks"][0]["model"] == "google/gemma-4-12b-qat"
+    assert panel.report_btn.isEnabled() and panel.reports[0][0] == "llama_benchy (run 1)"
+    assert "| 1 | 0 | measured |" in panel.reports[0][1].read_text(encoding="utf-8")
 
 
-def test_choose_model_lists_loaded_first_and_handles_no_server(qapp):
+def test_llama_settings_dialog_and_no_server(qapp):
     from app.ui import automation_panel
+    from app.ui.llama_benchy_dialog import LlamaBenchyDialog, ReportDialog
     with patch.object(automation_panel.QMessageBox, "warning") as warn:
-        assert automation_panel.choose_model(None, read_models=lambda: (_ for _ in ()).throw(OSError("refused"))) is None
+        assert automation_panel.choose_llama_settings(
+            None, read_models=lambda: (_ for _ in ()).throw(OSError("refused"))) is None
         assert "not reachable" in warn.call_args[0][2]
     models = [{"id": "a", "type": "llm", "state": "not-loaded"}, {"id": "emb", "type": "embeddings"},
               {"id": "b", "type": "vlm", "quantization": "Q4_K_M", "state": "loaded"}]
-    with patch.object(automation_panel.QInputDialog, "getItem", side_effect=lambda *a: (a[3][0], True)) as get:
-        assert automation_panel.choose_model(None, read_models=lambda: models) == "b"
-        assert get.call_args[0][3] == ["b  (Q4_K_M, loaded)", "a  (?, not-loaded)"]
+    assert [m["id"] for m in automation_panel.language_models(None, lambda: models)] == ["b", "a"]
+    box = LlamaBenchyDialog(automation_panel.language_models(None, lambda: models), {"model": "a", "pp": 256})
+    assert box.model.currentData() == "a" and box.pp.value() == 256
+    box.depths.setText("8192 0")
+    box.concurrency.setText("1 4")
+    box.prefix.setChecked(True)
+    assert box.values() == {"model": "a", "pp": 256, "tg": 128, "depths": [0, 8192], "concurrency": [1, 4],
+                            "prefix_caching": True}
+    box.concurrency.setText("0")
+    assert box.values() is None and "Concurrency" in box.error.text()
+
+    class Accepting(LlamaBenchyDialog):
+        def exec(self):
+            return automation_panel.QDialog.Accepted
+    got = automation_panel.choose_llama_settings(None, {"depths": [0]}, read_models=lambda: models, dialog=Accepting)
+    assert got["model"] == "b" and got["depths"] == [0]
+    assert "Concurrency" in ReportDialog("r", "| Concurrency |\n|---|\n| 1 |").view.toPlainText()
