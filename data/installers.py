@@ -61,3 +61,6 @@ INSTALLERS: Dict[str, dict] = {
     # 3DMark is on Steam (the library scan may find only the free demo); Windows only
     "d3dmark": {"windows": {"steam": 223850}},
 }
+
+# the GPU run of Blender Benchmark uses the same launcher
+INSTALLERS["blender_benchmark_gpu"] = INSTALLERS["blender_benchmark"]

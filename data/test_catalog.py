@@ -47,6 +47,16 @@ TEST_INFO: Dict[str, dict] = {
         "supported_architectures": {"x64": "native", "arm64": "unverified"},
         "expected_minutes": 15,
     },
+    "blender_benchmark": {
+        "group": "cpu", "official_url": "https://opendata.blender.org/",
+        "supported_os": ["windows"], "supported_architectures": {"x64": "native", "arm64": "unsupported"},
+        "expected_minutes": 10,
+    },
+    "blender_benchmark_gpu": {
+        "group": "gpu", "official_url": "https://opendata.blender.org/",
+        "supported_os": ["windows"], "supported_architectures": {"x64": "native", "arm64": "unsupported"},
+        "expected_minutes": 5,
+    },
     "cyberpunk2077_builtin_benchmark": {
         "group": "game", "official_url": "https://store.steampowered.com/app/1091500/",
         "supported_os": ["windows"],

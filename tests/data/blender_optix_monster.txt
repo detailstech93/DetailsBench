@@ -1,0 +1,73 @@
+119 / 100 [---] 119.00% 3 p/s[
+  {
+    "timestamp": "2026-10-18T17:50:50.169445+00:00",
+    "blender_version": {
+      "version": "5.2.0 LTS",
+      "build_date": "2026-07-14",
+      "build_time": "01:35:40",
+      "build_commit_date": "2026-07-13",
+      "build_commit_time": "15:20",
+      "build_hash": "fbe6228777e7",
+      "label": "5.2.0",
+      "checksum": "2d184b626c001692c362291911293b6a297179d618d95e9e9192c3a80318adc4"
+    },
+    "benchmark_launcher": {
+      "label": "3.3.0",
+      "checksum": "9d01636a9f9cf2386289bc4ab0cf1be9cd88b65097f0664066d519a197aee236"
+    },
+    "benchmark_script": {
+      "label": "3.1.2",
+      "checksum": "2881a9f160a24ccd4282e43b861bd727e33562a4a230401343b590d10e890272"
+    },
+    "scene": {
+      "label": "monster",
+      "checksum": "8ff812a02f720433de1403dab447be9541eecca71cc919224a7790d017c1b2ce"
+    },
+    "system_info": {
+      "bitness": "64bit",
+      "machine": "AMD64",
+      "system": "Windows",
+      "dist_name": "",
+      "dist_version": "",
+      "devices": [
+        {
+          "type": "CPU",
+          "name": "Intel Core Ultra 9 275HX"
+        },
+        {
+          "type": "OPTIX",
+          "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
+          "is_display": false
+        },
+        {
+          "type": "ONEAPI",
+          "name": "Intel(R) Graphics",
+          "is_display": false
+        }
+      ],
+      "num_cpu_sockets": 1,
+      "num_cpu_cores": 24,
+      "num_cpu_threads": 24
+    },
+    "device_info": {
+      "device_type": "OPTIX",
+      "compute_devices": [
+        {
+          "type": "OPTIX",
+          "name": "NVIDIA GeForce RTX 5090 Laptop GPU",
+          "is_display": false
+        }
+      ],
+      "num_cpu_threads": 24
+    },
+    "stats": {
+      "device_peak_memory": 1313,
+      "number_of_samples": 2049,
+      "time_for_samples": 34.150516,
+      "samples_per_minute": 3599.945605507102,
+      "total_render_time": 34.9977,
+      "render_time_no_sync": 34.1512,
+      "time_limit": 30
+    }
+  }
+]
