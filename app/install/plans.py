@@ -4,6 +4,7 @@ plan_for() returns one of
     {"kind": "winget", "test_id", "winget", "hosts", "path_prefix"}      Windows, an installer for this arch
     {"kind": "linux", "family", "package"}                                Linux, a package for this family
     {"kind": "steam", "app_id"}                                           Steam's install dialog
+    {"kind": "zip", "test_id", **pinned zip}                              the vendor's zip (app/install/direct.py)
 or None: no install fits, the Tests screen keeps the official download page.
 """
 
@@ -50,6 +51,10 @@ def plan_for(test_id: str, source: str = "", app_id=None, host: Optional[Host] =
         return None
     if "steam" in entry:
         return {"kind": "steam", "app_id": int(entry["steam"])}
+    if host.os == "windows" and entry.get("zip"):
+        if host.arch not in entry.get("arch", []):
+            return None
+        return {"kind": "zip", "test_id": test_id, **entry["zip"]}
     if host.os == "windows" and entry.get("winget"):
         if host.arch not in entry.get("arch", []):
             return None

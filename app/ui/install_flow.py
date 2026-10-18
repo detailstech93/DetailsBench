@@ -38,6 +38,8 @@ class InstallFlow(QObject):
         if run_commands is None:
             from app.ui.frame_capture_panel import run_commands
         self.run_commands = run_commands
+        from app.install import direct
+        self.direct = direct
         self.start_thread = start_thread or (lambda fn: threading.Thread(target=fn, daemon=True,
                                                                          name="install").start())
         self.state = RunState()
@@ -65,6 +67,8 @@ class InstallFlow(QObject):
                 return False
             self.window.tests_page.open_url(url)
             return True
+        if plan["kind"] == "zip":
+            return self._zip(entry, plan)
         self._show(f"Asking Windows Package Manager about {entry.name}...")
         self.start_thread(lambda: self.described.emit(self._safe(lambda: self.describe_fn(entry.id),
                                                                  winget.Package(entry.id, ""))))
@@ -89,6 +93,19 @@ class InstallFlow(QObject):
             self.finished.emit(winget.Outcome(ok, f"{plan['package']} installed." if ok else
                                               f"{plan['package']} was not installed: {text}"))
         self.start_thread(lambda: self._safe(work, winget.Outcome(False, "")))
+        return True
+
+    def _zip(self, entry: TestEntry, plan: dict) -> bool:
+        bad = self.direct.problem(plan)
+        if bad:
+            QMessageBox.warning(self.window, "Install", f"{entry.name} cannot be installed by the app: {bad}.")
+            return False
+        if not self.ask(self.window, "Install", self.direct.confirm_text(entry.name, plan)):
+            return False
+        self._show(f"Downloading {plan['product']} {plan['version']}...")
+        failed = winget.Outcome(False, "")
+        self.start_thread(lambda: self.finished.emit(self._safe(lambda: self.direct.install(entry.name, plan),
+                                                                failed)))
         return True
 
     def _safe(self, fn, failed):

@@ -501,6 +501,17 @@ def launch_assisted_benchmark(
 # BenchmarkManager — data-driven discovery
 # ──────────────────────────────────────────────────────────────────────────────
 
+def app_tools_roots() -> List[str]:
+    """The app's own tools folder: tools installed by its Install button from a vendor's zip (app/install/direct.py)
+    are found there like ones under Program Files."""
+    try:
+        from app.install.direct import tools_root
+        root = str(tools_root())
+    except Exception:
+        return []
+    return [root] if os.path.isdir(root) else []
+
+
 class BenchmarkManager:
     """Manages benchmark detection, compatibility, and execution.
 
@@ -695,7 +706,7 @@ $res | ConvertTo-Json -Depth 3
                     "missing" if val is None else "not a directory",
                     env_name,
                 )
-        search_roots = search_roots + extra_roots
+        search_roots = search_roots + extra_roots + app_tools_roots()
 
         for base in search_roots:
             if not os.path.isdir(base):

@@ -52,3 +52,11 @@ def _no_real_tool_setup(request, monkeypatch):
                         lambda *a, **k: lhm_provision.LhmAsset(error="no network in tests"))
     monkeypatch.setattr(provision, "plan_download",
                         lambda *a, **k: provision.AssetChoice(error="no network in tests"))
+
+
+@pytest.fixture(autouse=True)
+def _no_real_tools_folder(monkeypatch):
+    """The scan also looks in the app's own tools folder (tools installed from a vendor zip). Tests must not depend
+    on what this computer has installed there, so that folder is not scanned in tests."""
+    from app import benchmark_manager
+    monkeypatch.setattr(benchmark_manager, "app_tools_roots", lambda: [])

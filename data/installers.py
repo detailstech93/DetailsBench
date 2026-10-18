@@ -44,6 +44,20 @@ INSTALLERS: Dict[str, dict] = {
         # PerformanceTest 11.1: PerformanceTest_Windows_x86-64.exe / PerformanceTest_Windows_ARM.exe
         "windows": {"winget": "PassMark.PerformanceTest", "hosts": ["www.passmark.com"], "arch": ["x64", "arm64"]},
     },
+    "blender_benchmark": {
+        # Blender Benchmark Launcher CLI 3.3.0: no winget package; the zip from Blender's download server, size and
+        # SHA-256 pinned on 2026-10-18 (benchmark-launcher-cli.exe inside is signed "Blender Foundation", checked
+        # with Get-AuthenticodeSignature). Windows x64 build only. app/install/direct.py installs it.
+        "windows": {"arch": ["x64"], "zip": {
+            "product": "Blender Benchmark Launcher CLI", "version": "3.3.0",
+            "url": "https://download.blender.org/release/BlenderBenchmark2.0/launcher/"
+                   "benchmark-launcher-cli-3.3.0-windows.zip",
+            "hosts": ["download.blender.org"], "size": 7755878,
+            "sha256": "3f00bb68915800f14ddad6877083544aa25c56aac252b77b161bf7962ee67dde",
+            "folder": "benchmark-launcher-cli-3.3.0", "exe": "benchmark-launcher-cli.exe",
+            "note": "Blender itself and the test scenes are downloaded later by the launcher, from Blender's "
+                    "servers, when a benchmark is run."}},
+    },
     # 3DMark is on Steam (the library scan may find only the free demo); Windows only
     "d3dmark": {"windows": {"steam": 223850}},
 }
