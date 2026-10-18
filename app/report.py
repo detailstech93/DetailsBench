@@ -444,11 +444,11 @@ def _blender_section(export: Mapping) -> str:
 
 
 VRAY_TESTS = (("vray_benchmark", "V-Ray (CPU)", "vsamples"), ("vray_benchmark_gpu", "V-Ray GPU, CUDA", "vpaths"),
-              ("vray_benchmark_rtx", "V-Ray GPU, RTX", "vrays"))
+              ("vray_benchmark_rtx", "V-Ray GPU, RTX", "vpaths"))
 
 
 def _vray_section(export: Mapping) -> str:
-    """V-Ray Benchmark: one tile per engine with its own unit (vsamples, vpaths, vrays are not comparable), what
+    """V-Ray Benchmark: one tile per engine with its own unit (scores of different engines are not comparable), what
     ran (version, devices), how the PC behaved and charts over time."""
     session_is_test = _truthy((_mapping(export.get("session")) or {}).get("is_test"))
     names = [t[0] for t in VRAY_TESTS]
@@ -476,6 +476,7 @@ def _vray_section(export: Mapping) -> str:
             blocks.append(f"<h3>{esc(engine)}</h3><p>The test did not finish: {_text(runs[-1].get('note'))}.</p>")
             continue
         score = _whole((_mapping((_mapping(summaries.get(name)) or {}).get("stats")) or {}).get("mean"))
+        unit = str(done[-1].get("unit") or unit)          # the unit the program printed
         tiles.append(f'<div class="tile good"><div class="label">{esc(engine)}</div><div class="value">'
                      + (f"{score:,} <span>{unit}</span>" if score is not None else "<span>-</span>") + "</div></div>")
         details = {}
@@ -495,8 +496,8 @@ def _vray_section(export: Mapping) -> str:
                '<p class="muted">No readings over time were stored for this run.</p>'))
     return ('<section><h2>V-Ray Benchmark</h2><div class="game"><div class="tiles">' + "".join(tiles) + "</div>"
             '<p class="muted">V-Ray Benchmark\'s own scores: vsamples for V-Ray on the CPU, vpaths for V-Ray GPU '
-            "with CUDA, vrays for V-Ray GPU with RTX. Higher is faster; the three units cannot be compared with "
-            "each other, only with the same test on benchmark.chaos.com. Each test renders for 1 minute. Nothing "
+            "(CUDA and RTX). Higher is faster; scores of different engines (CPU, CUDA, RTX) cannot be compared "
+            "with each other, only with the same test on benchmark.chaos.com. Each test renders for 1 minute. Nothing "
             "was uploaded.</p>" + "".join(blocks) + "</div></section>")
 
 

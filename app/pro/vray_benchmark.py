@@ -13,7 +13,8 @@ with `echo y |`. The app gives that answer only after the owner accepted the agr
 (app/ui/run_tests.py asks once, settings.json keeps it); without it a run is skipped. Nothing is submitted:
 the CLI never uploads unless asked through the GUI with an account.
 
-Score: the program's own, in vsamples (V-Ray CPU), vpaths (V-Ray GPU CUDA) or vrays (V-Ray GPU RTX); the three
+Score: the program's own, in vsamples (V-Ray CPU) or vpaths (V-Ray GPU, CUDA and RTX: 6.00.02 prints vpaths
+for both, the documentation says vrays for RTX); the three
 are not comparable with each other (documentation, "Performance Score"). Each test renders for 1 minute.
 GPU: NVIDIA only (CUDA Maxwell or later, RTX; driver 520+); the CPU is also a CUDA device, so the GPU tests
 pick the GPU devices only (--with-devices) and say which.
@@ -38,7 +39,7 @@ EULA_KEY = "vray_benchmark_license_accepted"
 MODES = {
     "vray_benchmark": ("CPU", "vray", False, "vsamples"),
     "vray_benchmark_gpu": ("GPU, CUDA", "vray-gpu", False, "vpaths"),
-    "vray_benchmark_rtx": ("GPU, RTX", "vray-gpu", True, "vrays"),
+    "vray_benchmark_rtx": ("GPU, RTX", "vray-gpu", True, "vpaths"),   # the program prints vpaths for RTX too
 }
 
 
@@ -110,6 +111,15 @@ def _number(value) -> Optional[float]:
     return float(value) if ok else None
 
 
+def printed_unit(stdout: str, score: float) -> Optional[str]:
+    """The unit from the program's own last line, e.g. "V-Ray GPU score: 7902 vpaths" (6.00.02 prints vpaths
+    for RTX too), when its number is the file's score."""
+    found = re.findall(r"score:\s*(\d+(?:\.\d+)?)\s+([A-Za-z]+)", stdout)
+    if found and abs(float(found[-1][0]) - score) < 0.5:
+        return found[-1][1]
+    return None
+
+
 def _version(value, width: int = 1) -> Optional[str]:
     """[6, 0, 2] -> "6.00.02" (width 2) or [6, 10, 3] -> "6.10.3"."""
     if not (isinstance(value, list) and value and all(isinstance(v, int) for v in value)):
@@ -153,8 +163,8 @@ def parse_result(text: str, rtx: bool = False) -> Tuple[Optional[float], Dict[st
 
 class VRayBenchmarkWorkload(Workload):
     timeout_seconds = 1800
-    # CPU (34,347 vsamples) and GPU CUDA (5,679 vpaths) checked by the owner on 2026-10-18; RTX not run yet
-    VERIFIED = ("vray_benchmark", "vray_benchmark_gpu")
+    # checked by the owner on 2026-10-18: CPU 34,347 vsamples, GPU CUDA 5,679 vpaths, GPU RTX 7,902 vpaths
+    VERIFIED = ("vray_benchmark", "vray_benchmark_gpu", "vray_benchmark_rtx")
 
     def __init__(self, test_id: str = "vray_benchmark", exe: Optional[Path] = None, data_dir: Optional[Path] = None):
         self.id = test_id
@@ -251,7 +261,8 @@ class VRayBenchmarkWorkload(Workload):
                  ("Devices", details.pop("devices", None) or ", ".join(n for _, n in used) or None)]
         parts += list(details.items())
         note = "; ".join(f"{k}: {v}" for k, v in parts if v)
-        return WorkloadResult(status="completed", score=round(score, 2), unit=self.unit, metrics={}, note=note,
+        unit = printed_unit(out.read_text(encoding="utf-8", errors="replace"), score) or self.unit
+        return WorkloadResult(status="completed", score=round(score, 2), unit=unit, metrics={}, note=note,
                               **common)
 
 

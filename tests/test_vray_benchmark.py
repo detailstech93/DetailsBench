@@ -131,14 +131,14 @@ def test_gpu_run_lists_devices_answers_the_license_and_reads_the_file(tmp_path, 
     monkeypatch.setattr(vb, "run_process", fake)
     w = vb.VRayBenchmarkWorkload("vray_benchmark_rtx", exe=exe, data_dir=tmp_path)
     result = w.run(RunContext(output_dir=tmp_path / "r", timeout_seconds=600))
-    assert result.status == "completed" and result.score == 7123.4 and result.unit == "vrays"
+    assert result.status == "completed" and result.score == 7123.4 and result.unit == "vpaths"
     assert calls[0][0][1:] == ["--mode", "vray-gpu", "--rtx", "--list-devices"]
     assert calls[1][0][1:6] == ["--mode", "vray-gpu", "--rtx", "--with-devices", "0"]
     assert all(answer == "y\n" for _, answer in calls)
     assert result.note == ("V-Ray Benchmark: 6.00.02; Engine: GPU, RTX; "
                            "Devices: NVIDIA GeForce RTX 5090 Laptop GPU")
     assert w.benchmark_type == "gpu" and w.display_name == "V-Ray Benchmark 6.00.02 (GPU, RTX)"
-    assert not w.verified and all(vb.VRayBenchmarkWorkload(t).verified for t in ("vray_benchmark", "vray_benchmark_gpu"))
+    assert all(vb.VRayBenchmarkWorkload(t).verified for t in vb.MODES)
 
 
 def test_no_nvidia_gpu_skips_and_no_file_is_invalid(tmp_path, monkeypatch):
@@ -197,7 +197,7 @@ def test_the_license_is_asked_once_before_the_run():
 
 def _vray_export():
     run = {"benchmark_name": "vray_benchmark_rtx", "benchmark_type": "gpu", "status": "completed", "score": 7123.4,
-           "unit": "vrays", "run_index": 1, "is_warmup": False, "is_test": False,
+           "unit": "vpaths", "run_index": 1, "is_warmup": False, "is_test": False,
            "note": "V-Ray Benchmark: 6.00.02; Engine: GPU, RTX; Devices: NVIDIA GeForce RTX 5090 Laptop GPU"}
     failed = {"benchmark_name": "vray_benchmark", "benchmark_type": "cpu", "status": "invalid", "score": None,
               "run_index": 1, "is_warmup": False, "is_test": False, "note": "no score in the result file"}
@@ -208,7 +208,7 @@ def _vray_export():
 def test_vray_report_section():
     page = render_session_report(_vray_export())
     part = page[page.index("<h2>V-Ray Benchmark</h2>"):page.index("<h2>Summary")]
-    assert "7,123 <span>vrays</span>" in part and "V-Ray (CPU)" in part and "no score" in part
+    assert "7,123 <span>vpaths</span>" in part and "V-Ray (CPU)" in part and "no score" in part
     assert "<tr><th>Devices</th><td>NVIDIA GeForce RTX 5090 Laptop GPU</td></tr>" in part
     assert "cannot be compared" in part and "Blender" not in part
 
@@ -225,3 +225,9 @@ def test_summary_shows_each_run_then_the_mean():
     assert "<th>Each run</th><th>Mean</th>" in part
     assert ("Warm-up: 34,745.00 vsamples (not counted)<br>Run 1: 34,347.00 vsamples<br>Run 2: 34,214.00 vsamples<br>"
             "Run 3: 34,347.00 vsamples</td><td>34,302.67") in part
+
+
+def test_the_unit_is_the_one_the_program_printed():
+    out = "Testing V-Ray GPU... 100% 01:00/01:00\r\nV-Ray GPU score: 7902 vpaths\r\nAutomatic installation was successful!\r\n"
+    assert vb.printed_unit(out, 7902) == "vpaths"
+    assert vb.printed_unit(out, 5679) is None and vb.printed_unit("", 7902) is None
