@@ -156,3 +156,18 @@ def test_longer_runs_leave_out_their_first_minute():
     assert warm_up_seconds(60) == 10 and warm_up_seconds(180) == 60
     work = [50.0] * 60 + [100.0] * 120                        # power shared out in the first minute, then steady
     assert stability(work) == 100.0
+
+
+def test_stress_tests_can_be_written_in_a_session_manifest():
+    # the Tests screen asks every workload for its program when it creates the session
+    from app.stress.workload import stress_workloads
+    for wl in stress_workloads():
+        assert wl.executable() == (None, "built in") and wl.version() is None
+
+
+def test_a_stress_test_runs_once_without_warm_up_whatever_the_profile():
+    from types import SimpleNamespace
+    from app.ui.automation_panel import AutomationPanel
+    plan = AutomationPanel.build_plan(None, [StressWorkload("cpu", minutes=lambda: 10)],
+                                      SimpleNamespace(warmup_runs=1, repetitions=3))
+    assert (plan[0].warmup_runs, plan[0].repetitions) == (0, 1)

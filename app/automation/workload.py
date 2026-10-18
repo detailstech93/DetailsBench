@@ -62,6 +62,10 @@ class Workload(ABC):
     def version(self) -> Optional[str]:
         return None
 
+    def executable(self) -> Tuple[Optional[str], str]:
+        """(program path, how it was found); a test built into the app starts no program."""
+        return None, "built in"
+
     def describe_command(self) -> Optional[str]:
         """Human-readable command shown in the confirmation dialog, if any."""
         return None

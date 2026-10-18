@@ -68,6 +68,7 @@ class StressWorkload(Workload):
         return self.minutes() * 60 + 180            # start-up and stopping on top of the stress time
 
     verified = True
+    fixed_counts = (0, 1)                           # no warm-up, one run: the minutes are the test
 
     def availability(self) -> Tuple[bool, str]:
         from app.stress import cpu, gpu

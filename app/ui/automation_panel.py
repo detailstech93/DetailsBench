@@ -318,8 +318,13 @@ class AutomationPanel(QGroupBox):
 
     # ---- plan --------------------------------------------------------------
     def build_plan(self, workloads, profile) -> List[PlanItem]:
-        return [PlanItem(wl, repetitions=profile.repetitions, warmup_runs=profile.warmup_runs,
-                         timeout_seconds=_spec_value(wl, "timeout_seconds")) for wl in workloads]
+        # a workload with fixed_counts (warmups, runs) ignores the profile: a stress test runs once for its minutes
+        plan = []
+        for wl in workloads:
+            warmups, runs = getattr(wl, "fixed_counts", None) or (profile.warmup_runs, profile.repetitions)
+            plan.append(PlanItem(wl, repetitions=runs, warmup_runs=warmups,
+                                 timeout_seconds=_spec_value(wl, "timeout_seconds")))
+        return plan
 
     def overview(self, plan: List[PlanItem], cooldown: int) -> dict:
         return plan_overview([{"display_name": p.workload.display_name,
