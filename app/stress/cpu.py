@@ -51,8 +51,9 @@ def available() -> tuple:
 class CpuStress:
     """start() the workers, read() (answers so far, errors so far) any time, stop() them. Our own processes only."""
 
-    def __init__(self, workers: Optional[int] = None):
+    def __init__(self, workers: Optional[int] = None, low_priority: bool = False):
         self.workers = max(1, workers or os.cpu_count() or 1)
+        self.low_priority = low_priority        # with the GPU stress: the process feeding the GPU goes first
         self._ctx = mp.get_context("spawn")
         self._stop = self._ctx.Event()
         self._counts = self._ctx.Array("q", self.workers)
@@ -72,6 +73,8 @@ class CpuStress:
                                       daemon=True, name=f"pcbm-cpu-stress-{i}")
                 p.start()
                 self._procs.append(p)
+                if self.low_priority:
+                    _lower_priority(p.pid)
         finally:
             for k, v in env.items():
                 if v is None:
@@ -95,6 +98,16 @@ class CpuStress:
             if p.is_alive():
                 p.terminate()                           # our own child process
                 p.join(2)
+
+
+def _lower_priority(pid: int) -> None:
+    """Below normal priority for one of our own worker processes (Windows class / Linux nice 10)."""
+    try:
+        import psutil
+        proc = psutil.Process(pid)
+        proc.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS if os.name == "nt" else 10)
+    except Exception:
+        pass                                    # the stress still runs, only at normal priority
 
 
 _THREAD_VARS = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS")

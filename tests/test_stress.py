@@ -149,3 +149,10 @@ def test_series_round_trip_only_for_completed_runs(tmp_path):
     failed = db.create_result(sid, "stress_cpu", "stress", None, unit="%", status="failed")
     with pytest.raises(ValueError):
         db.save_result_series(failed, {"cpu_work": ("%", [(1, 1.0)])})
+
+
+def test_longer_runs_leave_out_their_first_minute():
+    from app.stress.workload import warm_up_seconds
+    assert warm_up_seconds(60) == 10 and warm_up_seconds(180) == 60
+    work = [50.0] * 60 + [100.0] * 120                        # power shared out in the first minute, then steady
+    assert stability(work) == 100.0

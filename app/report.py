@@ -250,7 +250,11 @@ def _stress_section(export: Mapping) -> str:
         blocks.append(
             f'<div class="game"><h3>{title}</h3><div class="tiles">{tile_html}</div>'
             f'<p class="muted">{_text(last.get("note"))}. Stable means: no wrong answer and the slowest 10 seconds '
-            "did at least 97 % of the work of the fastest 10 seconds (no throttling).</p>"
+            "did at least 97 % of the work of the fastest 10 seconds (no throttling); the warm-up at the start "
+            "(the first minute of a run of 3 minutes or more) is left out."
+            + (" With both together a laptop shares one power limit between them: when the GPU takes more power "
+               "the CPU slows down, and that shows here as lower CPU stability." if name == "stress_cpu_gpu" else "")
+            + "</p>"
             "<h4>Power, temperature and clocks</h4>"
             '<div class="table-wrap"><table><thead><tr><th>Reading</th><th>Average</th><th>Highest</th></tr>'
             "</thead><tbody>" + "".join(rows) + "</tbody></table></div>"

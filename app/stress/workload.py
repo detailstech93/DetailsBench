@@ -33,8 +33,15 @@ def stress_minutes(data_dir=None) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 240 else DEFAULT_MINUTES
 
 
-def stability(per_second: List[float], window: int = WINDOW_SECONDS, skip: int = WINDOW_SECONDS) -> Optional[float]:
+def warm_up_seconds(total: int) -> int:
+    """Seconds left out of the stability at the start: the parts speed up and (on a laptop) share out the power
+    over the first half minute, so a run of 3 minutes or more skips its first minute, a shorter one 10 s."""
+    return 60 if total >= 180 else WINDOW_SECONDS
+
+
+def stability(per_second: List[float], window: int = WINDOW_SECONDS, skip: Optional[int] = None) -> Optional[float]:
     """Slowest window / fastest window x 100 over the per-second work (the first skip seconds are the ramp up)."""
+    skip = warm_up_seconds(len(per_second)) if skip is None else skip
     values = per_second[skip:] if len(per_second) >= skip + 2 * window else per_second
     if len(values) < window:
         return None
@@ -87,7 +94,7 @@ class StressWorkload(Workload):
         out = {}
         if self.mode in ("cpu", "both"):
             workers = max(1, (os.cpu_count() or 2) - 1) if self.mode == "both" else None   # one CPU feeds the GPU
-            out["cpu"] = (self.cpu_factory or (lambda: CpuStress(workers)))()
+            out["cpu"] = (self.cpu_factory or (lambda: CpuStress(workers, low_priority=self.mode == "both")))()
         if self.mode in ("gpu", "both"):
             out["gpu"] = (self.gpu_factory or GpuStress)()
         return out

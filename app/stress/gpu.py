@@ -68,6 +68,8 @@ class GpuStress:
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._ready = threading.Event()
+        self._pass_started = 0.0                       # when the pass now running began, and how long the last took
+        self._pass_took = 0.0
 
     def start(self, timeout: float = 60.0):
         self._thread = threading.Thread(target=self._run, name="pcbm-gpu-stress", daemon=True)
@@ -78,7 +80,11 @@ class GpuStress:
         return self
 
     def read(self) -> tuple:
-        return self.passes, self.errors
+        """Passes done, counting the running pass by how far it is (a pass takes about a quarter second: whole
+        passes alone would make each second's work jump between 3, 4 and 5)."""
+        passes, started, took = self.passes, self._pass_started, self._pass_took
+        part = min(0.99, (time.monotonic() - started) / took) if took > 0 and started else 0.0
+        return passes + part, self.errors
 
     def alive(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
@@ -131,10 +137,13 @@ class GpuStress:
                     break
                 loops *= 4
             expected = one_pass(loops)                    # the answer, before the GPU is hot
+            self._pass_started = time.monotonic()
             self._ready.set()
             while not self._stop.is_set():
                 if one_pass(loops) != expected:
                     self.errors += 1
+                now = time.monotonic()
+                self._pass_took, self._pass_started = now - self._pass_started, now
                 self.passes += 1
         except Exception as e:
             self.failure = f"GPU stress stopped: {e}"
