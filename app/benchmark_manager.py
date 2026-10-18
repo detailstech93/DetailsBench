@@ -1520,10 +1520,8 @@ class BenchmarkExecutor:
             return self._run_geekbench(benchmark_info.executable_path, timeout_seconds)
         elif benchmark_info.name == 'cinebench':
             return self._run_cinebench(benchmark_info.executable_path, timeout_seconds)
-        elif benchmark_info.name == 'd3dmark' and benchmark_info.is_automatable():
-            return self._run_d3dmark(benchmark_info.executable_path, timeout_seconds)
-        elif benchmark_info.name == 'glmark2':
-            return self._run_glmark2(benchmark_info.executable_path, timeout_seconds)
+        # 3DMark and glmark2 are never started from here: their command lines were never checked on a real
+        # run (a verified tool spec in data/tools is the way to automate them).
         return {'score': None, 'unit': 'points', 'execution_method': 'manual',
                 'timestamp': datetime.now().isoformat()}
 
@@ -1536,38 +1534,3 @@ class BenchmarkExecutor:
         return {'score': None, 'unit': 'points', 'execution_method': 'manual',
                 'timestamp': datetime.now().isoformat(),
                 'message': 'Cinebench requires manual execution. Please run the benchmark and enter the score.'}
-
-    def _run_d3dmark(self, exe_path: Optional[str], timeout_seconds: int) -> Dict[str, Any]:
-        if not exe_path or not os.path.isfile(exe_path):
-            return {'score': None, 'unit': 'points', 'execution_method': 'automated',
-                    'timestamp': datetime.now().isoformat(), 'error': "3DMark executable not found"}
-        try:
-            result = subprocess.run([exe_path, '--automation', 'run', 'time spy'],
-                                    capture_output=True, text=True, timeout=timeout_seconds)
-            if result.returncode == 0:
-                score_match = re.search(r'Score:\s*(\d+)', result.stdout)
-                if score_match:
-                    return {'score': int(score_match.group(1)), 'unit': 'points',
-                            'execution_method': 'automated', 'timestamp': datetime.now().isoformat()}
-            return {'score': None, 'unit': 'points', 'execution_method': 'automated',
-                    'timestamp': datetime.now().isoformat(), 'error': f"3DMark execution failed: {result.stderr}"}
-        except Exception as e:
-            return {'score': None, 'unit': 'points', 'execution_method': 'automated',
-                    'timestamp': datetime.now().isoformat(), 'error': str(e)}
-
-    def _run_glmark2(self, exe_path: Optional[str], timeout_seconds: int) -> Dict[str, Any]:
-        if not exe_path or not os.path.isfile(exe_path):
-            return {'score': None, 'unit': 'fps', 'execution_method': 'automated',
-                    'timestamp': datetime.now().isoformat(), 'error': "glmark2 executable not found"}
-        try:
-            result = subprocess.run([exe_path], capture_output=True, text=True, timeout=timeout_seconds)
-            if result.returncode == 0:
-                score_match = re.search(r'Result:\s*(\d+\.?\d*)', result.stdout)
-                if score_match:
-                    return {'score': float(score_match.group(1)), 'unit': 'fps',
-                            'execution_method': 'automated', 'timestamp': datetime.now().isoformat()}
-            return {'score': None, 'unit': 'fps', 'execution_method': 'automated',
-                    'timestamp': datetime.now().isoformat(), 'error': f"glmark2 execution failed: {result.stderr}"}
-        except Exception as e:
-            return {'score': None, 'unit': 'fps', 'execution_method': 'automated',
-                    'timestamp': datetime.now().isoformat(), 'error': str(e)}

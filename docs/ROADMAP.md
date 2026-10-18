@@ -26,7 +26,7 @@ Checked, no problem found:
 - New database columns have `DEFAULT 0`.
 
 Open:
-- `BenchmarkManager.run_benchmark` / `_run_d3dmark` / `_run_glmark2` are never called. `_run_d3dmark` passes guessed 3DMark arguments. Removed in Phase A.
+- `_run_d3dmark` (guessed 3DMark arguments) and `_run_glmark2` were removed in Phase A; the unused `BenchmarkExecutor.run_benchmark` still returns manual results only.
 - `main_window.py` and `benchmark_manager.py` are about 1,600 lines each. Phase A moves the new screens into their own files instead of growing them.
 - The Cyberpunk 2077 script is unverified (Phase B).
 - No run on a second PC yet (Phase C).
