@@ -18,13 +18,19 @@ import psutil
 from app.automation.process import terminate_tree
 
 WM_CLOSE = 0x0010
+KEYEVENTF_EXTENDEDKEY = 0x0001
 KEYEVENTF_KEYUP = 0x0002
+KEYEVENTF_SCANCODE = 0x0008
+INPUT_MOUSE = 0
 INPUT_KEYBOARD = 1
+MOUSEEVENTF_MOVE = 0x0001
 
 VK = {"alt": 0x12, "ctrl": 0x11, "shift": 0x10, "enter": 0x0D, "esc": 0x1B, "tab": 0x09, "space": 0x20,
       "up": 0x26, "down": 0x28, "left": 0x25, "right": 0x27, "backspace": 0x08, "home": 0x24, "end": 0x23}
 VK.update({f"f{i}": 0x6F + i for i in range(1, 13)})
 MODIFIERS = ("ctrl", "alt", "shift")
+# keys whose scan code has the 0xE0 prefix (sent with KEYEVENTF_EXTENDEDKEY)
+EXTENDED = {VK[k] for k in ("up", "down", "left", "right", "home", "end")}
 
 
 def parse_chord(chord: str) -> Optional[List[int]]:
@@ -141,26 +147,61 @@ class Win32Desktop:
             if attached:
                 self.user32.AttachThreadInput(mine, other, False)
 
-    def press(self, codes: List[int]) -> None:
-        """Press the keys in order, release them in reverse (one SendInput call: nothing can come between)."""
+    def _input_types(self):
         w = self.w
 
         class KEYBDINPUT(ctypes.Structure):
             _fields_ = [("wVk", w.WORD), ("wScan", w.WORD), ("dwFlags", w.DWORD), ("time", w.DWORD),
                         ("dwExtraInfo", ctypes.c_size_t)]
 
+        class MOUSEINPUT(ctypes.Structure):
+            _fields_ = [("dx", w.LONG), ("dy", w.LONG), ("mouseData", w.DWORD), ("dwFlags", w.DWORD),
+                        ("time", w.DWORD), ("dwExtraInfo", ctypes.c_size_t)]
+
         class _U(ctypes.Union):
-            _fields_ = [("ki", KEYBDINPUT), ("pad", ctypes.c_byte * 32)]
+            _fields_ = [("ki", KEYBDINPUT), ("mi", MOUSEINPUT), ("pad", ctypes.c_byte * 32)]
 
         class INPUT(ctypes.Structure):
             _fields_ = [("type", w.DWORD), ("u", _U)]
+        return KEYBDINPUT, MOUSEINPUT, INPUT
 
+    def press(self, codes: List[int]) -> None:
+        """Press the keys in order, release them in reverse (one SendInput call: nothing can come between)."""
+        KEYBDINPUT, _, INPUT = self._input_types()
         events = [(c, 0) for c in codes] + [(c, KEYEVENTF_KEYUP) for c in reversed(codes)]
         arr = (INPUT * len(events))()
         for i, (code, flags) in enumerate(events):
             arr[i].type = INPUT_KEYBOARD
             arr[i].u.ki = KEYBDINPUT(code, self.user32.MapVirtualKeyW(code, 0), flags, 0, 0)
         self.user32.SendInput(len(events), arr, ctypes.sizeof(INPUT))
+
+    def _scan_keys(self, codes: List[int], up: bool) -> None:
+        """Key down or up by scan code only: games that read the keyboard directly (DirectInput, raw input)
+        see these, unlike virtual-key-only events."""
+        KEYBDINPUT, _, INPUT = self._input_types()
+        order = list(reversed(codes)) if up else list(codes)
+        arr = (INPUT * len(order))()
+        for i, code in enumerate(order):
+            flags = KEYEVENTF_SCANCODE | (KEYEVENTF_KEYUP if up else 0) | \
+                (KEYEVENTF_EXTENDEDKEY if code in EXTENDED else 0)
+            arr[i].type = INPUT_KEYBOARD
+            arr[i].u.ki = KEYBDINPUT(0, self.user32.MapVirtualKeyW(code, 0), flags, 0, 0)
+        self.user32.SendInput(len(order), arr, ctypes.sizeof(INPUT))
+
+    def key_down(self, codes: List[int]) -> None:
+        """Hold keys (a route's "hold" step); key_up must follow (the route player always sends it)."""
+        self._scan_keys(codes, up=False)
+
+    def key_up(self, codes: List[int]) -> None:
+        self._scan_keys(codes, up=True)
+
+    def mouse_move(self, dx: int, dy: int) -> None:
+        """Move the mouse relative to where it is (games turn the camera by this)."""
+        _, MOUSEINPUT, INPUT = self._input_types()
+        arr = (INPUT * 1)()
+        arr[0].type = INPUT_MOUSE
+        arr[0].u.mi = MOUSEINPUT(int(dx), int(dy), 0, MOUSEEVENTF_MOVE, 0, 0)
+        self.user32.SendInput(1, arr, ctypes.sizeof(INPUT))
 
     def close(self, hwnd: int) -> None:
         self.user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)

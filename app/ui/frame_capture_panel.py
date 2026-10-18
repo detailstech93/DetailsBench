@@ -37,6 +37,7 @@ from app.frames.presentmon import (
 )
 from app.paths import get_data_dir, load_settings, save_setting
 from app.telemetry import sources as telemetry_sources
+from data.game_routes import route_for
 from data.game_start_keys import start_keys_for
 from app.ui.automation_panel import STOP_SHORTCUT, TELEMETRY_TIP, AutomationWorker
 
@@ -765,7 +766,16 @@ class FrameCapturePanel(QGroupBox):
                                  settle_seconds=self.settle_spin.value(),
                                  launch_args=game_launch_args(game.get("app_id")),
                                  start_keys=start_keys_for(game.get("app_id")))
-        total = spec.settle_seconds + spec.seconds * spec.count
+        route = route_for(spec.app_id)
+        if route:
+            from app.frames.route import route_problems
+            if route_problems(route):
+                logger.warning("Route for %s not used: %s", spec.app_id, route_problems(route))
+            else:
+                spec.route = route
+                # nothing before the route starts is measured
+                spec.settle_seconds = max(spec.settle_seconds, int(route["loop_from"]))
+        total =spec.settle_seconds + spec.seconds * spec.count
         from app.games.settings_file import adapter_for
         from app.ui.game_settings_dialog import describe
         if ask_settings and adapter_for(spec.app_id) is not None and self._ask_game_settings() == "cancelled":
@@ -812,6 +822,15 @@ class FrameCapturePanel(QGroupBox):
                      + describe(declared) + ".")
         else:
             text += "\n\nNo game settings are forced (Game settings... to choose them); the game's own are used."
+        if spec.route:
+            from app.frames.route import describe_route
+            text += ("\n\nRoute (the app plays the game while it measures): "
+                     + describe_route(spec.route) + ".\nBefore that: " + spec.route.get("start", "load your save")
+                     + ". Keys and mouse go only to the game while it is in front; held keys are released when "
+                     "another window comes to the front. Do not touch the mouse or keyboard while it runs."
+                     + ("" if spec.route.get("verified") else
+                        "\nThis route is a draft not yet watched on a real run: watch it and stop the run if the "
+                        "character does something unexpected."))
         if self.remote_check():
             text += "\n\n" + REMOTE_WARNING
         if not self.confirm(text):

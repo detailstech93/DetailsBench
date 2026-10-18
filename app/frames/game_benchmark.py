@@ -39,6 +39,7 @@ UAC_WAIT_SECONDS = 120.0          # time to answer the UAC prompt
 LAUNCH_TIMEOUT_SECONDS = 120.0    # Steam may show its own dialog or update check first
 LOAD_FACTOR, LOAD_MARGIN_SECONDS = 1.15, 20.0   # wall time waited per second of needed game time, plus margin
 MAX_EXE_NAMES = 200
+ROUTE_POLL_SECONDS = 0.05          # a route's held keys and mouse moves need finer timing than 1 s
 
 
 def game_exe_names(folder: str, walk: Callable = os.walk, limit: int = MAX_EXE_NAMES) -> List[str]:
@@ -67,6 +68,7 @@ class GameBenchmarkSpec:
     min_frames: int = 100
     launch_args: List[str] = field(default_factory=list)   # from the game's adapter (app/games)
     start_keys: List[Tuple[float, str]] = field(default_factory=list)   # (s after launch, chord): data/game_start_keys
+    route: Optional[dict] = None        # keys held and mouse moves during the capture: app/frames/route.py
 
     @property
     def count(self) -> int:
@@ -138,14 +140,22 @@ class GameBenchmark:
         self._desktop = desktop                 # app/simulation/desktop.py; made on the first key
         self.key_notes: List[str] = []
 
+    def _desk(self):
+        if self._desktop is None:
+            from app.simulation.desktop import default_desktop
+            self._desktop = default_desktop()
+        return self._desktop
+
+    def _game_in_front(self) -> bool:
+        return self._desk().foreground_pid() in self._started
+
     def _press_due(self, pending: List[Tuple[float, str]], elapsed: float):
         """Press the start keys whose time has come, only into the game: a key is skipped (and noted) when the
         foreground window is not one of the processes the launch started."""
-        from app.simulation.desktop import default_desktop, parse_chord
+        from app.simulation.desktop import parse_chord
         while pending and pending[0][0] <= elapsed:
             at, chord = pending.pop(0)
-            if self._desktop is None:
-                self._desktop = default_desktop()
+            self._desk()
             codes = parse_chord(chord)
             if codes is None:
                 self.key_notes.append(f"{chord!r} at {at:g} s: unknown key, not sent")
@@ -253,30 +263,49 @@ class GameBenchmark:
         wait = spec.wait_seconds()
         stopped = False
         pending = sorted(spec.start_keys)
-        while True:
-            if self.stop_event.is_set():
-                stopped = True
-                break
-            if not thread.is_alive():
-                break                   # PresentMon ended: the game was closed, or its time limit
-            self._note_started()
-            elapsed = self.clock() - t0
-            if elapsed >= wait:
-                break
-            if pending:
+        player = None
+        if spec.route:
+            from app.frames.route import RoutePlayer
+            player = RoutePlayer(spec.route, self._desk, self._game_in_front, wait)
+        shown = None
+        try:
+            while True:
+                if self.stop_event.is_set():
+                    stopped = True
+                    break
+                if not thread.is_alive():
+                    break                   # PresentMon ended: the game was closed, or its time limit
+                self._note_started()
+                elapsed = self.clock() - t0
+                if elapsed >= wait:
+                    break
+                if pending:
+                    try:
+                        self._press_due(pending, elapsed)
+                    except Exception as e:          # keys only help; the capture goes on without them
+                        self.key_notes.append(f"keys stopped: {e}")
+                        pending.clear()
+                if player is not None:
+                    player.tick(elapsed)
+                if int(elapsed) != shown:
+                    shown = int(elapsed)
+                    self.on_progress(f"{spec.game_name}: {elapsed:.0f} of {wait:.0f} s. The first "
+                                     f"{spec.settle_seconds} s are not measured; keep the game in front. It is "
+                                     "closed at the end.")
+                self.sleep(min(self.poll_seconds, ROUTE_POLL_SECONDS) if player is not None else self.poll_seconds)
+        finally:
+            if player is not None:
                 try:
-                    self._press_due(pending, elapsed)
-                except Exception as e:          # keys only help; the capture goes on without them
-                    self.key_notes.append(f"keys stopped: {e}")
-                    pending.clear()
-            self.on_progress(f"{spec.game_name}: {elapsed:.0f} of {wait:.0f} s. The first {spec.settle_seconds} s "
-                             "are not measured; keep the game in front. It is closed at the end.")
-            self.sleep(self.poll_seconds)
+                    player.release_all()
+                except Exception as e:
+                    player.problem = player.problem or f"keys could not be released: {e}"
 
         t_close = self.clock() - t0
         closed = end_presentmon()
         if self.key_notes:
             closed += "; start keys: " + ", ".join(self.key_notes)
+        if player is not None:
+            closed += "; " + player.summary()
         tel = sampler.stop() if sampler is not None else None
         text = self._read_csv()
         started_names = {os.path.basename(i.exe) for i in self._started.values()}
