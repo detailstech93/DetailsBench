@@ -44,6 +44,13 @@ def elapsed_text(seconds: float) -> str:
         else f"{seconds // 60}:{seconds % 60:02d}"
 
 
+def installable(entry: TestEntry) -> bool:
+    """A missing test the app can install with one click (data/installers.py, or a Steam game)."""
+    from app.install.winget import plan_for
+    ref = entry.ref if isinstance(entry.ref, dict) else {}
+    return plan_for(entry.id, entry.source, ref.get("app_id", ref.get("appid"))) is not None
+
+
 def state_text(entry: TestEntry) -> str:
     if not entry.compatible:
         return "✖ " + (entry.compatibility_reason or "not for this PC")
@@ -54,6 +61,7 @@ class TestsPage(QWidget):
     __test__ = False        # not a pytest class
     run_requested = Signal(list)      # [TestEntry], all can_run()
     rescan_requested = Signal()
+    install_requested = Signal(object)      # TestEntry: missing, with a one-click install (app/install)
 
     def __init__(self, open_url: Optional[Callable[[str], object]] = None, parent=None):
         super().__init__(parent)
@@ -210,6 +218,13 @@ class TestsPage(QWidget):
             b.clicked.connect(lambda checked=False, x=e: self.request_run([x]))
             b.setEnabled(not self.busy)
             return b
+        if e.compatible and e.state == MISSING and installable(e):
+            b = QPushButton("Install")
+            b.setToolTip("Download from the official source and install it (you are asked first)"
+                         + (f"\nOfficial page: {e.official_url}" if e.official_url else ""))
+            b.clicked.connect(lambda checked=False, x=e: self.request_install(x))
+            b.setEnabled(not self.busy)
+            return b
         if e.compatible and e.state == MISSING and e.official_url:
             b = QPushButton("Official download page")
             b.setToolTip(e.official_url)
@@ -251,6 +266,10 @@ class TestsPage(QWidget):
         chosen = self.selected()
         if chosen:
             self.request_run(chosen)
+
+    def request_install(self, entry: TestEntry):
+        if not self.busy:
+            self.install_requested.emit(entry)
 
     def request_run(self, entries: List[TestEntry]):
         if not self.busy:           # one test (or plan) at a time
@@ -303,7 +322,7 @@ class TestsPage(QWidget):
             widget.setEnabled(not busy)
         for item in self.items.values():
             button = self.tree.itemWidget(item, 5)
-            if isinstance(button, QPushButton) and button.text() == "Run...":
+            if isinstance(button, QPushButton) and button.text() in ("Run...", "Install"):
                 button.setEnabled(not busy)
         self.tree.setEnabled(not busy)
         self.update_run_button()

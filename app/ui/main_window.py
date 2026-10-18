@@ -434,6 +434,9 @@ class MainWindow(QMainWindow):
         self.tests_page = TestsPage()
         self.tests_page.rescan_requested.connect(self.start_scan)
         self.tests_page.run_requested.connect(self.run_tests)
+        from app.ui.install_flow import InstallFlow
+        self.install_flow = InstallFlow(self)
+        self.tests_page.install_requested.connect(self.install_flow.start)
         self.pages = QStackedWidget()
         self.page_widgets = {"this_pc": self.this_pc_page, "tests": self.tests_page, "advanced": self.tabs}
         for widget in self.page_widgets.values():

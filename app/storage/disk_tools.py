@@ -136,7 +136,8 @@ class DiskTool:
 
 
 DISKSPD = DiskTool("diskspd", "DiskSpd (storage, 4 tests)", ("diskspd.exe", "diskspd"), "PCBM_DISKSPD",
-                   ("%USERPROFILE%\\Tools\\DiskSpd\\amd64\\diskspd.exe",),
+                   ("%USERPROFILE%\\Tools\\DiskSpd\\amd64\\diskspd.exe",
+                    "%LOCALAPPDATA%\\Microsoft\\WinGet\\Links\\diskspd.exe"),     # the Install button (winget)
                    "MIT (Microsoft)")
 FIO = DiskTool("fio", "fio (storage, 4 tests)", ("fio.exe", "fio"), "PCBM_FIO",
                ("%ProgramFiles%\\fio\\fio.exe", "%USERPROFILE%\\Tools\\fio\\fio\\fio.exe"), "GPL-2.0")
