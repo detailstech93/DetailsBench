@@ -87,8 +87,21 @@ def choices(data, known):
     return ts.choices(SETTINGS, get, data, known)
 
 
+FULL_SCREEN = "0"           # video/windowed: 0 exclusive full screen, 1 windowed, 2 borderless
+NOT_FULL_SCREEN = ("the game is in windowed or borderless mode (video/windowed {mode}), which draws at the "
+                   "screen's own resolution and resets this value (seen 2026-10-19: 2560x1440 asked, 1024x768 "
+                   "after the run); drop the resolution from the forced settings, or force window mode 0 "
+                   "(exclusive full screen)")
+
+
 def plan(data, desired, known):
-    return ts.plan(SETTINGS, get, data, desired, known)
+    changes, refused = ts.plan(SETTINGS, get, data, desired, known)
+    if "resolution" in (desired or {}) and "resolution" not in refused:
+        mode = (desired or {}).get("window_mode", get(data, "video/windowed"))
+        if mode is not None and str(mode) != FULL_SCREEN:
+            refused["resolution"] = NOT_FULL_SCREEN.format(mode=mode)
+            changes = [c for c in changes if c.key != "resolution"]
+    return changes, refused
 
 
 def apply(data, changes):

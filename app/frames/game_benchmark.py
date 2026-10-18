@@ -47,6 +47,29 @@ REMOTE_TEXT = ("captured in a Remote Desktop session: the game drew to the remot
                "RDP on 2026-10-19, with a stall of about 8 s every 30 s), so its FPS is not this PC's")
 
 
+MARK_SETTLE_SECONDS = 5           # after the benchmark's own start is seen, only its first seconds are skipped
+MIN_WINDOW_SECONDS = 20
+
+
+def fit_to_benchmark(spec: "GameBenchmarkSpec", length: int) -> Optional[str]:
+    """A built-in benchmark runs `length` s after its start mark, then shows its results screen: every window
+    must end before that, or the results screen's FPS would be measured. Shortens the settle time and, when
+    needed, each window. Returns what was changed (None when it already fit); a run with too many windows to
+    fit even at MIN_WINDOW_SECONDS keeps them, and the last ones come out invalid (past the benchmark)."""
+    notes = []
+    if spec.settle_seconds > MARK_SETTLE_SECONDS:
+        spec.settle_seconds = MARK_SETTLE_SECONDS
+    room = length - spec.settle_seconds
+    if spec.seconds * spec.count > room:
+        seconds = max(MIN_WINDOW_SECONDS, int(room // spec.count))
+        notes.append(f"each window {seconds} s instead of {spec.seconds} s, so the {spec.count} windows fit in "
+                     f"the game's benchmark (about {length} s)")
+        spec.seconds = seconds
+        if seconds * spec.count > room:
+            notes.append(f"only {int(room // seconds)} of {spec.count} windows fit; fewer runs would all count")
+    return "; ".join(notes) or None
+
+
 def is_remote_session() -> bool:
     """True inside a Remote Desktop session (GetSystemMetrics SM_REMOTESESSION). Linux: False."""
     if os.name != "nt":
@@ -86,6 +109,7 @@ class GameBenchmarkSpec:
     start_keys: List[Tuple[float, str]] = field(default_factory=list)   # (s after launch, chord): data/game_start_keys
     route: Optional[dict] = None        # keys held and mouse moves during the capture: app/frames/route.py
     steps: Optional[list] = None        # checked menu steps to a built-in benchmark: app/frames/menu_steps.py
+    benchmark_seconds: Optional[int] = None     # the built-in benchmark's length after its start mark
 
     @property
     def count(self) -> int:

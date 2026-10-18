@@ -38,6 +38,16 @@ def test_rdr2_apply_changes_only_those_characters():
     assert 'screenWidthWindowed value="2560"' in out
 
 
+def test_rdr2_resolution_only_in_exclusive_full_screen():
+    known = {"resolution": {"1920x1080": 0}, "window_mode": {"0": 0, "2": 0}}
+    borderless = RDR2.replace('<vSync value="1" />', '<vSync value="1" />\r\n    <windowed value="2" />')
+    changes, refused = rdr2.plan(borderless, {"resolution": "1920x1080", "texture_quality": "Low"}, known)
+    assert [c.key for c in changes] == ["texture_quality"]
+    assert refused["resolution"].startswith("the game is in windowed or borderless mode (video/windowed 2)")
+    changes, refused = rdr2.plan(borderless, {"resolution": "1920x1080", "window_mode": "0"}, known)
+    assert sorted(c.key for c in changes) == ["resolution", "window_mode"] and refused == {}
+
+
 def test_witcher3_quotes_are_kept_and_bytes_are_exact():
     data = w3.parse(W3)
     assert w3.dump(data) == W3

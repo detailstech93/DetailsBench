@@ -33,6 +33,7 @@ from app.frames.screen_text import find_word, read_screen, word_center
 PAUSE_SECONDS = 0.5
 LOOK_EVERY_SECONDS = 1.0
 CLICK_SETTLE_SECONDS = 0.3          # the menu highlights the item under the mouse before the click
+DISMISS_PAUSE_SECONDS = 3.0         # a popup closes before the screen is read again
 CLICK_HOLD_SECONDS = 0.15           # button down this long: a game that reads the mouse once a frame sees it
 FRONT_GRACE_SECONDS = 10.0          # the game may lose the front briefly while it changes video mode
 LOG_NAME = "screen_log.txt"          # what every read saw
@@ -166,6 +167,7 @@ class StepPlayer:
                 if popup:
                     self._press(str(dismiss[popup]))
                     self.notes.append(f"closed a popup ({popup!r})")
+                    self.sleep(DISMISS_PAUSE_SECONDS)   # one key per popup: a second Enter would hit the menu
                 elif again and self.clock() >= next_again and (not again.get("while")
                                                                or find_word(lines, again["while"])):
                     if again.get("hold"):

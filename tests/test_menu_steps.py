@@ -272,3 +272,36 @@ def test_a_hold_is_tried_again_only_while_the_menu_is_still_there(tmp_path):
     kinds = [e[0] for e in desk.events]
     assert kinds == ["down", "up", "press"]           # once at 10 s; the loading screen (no menu) gets nothing
     assert "held x 2.5 s again" in p.summary() and "pressed enter again" in p.summary()
+
+
+def test_windows_fit_inside_the_built_in_benchmark():
+    from app.frames.game_benchmark import fit_to_benchmark
+    s = spec(seconds=60, warmup_runs=1, repetitions=3, settle_seconds=30)
+    note = fit_to_benchmark(s, 150)
+    assert s.settle_seconds == 5 and s.seconds == 36 and s.settle_seconds + s.seconds * s.count <= 150
+    assert note.startswith("each window 36 s instead of 60 s")
+    s = spec(seconds=60, warmup_runs=1, repetitions=3, settle_seconds=30)
+    assert fit_to_benchmark(s, 270) is None and s.seconds == 60 and s.settle_seconds == 5
+    s = spec(seconds=60, warmup_runs=2, repetitions=10, settle_seconds=30)
+    assert "only 7 of 12 windows fit" in fit_to_benchmark(s, 150) and s.seconds == 20
+
+
+def test_shadow_of_the_tomb_raider_path_and_launch(tmp_path):
+    from app.ui.frame_capture_panel import game_launch_args
+    from data.game_start_keys import benchmark_seconds_for, menu_launch_args
+    from data.steam_benchmarks import STEAM_BENCHMARK_APPS_BY_ID
+    assert menu_launch_args(750920) == ["-nolauncher"] and game_launch_args(750920) == ["-nolauncher"]
+    assert benchmark_seconds_for(750920) == 150 and benchmark_seconds_for(1174180) == 270
+    assert benchmark_seconds_for(1) is None and menu_launch_args("x") == []
+    assert STEAM_BENCHMARK_APPS_BY_ID[750920]["exe"] == "SOTTR.exe"
+    timeline = [(0, ["Square Enix"]), (30, ["Your graphics adapter is not supported"]),
+                (32, ["Continue", "New Game", "Options", "Exit"]), (40, ["Display and Graphics", "Audio"]),
+                (50, ["Display", "Graphics", "Run Benchmark"]), (60, ["Loading"]), (70, ["FPS 141"])]
+    p, desk, clock = player(tmp_path, menu_steps_for(750920), timeline)
+    p.run()
+    assert p.problem is None and 70 <= p.mark_time < 72
+    keys = [e[1] if e[0] == "press" else (e[0], e[1]) for e in desk.events]
+    assert keys == [parse_chord("enter"), ("mouse", (40, 210)), ("button", True), ("button", False),
+                    ("mouse", (240, 10)), ("button", True), ("button", False),
+                    parse_chord("up"), parse_chord("right"), parse_chord("r")]
+    assert "closed a popup ('adapter')" in p.summary()

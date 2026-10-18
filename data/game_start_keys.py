@@ -37,9 +37,30 @@ GAME_MENU_STEPS: Dict[int, dict] = {
             {"see": "stop", "within": 300, "mark": True,
              "again": {"hold": "x", "seconds": 2.5, "press": "enter", "every": 10, "while": "benchmark test"}},
         ],
+        "benchmark_seconds": 270,       # about 4.5 min from "Stop Benchmarking" to the results (MarkBench)
         "verified": False,
         "note": "Settings, Graphics, hold X on Run Benchmark Test, confirm; measuring starts when "
                 "'Stop Benchmarking' shows. The whole benchmark takes about 4.5 min.",
+    },
+    750920: {       # Shadow of the Tomb Raider: main menu -> Options -> Display and Graphics -> Run Benchmark
+        "launch_args": ["-nolauncher"],         # skips the game's own launcher window (MarkBench)
+        "steps": [
+            # a popup about the graphics adapter or an unavailable feature may come first: Enter closes it
+            {"see": "options", "within": 240, "dismiss": {"adapter": "enter", "unavailable": "enter"},
+             "settle": 2, "click": "options", "wait": 3},
+            # menus remember the last item: click the word where it is read, then Enter if the click was missed
+            {"see": "graphics", "within": 30, "again": {"press": "enter", "every": 5, "while": "options"},
+             "settle": 1, "click": "graphics", "wait": 3},
+            # MarkBench: up, right, then R runs the benchmark from the graphics page
+            {"see": "benchmark", "within": 30, "press": "up, right, r", "wait": 3},
+            # the benchmark shows its FPS while it runs
+            {"see": "fps", "within": 180, "mark": True,
+             "again": {"press": "r", "every": 10, "while": "run benchmark"}},
+        ],
+        "benchmark_seconds": 150,       # about 150 s, then its results screen (MarkBench)
+        "verified": False,
+        "note": "Options, Display and Graphics, R for the benchmark; measuring starts when its FPS shows. "
+                "The benchmark takes about 2.5 min.",
     },
 }
 
@@ -50,6 +71,24 @@ def menu_steps_for(app_id) -> Optional[list]:
     except (TypeError, ValueError):
         return None
     return [dict(s) for s in entry["steps"]] if entry else None
+
+
+def _menu_entry(app_id) -> dict:
+    try:
+        return GAME_MENU_STEPS.get(int(app_id)) or {}
+    except (TypeError, ValueError):
+        return {}
+
+
+def menu_launch_args(app_id) -> List[str]:
+    """Launch flags the menu steps expect (for example a skipped launcher window)."""
+    return [str(a) for a in _menu_entry(app_id).get("launch_args", [])]
+
+
+def benchmark_seconds_for(app_id) -> Optional[int]:
+    """About how long the game's built-in benchmark runs after the step marked as its start, or None."""
+    value = _menu_entry(app_id).get("benchmark_seconds")
+    return int(value) if isinstance(value, (int, float)) and value > 0 else None
 
 
 def start_keys_for(app_id) -> List[Tuple[float, str]]:

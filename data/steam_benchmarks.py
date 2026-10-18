@@ -24,7 +24,8 @@ STEAM_BENCHMARK_APPS: List[Dict[str, object]] = [
     {"appid": 1174180, "store_name": "Red Dead Redemption 2", "kind": "game",
      "builtin_benchmark": "unverified", "appid_verified": "2026-10-17"},
     {"appid": 750920, "store_name": "Shadow of the Tomb Raider: Definitive Edition", "kind": "game",
-     "builtin_benchmark": "unverified", "appid_verified": "2026-10-17"},
+     "builtin_benchmark": "unverified", "appid_verified": "2026-10-17",
+     "exe": "SOTTR.exe"},       # in the install folder (seen 2026-10-19); started directly for -nolauncher
     {"appid": 391220, "store_name": "Rise of the Tomb Raider™", "kind": "game",
      "builtin_benchmark": "unverified", "appid_verified": "2026-10-17"},
     {"appid": 397540, "store_name": "Borderlands 3", "kind": "game",

@@ -131,16 +131,17 @@ class TaskWorker(QThread):
 
 
 def game_launch_args(app_id, forced: Optional[Dict[str, object]] = None) -> List[str]:
-    """Fixed launch flags from the game's settings adapter (none for other games), plus the forced values for
+    """Fixed launch flags from the game's settings adapter and its menu steps, plus the forced values for
     a game forced with launch arguments (an unknown value adds nothing; ForcedSettings.apply refuses it)."""
     from app.games.settings_file import adapter_for
+    from data.game_start_keys import menu_launch_args
     adapter = adapter_for(app_id)
     if adapter is None:
-        return []
+        return menu_launch_args(app_id)
     args = list(getattr(adapter.module, "LAUNCH_ARGS", []))
     if adapter.base == "launch" and forced:
         args += adapter.module.launch_args(forced)
-    return args
+    return args + [a for a in menu_launch_args(app_id) if a not in args]
 
 
 def launch_url_text(spec) -> str:
@@ -773,6 +774,8 @@ class FrameCapturePanel(QGroupBox):
                 logger.warning("Menu steps for %s not used: %s", spec.app_id, step_problems(steps))
             else:
                 spec.steps = steps
+                from data.game_start_keys import benchmark_seconds_for
+                spec.benchmark_seconds = benchmark_seconds_for(spec.app_id)
         route = route_for(spec.app_id)
         if route:
             from app.frames.route import route_problems
@@ -782,7 +785,11 @@ class FrameCapturePanel(QGroupBox):
                 spec.route = route
                 # nothing before the route starts is measured
                 spec.settle_seconds = max(spec.settle_seconds, int(route["loop_from"]))
-        total =spec.settle_seconds + spec.seconds * spec.count
+        fitted = None
+        if spec.steps and spec.benchmark_seconds:
+            from app.frames.game_benchmark import fit_to_benchmark
+            fitted = fit_to_benchmark(spec, spec.benchmark_seconds)
+        total = spec.settle_seconds + spec.seconds * spec.count
         from app.games.settings_file import adapter_for
         from app.ui.game_settings_dialog import describe
         if ask_settings and adapter_for(spec.app_id) is not None and self._ask_game_settings() == "cancelled":
@@ -812,7 +819,12 @@ class FrameCapturePanel(QGroupBox):
                    f"{spec.settle_seconds} s above count from then. If a word does not come, nothing is guessed: "
                    "the run stops and the screenshot is kept. Keep the game in front and use borderless window "
                    "or windowed mode (an exclusive full screen may read as black). These steps are not checked "
-                   "on a real run yet.\n" if spec.steps else
+                   "on a real run yet.\n"
+                   + (f"   The game's benchmark runs about {spec.benchmark_seconds} s, then shows its results; "
+                      "every window ends before that."
+                      + (f" Changed for this game: {fitted}." if fitted else "") + "\n"
+                      if spec.benchmark_seconds else "")
+                   if spec.steps else
                    f"   The app presses {', '.join(c for _, c in spec.start_keys)} in the game to reach the scene "
                    f"(only while the game is in front; these keys are not checked on a real run yet). Keep the "
                    f"game in front.\n" if spec.start_keys else
