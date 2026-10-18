@@ -88,13 +88,27 @@ def test_only_nvidia_gpus_are_picked():
     assert vb.gpu_devices([(0, "AMD Radeon RX 7900 XTX"), (1, "AMD Ryzen 9 7950X")]) == []
 
 
-def test_result_file_score_or_an_error():
-    score, details, error = vb.parse_result(json.dumps({"version": "6.00.02", "results": [
-        {"score": 31234.5, "devices": [{"name": "Intel Core Ultra 9 275HX"}]}]}), "vsamples")
-    assert error is None and score == 31234.5
-    assert details == {"version": "6.00.02", "devices": "Intel Core Ultra 9 275HX"}
-    for text in ("not json", "{}", json.dumps({"score": 0}), json.dumps({"score": "fast"})):
-        assert vb.parse_result(text, "vsamples")[0] is None
+DATA = Path(__file__).parent / "data"
+
+
+def test_real_result_files_are_read():
+    score, details, error = vb.parse_result((DATA / "vray_cpu_result.json").read_text(encoding="utf-8"))
+    assert error is None and score == 34347
+    assert details == {"version": "6.00.02", "V-Ray": "6.10.3", "CPU": "Intel(R) Core(TM) Ultra 9 275HX (24 threads)",
+                       "CPU clock": "4923 MHz", "Render time": "60 s"}
+    score, details, error = vb.parse_result((DATA / "vray_gpu_result.json").read_text(encoding="utf-8"))
+    assert error is None and score == 5679
+    assert details == {"version": "6.00.02", "V-Ray": "6.10.3", "devices": "NVIDIA GeForce RTX 5090 Laptop GPU 24435MB",
+                       "CPU clock": "4754 MHz", "NVIDIA driver": "617.42", "Render time": "60 s"}
+    # a CUDA result is not taken for the RTX test
+    assert vb.parse_result((DATA / "vray_gpu_result.json").read_text(encoding="utf-8"), rtx=True)[0] is None
+
+
+def test_result_file_without_a_score_is_an_error():
+    for text in ("not json", "{}", "[]", json.dumps({"details": {"score": 0}}),
+                 json.dumps({"details": {"score": "fast"}}), json.dumps({"score": 5})):
+        score, details, error = vb.parse_result(text)
+        assert score is None and error
 
 
 def test_gpu_run_lists_devices_answers_the_license_and_reads_the_file(tmp_path, monkeypatch):
@@ -105,9 +119,12 @@ def test_gpu_run_lists_devices_answers_the_license_and_reads_the_file(tmp_path, 
         calls.append((command, Path(stdin_path).read_text(encoding="ascii")))
         err.write_text("", encoding="utf-8")
         if "--list-devices" in command:
-            out.write_text("[0] Intel Core Ultra 9 275HX\n[1] NVIDIA GeForce RTX 5090 Laptop GPU\n", encoding="utf-8")
+            out.write_text("[0]: Intel(R) Core(TM) Ultra 9 275HX\r\n[1]: NVIDIA GeForce RTX 5090 Laptop GPU\r\n\r\n"
+                           "Automatic installation was successful!\r\n", encoding="utf-8")
         else:
-            Path(command[command.index("--output") + 1]).write_text(json.dumps({"score": 7123.4}), encoding="utf-8")
+            Path(command[command.index("--output") + 1]).write_text(json.dumps({
+                "tag": "VGpuScore", "isRtx": True, "details": {"score": 7123.4, "benchmarkVersion": [6, 0, 2]},
+                "enabledGpus": [{"name": "NVIDIA GeForce RTX 5090 Laptop GPU"}]}), encoding="utf-8")
             out.write_text("", encoding="utf-8")
         return ProcessOutcome(0, False, False, 60.0)
     monkeypatch.setattr(vb, "run_process", fake)
@@ -120,6 +137,7 @@ def test_gpu_run_lists_devices_answers_the_license_and_reads_the_file(tmp_path, 
     assert result.note == ("V-Ray Benchmark: 6.00.02; Engine: GPU, RTX; "
                            "Devices: NVIDIA GeForce RTX 5090 Laptop GPU")
     assert w.benchmark_type == "gpu" and w.display_name == "V-Ray Benchmark 6.00.02 (GPU, RTX)"
+    assert not w.verified and all(vb.VRayBenchmarkWorkload(t).verified for t in ("vray_benchmark", "vray_benchmark_gpu"))
 
 
 def test_no_nvidia_gpu_skips_and_no_file_is_invalid(tmp_path, monkeypatch):

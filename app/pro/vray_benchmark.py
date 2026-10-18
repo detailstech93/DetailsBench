@@ -110,49 +110,55 @@ def _number(value) -> Optional[float]:
     return float(value) if ok else None
 
 
-def _find(data, names) -> Optional[object]:
-    """The first value under one of names (case-insensitive key), searched depth-first."""
-    if isinstance(data, dict):
-        for k, v in data.items():
-            if str(k).lower() in names:
-                return v
-        for v in data.values():
-            found = _find(v, names)
-            if found is not None:
-                return found
-    elif isinstance(data, list):
-        for v in data:
-            found = _find(v, names)
-            if found is not None:
-                return found
-    return None
+def _version(value, width: int = 1) -> Optional[str]:
+    """[6, 0, 2] -> "6.00.02" (width 2) or [6, 10, 3] -> "6.10.3"."""
+    if not (isinstance(value, list) and value and all(isinstance(v, int) for v in value)):
+        return None
+    return ".".join([str(value[0])] + [str(v).zfill(width) for v in value[1:]])
 
 
-def parse_result(text: str, unit: str) -> Tuple[Optional[float], Dict[str, object], Optional[str]]:
-    """(score, details, error) from the --output JSON file."""
+def parse_result(text: str, rtx: bool = False) -> Tuple[Optional[float], Dict[str, str], Optional[str]]:
+    """(score, details, error) from the --output JSON file. Its shape, from real runs of 6.00.02 (CPU and GPU):
+    {"tag": "VScore" | "VGpuScore", "details": {"score": .., "benchmarkVersion": [6,0,2], "duration": 60,
+     "cpuFrequency": MHz, "vrayVersion": {"version": [6,10,3]}, "nVidiaDriverVersion": [617,42] (GPU)},
+     "cpu": {"name": .., "cores": ..} (CPU), "enabledGpus": [{"name": ..}] (GPU), "isRtx": bool (GPU)}"""
     try:
         data = json.loads(text)
     except ValueError as e:
         return None, {}, f"the result file is not JSON ({e})"
-    score = _number(_find(data, {"score", unit}))
+    details = data.get("details") if isinstance(data, dict) else None
+    if not isinstance(details, dict):
+        return None, {}, "the result file has no details"
+    score = _number(details.get("score"))
     if score is None:
         return None, {}, "no score in the result file"
-    details = {}
-    for key, names in (("version", {"version", "benchmark_version"}), ("devices", {"devices", "device", "configuration"})):
-        value = _find(data, names)
-        if isinstance(value, list):
-            value = ", ".join(str(v.get("name", v)) if isinstance(v, dict) else str(v) for v in value)
-        if isinstance(value, (str, int, float)) and str(value).strip():
-            details[key] = str(value)
-    return score, details, None
+    if data.get("tag") == "VGpuScore" and bool(data.get("isRtx")) != rtx:
+        return None, {}, "the result file is for the other GPU engine (RTX / CUDA)"
+    out: Dict[str, str] = {}
+    out["version"] = _version(details.get("benchmarkVersion"), 2) or VRAY_VERSION
+    vray = details.get("vrayVersion")
+    out["V-Ray"] = _version(vray.get("version")) if isinstance(vray, dict) else None
+    gpus = [g.get("name") for g in data.get("enabledGpus") or [] if isinstance(g, dict) and g.get("name")]
+    out["devices"] = ", ".join(gpus) or None
+    cpu = data.get("cpu")
+    if isinstance(cpu, dict) and cpu.get("name"):
+        out["CPU"] = cpu["name"] + (f" ({cpu['cores']} threads)" if isinstance(cpu.get("cores"), int) else "")
+    clock = _number(details.get("cpuFrequency"))
+    out["CPU clock"] = f"{clock:.0f} MHz" if clock else None
+    out["NVIDIA driver"] = _version(details.get("nVidiaDriverVersion"))
+    duration = _number(details.get("duration"))
+    out["Render time"] = f"{duration:g} s" if duration else None
+    return score, {k: v for k, v in out.items() if v}, None
 
 
 class VRayBenchmarkWorkload(Workload):
     timeout_seconds = 1800
-    verified = False                  # set True only after a real run on this computer was checked
+    # CPU (34,347 vsamples) and GPU CUDA (5,679 vpaths) checked by the owner on 2026-10-18; RTX not run yet
+    VERIFIED = ("vray_benchmark", "vray_benchmark_gpu")
 
     def __init__(self, test_id: str = "vray_benchmark", exe: Optional[Path] = None, data_dir: Optional[Path] = None):
         self.id = test_id
+        self.verified = test_id in self.VERIFIED
         self.title, self.mode, self.rtx, self.unit = MODES[test_id]
         self.exe = exe if exe is not None else program_path()
         self.data_dir = data_dir
@@ -235,11 +241,12 @@ class VRayBenchmarkWorkload(Workload):
             return WorkloadResult(status="failed", error=f"exit code {outcome.exit_code}", **common)
         if not result_file.is_file():
             return WorkloadResult(status="invalid", error="the benchmark wrote no result file", **common)
-        score, details, error = parse_result(result_file.read_text(encoding="utf-8", errors="replace"), self.unit)
+        score, details, error = parse_result(result_file.read_text(encoding="utf-8", errors="replace"), self.rtx)
         if error:
             return WorkloadResult(status="invalid", error=error, **common)
-        parts = [("V-Ray Benchmark", details.get("version") or VRAY_VERSION), ("Engine", self.title),
-                 ("Devices", details.get("devices") or ", ".join(n for _, n in used) or None)]
+        parts = [("V-Ray Benchmark", details.pop("version")), ("Engine", self.title),
+                 ("Devices", details.pop("devices", None) or ", ".join(n for _, n in used) or None)]
+        parts += list(details.items())
         note = "; ".join(f"{k}: {v}" for k, v in parts if v)
         return WorkloadResult(status="completed", score=round(score, 2), unit=self.unit, metrics={}, note=note,
                               **common)
