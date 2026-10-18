@@ -278,3 +278,33 @@ def test_runs_used_is_an_integer_and_rtl_text_gets_auto_direction():
     assert "<td>3</td>" in html_text and "3.00" not in html_text
     assert '<h1 dir="auto">جلسة</h1>' in html_text
     assert '<td class="note" dir="auto">ملاحظة</td>' in html_text
+
+
+def _run(name, index, score, **extra):
+    return {"benchmark_name": name, "run_index": index, "status": "completed", "score": score, "unit": "MIPS",
+            "timestamp": "2024-01-01T00:00:00Z", "note": None, "is_warmup": False, "is_test": False,
+            "is_manual": False, **extra}
+
+
+def test_charts_one_bar_per_measured_run_and_still_safe():
+    export = {"session": {"id": 1, "name": "s", "is_test": False, "is_manual": False},
+              "runs": [_run("7zip", 0, 999, is_warmup=True), _run("7zip", 1, 173712), _run("7zip", 2, 171550),
+                       _run("7zip", 3, None, status="failed"), _run("<script>https://x", 1, 5, unit="https://x"),
+                       _run("<script>https://x", 2, 6, unit="https://x"), _run("single", 1, 3)]}
+    html_text = render_session_report(export)
+    assert "<h2>Charts</h2>" in html_text
+    assert html_text.count('class="bar"') == 4                 # 2 measured 7-Zip runs + 2 hostile ones
+    assert "7zip, each measured run" in html_text and "173712 MIPS" in html_text
+    assert "single, each measured run" not in html_text       # one run: the table says it all
+    for bad in ("<script", "http://", "https://", "src="):
+        assert bad not in html_text
+
+
+def test_no_charts_section_without_two_measured_runs():
+    assert "<h2>Charts</h2>" not in render_session_report({"runs": [_run("a", 1, 1)]})
+
+
+def test_chart_title_uses_the_display_name_from_the_manifest():
+    export = {"manifest": {"benchmarks": [{"name": "7zip", "display_name": "7-Zip benchmark"}]},
+              "runs": [_run("7zip", 1, 1), _run("7zip", 2, 2)]}
+    assert "7-Zip benchmark, each measured run" in render_session_report(export)

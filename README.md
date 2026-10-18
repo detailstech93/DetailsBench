@@ -119,6 +119,34 @@ Double-click `run.bat` in the project folder, or from PowerShell in the project 
 
 The console window prints the database path and any errors; closing it closes the app.
 
+### Start screens: This PC and Tests (Phase A)
+
+The window opens on **This PC**: cards for the processor, memory, graphics, operating system and platform. Each value
+is marked when it could not be confirmed ("not certain") or is "not available"; **Copy specs** copies them as text
+(the computer name is never part of them).
+
+**Tests** lists every test this PC can run (OS family and native architecture), grouped as CPU, GPU, Games,
+Storage, AI and Web:
+- Each row shows whether the test is installed, how it runs, whether it was verified on a real run, and a rough duration.
+  "How it runs" is one of:
+  - **Automatic**: the app runs it and reads the result.
+  - **Assisted**: the app starts it and you start the benchmark inside it.
+  - **Manual**: you type the score.
+- A test that is not installed has **Official download page**. The app downloads nothing from there itself.
+  After installing, press **I installed something: check again**.
+- Tests for other systems are hidden; **Show tests this PC cannot run** lists them with the reason.
+- **Run...** on one test, or ticking several (**Select all installed**) and **Run selected**, asks how many measured
+  runs, how many warm-up runs and the pause between runs. The automatic tests then run as one plan in one session,
+  with the usual confirmation, emergency stop and crash resume.
+- At the end the HTML report is written next to the database (`reports\`) and opened. It includes a chart with one
+  bar per measured run.
+- Assisted and manual tests keep their own flows (frame capture for Steam games, launch and record for the library).
+  When they are selected together with automatic tests, they are listed to start after the plan.
+
+Everything earlier (Dashboard, Library, Run Benchmarks with the automation and frame-capture sections, History,
+Compare, Steam) is under **Advanced**. The catalog is `app/catalog.py`; official links and platform data per test are
+in `data/test_catalog.py`.
+
 ### Environment Profile
 
 Built in the background scan worker (`app/environment/`) and shown on the Dashboard; Rescan refreshes it.

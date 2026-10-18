@@ -281,6 +281,36 @@ def _runs_section(export: Mapping) -> str:
     )
 
 
+def _charts_section(export: Mapping) -> str:
+    """One bar per measured run of each test (completed, not warm-up; test runs only in a test session)."""
+    from app.charts import bar_chart
+    session_is_test = _truthy((_mapping(export.get("session")) or {}).get("is_test"))
+    by_test: dict = {}
+    for run in export.get("runs") or []:
+        m = _mapping(run) or {}
+        if (m.get("status") != "completed" or _truthy(m.get("is_warmup"))
+                or (_truthy(m.get("is_test")) and not session_is_test)):
+            continue
+        by_test.setdefault(str(m.get("benchmark_name") or "-"), []).append(m)
+    used = (_mapping(export.get("manifest")) or {}).get("benchmarks") or []
+    titles = {str(b.get("name")): str(b.get("display_name")) for b in used
+              if isinstance(b, Mapping) and b.get("display_name")}
+    charts = []
+    for name, runs in sorted(by_test.items()):
+        if len(runs) < 2:
+            continue                      # one bar says nothing the table does not
+        svg = bar_chart(f"{titles.get(name, name)}, each measured run", [f"Run {_text(r.get('run_index'), str(i + 1))}"
+                                                        for i, r in enumerate(runs)],
+                        [r.get("score") for r in runs], unit=_text(runs[0].get("unit"), ""))
+        if svg:
+            # inline SVG needs no xmlns in HTML; no ":" may reach the page (see esc)
+            svg = svg.replace(' xmlns="http://www.w3.org/2000/svg"', "").replace(":", "&#58;")
+            charts.append(f'<div class="chart">{svg}</div>')
+    if not charts:
+        return ""
+    return "<section><h2>Charts</h2>" + "".join(charts) + "</section>"
+
+
 def _metric_group(name: str) -> str:
     return "Telemetry" if str(name).startswith("tel_") else "Run"
 
@@ -452,6 +482,8 @@ def _reproducibility_section(export: Mapping) -> str:
 def _style_block() -> str:
     return (
         "<style>"
+        ".chart{max-width:760px;margin:12px 0;--chart-bar:var(--accent);--chart-line:var(--accent);"
+        "--chart-text:var(--muted);--chart-grid:var(--line);}"
         ":root{"
         "--bg:#f6f7fb;"
         "--panel:#ffffff;"
@@ -571,6 +603,7 @@ def render_session_report(export: Mapping) -> str:
         "<main>"
         + _header_section(export_mapping)
         + _summary_section(export_mapping)
+        + _charts_section(export_mapping)
         + _metrics_section(export_mapping)
         + _runs_section(export_mapping)
         + _environment_section(export_mapping)
