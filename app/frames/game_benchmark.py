@@ -41,7 +41,8 @@ LAUNCH_TIMEOUT_SECONDS = 120.0    # Steam may show its own dialog or update chec
 LOAD_FACTOR, LOAD_MARGIN_SECONDS = 1.15, 20.0   # wall time waited per second of needed game time, plus margin
 MAX_EXE_NAMES = 200
 LOG_NAME = "capture_log.txt"
-ROUTE_POLL_SECONDS = 0.05          # a route's held keys and mouse moves need finer timing than 1 s
+FRONT_WAIT_SECONDS = 600.0         # longest wait for the game's window before keys and route count anyway
+ROUTE_POLL_SECONDS = 0.05         # a route's held keys and mouse moves need finer timing than 1 s
 
 
 def game_exe_names(folder: str, walk: Callable = os.walk, limit: int = MAX_EXE_NAMES) -> List[str]:
@@ -85,7 +86,8 @@ class GameBenchmarkSpec:
 
     def max_record_seconds(self) -> int:
         """PresentMon's --timed upper limit; normally it ends earlier, when the game is closed."""
-        return int(UAC_WAIT_SECONDS + LAUNCH_TIMEOUT_SECONDS + self.wait_seconds() + 120)
+        front = FRONT_WAIT_SECONDS if self.route or self.start_keys else 0     # keys and route wait for the window
+        return int(UAC_WAIT_SECONDS + LAUNCH_TIMEOUT_SECONDS + front + self.wait_seconds() + 120)
 
 
 @dataclass
@@ -295,6 +297,10 @@ class GameBenchmark:
             from app.frames.route import RoutePlayer
             player = RoutePlayer(spec.route, self._desk, self._game_in_front, wait)
         shown = None
+        # keys and a route are timed from the moment the game's window first comes to the front, not from the
+        # launch: a game loading from a slow drive showed its window 3.7 min after the launch (The Witcher 3
+        # from a network share, 2026-10-18). The measured windows already start at the first frame.
+        t_front = t0 if not pending and player is None else None
         try:
             while True:
                 if self.stop_event.is_set():
@@ -304,7 +310,26 @@ class GameBenchmark:
                     presentmon_ended = self.clock() - t0
                     break                   # PresentMon ended: the game was closed, or its time limit
                 self._note_started()
-                elapsed = self.clock() - t0
+                if t_front is None:
+                    now = self.clock()
+                    try:
+                        front = self._game_in_front()
+                    except Exception:
+                        front = True        # cannot tell: count from now
+                    if front or now - t0 >= FRONT_WAIT_SECONDS:
+                        t_front = now
+                        if now - t0 >= 5 or not front:
+                                self.key_notes.append(f"the game came to the front {now - t0:.0f} s after the launch"
+                                                  if front else f"the game was not in front after {now - t0:.0f} s; "
+                                                  "keys and route counted from then")
+                    else:
+                        if int(now - t0) != shown:
+                            shown = int(now - t0)
+                            self.on_progress(f"{spec.game_name}: waiting for its window ({shown} s; it may be "
+                                             "loading). Keys and route start when it is in front.")
+                        self.sleep(self.poll_seconds)
+                        continue
+                elapsed = self.clock() - t_front
                 if elapsed >= wait:
                     break
                 if pending:

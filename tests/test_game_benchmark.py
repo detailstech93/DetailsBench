@@ -308,3 +308,21 @@ def test_the_capture_message_is_kept_in_the_run_folder(tmp_path):
     s, cap = run(tmp_path, fakes)
     log = (tmp_path / "run" / "capture_log.txt").read_text(encoding="utf-8")
     assert f"status: {cap.status}" in log and cap.message in log and "PresentMon" in log
+
+
+def test_keys_wait_for_the_game_window_of_a_slow_loading_game(tmp_path):
+    # The Witcher 3 from a network share showed its window 3.7 min after the launch (2026-10-18)
+    from app.simulation.desktop import parse_chord
+    fakes = Fakes(tmp_path)
+    desk = FakeDesktop(fakes, [(0, 999), (200, 7)])                # loading: another window in front
+    s = spec(install_path=str(fakes.install), start_keys=[(5.0, "enter")])
+    bench = GameBenchmark(s, tmp_path / "run", None, lambda m: None, elevated_runner=fakes.elevated,
+                          launcher=fakes.launcher, snapshot=fakes.snapshot, clock=fakes.clock, sleep=fakes.sleep,
+                          folder_procs=fakes.folder_procs, closer=fakes.closer,
+                          exe_lister=lambda folder: ["Game.exe"], desktop=desk)
+    cap = bench.run()
+    assert cap.status == "recorded"
+    assert [codes for _, codes in desk.pressed] == [parse_chord("enter")]
+    assert desk.pressed[0][0] >= 205
+    assert "the game came to the front 200 s after the launch" in cap.message
+    assert s.max_record_seconds() > spec().max_record_seconds()
