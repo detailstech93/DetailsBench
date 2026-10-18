@@ -441,8 +441,18 @@ its quantization, the backend and the context length. `app/ai/lmstudio.py` reads
 only: the local server's `GET /api/v0/models` (id, type, architecture, format, quantization, state, maximum and
 loaded context length) and `lms runtime ls` (the selected engine per model format, for example
 `llama.cpp-win-x86_64-nvidia-cuda12-avx2@2.60.0` for GGUF). A value LM Studio does not report is left out.
-`python scripts/verify_lmstudio.py` prints what it reads on this computer. Planned next: llama-benchy against
-LM Studio and MLPerf Client (both need installing first, with permission).
+`python scripts/verify_lmstudio.py` prints what it reads on this computer.
+
+`app/ai/llama_benchy.py` runs llama-benchy 0.4.0 (MIT, `pip install llama-benchy==0.4.0` into the app's
+Python) against LM Studio's OpenAI-compatible server: `--pp`, `--tg`, `--depth`, `--runs`, `--format json`,
+`--save-result` into the run folder. Score = token generation (tok/s) at the first depth; prompt processing
+(tok/s), time to first response and end-to-end time to first token (ms) per depth, and the API latency, are
+metrics. `ai_run.json` in the run folder records LM Studio's model record, the llama-benchy version and the
+tokenizer used: when the model's Hugging Face tokenizer cannot be loaded, llama-benchy falls back to gpt2 and
+the record says the token counts are approximate. Its first run downloads a Project Gutenberg text (prompt
+source) into `~/.cache/llama-benchy`. Do not run it while LM Studio is used for anything else (for example a
+local coding agent). `python scripts/verify_llama_benchy.py <model id> <folder>` runs one short real check.
+Planned next: wiring into the app's runs, then MLPerf Client (needs installing first, with permission).
 
 ### Telemetry
 
