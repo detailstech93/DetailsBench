@@ -172,7 +172,9 @@ class LlamaBenchyWorkload(Workload):
 
 
 def load_workloads():
-    """Automated runs: the tool specs in data/tools plus llama-benchy (its model is chosen before each plan)."""
+    """Automated runs: the tool specs in data/tools, llama-benchy (its model is chosen before each plan) and
+    MLPerf Client (phi4mini, llama.cpp CUDA)."""
+    from app.ai.mlperf_client import MlperfClientWorkload
     from app.automation.cli_workload import load_workloads as load_cli
     workloads, errors = load_cli()
-    return workloads + [LlamaBenchyWorkload(None)], errors
+    return workloads + [LlamaBenchyWorkload(None), MlperfClientWorkload()], errors

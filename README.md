@@ -456,7 +456,18 @@ In the app it is listed under **Automated runs** as "llama-benchy (LM Studio)": 
 model from LM Studio's language models (loaded ones first; LM Studio's server must be running), and the
 confirmation warns not to use LM Studio for anything else during the run. Each run uses `--runs 1` (the
 profile's repetitions and warm-up repeat it), a 30 minute limit, and the session manifest records the model.
-Planned next: MLPerf Client (needs installing first, with permission).
+
+`app/ai/mlperf_client.py` runs MLPerf Client 2.0.1 (MLCommons, Apache-2.0; the Windows x64 CLI zip from the
+mlcommons/mlperf_client GitHub release, extracted to `~/Tools/MLPerfClient`, or set `PCBM_MLPERF_CLIENT` to the
+exe). Listed under **Automated runs** as "MLPerf Client (llm/phi4mini/NVIDIA_llamacpp-CUDA_GPU.json)":
+`-c <config> -d <tool folder>/data -p false -o <run folder>/mlperf_out -x <run folder>/mlperf_results.csv`.
+Score = overall geomean 2nd+ token generation rate (tok/s) from `results.json`; time to first token, average
+input/generated tokens and each category's rate and time to first token are metrics. `Benchmark Success` false
+or an error message is a failed run; exit code 0 without `results.json` (it happens, for example with a missing
+output folder) is invalid. `ai_run.json` records the model, quantization, execution provider, device, tool
+version and MLPerf Client's own `Results Verified` flag (false on the first real run here). The first run of a
+config downloads its model (phi4mini: 2.33 GB). First real run on this computer: 219.9 tok/s, time to first
+token 0.069 s (Phi-4-mini Q4_0, llama.cpp CUDA, RTX 5090 Laptop GPU).
 
 ### Telemetry
 
