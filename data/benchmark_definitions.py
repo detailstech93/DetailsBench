@@ -174,6 +174,71 @@ BENCHMARK_DEFINITIONS: List[BenchmarkDefinition] = [
         discovery_channels=["registry", "filesystem", "start_menu"],
     ),
 
+    # ── Pro benchmarks (owner's request, 2026-10-18; manual until automated, see docs/PRO_BENCHMARKS.md) ──
+    BenchmarkDefinition(
+        id="passmark_performancetest",
+        display_name="PassMark PerformanceTest",
+        category="synthetic",
+        official_url="https://www.passmark.com/products/performancetest/",
+        name_patterns=['PassMark\\s+PerformanceTest', 'PerformanceTest(64)?\\.exe$'],
+        exclusion_patterns=['BurnInTest'],
+        version_source="pe_version_info",
+        version_normalization="commas_to_dots",
+        major_version_policy="separate_per_major",
+        supported_os=["windows"],
+        supported_architectures=dict(UNVERIFIED_ARCHES),
+        license_note="Free for the standard tests; scripts and command-line automation need a paid license",
+        discovery_channels=["registry", "filesystem", "start_menu"],
+    ),
+
+    BenchmarkDefinition(
+        id="blender_benchmark",
+        display_name="Blender Benchmark",
+        category="synthetic",
+        official_url="https://opendata.blender.org/",
+        name_patterns=['Blender\\s+Benchmark', 'benchmark-launcher'],
+        exclusion_patterns=[],
+        version_source="pe_version_info",
+        version_normalization="commas_to_dots",
+        major_version_policy="separate_per_major",
+        supported_os=["windows"],
+        supported_architectures=dict(UNVERIFIED_ARCHES),
+        license_note="Free; has a command-line launcher (to be automated). Results are uploaded only if you choose to",
+        discovery_channels=["registry", "filesystem", "start_menu"],
+    ),
+
+    BenchmarkDefinition(
+        id="vray_benchmark",
+        display_name="V-Ray Benchmark",
+        category="synthetic",
+        official_url="https://www.chaos.com/vray/benchmark",
+        name_patterns=['V-?Ray\\s+Benchmark', 'vray-benchmark'],
+        exclusion_patterns=['3ds\\s*Max', 'Maya', 'SketchUp', 'Rhino'],
+        version_source="pe_version_info",
+        version_normalization="commas_to_dots",
+        major_version_policy="separate_per_major",
+        supported_os=["windows"],
+        supported_architectures=dict(UNVERIFIED_ARCHES),
+        license_note="Free (Chaos account needed to download); has a command-line interface (to be automated)",
+        discovery_channels=["registry", "filesystem", "start_menu"],
+    ),
+
+    BenchmarkDefinition(
+        id="pugetbench_creators",
+        display_name="PugetBench for Creators (Photoshop, Premiere Pro)",
+        category="synthetic",
+        official_url="https://www.pugetsystems.com/pugetbench/creators/",
+        name_patterns=['Puget\\s*Bench'],
+        exclusion_patterns=[],
+        version_source="pe_version_info",
+        version_normalization="commas_to_dots",
+        major_version_policy="separate_per_major",
+        supported_os=["windows"],
+        supported_architectures=dict(UNVERIFIED_ARCHES),
+        license_note="Runs inside Photoshop / Premiere Pro; command-line runs and local results need a paid license",
+        discovery_channels=["registry", "filesystem", "start_menu"],
+    ),
+
     # ── glmark2 ──────────────────────────────────────────────────────────────
     # glmark2 is not verified for native Windows; only usable via WSL.
     # Discovery is handled by _discover_glmark2() which checks WSL presence.
