@@ -288,3 +288,16 @@ def test_start_keys_data_is_well_formed():
         assert isinstance(app_id, int) and isinstance(entry.get("verified"), bool) and entry.get("note")
         for at, chord in start_keys_for(app_id):
             assert at >= 0 and parse_chord(chord) is not None
+
+
+def test_no_capture_file_says_how_presentmon_ended():
+    from app.frames.elevated import ElevatedOutcome
+    from app.frames.game_benchmark import presentmon_text
+    from app.frames.presentmon import capture_game_args
+    text = presentmon_text(ElevatedOutcome("exited", exit_code=1, duration_seconds=3.2), 2.6)
+    assert text == (" (PresentMon ended by itself 3 s after the game was launched, before the app closed the game; "
+                    "PresentMon: exit code 1 after 3 s)")
+    assert presentmon_text(None, None) == ""
+    assert "stopped by the app after 9 s" in presentmon_text(ElevatedOutcome("stopped", duration_seconds=9), None)
+    args = capture_game_args("x.csv", ["Game.exe"], 60)
+    assert args[-3:] == ["--session_name", "PCBenchmarkManager", "--stop_existing_session"]

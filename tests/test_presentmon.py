@@ -54,7 +54,7 @@ def test_completed_capture(tmp_path, exe):
     executable, args, cwd, timeout = calls[0]
     assert executable == exe and timeout == 50 and cwd == str(tmp_path)
     assert args == ["--process_name", "game.exe", "--output_file", str(tmp_path / CSV_NAME), "--timed", "20",
-                    "--terminate_after_timed", "--session_name", "PCBenchmarkManager"]
+                    "--terminate_after_timed", "--session_name", "PCBenchmarkManager", "--stop_existing_session"]
 
 
 def test_pid_target_filters_rows(tmp_path, exe):

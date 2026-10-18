@@ -28,7 +28,11 @@ SETTING_KEY = "presentmon_path"
 CSV_NAME = "presentmon.csv"
 SESSION_NAME = "PCBenchmarkManager"      # own ETW session name; never stops another tool's session
 CAPTURE_FLAGS = ("--process_name", "--process_id", "--output_file", "--timed",
-                 "--terminate_after_timed", "--session_name")
+                 "--terminate_after_timed", "--session_name", "--stop_existing_session")
+# A PresentMon stopped by force leaves its trace session running and the next one cannot start under the same
+# name (no CSV at all); --stop_existing_session stops that old session first. It only touches a session named
+# SESSION_NAME, i.e. ours (PresentMon README-ConsoleApplication.md, checked 2026-10-18).
+OWN_SESSION = ("--session_name", SESSION_NAME, "--stop_existing_session")
 CAPTURE_FLAGS_VERIFIED = True
 START_MARGIN_SECONDS = 30                # PresentMon startup and CSV flush on top of the capture time
 
@@ -53,7 +57,7 @@ def capture_args(output_file: str, seconds: int, process_name: Optional[str] = N
         raise ValueError("give exactly one of process_name / process_id")
     target = ["--process_name", process_name] if process_name else ["--process_id", str(process_id)]
     return target + ["--output_file", output_file, "--timed", str(int(seconds)), "--terminate_after_timed",
-                     "--session_name", SESSION_NAME]
+                     *OWN_SESSION]
 
 
 def capture_game_args(output_file: str, exe_names: List[str], seconds: int) -> List[str]:
@@ -65,7 +69,7 @@ def capture_game_args(output_file: str, exe_names: List[str], seconds: int) -> L
     for name in exe_names:
         args += ["--process_name", name]
     return args + ["--output_file", output_file, "--terminate_on_proc_exit", "--timed", str(int(seconds)),
-                   "--terminate_after_timed", "--session_name", SESSION_NAME]
+                   "--terminate_after_timed", *OWN_SESSION]
 
 
 def workload_id_for(process_name: str) -> str:

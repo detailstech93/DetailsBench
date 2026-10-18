@@ -104,6 +104,20 @@ class GameCapture:
     telemetry_unavailable: dict = field(default_factory=dict)
 
 
+def presentmon_text(out, ended_after: Optional[float]) -> str:
+    """Why there may be no CSV: how PresentMon ended (it runs elevated, so its own messages cannot be read)."""
+    parts = []
+    if ended_after is not None:
+        parts.append(f"PresentMon ended by itself {ended_after:.0f} s after the game was launched, before the "
+                     "app closed the game")
+    if out is not None:
+        how = {"exited": "exit code {}".format(getattr(out, "exit_code", None)),
+               "stopped": "stopped by the app", "timed_out": "stopped at its time limit"}.get(out.status, out.status)
+        parts.append(f"PresentMon: {how} after {getattr(out, 'duration_seconds', 0) or 0:.0f} s"
+                     + (f" ({out.error})" if getattr(out, "error", None) else ""))
+    return " (" + "; ".join(parts) + ")" if parts else ""
+
+
 class GameBenchmark:
     def __init__(self, spec: GameBenchmarkSpec, run_dir: Path, stop_event: Optional[threading.Event] = None,
                  on_progress: Callable[[str], None] = lambda m: None,
@@ -262,6 +276,7 @@ class GameBenchmark:
         t0 = self.clock()
         wait = spec.wait_seconds()
         stopped = False
+        presentmon_ended = None          # s after the launch when PresentMon ended by itself (before the close)
         pending = sorted(spec.start_keys)
         player = None
         if spec.route:
@@ -274,6 +289,7 @@ class GameBenchmark:
                     stopped = True
                     break
                 if not thread.is_alive():
+                    presentmon_ended = self.clock() - t0
                     break                   # PresentMon ended: the game was closed, or its time limit
                 self._note_started()
                 elapsed = self.clock() - t0
@@ -312,7 +328,9 @@ class GameBenchmark:
         prefix = "stopped by user; " if stopped else ""
         if text is None:
             return GameCapture("cancelled" if stopped else "failed",
-                               prefix + "PresentMon wrote no capture file" + closed, command=command)
+                               prefix + "PresentMon wrote no capture file" + presentmon_text(outcome.get("out"),
+                                                                                             presentmon_ended)
+                               + closed, command=command)
         pick = pick_game_process(summarize_processes(text), started_names or set(exes))
         if pick is None:
             return GameCapture("cancelled" if stopped else "failed",
