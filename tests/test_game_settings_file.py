@@ -149,3 +149,37 @@ def test_learned_value_is_refused_until_seen(tmp_path):
                         env={"PCBM_DOCUMENTS": str(docs)})
     rec = fs.apply()
     assert "not seen in this game yet" in rec.refused["preset"] and path.read_bytes() == BL3.encode("utf-8")
+
+
+def test_a_cut_off_run_is_put_back_by_the_next_run(env):
+    from app.games.settings_file import PENDING_FILE, recover_pending
+    e, path, data_dir, run_dir = env
+    original = path.read_bytes()
+    ForcedSettings(APP, {"ray_tracing": False}, run_dir, data_dir, env=e).apply()     # app closed: no finish()
+    assert option(path, "RayTracing")["value"] is False and (data_dir / PENDING_FILE).is_file()
+    nxt = ForcedSettings(APP, {"rt_lighting": "Ultra"}, tmp := run_dir.parent / "run2", data_dir, env=e)
+    rec = nxt.apply()
+    assert rec.before["ray_tracing"] is True                              # the user's own value, not the forced one
+    assert any("cut off" in n for n in rec.notes)
+    assert (tmp / (BACKUP_NAME + ".json")).read_bytes() == original       # the new backup is the user's file
+    nxt.finish()
+    assert path.read_bytes() == original and not (data_dir / PENDING_FILE).exists()
+    assert recover_pending(data_dir, env=e) == []
+
+
+def test_recover_at_start_waits_while_the_game_is_open(env):
+    from app.games.settings_file import PENDING_FILE, recover_pending
+    e, path, data_dir, run_dir = env
+    original = path.read_bytes()
+    ForcedSettings(APP, {"ray_tracing": False}, run_dir, data_dir, env=e).apply()
+    assert "still open" in recover_pending(data_dir, env=e, running=lambda a: True)[0]
+    assert path.read_bytes() != original and (data_dir / PENDING_FILE).is_file()
+    assert "back now" in recover_pending(data_dir, env=e)[0]
+    assert path.read_bytes() == original and not (data_dir / PENDING_FILE).exists()
+
+
+def test_nothing_written_leaves_no_marker(env):
+    from app.games.settings_file import PENDING_FILE
+    e, path, data_dir, run_dir = env
+    ForcedSettings(APP, {"ray_tracing": True}, run_dir, data_dir, env=e).apply()     # already on: no change
+    assert not (data_dir / PENDING_FILE).exists()

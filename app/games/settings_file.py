@@ -33,6 +33,66 @@ from app.games import (borderlands3, counter_strike2, cyberpunk2077, doom2016, r
 
 INDICES_FILENAME = "game_settings_indices.json"
 BACKUP_NAME = "game_settings_backup"      # + the store's own extension
+PENDING_FILE = "pending_game_restore.json"  # data dir: {app_id: backup path} written before the game's settings
+                                            # are changed, removed once they are put back; what is left after a
+                                            # run that was cut off (app closed, crash) is restored later
+
+
+def _read_pending(data_dir: Path) -> Dict[str, str]:
+    try:
+        data = json.loads((Path(data_dir) / PENDING_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
+
+
+def _write_pending(data_dir: Path, pending: Dict[str, str]) -> None:
+    path = Path(data_dir) / PENDING_FILE
+    if not pending:
+        if path.is_file():
+            path.unlink()                   # our own marker
+        return
+    partial = path.with_name(path.name + ".partial")
+    partial.write_text(json.dumps(pending, indent=1), encoding="utf-8")
+    partial.replace(path)
+
+
+def _game_name(app_id) -> str:
+    try:
+        from data.steam_benchmarks import STEAM_BENCHMARK_APPS
+    except ImportError:
+        return f"Steam app {app_id}"
+    names = {str(g.get("appid")): g.get("store_name") for g in STEAM_BENCHMARK_APPS}
+    return str(names.get(str(app_id)) or f"Steam app {app_id}")
+
+
+def recover_pending(data_dir: Path, app_ids=None, env: Optional[Mapping[str, str]] = None, reg=None,
+                    running=lambda app_id: False) -> List[str]:
+    """Put back the settings of every game whose run was cut off before finish() (only the app ids given, when
+    given; never a game running(app_id) says is open, since it would write its own over them on exit).
+    Returns one line per game: what was done."""
+    pending = _read_pending(data_dir)
+    lines = []
+    for app_id, backup in list(pending.items()):
+        if app_ids is not None and app_id not in {str(a) for a in app_ids}:
+            continue
+        adapter = adapter_for(app_id)
+        if adapter is None or not Path(backup).exists():
+            lines.append(f"{app_id}: the copy of its settings is gone ({backup}); nothing put back")
+            pending.pop(app_id)
+            continue
+        if running(app_id):
+            lines.append(f"{_game_name(app_id)}: still open; its settings are put back after it is closed")
+            continue
+        try:
+            adapter.store(env, reg).restore(Path(backup))
+        except (OSError, ValueError) as e:
+            lines.append(f"{_game_name(app_id)}: your settings could not be put back ({e}); the copy is {backup}")
+            continue
+        pending.pop(app_id)
+        lines.append(f"{_game_name(app_id)}: a run was cut off before your settings were put back; they are back now")
+    _write_pending(data_dir, pending)
+    return lines
 
 
 def documents_dir(env: Mapping[str, str]) -> Optional[Path]:
@@ -290,6 +350,19 @@ class ForcedSettings:
         self.record = SettingsRecord(self.store.where, self.requested)
         self._written = False
         self._launch = False
+        self.env, self.reg = env, reg
+
+    def _mark_pending(self) -> None:
+        pending = _read_pending(self.data_dir)
+        pending[self.app_id] = str(self.backup)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        _write_pending(self.data_dir, pending)
+
+    def _clear_pending(self) -> None:
+        pending = _read_pending(self.data_dir)
+        if pending.get(self.app_id) == str(self.backup):
+            pending.pop(self.app_id)
+            _write_pending(self.data_dir, pending)
 
     def apply(self) -> SettingsRecord:
         """Back up and write the settings. Raises OSError/ValueError when they cannot be read or written;
@@ -299,6 +372,7 @@ class ForcedSettings:
             return self._apply_launch(mod)
         if not self.store.exists():
             raise OSError(f"the game's settings were not found ({self.store.where}); start the game once first")
+        self.record.notes += recover_pending(self.data_dir, [self.app_id], self.env, self.reg)
         data = self.store.read()
         self.record.before = mod.read_settings(data)
         known = learn_indices(self.data_dir, self.app_id, self.adapter, data)
@@ -309,6 +383,7 @@ class ForcedSettings:
         self.store.save_backup(self.backup)
         if changes:
             self._written = True            # a write that fails half way is still put back by finish()
+            self._mark_pending()
             self.store.write(mod.apply(data, changes))
         accepted = {k: v for k, v in self.requested.items() if k not in refused}
         self.record.mismatch_before_launch = _mismatches(mod.verify(self.store.read(), accepted))
@@ -316,6 +391,8 @@ class ForcedSettings:
 
     def _apply_launch(self, mod) -> SettingsRecord:
         """Nothing is written: the accepted values become this launch's arguments (record.launch_args)."""
+        if self.store.writable:
+            self.record.notes += recover_pending(self.data_dir, [self.app_id], self.env, self.reg)
         data = self.store.read() if self.store.exists() else mod.parse({})
         self.record.before = mod.read_settings(data)
         known = learn_indices(self.data_dir, self.app_id, self.adapter, data)
@@ -327,6 +404,7 @@ class ForcedSettings:
         if self.store.writable and self.store.exists():
             self.store.save_backup(self.backup)
             self._written = True            # the game may save the values when it closes: put the files back
+            self._mark_pending()
         return self.record
 
     def _finish_launch(self, mod) -> None:
@@ -366,6 +444,7 @@ class ForcedSettings:
             try:
                 self.store.restore(self.backup)
                 self.record.restored = True
+                self._clear_pending()
             except (OSError, ValueError) as e:
                 self.record.restored = False
                 self.record.notes.append(f"your settings were not put back ({e}); the copy is {self.backup}")

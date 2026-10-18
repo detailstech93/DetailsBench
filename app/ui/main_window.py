@@ -296,6 +296,20 @@ def _format_env_value(value: Any) -> str:
     return str(value)
 
 
+def _game_is_open(app_id) -> bool:
+    """A process named like the game's exe (data/steam_benchmarks.py "exe") runs; True when unsure."""
+    from data.steam_benchmarks import STEAM_BENCHMARK_APPS
+    exe = next((g.get("exe") for g in STEAM_BENCHMARK_APPS if str(g.get("appid")) == str(app_id)), None)
+    if not exe:
+        return False
+    try:
+        import psutil
+        name = os.path.basename(str(exe)).lower()
+        return any((p.info.get("name") or "").lower() == name for p in psutil.process_iter(["name"]))
+    except Exception:
+        return True
+
+
 class MainWindow(QMainWindow):
     """Main application window for PC Benchmark Manager."""
     
@@ -326,10 +340,23 @@ class MainWindow(QMainWindow):
         
         # Build UI layout
         self._init_ui()
-        
+        self._recover_game_settings()
+
         # Automatically trigger initial background scan on startup
         self.start_scan()
     
+    def _recover_game_settings(self):
+        """A game run cut off last time (app closed or crashed) left the game's settings forced: put them back,
+        unless that game is open now (the next run of it puts them back then)."""
+        try:
+            from app.games.settings_file import recover_pending
+            from app.paths import get_data_dir
+            lines = recover_pending(get_data_dir(), running=_game_is_open)
+        except Exception as e:                      # never block the start of the app
+            lines = [f"game settings left by an interrupted run could not be checked: {e}"]
+        if lines:
+            self.status_label.setText(" ".join(lines)[:300])
+
     def _init_ui(self):
         """Initialize UI layout and components."""
         central_widget = QWidget()
