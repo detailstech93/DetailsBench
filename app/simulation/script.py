@@ -20,8 +20,10 @@ A script is a JSON file in data/scripts: the program to start and a list of step
                game says it used, kept as text with the run ("Resolution 2560x1440, Upscaler DLSS")
   read_frames  file, csv, column              the game's own frame-time file next to that result file:
                optional shown {column: [keys]}: with frame generation on (that key true in the result
-               file read by read_json), the frames shown on screen are in that column: 1% low is taken
-               from it (so it matches the average) and the rendered frames give rendered_fps
+               file read by read_json), each row is one rendered frame and that column the time each of
+               the frames it became stayed on screen (rendered / shown of them: 4 with 4x, 1 at a camera
+               cut): 1% low is taken over those shown frames (so it matches the game's average) and the
+               rendered frames give rendered_fps
                                               1% and 0.1% low FPS (app/frames/stats.py), copied to the run folder
 A Steam game with a settings adapter gets the settings chosen for it (a preset from the Tests screen, saved in
 settings.json) written before the launch and the user's own put back after the run (ForcedSettings).
@@ -418,16 +420,18 @@ class ScriptRun:
             copy = self.out / f"frames_{source.parent.name}_{source.name}"
             shutil.copyfile(source, copy)
             text = copy.read_text(encoding="utf-8-sig", errors="replace")
-            column = s["column"]
+            times = None
             for shown, flag in (s.get("shown") or {}).items():
                 if _at(self.parsed.get(s["file"]), flag) is True:
-                    rendered = frame_times(text, column)
+                    rendered = frame_times(text, s["column"])
                     if rendered:
                         self.values["rendered_fps"] = (1000.0 * len(rendered) / sum(rendered), "FPS")
-                    column = shown
-                    self.note(f"frame generation on: frames shown on screen from {shown!r}")
+                    times = shown_frames(text, s["column"], shown)
+                    self.note(f"frame generation on: {len(times)} frames shown on screen ({shown!r}) from "
+                              f"{len(rendered)} rendered")
                     break
-            times = frame_times(text, column)
+            if times is None:
+                times = frame_times(text, s["column"])
             if len(times) < 100:
                 self.note(f"{source.name}: only {len(times)} frame times: 1% low not measured")
                 return
@@ -556,6 +560,28 @@ def settings_text(data, spec: dict) -> Optional[str]:
         parts = [_plain(_at(data, p)) for p in spec["paths"]]
         return spec.get("join", " ").join(parts) if all(parts) else None
     return _plain(_at(data, spec.get("path", [])))
+
+
+def shown_frames(text: str, rendered_column: str, shown_column: str) -> List[float]:
+    """With frame generation: every frame shown on screen (ms). A row is one rendered frame that became
+    round(rendered / shown) frames of the shown time each (e.g. 4 of 3.3 ms with 4x, 1 at a camera cut)."""
+    lines = [line for line in text.splitlines() if line.strip()]
+    if not lines:
+        return []
+    header = [h.strip().lower() for h in lines[0].split(",")]
+    if rendered_column.strip().lower() not in header or shown_column.strip().lower() not in header:
+        return []
+    r, s = header.index(rendered_column.strip().lower()), header.index(shown_column.strip().lower())
+    out: List[float] = []
+    for line in lines[1:]:
+        cells = line.split(",")
+        try:
+            rendered, shown = float(cells[r]), float(cells[s])
+        except (IndexError, ValueError):
+            continue
+        if rendered > 0 and shown > 0:
+            out += [shown] * max(1, round(rendered / shown))
+    return out
 
 
 def frame_times(text: str, column: str) -> List[float]:

@@ -396,3 +396,9 @@ def test_telemetry_summary_over_the_measured_window_only():
                                       (60.0, {"gpu0_load": (100.0, "%")})])
     assert summarize(result)["tel_gpu0_load_avg"] == (200 / 3, "%")
     assert summarize(result, (40.0, 70.0)) == {"tel_gpu0_load_avg": (95.0, "%"), "tel_gpu0_load_max": (100.0, "%")}
+
+
+def test_shown_frames_count_each_generated_frame():
+    text = "Frame index, Frame time (ms), DLSS Frame Generation (ms)\n0, 13.2, 3.3\n1, 13.0, 13.0\n2, x, 1\n"
+    assert sim.shown_frames(text, "Frame time (ms)", "DLSS Frame Generation (ms)") == [3.3] * 4 + [13.0]
+    assert sim.shown_frames(text, "Frame time (ms)", "missing") == []
