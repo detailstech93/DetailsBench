@@ -127,11 +127,15 @@ class TestsPage(QWidget):
         self.record_btn = QPushButton("Enter the score...")
         self.record_btn.setVisible(False)
         self.record_btn.clicked.connect(self._record)
+        self.report_btn = QPushButton("Open report")
+        self.report_btn.setVisible(False)
+        self.report_btn.clicked.connect(lambda: self.report_fn and self.report_fn())
         self.stop_btn = QPushButton("Stop")
         self.stop_btn.setStyleSheet("QPushButton:enabled { color: white; background: #b91c1c; padding: 4px 18px; }")
         self.stop_btn.clicked.connect(self._stop)
         bar_row.addWidget(self.progress_bar, 1)
         bar_row.addWidget(self.record_btn)
+        bar_row.addWidget(self.report_btn)
         bar_row.addWidget(self.stop_btn)
         box.addLayout(bar_row)
         self.progress_box.setVisible(False)
@@ -140,6 +144,7 @@ class TestsPage(QWidget):
         self.get_state: Callable[[], RunState] = RunState
         self.stop_fn: Callable[[], object] = lambda: None
         self.record_fn: Optional[Callable[[], object]] = None
+        self.report_fn: Optional[Callable[[], object]] = None
         self.busy = False
         self.started_at: Optional[float] = None
         self.timer = QTimer(self)
@@ -254,6 +259,8 @@ class TestsPage(QWidget):
     def watch(self, get_state: Callable[[], RunState], stop: Callable[[], object]):
         """Follow a run started from this screen until it ends."""
         self.get_state, self.stop_fn = get_state, stop
+        self.report_fn = None
+        self.report_btn.setVisible(False)
         self.started_at = time.monotonic()
         self.stop_btn.setEnabled(True)
         self.stop_btn.setText("Stop")
@@ -267,6 +274,11 @@ class TestsPage(QWidget):
         self.record_fn = record
         self.record_btn.setVisible(True)
         self.watch(lambda: RunState(True, 0, None, text), self._end_manual)
+
+    def offer_report(self, open_report: Callable[[], object]):
+        """The run's report is written: a button opens it again (the browser may have opened behind)."""
+        self.report_fn = open_report
+        self.report_btn.setVisible(True)
 
     def _end_manual(self):
         self.record_fn = None

@@ -131,11 +131,14 @@ def test_window_starts_on_this_pc_and_runs_tests_with_chosen_count_then_opens_re
         assert [r["status"] for r in runs] == ["completed", "completed"] and runs[0]["score"] == 42
         assert len(opened) == 1 and opened[0].parent == tmp_path / "reports"
         assert "py_score" in opened[0].read_text(encoding="utf-8")
+        assert not page.report_btn.isHidden()
+        page.report_btn.click()                                # opens the same report again
+        assert len(opened) == 2 and opened[1] == opened[0]
         assert panel.on_plan_finished is None                  # one plan, one report
         # cancelled at the repetitions question: nothing runs
         before = len(w.db.get_sessions(include_test=True))
         assert not start_tests(w, [entry("py_score", ref=wl)], ask=lambda *a: None, opener=opened.append)
-        assert len(w.db.get_sessions(include_test=True)) == before and len(opened) == 1
+        assert len(w.db.get_sessions(include_test=True)) == before and len(opened) == 2
     finally:
         with patch.object(w.automation_panel, "shutdown"):
             w.close()

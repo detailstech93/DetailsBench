@@ -8,6 +8,10 @@ Valve warns that the steam:// browser protocol has had security issues, so:
   -w 1920 or +r_mode 17; every token is checked against SAFE_ARG),
   with steam://run/<appid>//<args>/; they apply to that launch only and are
   never written to the game's Steam launch options;
+- Steam asks "Launch Game with custom arguments?" for every steam://run URL. When the
+  game's own executable is known (data/steam_benchmarks.py "exe", a path inside the
+  install folder that exists), it is started directly with the arguments instead
+  (Steam keeps running; the game still signs in through it), so no dialog appears;
 - the caller must get explicit user confirmation first (UI does);
 - success is judged by a NEW process whose executable lives inside the
   game's install folder (snapshot before/after); otherwise "unconfirmed".
@@ -38,6 +42,30 @@ def build_launch_url(appid, discovered_appids: Iterable[str], args: Sequence[str
         if not isinstance(arg, str) or not SAFE_ARG.fullmatch(arg):
             raise ValueError(f"unsafe launch argument: {arg!r}")
     return f"steam://run/{text}//{' '.join(args)}/"
+
+
+def direct_exe(appid, install_path: str, args: Sequence[str] = ()) -> Optional[str]:
+    """The game's own executable to start with `args` instead of steam://run (None: use Steam)."""
+    if not args or not install_path:
+        return None
+    from data.steam_benchmarks import STEAM_BENCHMARK_APPS_BY_ID
+    try:
+        rel = STEAM_BENCHMARK_APPS_BY_ID.get(int(str(appid).strip()), {}).get("exe")
+    except ValueError:
+        return None
+    if not rel:
+        return None
+    root = os.path.normcase(os.path.realpath(install_path)) + os.sep
+    path = os.path.realpath(os.path.join(install_path, rel))
+    if not os.path.normcase(path).startswith(root) or not os.path.isfile(path):
+        return None
+    return path
+
+
+def start_exe(command: List[str]) -> None:
+    """Start the game executable (argument list, no shell); it is closed later like a Steam-started game."""
+    subprocess.Popen(command, cwd=os.path.dirname(command[0]), stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
 
 
 def open_url(url: str) -> None:
@@ -72,7 +100,8 @@ def launch_and_confirm(appid, install_path: str, discovered_appids: Iterable[str
                        opener: Callable[[str], None] = open_url,
                        timeout: float = 60.0, poll: float = 2.0,
                        sleep: Callable[[float], None] = time.sleep,
-                       clock: Callable[[], float] = time.monotonic, args: Sequence[str] = ()) -> dict:
+                       clock: Callable[[], float] = time.monotonic, args: Sequence[str] = (),
+                       starter: Callable[[List[str]], None] = start_exe) -> dict:
     """Launch one discovered game and report {status, message, url}.
 
     status: "launched" (new process seen in the install folder),
@@ -83,9 +112,14 @@ def launch_and_confirm(appid, install_path: str, discovered_appids: Iterable[str
         url = build_launch_url(appid, discovered_appids, args)
     except ValueError as exc:
         return {"status": "error", "message": str(exc), "url": None}
+    exe = direct_exe(appid, install_path, args)
     before = snapshot()
     try:
-        opener(url)
+        if exe:
+            starter([exe] + list(args))
+            url = f"{os.path.basename(exe)} {' '.join(args)}"
+        else:
+            opener(url)
     except Exception as exc:
         return {"status": "error", "message": f"could not open {url}: {exc}", "url": url}
     deadline = clock() + timeout

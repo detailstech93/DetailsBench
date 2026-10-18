@@ -7,6 +7,8 @@ alone goes straight there; mixed with automatic tests they are listed to start a
 
 import dataclasses
 import logging
+import os
+import sys
 import webbrowser
 from pathlib import Path
 from typing import List, Optional
@@ -90,6 +92,13 @@ def write_report(db, session_id: int, folder: Path) -> Path:
 
 
 def open_report(path: Path) -> bool:
+    """Open the HTML file in the default browser (on Windows the file's own handler, as a double-click does)."""
+    if sys.platform == "win32":
+        try:
+            os.startfile(str(path.resolve()))
+            return True
+        except OSError:
+            logger.exception("Could not open the report")
     return bool(webbrowser.open(path.resolve().as_uri()))
 
 
@@ -144,6 +153,7 @@ def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_re
             return
         result["final"] = (done, total, f"{first} Report opened: {path.name}")
         window.status_label.setText(f"Session #{session_id} done. Report: {path}")
+        window.tests_page.offer_report(lambda: opener(path))
         opener(path)
 
     panel.on_plan_finished = finished

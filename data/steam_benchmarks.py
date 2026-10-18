@@ -8,6 +8,9 @@ Rules:
   mode. It stays "unverified" until someone runs that mode on a real
   machine; it is general knowledge, not a tested fact.
 - Nothing here means the app can be automated.
+- "exe" (optional) is the game's executable inside its install folder. It is
+  started directly when launch arguments are passed, so Steam does not ask to
+  confirm "custom arguments" (app/steam/launch.py).
 """
 
 from typing import Dict, List
@@ -16,7 +19,8 @@ STEAM_BENCHMARK_APPS: List[Dict[str, object]] = [
     {"appid": 223850, "store_name": "3DMark", "kind": "benchmark_tool",
      "builtin_benchmark": "unverified", "appid_verified": "2026-10-17"},
     {"appid": 1091500, "store_name": "Cyberpunk 2077", "kind": "game",
-     "builtin_benchmark": "unverified", "appid_verified": "2026-10-17"},
+     "builtin_benchmark": "unverified", "appid_verified": "2026-10-17",
+     "exe": "bin/x64/Cyberpunk2077.exe"},
     {"appid": 1174180, "store_name": "Red Dead Redemption 2", "kind": "game",
      "builtin_benchmark": "unverified", "appid_verified": "2026-10-17"},
     {"appid": 750920, "store_name": "Shadow of the Tomb Raider: Definitive Edition", "kind": "game",
