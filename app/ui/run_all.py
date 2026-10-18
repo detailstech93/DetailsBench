@@ -1,7 +1,7 @@
 """Run all tests (Tests screen): first the tests that are not installed, then everything together.
 
 1. Every missing test this computer can install with one click (app/install/plans.py: winget on Windows, the
-   distribution's package manager on Linux) is checked in the background: winget says what it would download
+   distribution's package manager on Linux, the vendor's pinned file for Blender and V-Ray) is checked in the background: winget says what it would download
    (URL, size, SHA256; a URL off the vendor's host is refused), Linux gets its exact commands.
 2. One question lists them all: Install them, then run everything / Run only what is installed / Cancel.
 3. Install: one after the other in the background (each installer may show UAC, pkexec its password prompt);
@@ -10,6 +10,7 @@
 Missing Steam games are not downloaded here (Steam's own dialog, often tens of GB): the question names them.
 """
 
+import dataclasses
 import logging
 import threading
 from typing import Callable, List, Optional
@@ -45,6 +46,14 @@ class Item:
     def line(self) -> str:
         if self.problem:
             return f"- {self.entry.name}: cannot be installed by the app ({self.problem})"
+        if self.plan["kind"] == "zip":
+            p = self.plan
+            text = (f"- {self.entry.name}: {p['product']} {p['version']}, {winget.size_text(p['size'])}, from "
+                    f"{p['url']} (SHA-256 {p['sha256'][:16]}...)")
+            if p.get("then"):
+                from app.ui.install_flow import THEN
+                text += ". " + THEN[p["then"]][0]()
+            return text
         if self.package is not None:
             p = self.package
             return (f"- {self.entry.name}: {p.name} {p.version} by {p.publisher or 'unknown publisher'}, "
@@ -87,7 +96,13 @@ class RunAllFlow(QObject):
             if not (e.compatible and e.state == MISSING):
                 continue
             plan = install_plan(e, page.host)
-            if plan is not None and plan["kind"] in ("winget", "linux"):
+            if plan is not None and plan["kind"] == "zip":
+                same = next((i for i in items if i.plan.get("folder") == plan["folder"]), None)
+                if same is None:
+                    items.append(Item(e, plan))
+                else:                           # one program for several tests (Blender CPU and GPU)
+                    same.entry = dataclasses.replace(same.entry, name=f"{same.entry.name} + {e.name}")
+            elif plan is not None and plan["kind"] in ("winget", "linux"):
                 items.append(Item(e, plan))
             elif e.source == "steam":
                 self.steam_missing.append(e.name)
@@ -100,7 +115,10 @@ class RunAllFlow(QObject):
     def _check(self, items: List[Item]) -> List[Item]:
         for item in items:
             try:
-                if item.plan["kind"] == "winget":
+                if item.plan["kind"] == "zip":
+                    from app.install import direct
+                    item.problem = direct.problem(item.plan)
+                elif item.plan["kind"] == "winget":
                     item.package = self.describe_fn(item.entry.id)
                     item.problem = item.package.problem
                 else:
@@ -146,7 +164,9 @@ class RunAllFlow(QObject):
             self.state = RunState(True, n, len(items), f"Installing {item.entry.name} "
                                                        f"(accept the system prompt if one appears)...")
             try:
-                if item.package is not None:
+                if item.plan["kind"] == "zip":
+                    lines.append(self.install_zip(item).message)
+                elif item.package is not None:
                     out = self.install_fn(item.package)
                     lines.append(out.message)
                 else:
@@ -157,6 +177,19 @@ class RunAllFlow(QObject):
                 logger.exception("Install failed")
                 lines.append(f"{item.entry.name}: the install failed ({e})")
         return lines
+
+    def install_zip(self, item: Item) -> "winget.Outcome":
+        from app.install import direct
+        from app.ui.install_flow import THEN
+        outcome = direct.install(item.entry.name, item.plan)
+        then = THEN.get(item.plan.get("then", ""))
+        if outcome.ok and then:
+            name = item.entry.name
+
+            def progress(text):
+                self.state = RunState(True, self.state.done, self.state.total, f"{name}: {text}")
+            outcome = then[1](direct.target_folder(item.plan) / item.plan["exe"], progress)
+        return outcome
 
     def _on_installed(self, lines: List[str]):
         self.state = RunState(True, 0, None, " ".join(lines) + " Checking the installed tests again...")

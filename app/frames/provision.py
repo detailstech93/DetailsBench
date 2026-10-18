@@ -148,13 +148,14 @@ def fetch_releases(opener: Callable = urllib.request.urlopen, timeout: float = 2
 
 def download_verified(url: str, dest: Path, size: int, sha256: str,
                       opener: Callable = urllib.request.urlopen, timeout: float = 60,
-                      progress: Callable[[int, int], None] = lambda done, total: None) -> Optional[str]:
+                      progress: Callable[[int, int], None] = lambda done, total: None,
+                      max_bytes: int = MAX_DOWNLOAD_BYTES) -> Optional[str]:
     """Download to dest via dest.partial; None when size and SHA-256 match, else the reason
     (the partial file is removed). An existing dest is never overwritten."""
     dest = Path(dest)
     if dest.exists():
         return f"already exists: {dest}"
-    if size <= 0 or size > MAX_DOWNLOAD_BYTES:
+    if size <= 0 or size > max_bytes:
         return f"unexpected size {size}"
     dest.parent.mkdir(parents=True, exist_ok=True)
     partial = dest.with_name(dest.name + ".partial")

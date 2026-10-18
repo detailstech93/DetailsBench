@@ -57,6 +57,21 @@ TEST_INFO: Dict[str, dict] = {
         "supported_os": ["windows", "linux"], "supported_architectures": {"x64": "native", "arm64": "unsupported"},
         "expected_minutes": 5,
     },
+    "vray_benchmark": {
+        "group": "cpu", "official_url": "https://www.chaos.com/vray/benchmark",
+        "supported_os": ["windows", "linux"], "supported_architectures": {"x64": "native", "arm64": "unsupported"},
+        "expected_minutes": 3,
+    },
+    "vray_benchmark_gpu": {
+        "group": "gpu", "official_url": "https://www.chaos.com/vray/benchmark",
+        "supported_os": ["windows", "linux"], "supported_architectures": {"x64": "native", "arm64": "unsupported"},
+        "expected_minutes": 3,
+    },
+    "vray_benchmark_rtx": {
+        "group": "gpu", "official_url": "https://www.chaos.com/vray/benchmark",
+        "supported_os": ["windows", "linux"], "supported_architectures": {"x64": "native", "arm64": "unsupported"},
+        "expected_minutes": 3,
+    },
     "cyberpunk2077_builtin_benchmark": {
         "group": "game", "official_url": "https://store.steampowered.com/app/1091500/",
         "supported_os": ["windows"],

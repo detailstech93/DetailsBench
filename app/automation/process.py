@@ -54,12 +54,14 @@ def terminate_tree(pid: int, grace: float = GRACE_SECONDS) -> List[int]:
 def run_process(command: List[str], stdout_path: Path, stderr_path: Path,
                 timeout_seconds: Optional[float], stop_event: threading.Event,
                 cwd: Optional[str] = None, poll_seconds: float = 0.1,
-                env: Optional[dict] = None) -> ProcessOutcome:
+                env: Optional[dict] = None, stdin_path: Optional[Path] = None) -> ProcessOutcome:
+    """stdin_path: a file given to the program as its input (e.g. the answer to a question it asks)."""
     flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
     start = time.monotonic()
-    with open(stdout_path, "wb") as out, open(stderr_path, "wb") as err:
+    feed_path = stdin_path or os.devnull
+    with open(stdout_path, "wb") as out, open(stderr_path, "wb") as err, open(feed_path, "rb") as feed:
         try:
-            proc = subprocess.Popen(command, stdout=out, stderr=err, stdin=subprocess.DEVNULL,
+            proc = subprocess.Popen(command, stdout=out, stderr=err, stdin=feed,
                                     cwd=cwd, env=env, shell=False, creationflags=flags)
         except OSError as e:
             return ProcessOutcome(None, False, False, time.monotonic() - start, start_error=str(e))

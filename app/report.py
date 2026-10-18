@@ -443,6 +443,63 @@ def _blender_section(export: Mapping) -> str:
     return "<section><h2>Blender Benchmark</h2>" + "".join(blocks) + "</section>"
 
 
+VRAY_TESTS = (("vray_benchmark", "V-Ray (CPU)", "vsamples"), ("vray_benchmark_gpu", "V-Ray GPU, CUDA", "vpaths"),
+              ("vray_benchmark_rtx", "V-Ray GPU, RTX", "vrays"))
+
+
+def _vray_section(export: Mapping) -> str:
+    """V-Ray Benchmark: one tile per engine with its own unit (vsamples, vpaths, vrays are not comparable), what
+    ran (version, devices), how the PC behaved and charts over time."""
+    session_is_test = _truthy((_mapping(export.get("session")) or {}).get("is_test"))
+    names = [t[0] for t in VRAY_TESTS]
+    by_test: dict = {}
+    for run in export.get("runs") or []:
+        m = _mapping(run) or {}
+        name = str(m.get("benchmark_name") or "")
+        if name not in names or _truthy(m.get("is_warmup")):
+            continue
+        if m.get("status") != "completed" or session_is_test or not _truthy(m.get("is_test")):
+            by_test.setdefault(name, []).append(m)
+    if not by_test:
+        return ""
+    summaries = _mapping(export.get("summaries")) or {}
+    metrics = _mapping(export.get("metric_summaries")) or {}
+    tiles, blocks = [], []
+    for name, engine, unit in VRAY_TESTS:
+        runs = by_test.get(name)
+        if not runs:
+            continue
+        done = [r for r in runs if r.get("status") == "completed"]
+        if not done:
+            tiles.append(f'<div class="tile bad"><div class="label">{esc(engine)}</div>'
+                         '<div class="value"><span>no score</span></div></div>')
+            blocks.append(f"<h3>{esc(engine)}</h3><p>The test did not finish: {_text(runs[-1].get('note'))}.</p>")
+            continue
+        score = _whole((_mapping((_mapping(summaries.get(name)) or {}).get("stats")) or {}).get("mean"))
+        tiles.append(f'<div class="tile good"><div class="label">{esc(engine)}</div><div class="value">'
+                     + (f"{score:,} <span>{unit}</span>" if score is not None else "<span>-</span>") + "</div></div>")
+        details = {}
+        for part in str(done[-1].get("note") or "").split("; "):
+            key, sep, value = part.partition(": ")
+            if sep:
+                details[key] = value
+        details["Measured runs"] = str(len(done)) + (" (the score is their average)" if len(done) > 1 else "")
+        kv = "".join(f"<tr><th>{esc(k)}</th><td>{esc(v)}</td></tr>" for k, v in details.items())
+        charts = _series_charts(done[-1], BLENDER_CHARTS)
+        blocks.append(
+            f"<h3>{esc(engine)}</h3>" + f'<table class="kv">{kv}</table>'
+            "<h4>During the test</h4>"
+            '<div class="table-wrap"><table><thead><tr><th>Reading</th><th>Average</th><th>Highest</th></tr>'
+            "</thead><tbody>" + "".join(_readings_rows(_mapping(metrics.get(name)) or {})) + "</tbody></table></div>"
+            + ("<h4>Over time (last run)</h4>" + "".join(charts) if charts else
+               '<p class="muted">No readings over time were stored for this run.</p>'))
+    return ('<section><h2>V-Ray Benchmark</h2><div class="game"><div class="tiles">' + "".join(tiles) + "</div>"
+            '<p class="muted">V-Ray Benchmark\'s own scores: vsamples for V-Ray on the CPU, vpaths for V-Ray GPU '
+            "with CUDA, vrays for V-Ray GPU with RTX. Higher is faster; the three units cannot be compared with "
+            "each other, only with the same test on benchmark.chaos.com. Each test renders for 1 minute. Nothing "
+            "was uploaded.</p>" + "".join(blocks) + "</div></section>")
+
+
 def _session_name(session: Any) -> str:
     mapping = _mapping(session)
     if mapping is not None:
@@ -961,6 +1018,7 @@ def render_session_report(export: Mapping) -> str:
         + _game_section(export_mapping)
         + _stress_section(export_mapping)
         + _blender_section(export_mapping)
+        + _vray_section(export_mapping)
         + _summary_section(export_mapping)
         + _charts_section(export_mapping)
         + _metrics_section(export_mapping)

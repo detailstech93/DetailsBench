@@ -9,6 +9,7 @@ alone goes straight there; mixed with automatic tests they are listed to start a
 import dataclasses
 import logging
 import os
+import re
 import sys
 import webbrowser
 from pathlib import Path
@@ -264,7 +265,50 @@ def plan_state(panel, result: dict) -> RunState:
     return RunState(False, 0, None, "Not started.")
 
 
-def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_report) -> bool:
+def _ask_license(window, product: str, text: str) -> Optional[str]:
+    from app.ui.long_question import ask_buttons
+    return ask_buttons(window, f"{product}: license agreement", text,
+                       [("Open the agreement", "open"), ("I accept", "yes"), ("I do not accept", "no")], default=0)
+
+
+def check_licenses(window, entries: List[TestEntry], ask=_ask_license, open_url=None) -> List[TestEntry]:
+    """Tests whose maker's license must be accepted in the app first (a workload's `license`): ask once per
+    license; the tests of a license not accepted are left out of the run."""
+    open_url = open_url or webbrowser.open
+    refused, decided = set(), set()
+    for e in entries:
+        ref = e.ref
+        lic = getattr(ref, "license", None)
+        if not lic or lic[0] in decided or ref.license_ok():
+            continue
+        key, product, question = lic
+        decided.add(key)
+        text = question()
+        while True:
+            answer = ask(window, product, text)
+            if answer == "open":
+                open_url(re.search(r"https://\S+", text).group(0))
+                continue
+            break
+        if answer == "yes":
+            try:
+                ref.accept_license()
+            except (OSError, ValueError) as err:
+                QMessageBox.warning(window, "Run tests", f"Your answer could not be saved: {err}")
+                refused.add(key)
+        else:
+            refused.add(key)
+    return [e for e in entries if not (getattr(e.ref, "license", None) and e.ref.license[0] in refused)]
+
+
+def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_report, licenses=check_licenses) -> bool:
+    asked = licenses(window, entries)
+    if len(asked) < len(entries):
+        if not asked:
+            window.status_label.setText("Nothing was run: the license agreement was not accepted.")
+            return False
+        window.status_label.setText("Tests whose license agreement was not accepted are left out.")
+    entries = asked
     automatic, others = split_entries(entries)
     lone_game = not automatic and len(others) == 1 and others[0].source == "steam"
     if not automatic and len(others) == 1 and not lone_game:

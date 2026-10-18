@@ -70,9 +70,34 @@ INSTALLERS: Dict[str, dict] = {
             "folder": "benchmark-launcher-cli-3.3.0", "exe": "benchmark-launcher-cli",
             "then": "blender_content"}},
     },
+    "vray_benchmark": {
+        # V-Ray 6 Benchmark 6.00.02 (Chaos, 2025-07-02): one program file, no login needed, from Chaos's download
+        # page (chaos.com/benchmark-download). Only the "latest" link works without an account (a link to one
+        # version asks to sign in), so a newer release is refused by its SHA-256 until it is pinned here. Size
+        # and SHA-256 read on 2026-10-18; the Windows file is signed "CHAOS SOFTWARE EOOD" (checked with
+        # Get-AuthenticodeSignature), the Linux one is an x86-64 ELF. No ARM build.
+        "windows": {"arch": ["x64"], "zip": {
+            "product": "V-Ray 6 Benchmark (command line)", "version": "6.00.02",
+            "url": "https://download.chaos.com/api/v3/builds/latest/download?product=V-Ray+Benchmark"
+                   "&build-type=official&tags=windows-x64-cli",
+            "hosts": ["download.chaos.com"], "size": 653056928,
+            "sha256": "5b4b1d14a315682f6c5a1c3689a9fc372f06d56dd8e5ad06b4807d1d6ca6468f",
+            "folder": "vray-benchmark-6.00.02", "exe": "vray-benchmark-6.00.02-cli.exe", "single": True,
+            "note": "Before its first run the app shows Chaos's license agreement and asks you to accept it."}},
+        "linux": {"arch": ["x64"], "zip": {
+            "product": "V-Ray 6 Benchmark", "version": "6.00.02",
+            "url": "https://download.chaos.com/api/v3/builds/latest/download?product=V-Ray+Benchmark"
+                   "&build-type=official&tags=linux-x64",
+            "hosts": ["download.chaos.com"], "size": 755338045,
+            "sha256": "27a3bd029b9af851676740fb607869845ea4ca69e6dcb3e475accd634a95df6d",
+            "folder": "vray-benchmark-6.00.02", "exe": "vray-benchmark-6.00.02", "single": True,
+            "note": "Before its first run the app shows Chaos's license agreement and asks you to accept it."}},
+    },
     # 3DMark is on Steam (the library scan may find only the free demo); Windows only
     "d3dmark": {"windows": {"steam": 223850}},
 }
 
 # the GPU run of Blender Benchmark uses the same launcher
 INSTALLERS["blender_benchmark_gpu"] = INSTALLERS["blender_benchmark"]
+# the V-Ray GPU runs use the same program
+INSTALLERS["vray_benchmark_gpu"] = INSTALLERS["vray_benchmark_rtx"] = INSTALLERS["vray_benchmark"]
