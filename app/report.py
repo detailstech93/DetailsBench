@@ -218,17 +218,20 @@ def _stress_section(export: Mapping) -> str:
             return (_mapping(m.get(key)) or {}).get("value")
 
         tiles, unstable = [], False
+        minutes = value("stress_minutes")
+        judged = minutes is None or minutes >= 3      # a shorter run is mostly the warm-up
         for part in ("cpu", "gpu"):
             score, errors = value(f"{part}_stability"), value(f"{part}_errors")
             if score is None and errors is None:
                 continue
-            bad = bool(errors) or (score is not None and score < 97)
+            bad = bool(errors) or (judged and score is not None and score < 97)
             unstable = unstable or bad
             tiles.append((f"{part.upper()} stability", f"{_whole(score)} <span>%</span>" if _whole(score) is not None
                           else "<span>not measured</span>", bad))
             tiles.append((f"{part.upper()} wrong answers", f"{_whole(errors) or 0}", bool(errors)))
         verdict = ('<div class="tile {}"><div class="label">Result</div><div class="value">{}</div></div>'
-                   .format("bad" if unstable else "good", "NOT stable" if unstable else "Stable"))
+                   .format("bad" if unstable else "good" if judged else "",
+                           "NOT stable" if unstable else "Stable" if judged else "Too short to judge"))
         tile_html = verdict + "".join(
             f'<div class="tile{" bad" if bad else ""}"><div class="label">{label}</div>'
             f'<div class="value">{text}</div></div>' for label, text, bad in tiles)

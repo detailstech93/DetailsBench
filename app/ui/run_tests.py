@@ -235,6 +235,9 @@ def plan_state(panel, result: dict) -> RunState:
         return RunState(True, done, total, "Writing the report...")
     if panel.lhm.busy():
         return RunState(True, 0, None, "Preparing the temperature sensors (LibreHardwareMonitor)...")
+    if getattr(panel, "asking", False):
+        # the start question comes after the sensors are ready; the screen polls while it is open
+        return RunState(True, 0, None, "Waiting for you to confirm the run...")
     panel.on_plan_finished = None          # it never started: a later plan must not open this report
     return RunState(False, 0, None, "Not started.")
 

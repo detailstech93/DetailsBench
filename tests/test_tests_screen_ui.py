@@ -189,6 +189,9 @@ def test_plan_state_waits_for_the_finished_signal():
     never = SimpleNamespace(is_running=lambda: False, step=(0, 0, ""), lhm=SimpleNamespace(busy=lambda: False),
                             on_plan_finished=object())
     assert plan_state(never, {}).text == "Not started." and never.on_plan_finished is None
+    asked = SimpleNamespace(is_running=lambda: False, step=(0, 0, ""), lhm=SimpleNamespace(busy=lambda: False),
+                            on_plan_finished=object(), asking=True)      # start question open after the sensors
+    assert plan_state(asked, {}).running and asked.on_plan_finished is not None
 
 
 OFFERED = {"1091500": ({"resolution": ["2560x1440"], "preset": ["Custom", "Ultra"], "upscaler": ["Off", "DLSS"],

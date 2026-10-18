@@ -17,6 +17,7 @@ DEFAULT_MINUTES = 10
 MINUTE_CHOICES = (1, 5, 10, 20, 30, 60)
 WINDOW_SECONDS = 10
 STABLE_PERCENT = 97.0
+JUDGE_MINUTES = 3                                   # shorter runs are mostly warm-up: no stable / NOT stable
 MODES = {
     "cpu": ("stress_cpu", "Stress test: CPU"),
     "gpu": ("stress_gpu", "Stress test: GPU"),
@@ -140,7 +141,8 @@ class StressWorkload(Workload):
         duration = self.clock() - started
         if status != "completed":
             return WorkloadResult(status, error=error, duration_seconds=duration)
-        metrics, notes, scores = {}, [], []
+        metrics, notes, scores = {"stress_minutes": (float(self.minutes()), "min")}, [], []
+        judged = self.minutes() >= JUDGE_MINUTES
         series = {}
         for name in running:
             work = per_second[name]
@@ -153,7 +155,7 @@ class StressWorkload(Workload):
             best = max(work) if work else 0
             series[f"{name}_work"] = ("% of best second", [(t, 100.0 * w / best if best else 0.0)
                                                          for t, w in zip(times, work)])
-            verdict = "NOT stable" if errors or (score is not None and score < STABLE_PERCENT) else "stable"
+            verdict = ("NOT stable" if errors or (score is not None and score < STABLE_PERCENT) else "stable")                 if judged or errors else f"too short to judge (run {JUDGE_MINUTES} min or more)"
             notes.append(f"{name.upper()} {verdict}: stability {score:.0f} %, {errors} wrong answers"
                          if score is not None else f"{name.upper()}: too short to judge, {errors} wrong answers")
         if not scores:

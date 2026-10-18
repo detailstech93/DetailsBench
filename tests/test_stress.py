@@ -69,18 +69,19 @@ def test_stability_is_slowest_over_fastest_window():
 
 
 def test_steady_cpu_is_stable_with_charts(tmp_path):
-    result, parts = run("cpu", tmp_path, cpu=lambda c: FakePart(c, [500] * 70, workers=8))
+    result, parts = run("cpu", tmp_path, cpu=lambda c: FakePart(c, [500] * 190, workers=8), minutes=3)
     assert result.status == "completed" and result.score == 100.0 and result.unit == "%"
-    assert result.metrics == {"cpu_errors": (0.0, "count"), "cpu_stability": (100.0, "%")}
+    assert result.metrics == {"stress_minutes": (3.0, "min"), "cpu_errors": (0.0, "count"),
+                              "cpu_stability": (100.0, "%")}
     unit, points = result.series["cpu_work"]
-    assert unit == "% of best second" and len(points) == 60 and all(v == 100.0 for _, v in points)
+    assert unit == "% of best second" and len(points) == 180 and all(v == 100.0 for _, v in points)
     assert "CPU stable" in result.note and parts["cpu"].stopped
 
 
 def test_throttling_and_wrong_answers_are_not_stable(tmp_path):
-    rates = [100] * 30 + [80] * 40                               # 20 % slower once hot
-    result, _ = run("both", tmp_path, cpu=lambda c: FakePart(c, [100] * 70, errors=3, workers=7),
-                    gpu=lambda c: FakePart(c, rates))
+    rates = [100] * 90 + [80] * 100                              # 20 % slower once hot
+    result, _ = run("both", tmp_path, cpu=lambda c: FakePart(c, [100] * 190, errors=3, workers=7),
+                    gpu=lambda c: FakePart(c, rates), minutes=3)
     assert result.status == "completed" and round(result.score) == 80
     assert result.metrics["cpu_errors"] == (3.0, "count") and result.metrics["gpu_errors"] == (0.0, "count")
     assert "CPU NOT stable" in result.note and "GPU NOT stable" in result.note
@@ -171,3 +172,15 @@ def test_a_stress_test_runs_once_without_warm_up_whatever_the_profile():
     plan = AutomationPanel.build_plan(None, [StressWorkload("cpu", minutes=lambda: 10)],
                                       SimpleNamespace(warmup_runs=1, repetitions=3))
     assert (plan[0].warmup_runs, plan[0].repetitions) == (0, 1)
+
+
+def test_a_run_under_three_minutes_is_not_judged_unless_it_gave_wrong_answers(tmp_path):
+    rates = [100] * 30 + [60] * 40                               # the laptop shares out its power: CPU slows down
+    result, _ = run("cpu", tmp_path, cpu=lambda c: FakePart(c, rates, workers=8))
+    assert result.metrics["stress_minutes"] == (1.0, "min") and "too short to judge" in result.note
+    page = render_session_report(_stress_export({"cpu_stability": (60.0, "%"), "cpu_errors": (0, "count"),
+                                                 "stress_minutes": (1.0, "min")}, {}))
+    assert "Too short to judge" in page and ">NOT stable</div>" not in page
+    wrong = render_session_report(_stress_export({"cpu_stability": (99.0, "%"), "cpu_errors": (1, "count"),
+                                                  "stress_minutes": (1.0, "min")}, {}))
+    assert ">NOT stable</div>" in wrong

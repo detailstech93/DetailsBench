@@ -149,6 +149,7 @@ class AutomationPanel(QGroupBox):
         self.last_summary = None
         self.reports: list = []
         self.on_plan_finished: Optional[Callable[[int, str], None]] = None    # set by the Tests screen
+        self.asking = False          # the "start these runs?" question is open (after the sensors were prepared)
         self.step: Tuple[int, int, str] = (0, 0, "")                          # progress of the running plan
 
         layout = QVBoxLayout(self)
@@ -417,7 +418,12 @@ class AutomationPanel(QGroupBox):
         warnings = [wl.warning for wl in workloads if getattr(wl, "warning", None)]
         if warnings:
             text += "\n\nWARNING: " + "\n".join(warnings)
-        if not self.confirm(text):
+        self.asking = True
+        try:
+            confirmed = self.confirm(text)
+        finally:
+            self.asking = False
+        if not confirmed:
             self.status_label.setText("Cancelled; nothing was run.")
             return False
         sid = self._create_session(workloads, profile)
