@@ -1,4 +1,4 @@
-"""One-click install of a tool the vendor ships as a zip (no winget package), e.g. the Blender Benchmark launcher.
+"""One-click install of a tool the vendor ships as a zip or tar.gz (no package), e.g. the Blender Benchmark launcher.
 
 The file's address, size and SHA-256 are pinned in data/installers.py ("zip"), read from the vendor's own download
 server and checked by hand when they were added. The app downloads it into its own tools folder
@@ -9,6 +9,8 @@ finds the program there (app/benchmark_manager.py looks in the tools folder too)
 
 import os
 import shutil
+import stat
+import tarfile
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -51,31 +53,52 @@ def confirm_text(name: str, plan: dict, data_dir: Optional[Path] = None) -> str:
             f"{plan['product']} {plan['version']} from its official server:\n{plan['url']}\n"
             f"Size {size_text(plan['size'])}, SHA-256 {plan['sha256']}\n"
             f"Kept only if the size and SHA-256 match the ones checked when it was added to the app.\n\n"
-            f"It is extracted to {target_folder(plan, data_dir)}; nothing is run and no administrator rights "
-            f"are needed. {plan.get('note', '')}").strip()
+            f"It is extracted to {target_folder(plan, data_dir)}; "
+            f"{'' if plan.get('then') else 'nothing is run and '}no administrator rights are needed. {plan.get('note', '')}").strip()
 
 
-def extract(zip_path: Path, dest: Path, exe: str) -> Optional[str]:
-    """Extract into dest (which must not exist) through dest.partial; None when done, else the reason."""
+def archive_suffix(url: str) -> str:
+    return ".tar.gz" if urlparse(url).path.endswith((".tar.gz", ".tgz")) else ".zip"
+
+
+def _check(names_sizes, partial: Path):
+    if len(names_sizes) > MAX_EXTRACTED_FILES:
+        raise ValueError(f"{len(names_sizes)} files in the archive")
+    if sum(size for _, size in names_sizes) > MAX_EXTRACTED_BYTES:
+        raise ValueError("the archive expands to more than 500 MB")
+    root = partial.resolve()
+    for name, _ in names_sizes:
+        target = (partial / name).resolve()
+        if target != root and root not in target.parents:
+            raise ValueError(f"unsafe path in the archive: {name!r}")
+
+
+def extract(archive: Path, dest: Path, exe: str) -> Optional[str]:
+    """Extract a zip or tar.gz into dest (which must not exist) through dest.partial; None when done, else why."""
     partial = dest.with_name(dest.name + ".partial")
     if partial.exists():
         shutil.rmtree(partial)                     # our own leftover from an interrupted extraction
     try:
-        with zipfile.ZipFile(zip_path) as z:
-            infos = z.infolist()
-            if len(infos) > MAX_EXTRACTED_FILES:
-                raise ValueError(f"{len(infos)} files in the zip")
-            if sum(i.file_size for i in infos) > MAX_EXTRACTED_BYTES:
-                raise ValueError("the zip expands to more than 500 MB")
-            partial.mkdir(parents=True)
-            root = partial.resolve()
-            for info in infos:
-                target = (partial / info.filename).resolve()
-                if target != root and root not in target.parents:
-                    raise ValueError(f"unsafe path in the zip: {info.filename!r}")
-            z.extractall(partial)
+        if zipfile.is_zipfile(archive):
+            with zipfile.ZipFile(archive) as z:
+                infos = z.infolist()
+                partial.mkdir(parents=True)
+                _check([(i.filename, i.file_size) for i in infos], partial)
+                z.extractall(partial)
+        else:
+            with tarfile.open(archive, "r:gz") as t:
+                members = t.getmembers()
+                bad = [m.name for m in members if not (m.isfile() or m.isdir())]
+                if bad:
+                    raise ValueError(f"links or special files in the archive: {bad[:3]}")
+                partial.mkdir(parents=True)
+                _check([(m.name, m.size) for m in members], partial)
+                t.extractall(partial, members=members)
         if not (partial / exe).is_file():
-            raise ValueError(f"{exe} is not in the zip")
+            raise ValueError(f"{exe} is not in the archive")
+        if os.name != "nt":
+            mode = (partial / exe).stat().st_mode
+            (partial / exe).chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         os.replace(partial, dest)
         return None
     except Exception as e:
@@ -95,7 +118,7 @@ def install(name: str, plan: dict, data_dir: Optional[Path] = None, opener: Call
     if dest.exists():
         return Outcome(False, f"{name} was not installed: {dest} exists but has no {plan['exe']}; "
                               "remove that folder yourself and try again.")
-    zip_path = tools_root(data_dir) / (plan["folder"] + ".zip")
+    zip_path = tools_root(data_dir) / (plan["folder"] + archive_suffix(plan["url"]))
     try:
         zip_path.unlink()                          # our own leftover, not yet verified
     except FileNotFoundError:

@@ -354,3 +354,41 @@ def test_game_section_without_settings_or_frames_and_only_for_games():
     assert "No completed run" in render_session_report(export)
     hostile = render_session_report(_game_export('Settings used: Res: <script>http://x</script>', {}))
     assert "<script" not in hostile and "http://" not in hostile
+
+
+def _blender_export(note, status="completed"):
+    run = {"benchmark_name": "blender_benchmark_gpu", "benchmark_type": "gpu", "status": status, "score": 8471.68,
+           "unit": "samples/min", "run_index": 1, "is_warmup": False, "is_test": False, "note": note,
+           "benchmark_version": "5.2.0"}
+    values = {"samples_per_minute@monster": (3578.34, "samples/min"), "samples_per_minute@junkshop": (2703.36,
+              "samples/min"), "samples_per_minute@classroom": (2189.97, "samples/min"),
+              "render_time_s@monster": (30.91, "s"), "peak_memory_mb@monster": (1313.0, "MB"),
+              "tel_gpu0_power_avg": (134.1, "W"), "tel_gpu0_power_max": (175.02, "W")}
+    m = {k: {"unit": u, "count": 1, "mean": v, "min": v, "max": v, "mixed_units": False} for k, (v, u) in values.items()}
+    return {"session": {"id": 1, "name": "s"}, "runs": [run],
+            "summaries": {"blender_benchmark_gpu": {"included": 1, "stats": {"mean": 8471.68}}},
+            "metric_summaries": {"blender_benchmark_gpu": m},
+            "manifest": {"benchmarks": [{"name": "blender_benchmark_gpu", "display_name": "Blender Benchmark 5.2.0 (GPU)"}]}}
+
+
+def test_blender_has_its_own_section_score_scenes_and_what_ran():
+    page = render_session_report(_blender_export(
+        "Blender: 5.2.0 LTS; Launcher: 3.3.0; Device: NVIDIA GeForce RTX 5090 Laptop GPU (OPTIX); "
+        "Scenes: monster, junkshop, classroom"))
+    part = page[page.index("<h2>Blender Benchmark</h2>"):page.index("<h2>Summary")]
+    assert "Blender Benchmark 5.2.0 (GPU)</h3>" in part and "8,472 <span>samples/min" in part
+    for scene, spm in (("monster", "3,578"), ("junkshop", "2,703"), ("classroom", "2,190")):
+        assert f'<div class="label">{scene}</div><div class="value">{spm} ' in part
+    assert "<tr><td>monster</td><td>3,578</td><td>30.9 s</td><td>1,313 MB</td></tr>" in part
+    assert "<tr><th>Device</th><td>NVIDIA GeForce RTX 5090 Laptop GPU (OPTIX)</td></tr>" in part
+    assert "<tr><th>Blender</th><td>5.2.0 LTS</td></tr>" in part
+    assert "<td>GPU power</td><td>134 W</td><td>175 W</td>" in part
+    assert "Game results" not in page and "Stress tests" not in page
+
+
+def test_blender_section_old_run_and_failed_run():
+    old = render_session_report(_blender_export(None))
+    assert "<tr><th>Blender</th><td>5.2.0</td></tr>" in old and "not recorded by this run" in old
+    failed = render_session_report(_blender_export("junkshop: exit code 1", status="failed"))
+    assert "No score" in failed and "junkshop&#58; exit code 1" in failed
+    assert "<h2>Blender Benchmark</h2>" not in render_session_report(_game_export(None, {}))

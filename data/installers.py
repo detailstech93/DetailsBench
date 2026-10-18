@@ -3,6 +3,9 @@
     INSTALLERS = {test id: {"windows": {"winget": package id, "hosts": [...], "arch": [...]},
                             "linux": {"packages": {distro family: package name}}}}
 
+{"arch": [...], "zip": {...}} under an OS: the vendor's own zip or tar.gz, its URL, size and SHA-256 pinned
+(app/install/direct.py); optional "then" names what the same button downloads next (app/ui/install_flow.py).
+
 Windows: winget (Microsoft's Windows Package Manager). `winget show` gives the installer URL and its SHA256; the app
 shows them and asks, refuses a URL whose host is not the vendor's ("hosts", optional "path_prefix"), and winget
 checks the SHA256 before it runs the installer. "arch" lists the machine architectures winget has an installer
@@ -47,7 +50,9 @@ INSTALLERS: Dict[str, dict] = {
     "blender_benchmark": {
         # Blender Benchmark Launcher CLI 3.3.0: no winget package; the zip from Blender's download server, size and
         # SHA-256 pinned on 2026-10-18 (benchmark-launcher-cli.exe inside is signed "Blender Foundation", checked
-        # with Get-AuthenticodeSignature). Windows x64 build only. app/install/direct.py installs it.
+        # with Get-AuthenticodeSignature). Builds exist for Windows x64 and Linux x64 only (the download folder,
+        # 2026-10-18; the Linux binary is an x86-64 ELF). app/install/direct.py installs it, then the same button
+        # downloads Blender and the scenes with the launcher (app/pro/blender_benchmark.py, "then").
         "windows": {"arch": ["x64"], "zip": {
             "product": "Blender Benchmark Launcher CLI", "version": "3.3.0",
             "url": "https://download.blender.org/release/BlenderBenchmark2.0/launcher/"
@@ -55,8 +60,15 @@ INSTALLERS: Dict[str, dict] = {
             "hosts": ["download.blender.org"], "size": 7755878,
             "sha256": "3f00bb68915800f14ddad6877083544aa25c56aac252b77b161bf7962ee67dde",
             "folder": "benchmark-launcher-cli-3.3.0", "exe": "benchmark-launcher-cli.exe",
-            "note": "Blender itself and the test scenes are downloaded later by the launcher, from Blender's "
-                    "servers, when a benchmark is run."}},
+            "then": "blender_content"}},
+        "linux": {"arch": ["x64"], "zip": {
+            "product": "Blender Benchmark Launcher CLI", "version": "3.3.0",
+            "url": "https://download.blender.org/release/BlenderBenchmark2.0/launcher/"
+                   "benchmark-launcher-cli-3.3.0-linux.tar.gz",
+            "hosts": ["download.blender.org"], "size": 7803498,
+            "sha256": "a15e062179e7bf5cd20d58081f3c84cf87d56df3f596ffb0a11383638139324a",
+            "folder": "benchmark-launcher-cli-3.3.0", "exe": "benchmark-launcher-cli",
+            "then": "blender_content"}},
     },
     # 3DMark is on Steam (the library scan may find only the free demo); Windows only
     "d3dmark": {"windows": {"steam": 223850}},

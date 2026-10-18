@@ -51,7 +51,7 @@ def plan_for(test_id: str, source: str = "", app_id=None, host: Optional[Host] =
         return None
     if "steam" in entry:
         return {"kind": "steam", "app_id": int(entry["steam"])}
-    if host.os == "windows" and entry.get("zip"):
+    if entry.get("zip"):
         if host.arch not in entry.get("arch", []):
             return None
         return {"kind": "zip", "test_id": test_id, **entry["zip"]}

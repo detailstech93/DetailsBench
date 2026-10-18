@@ -337,6 +337,112 @@ def _game_section(export: Mapping) -> str:
     return "<section><h2>Game results</h2>" + "".join(blocks) + "</section>"
 
 
+BLENDER_TESTS = ("blender_benchmark", "blender_benchmark_gpu")
+BLENDER_SCENES = ("monster", "junkshop", "classroom")
+BLENDER_CHARTS = tuple(c for c in STRESS_CHARTS if c[1][0] != "cpu_work")
+
+
+def _series_charts(run: Mapping, specs) -> list:
+    from app.charts import line_chart
+    series = _mapping(run.get("series")) or {}
+    charts = []
+    for chart_title, names, unit in specs:
+        for s_name in names:
+            points = (_mapping(series.get(s_name)) or {}).get("points") or []
+            if len(points) < 2:
+                continue
+            if s_name == "tel_cpu_clock_avg" and "tel_cpu_core_clock_avg" in series:
+                continue
+            svg = line_chart(f"{chart_title}: {SERIES_NAMES.get(s_name, s_name)}", [p[0] for p in points],
+                             [p[1] for p in points], x_unit="s", y_unit=unit)
+            if svg:
+                charts.append(f'<div class="chart">{_safe_svg(svg)}</div>')
+    return charts
+
+
+def _blender_section(export: Mapping) -> str:
+    """Per Blender test: the score (samples per minute of the three scenes added together, as Blender Open Data
+    scores it), each scene, what ran (Blender, device), how the PC behaved and charts over time."""
+    session_is_test = _truthy((_mapping(export.get("session")) or {}).get("is_test"))
+    by_test: dict = {}
+    for run in export.get("runs") or []:
+        m = _mapping(run) or {}
+        name = str(m.get("benchmark_name") or "")
+        if name not in BLENDER_TESTS or _truthy(m.get("is_warmup")):
+            continue
+        by_test.setdefault(name, [])
+        if m.get("status") != "completed" or session_is_test or not _truthy(m.get("is_test")):
+            by_test[name].append(m)
+    if not by_test:
+        return ""
+    summaries = _mapping(export.get("summaries")) or {}
+    metrics = _mapping(export.get("metric_summaries")) or {}
+    used = (_mapping(export.get("manifest")) or {}).get("benchmarks") or []
+    titles = {str(b.get("name")): str(b.get("display_name")) for b in used
+              if isinstance(b, Mapping) and b.get("display_name")}
+    blocks = []
+    for name in BLENDER_TESTS:
+        if name not in by_test:
+            continue
+        title = esc(titles.get(name, "Blender Benchmark (" + ("GPU" if name.endswith("gpu") else "CPU") + ")"))
+        done = [r for r in by_test[name] if r.get("status") == "completed"]
+        if not done:
+            last = by_test[name][-1] if by_test[name] else {}
+            blocks.append(f'<div class="game"><h3>{title}</h3><div class="tiles"><div class="tile bad">'
+                          '<div class="label">Result</div><div class="value">No score</div></div></div>'
+                          f'<p>The test did not finish: {_text(last.get("note"))}.</p></div>')
+            continue
+        stats = _mapping((_mapping(summaries.get(name)) or {}).get("stats")) or {}
+        extra = _mapping(metrics.get(name)) or {}
+
+        def mean_of(key):
+            return (_mapping(extra.get(key)) or {}).get("mean")
+
+        score = _whole(stats.get("mean"))
+        tiles = ['<div class="tile good"><div class="label">Score</div><div class="value">'
+                 + (f"{score:,} <span>samples/min</span>" if score is not None else "<span>-</span>")
+                 + "</div></div>"]
+        rows = []
+        for scene in BLENDER_SCENES:
+            spm = _whole(mean_of(f"samples_per_minute@{scene}"))
+            if spm is None:
+                continue
+            tiles.append(f'<div class="tile"><div class="label">{scene}</div><div class="value">{spm:,} '
+                         "<span>samples/min</span></div></div>")
+            render, memory = mean_of(f"render_time_s@{scene}"), mean_of(f"peak_memory_mb@{scene}")
+            rows.append(f"<tr><td>{scene}</td><td>{spm:,}</td>"
+                        f"<td>{'-' if render is None else f'{render:.1f} s'}</td>"
+                        f"<td>{'-' if memory is None else f'{_whole(memory):,} MB'}</td></tr>")
+        count = len(done)
+        details = {}
+        for part in str(done[-1].get("note") or "").split("; "):
+            key, sep, value = part.partition(": ")
+            if sep:
+                details[key] = value
+        details.setdefault("Blender", _text(done[-1].get("benchmark_version")))
+        details.setdefault("Device", "not recorded by this run (older app version)")
+        details.setdefault("Scenes", ", ".join(BLENDER_SCENES))
+        details["Measured runs"] = str(count) + (" (numbers are their average)" if count > 1 else "")
+        kv = "".join(f"<tr><th>{esc(k)}</th><td>{esc(v)}</td></tr>" for k, v in details.items())
+        charts = _series_charts(done[-1], BLENDER_CHARTS)
+        blocks.append(
+            f'<div class="game"><h3>{title}</h3><div class="tiles">{"".join(tiles)}</div>'
+            '<p class="muted">Score = samples per minute of the three scenes added together, the same score '
+            "Blender Open Data shows (opendata.blender.org/benchmarks): higher is faster. Each scene renders for "
+            "about 30 seconds. Nothing was uploaded.</p>"
+            "<h4>Scenes</h4>"
+            '<div class="table-wrap"><table><thead><tr><th>Scene</th><th>Samples per minute</th>'
+            "<th>Render time</th><th>Peak memory</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table></div>"
+            "<h4>What ran</h4>" + f'<table class="kv">{kv}</table>'
+            "<h4>During the test</h4>"
+            '<div class="table-wrap"><table><thead><tr><th>Reading</th><th>Average</th><th>Highest</th></tr>'
+            "</thead><tbody>" + "".join(_readings_rows(extra)) + "</tbody></table></div>"
+            + ("<h4>Over time (last run)</h4>" + "".join(charts) if charts else
+               '<p class="muted">No readings over time were stored for this run.</p>')
+            + "</div>")
+    return "<section><h2>Blender Benchmark</h2>" + "".join(blocks) + "</section>"
+
+
 def _session_name(session: Any) -> str:
     mapping = _mapping(session)
     if mapping is not None:
@@ -854,6 +960,7 @@ def render_session_report(export: Mapping) -> str:
         + _header_section(export_mapping)
         + _game_section(export_mapping)
         + _stress_section(export_mapping)
+        + _blender_section(export_mapping)
         + _summary_section(export_mapping)
         + _charts_section(export_mapping)
         + _metrics_section(export_mapping)

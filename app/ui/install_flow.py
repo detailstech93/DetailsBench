@@ -20,6 +20,21 @@ from app.ui.tests_page import RunState, install_plan
 logger = logging.getLogger(__name__)
 
 
+def _blender_text() -> str:
+    from app.pro import blender_benchmark as bb
+    return bb.CONTENT_NOTE.format(v=bb.BLENDER_VERSION) + f" They are kept in {bb.cache_parent()}."
+
+
+def _blender_download(exe, progress):
+    from app.pro import blender_benchmark as bb
+    return bb.download_content(exe, progress=progress)
+
+
+# what the same Install button downloads after a "zip" tool ("then" in data/installers.py): (text for the
+# question, download(exe, progress) -> winget.Outcome)
+THEN = {"blender_content": (_blender_text, _blender_download)}
+
+
 def ask_yes(parent, title: str, text: str) -> bool:
     from app.ui.long_question import ask_yes_no
     return ask_yes_no(parent, title, text)
@@ -100,13 +115,26 @@ class InstallFlow(QObject):
         if bad:
             QMessageBox.warning(self.window, "Install", f"{entry.name} cannot be installed by the app: {bad}.")
             return False
-        if not self.ask(self.window, "Install", self.direct.confirm_text(entry.name, plan)):
+        text = self.direct.confirm_text(entry.name, plan)
+        then = THEN.get(plan.get("then", ""))
+        if then:
+            text += "\n\n" + then[0]()
+        if not self.ask(self.window, "Install", text):
             return False
         self._show(f"Downloading {plan['product']} {plan['version']}...")
         failed = winget.Outcome(False, "")
-        self.start_thread(lambda: self.finished.emit(self._safe(lambda: self.direct.install(entry.name, plan),
-                                                                failed)))
+
+        def work():
+            outcome = self.direct.install(entry.name, plan)
+            if outcome.ok and then:
+                exe = self.direct.target_folder(plan) / plan["exe"]
+                outcome = then[1](exe, self._progress)
+            return outcome
+        self.start_thread(lambda: self.finished.emit(self._safe(work, failed)))
         return True
+
+    def _progress(self, text: str):
+        self.state = RunState(True, 0, None, text)     # read by the Tests screen's timer
 
     def _safe(self, fn, failed):
         try:
