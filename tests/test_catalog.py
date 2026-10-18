@@ -99,6 +99,36 @@ def test_steam_games_installed_missing_and_covered_by_a_script():
     assert len({x.id for x in entries}) == len(entries)
 
 
+def test_a_script_can_say_it_is_automatic():
+    started = FakeWorkload("cyberpunk2077_builtin_benchmark", benchmark_type="game",
+                           script={"mode": "automatic", "steam_app": 1091500, "steps": [{"do": "launch_steam"}]})
+    odd = FakeWorkload("odd_script", script={"mode": "sometimes", "steps": [{"do": "keys"}]})
+    e = by_id(build_catalog([started, odd], [], [], WIN_X64))
+    assert e["cyberpunk2077_builtin_benchmark"].mode == AUTOMATIC     # starts its benchmark by itself
+    assert e["odd_script"].mode == AUTOMATIC                          # unknown mode: decided by its steps
+
+
+def test_installed_games_without_a_benchmark_are_gameplay_captures():
+    games = [{"store": "steam", "app_id": "1593500", "name": "God of War", "installed": True, "kind": "game"},
+             {"store": "steam", "app_id": "292030", "name": "The Witcher 3", "installed": False, "kind": "game"},
+             {"store": "steam", "app_id": "1493710", "name": "Proton Experimental", "installed": True,
+              "kind": "tool"},
+             {"store": "steam", "app_id": "750920", "name": "SotTR", "installed": True, "kind": "game"},
+             {"store": "steam", "app_id": "1091500", "name": "Cyberpunk", "installed": True, "kind": "game"}]
+    script = FakeWorkload("cyberpunk2077_builtin_benchmark", benchmark_type="game",
+                          script={"steam_app": 1091500, "steps": []})
+    entries = build_catalog([script], [], games, WIN_X64)
+    e = by_id(entries)
+    gow = e["steam_1593500"]
+    assert gow.name == "God of War (gameplay capture)" and gow.group == "game" and gow.mode == ASSISTED
+    assert gow.state == INSTALLED and gow.verified is False and gow.source == "steam" and gow.ref is games[0]
+    assert "steam_292030" not in e                          # not installed: nothing to capture
+    assert "steam_1493710" not in e                         # a Steam tool, never launched
+    assert e["steam_750920"].name.endswith("(built-in benchmark)")
+    assert "steam_1091500" not in e
+    assert len({x.id for x in entries}) == len(entries)
+
+
 def test_order_is_by_group_then_name():
     wls = [FakeWorkload("fio", benchmark_type="storage"), FakeWorkload("b_cpu"), FakeWorkload("a_cpu"),
            FakeWorkload("mlperf_client", benchmark_type="ai")]

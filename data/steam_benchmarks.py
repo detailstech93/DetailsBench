@@ -29,6 +29,8 @@ STEAM_BENCHMARK_APPS: List[Dict[str, object]] = [
      "builtin_benchmark": "unverified", "appid_verified": "2026-10-17"},
     {"appid": 397540, "store_name": "Borderlands 3", "kind": "game",
      "builtin_benchmark": "unverified", "appid_verified": "2026-10-17"},
+    {"appid": 2369390, "store_name": "Far Cry® 6", "kind": "game",
+     "builtin_benchmark": "unverified", "appid_verified": "2026-10-18"},
 ]
 
 STEAM_BENCHMARK_APPS_BY_ID = {int(a["appid"]): a for a in STEAM_BENCHMARK_APPS}

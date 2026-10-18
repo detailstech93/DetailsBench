@@ -237,3 +237,54 @@ def test_launch_arguments_reach_the_launcher_only_when_set(tmp_path):
     fakes = Fakes(tmp_path)
     run(tmp_path, fakes, launch_args=["--launcher-skip"])
     assert fakes.launch_kw["args"] == ["--launcher-skip"]
+
+
+class FakeDesktop:
+    """The foreground window's pid follows a list of (from second, pid); presses are recorded."""
+
+    def __init__(self, fakes, front):
+        self.fakes, self.front, self.pressed = fakes, front, []
+
+    def foreground_pid(self):
+        pid = None
+        for at, who in self.front:
+            if self.fakes.now[0] >= at:
+                pid = who
+        return pid
+
+    def press(self, codes):
+        self.pressed.append((self.fakes.now[0], codes))
+
+
+def test_start_keys_go_only_into_the_game_when_it_is_in_front(tmp_path):
+    from app.simulation.desktop import parse_chord
+    fakes = Fakes(tmp_path)
+    desk = FakeDesktop(fakes, [(0, 7), (30, 999), (50, 7)])       # another program is in front at 30-50 s
+    s = spec(install_path=str(fakes.install),
+             start_keys=[(40.0, "esc"), (5.0, "enter"), (60.0, "nokey"), (61.0, "down")])
+    bench = GameBenchmark(s, tmp_path / "run", None, lambda m: None, elevated_runner=fakes.elevated,
+                          launcher=fakes.launcher, snapshot=fakes.snapshot, clock=fakes.clock, sleep=fakes.sleep,
+                          folder_procs=fakes.folder_procs, closer=fakes.closer,
+                          exe_lister=lambda folder: ["Game.exe"], desktop=desk)
+    cap = bench.run()
+    assert cap.status == "recorded"
+    assert [codes for _, codes in desk.pressed] == [parse_chord("enter"), parse_chord("down")]
+    assert all(at >= 5 for at, _ in desk.pressed)
+    assert "esc at 40 s not sent: the game was not in front" in cap.message
+    assert "'nokey' at 60 s: unknown key, not sent" in cap.message
+
+
+def test_no_start_keys_never_touches_the_desktop(tmp_path):
+    fakes = Fakes(tmp_path)
+    s, cap = run(tmp_path, fakes)
+    assert cap.status == "recorded" and "start keys" not in cap.message
+
+
+def test_start_keys_data_is_well_formed():
+    from app.simulation.desktop import parse_chord
+    from data.game_start_keys import GAME_START_KEYS, start_keys_for
+    assert start_keys_for("not a number") == [] and start_keys_for(1) == []
+    for app_id, entry in GAME_START_KEYS.items():
+        assert isinstance(app_id, int) and isinstance(entry.get("verified"), bool) and entry.get("note")
+        for at, chord in start_keys_for(app_id):
+            assert at >= 0 and parse_chord(chord) is not None

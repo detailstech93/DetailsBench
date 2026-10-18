@@ -37,6 +37,7 @@ from app.frames.presentmon import (
 )
 from app.paths import get_data_dir, load_settings, save_setting
 from app.telemetry import sources as telemetry_sources
+from data.game_start_keys import start_keys_for
 from app.ui.automation_panel import STOP_SHORTCUT, TELEMETRY_TIP, AutomationWorker
 
 logger = logging.getLogger(__name__)
@@ -762,7 +763,8 @@ class FrameCapturePanel(QGroupBox):
                                  presentmon_path=path, seconds=self.seconds_spin.value(),
                                  warmup_runs=profile.warmup_runs, repetitions=profile.repetitions,
                                  settle_seconds=self.settle_spin.value(),
-                                 launch_args=game_launch_args(game.get("app_id")))
+                                 launch_args=game_launch_args(game.get("app_id")),
+                                 start_keys=start_keys_for(game.get("app_id")))
         total = spec.settle_seconds + spec.seconds * spec.count
         from app.games.settings_file import adapter_for
         from app.ui.game_settings_dialog import describe
@@ -782,8 +784,11 @@ class FrameCapturePanel(QGroupBox):
                 f"3. The app waits about {spec.wait_seconds():.0f} s. The first {spec.settle_seconds} s of the "
                 f"game (loading, menus) are not measured, then {spec.warmup_runs} warmup + {spec.repetitions} "
                 f"measured runs of {spec.seconds} s each (profile {profile.name!r}), {total} s of game time.\n"
-                f"   Get to the scene you want to measure during the first {spec.settle_seconds} s and keep the "
-                f"game in front.\n"
+                + (f"   The app presses {', '.join(c for _, c in spec.start_keys)} in the game to reach the scene "
+                   f"(only while the game is in front; these keys are not checked on a real run yet). Keep the "
+                   f"game in front.\n" if spec.start_keys else
+                   f"   Get to the scene you want to measure during the first {spec.settle_seconds} s and keep the "
+                   f"game in front.\n") +
                 f"4. Then the app closes the game: first like clicking its close button, by force after 30 s. "
                 f"Unsaved progress in the game is lost. Only processes started inside the game's folder are "
                 f"closed, never Steam or anything else. PresentMon then ends by itself and the runs are stored.\n\n"

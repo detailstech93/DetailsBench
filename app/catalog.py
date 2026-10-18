@@ -95,6 +95,14 @@ def _workload_verified(wl) -> bool:
     return bool(getattr(wl, "verified", False))
 
 
+def script_mode(script: dict) -> str:
+    """A script says how it runs ("mode"); without it, one that presses keys is automatic and one that
+    only waits for the owner is assisted. (Cyberpunk starts its benchmark by itself with -benchmark.)"""
+    if script.get("mode") in (AUTOMATIC, ASSISTED):
+        return script["mode"]
+    return AUTOMATIC if any(s.get("do") == "keys" for s in script.get("steps", [])) else ASSISTED
+
+
 def workload_entries(workloads, environment: Optional[dict]) -> List[TestEntry]:
     entries = []
     for wl in workloads:
@@ -108,7 +116,7 @@ def workload_entries(workloads, environment: Optional[dict]) -> List[TestEntry]:
         state, why = _workload_state(available, str(reason))
         ok, comp = check_platform(info, environment)
         script = getattr(wl, "script", None)
-        assisted = isinstance(script, dict) and not any(s.get("do") == "keys" for s in script.get("steps", []))
+        assisted = isinstance(script, dict) and script_mode(script) == ASSISTED
         entries.append(TestEntry(
             id=wl.id, name=wl.display_name, group=_group(wl.id, getattr(wl, "benchmark_type", "other")),
             mode=ASSISTED if assisted else AUTOMATIC, state=state, state_reason=why,
@@ -151,12 +159,23 @@ def library_entries(benchmarks) -> List[TestEntry]:
 
 
 def steam_entries(games: List[dict], environment: Optional[dict], covered_app_ids=()) -> List[TestEntry]:
-    """Games believed to have a built-in benchmark (frame capture runs them), installed or not.
-    App ids already covered by a simulation script are left out."""
+    """Games believed to have a built-in benchmark (frame capture runs them), installed or not, then every
+    other installed Steam game as a gameplay capture (the app starts it, records a fixed time of play with
+    PresentMon and closes it). App ids already covered by a simulation script are left out."""
     installed = {str(g.get("app_id")): g for g in games or []
                  if g.get("store") == "steam" and g.get("installed") is True}
     covered = {str(a) for a in covered_app_ids}
     entries = []
+    listed = {str(app["appid"]) for app in STEAM_BENCHMARK_APPS}
+    for app_id, game in installed.items():
+        if app_id in listed or app_id in covered or game.get("kind") == "tool":
+            continue
+        ok, comp = check_platform({"supported_os": ["windows", "linux"]}, environment)
+        entries.append(TestEntry(
+            id=f"steam_{app_id}", name=f"{game.get('name') or app_id} (gameplay capture)", group="game",
+            mode=ASSISTED, state=INSTALLED, state_reason="installed in Steam; no built-in benchmark: a fixed time "
+            "of play is recorded", compatible=ok, compatibility_reason=comp, verified=False,
+            official_url=STEAM_STORE_URL.format(app_id=app_id), source="steam", ref=game))
     for app in STEAM_BENCHMARK_APPS:
         app_id = str(app["appid"])
         if app.get("kind") != "game" or app_id in covered:

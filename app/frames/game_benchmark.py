@@ -66,6 +66,7 @@ class GameBenchmarkSpec:
     settle_seconds: int = 30
     min_frames: int = 100
     launch_args: List[str] = field(default_factory=list)   # from the game's adapter (app/games)
+    start_keys: List[Tuple[float, str]] = field(default_factory=list)   # (s after launch, chord): data/game_start_keys
 
     @property
     def count(self) -> int:
@@ -109,7 +110,7 @@ class GameBenchmark:
                  snapshot: Optional[Callable] = None, clock: Callable[[], float] = time.monotonic,
                  sleep: Callable[[float], None] = time.sleep, poll_seconds: float = 1.0,
                  folder_procs: Optional[Callable[[], dict]] = None, closer: Optional[Callable[[dict], str]] = None,
-                 exe_lister: Callable[[str], List[str]] = game_exe_names):
+                 exe_lister: Callable[[str], List[str]] = game_exe_names, desktop=None):
         self.spec = spec
         self.run_dir = Path(run_dir)
         self.stop_event = stop_event or threading.Event()
@@ -134,6 +135,25 @@ class GameBenchmark:
         self.closer = closer or game_close.close_game
         self._before: Optional[dict] = None
         self._started: dict = {}
+        self._desktop = desktop                 # app/simulation/desktop.py; made on the first key
+        self.key_notes: List[str] = []
+
+    def _press_due(self, pending: List[Tuple[float, str]], elapsed: float):
+        """Press the start keys whose time has come, only into the game: a key is skipped (and noted) when the
+        foreground window is not one of the processes the launch started."""
+        from app.simulation.desktop import default_desktop, parse_chord
+        while pending and pending[0][0] <= elapsed:
+            at, chord = pending.pop(0)
+            if self._desktop is None:
+                self._desktop = default_desktop()
+            codes = parse_chord(chord)
+            if codes is None:
+                self.key_notes.append(f"{chord!r} at {at:g} s: unknown key, not sent")
+            elif self._desktop.foreground_pid() in self._started:
+                self._desktop.press(codes)
+                self.key_notes.append(f"pressed {chord} at {elapsed:.0f} s")
+            else:
+                self.key_notes.append(f"{chord} at {at:g} s not sent: the game was not in front")
 
     def _note_started(self):
         """Remember processes in the game's folder that were not running before the launch."""
@@ -232,6 +252,7 @@ class GameBenchmark:
         t0 = self.clock()
         wait = spec.wait_seconds()
         stopped = False
+        pending = sorted(spec.start_keys)
         while True:
             if self.stop_event.is_set():
                 stopped = True
@@ -242,12 +263,20 @@ class GameBenchmark:
             elapsed = self.clock() - t0
             if elapsed >= wait:
                 break
+            if pending:
+                try:
+                    self._press_due(pending, elapsed)
+                except Exception as e:          # keys only help; the capture goes on without them
+                    self.key_notes.append(f"keys stopped: {e}")
+                    pending.clear()
             self.on_progress(f"{spec.game_name}: {elapsed:.0f} of {wait:.0f} s. The first {spec.settle_seconds} s "
                              "are not measured; keep the game in front. It is closed at the end.")
             self.sleep(self.poll_seconds)
 
         t_close = self.clock() - t0
         closed = end_presentmon()
+        if self.key_notes:
+            closed += "; start keys: " + ", ".join(self.key_notes)
         tel = sampler.stop() if sampler is not None else None
         text = self._read_csv()
         started_names = {os.path.basename(i.exe) for i in self._started.values()}

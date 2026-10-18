@@ -5,6 +5,7 @@
   "steam_app": 1091500,
   "timeout_seconds": 1200,
   "verified": true,
+  "mode": "automatic",
   "warning": "Cyberpunk 2077 starts by itself with -benchmark (the argument the Phoronix Test Suite uses): the game loads straight into its built-in benchmark, the app waits up to 10 minutes for the result file and then closes the game. Do not use the computer meanwhile.",
   "steps": [
     {"do": "launch_steam", "args": ["--launcher-skip", "-skipStartScreen", "-benchmark"], "timeout": 120},
