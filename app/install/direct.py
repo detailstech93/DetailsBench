@@ -23,7 +23,9 @@ from app.paths import get_data_dir
 
 MAX_EXTRACTED_BYTES = 500 * 1024 * 1024
 MAX_EXTRACTED_FILES = 5000
-MAX_DOWNLOAD_BYTES = 2 * 1024 ** 3                # V-Ray Benchmark is one 623 MB program
+MAX_DOWNLOAD_BYTES = 3 * 1024 ** 3                # Cinebench 2026 for Windows x64 is a 2.5 GB zip
+# a tool may pin larger limits ("max_files", "max_unpacked" in its zip plan): Cinebench 2026 x64 holds 29,410
+# files, 4.1 GB unpacked (its zip's own listing, 2026-10-19)
 
 
 def tools_root(data_dir: Optional[Path] = None) -> Path:
@@ -41,8 +43,8 @@ def problem(plan: dict) -> Optional[str]:
         return f"the download address is not the vendor's: {plan.get('url')!r}"
     if not (isinstance(plan.get("size"), int) and plan["size"] > 0):
         return "no size pinned"
-    if len(str(plan.get("sha256", ""))) != 64:
-        return "no SHA-256 pinned"
+    if len(str(plan.get("sha256", ""))) != 64 and len(str(plan.get("md5", ""))) != 32:
+        return "no SHA-256 (or vendor MD5) pinned"
     folder = str(plan.get("folder", ""))
     if not folder or os.path.basename(folder) != folder or folder in (".", ".."):
         return f"bad folder name {folder!r}"
@@ -52,10 +54,16 @@ def problem(plan: dict) -> Optional[str]:
 def confirm_text(name: str, plan: dict, data_dir: Optional[Path] = None) -> str:
     return (f"Download and install {name}?\n\n"
             f"{plan['product']} {plan['version']} from its official server:\n{plan['url']}\n"
-            f"Size {size_text(plan['size'])}, SHA-256 {plan['sha256']}\n"
-            f"Kept only if the size and SHA-256 match the ones checked when it was added to the app.\n\n"
+            f"Size {size_text(plan['size'])}, {checksum_text(plan)}\n"
+            f"Kept only if the size and checksum match the ones checked when it was added to the app.\n\n"
             f"It is {'saved' if plan.get('single') else 'extracted'} to {target_folder(plan, data_dir)}; "
             f"{'' if plan.get('then') else 'nothing is run and '}no administrator rights are needed. {plan.get('note', '')}").strip()
+
+
+def checksum_text(plan: dict) -> str:
+    if plan.get("sha256"):
+        return f"SHA-256 {plan['sha256']}"
+    return f"MD5 {plan['md5']} (the only checksum the vendor publishes)"
 
 
 def archive_suffix(url: str) -> str:
@@ -80,11 +88,11 @@ def place_single(download: Path, dest: Path, exe: str) -> Optional[str]:
         return f"could not place the program: {e}"
 
 
-def _check(names_sizes, partial: Path):
-    if len(names_sizes) > MAX_EXTRACTED_FILES:
+def _check(names_sizes, partial: Path, max_files: int = MAX_EXTRACTED_FILES, max_bytes: int = MAX_EXTRACTED_BYTES):
+    if len(names_sizes) > max_files:
         raise ValueError(f"{len(names_sizes)} files in the archive")
-    if sum(size for _, size in names_sizes) > MAX_EXTRACTED_BYTES:
-        raise ValueError("the archive expands to more than 500 MB")
+    if sum(size for _, size in names_sizes) > max_bytes:
+        raise ValueError(f"the archive expands to more than {max_bytes // 1024 ** 2} MB")
     root = partial.resolve()
     for name, _ in names_sizes:
         target = (partial / name).resolve()
@@ -92,7 +100,8 @@ def _check(names_sizes, partial: Path):
             raise ValueError(f"unsafe path in the archive: {name!r}")
 
 
-def extract(archive: Path, dest: Path, exe: str) -> Optional[str]:
+def extract(archive: Path, dest: Path, exe: str, max_files: int = MAX_EXTRACTED_FILES,
+            max_bytes: int = MAX_EXTRACTED_BYTES) -> Optional[str]:
     """Extract a zip or tar.gz into dest (which must not exist) through dest.partial; None when done, else why."""
     partial = dest.with_name(dest.name + ".partial")
     if partial.exists():
@@ -102,7 +111,7 @@ def extract(archive: Path, dest: Path, exe: str) -> Optional[str]:
             with zipfile.ZipFile(archive) as z:
                 infos = z.infolist()
                 partial.mkdir(parents=True)
-                _check([(i.filename, i.file_size) for i in infos], partial)
+                _check([(i.filename, i.file_size) for i in infos], partial, max_files, max_bytes)
                 z.extractall(partial)
         else:
             with tarfile.open(archive, "r:gz") as t:
@@ -111,7 +120,7 @@ def extract(archive: Path, dest: Path, exe: str) -> Optional[str]:
                 if bad:
                     raise ValueError(f"links or special files in the archive: {bad[:3]}")
                 partial.mkdir(parents=True)
-                _check([(m.name, m.size) for m in members], partial)
+                _check([(m.name, m.size) for m in members], partial, max_files, max_bytes)
                 t.extractall(partial, members=members)
         if not (partial / exe).is_file():
             raise ValueError(f"{exe} is not in the archive")
@@ -143,15 +152,18 @@ def install(name: str, plan: dict, data_dir: Optional[Path] = None, opener: Call
         zip_path.unlink()                          # our own leftover, not yet verified
     except FileNotFoundError:
         pass
-    why = download_verified(plan["url"], zip_path, plan["size"], plan["sha256"], opener, progress=progress,
-                          max_bytes=MAX_DOWNLOAD_BYTES)
+    why = download_verified(plan["url"], zip_path, plan["size"], plan.get("sha256", ""), opener, progress=progress,
+                          max_bytes=MAX_DOWNLOAD_BYTES, md5=plan.get("md5"))
     if why:
         return Outcome(False, f"{name} was not installed: {why}.")
-    why = place_single(zip_path, dest, plan["exe"]) if plan.get("single") else extract(zip_path, dest, plan["exe"])
+    why = (place_single(zip_path, dest, plan["exe"]) if plan.get("single") else
+           extract(zip_path, dest, plan["exe"], int(plan.get("max_files", MAX_EXTRACTED_FILES)),
+                   int(plan.get("max_unpacked", MAX_EXTRACTED_BYTES))))
     try:
         zip_path.unlink()                          # verified and extracted: the folder is what is kept
     except OSError:
         pass
     if why:
         return Outcome(False, f"{name} was not installed: {why}.")
-    return Outcome(True, f"{name} installed in {dest} (size and SHA-256 verified).")
+    return Outcome(True, f"{name} installed in {dest} (size and {'SHA-256' if plan.get('sha256') else 'MD5'} "
+                         "verified).")

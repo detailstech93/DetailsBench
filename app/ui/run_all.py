@@ -19,7 +19,7 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QMessageBox
 
 from app.catalog import MISSING, TestEntry
-from app.install import plans, winget
+from app.install import direct, plans, winget
 from app.ui.tests_page import RunState, install_plan
 
 logger = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ class Item:
         if self.plan["kind"] == "zip":
             p = self.plan
             text = (f"- {self.entry.name}: {p['product']} {p['version']}, {winget.size_text(p['size'])}, from "
-                    f"{p['url']} (SHA-256 {p['sha256'][:16]}...)")
+                    f"{p['url']} ({direct.checksum_text(p)[:24]}...)")
             if p.get("then"):
                 from app.ui.install_flow import THEN
                 text += ". " + THEN[p["then"]][0]()

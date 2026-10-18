@@ -72,6 +72,16 @@ TEST_INFO: Dict[str, dict] = {
         "supported_os": ["windows", "linux"], "supported_architectures": {"x64": "native", "arm64": "unsupported"},
         "expected_minutes": 3,
     },
+    "cinebench_2026": {
+        "group": "cpu", "official_url": "https://www.maxon.net/en/cinebench",
+        "supported_os": ["windows"], "supported_architectures": {"x64": "native", "arm64": "native"},
+        "expected_minutes": 12,
+    },
+    "cinebench_2026_single": {
+        "group": "cpu", "official_url": "https://www.maxon.net/en/cinebench",
+        "supported_os": ["windows"], "supported_architectures": {"x64": "native", "arm64": "native"},
+        "expected_minutes": 12,
+    },
     "cyberpunk2077_builtin_benchmark": {
         "group": "game", "official_url": "https://store.steampowered.com/app/1091500/",
         "supported_os": ["windows"],

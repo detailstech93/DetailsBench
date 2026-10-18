@@ -450,8 +450,30 @@ VRAY_TESTS = (("vray_benchmark", "V-Ray (CPU)", "vsamples"), ("vray_benchmark_gp
 def _vray_section(export: Mapping) -> str:
     """V-Ray Benchmark: one tile per engine with its own unit (scores of different engines are not comparable), what
     ran (version, devices), how the PC behaved and charts over time."""
+    return _tiles_section(
+        export, "V-Ray Benchmark", VRAY_TESTS,
+        "V-Ray Benchmark's own scores: vsamples for V-Ray on the CPU, vpaths for V-Ray GPU "
+        "(CUDA and RTX). Higher is faster; scores of different engines (CPU, CUDA, RTX) cannot be compared "
+        "with each other, only with the same test on benchmark.chaos.com. Each test renders for 1 minute. Nothing "
+        "was uploaded.")
+
+
+CINEBENCH_TESTS = (("cinebench_2026", "Multiple Threads", "pts"), ("cinebench_2026_single", "Single Thread", "pts"))
+
+
+def _cinebench_section(export: Mapping) -> str:
+    return _tiles_section(
+        export, "Cinebench 2026", CINEBENCH_TESTS,
+        "Cinebench 2026's own points (Maxon). Higher is faster. Multiple Threads uses every CPU thread, Single "
+        "Thread one; they cannot be compared with each other, nor with Cinebench 2024 or R23. Each test runs for "
+        "Maxon's default minimum time. Nothing was uploaded.")
+
+
+def _tiles_section(export: Mapping, heading: str, tests, explanation: str) -> str:
+    """A tool with several tests, each with its own unit: one tile per test, what ran, how the PC behaved and
+    charts over time."""
     session_is_test = _truthy((_mapping(export.get("session")) or {}).get("is_test"))
-    names = [t[0] for t in VRAY_TESTS]
+    names = [t[0] for t in tests]
     by_test: dict = {}
     for run in export.get("runs") or []:
         m = _mapping(run) or {}
@@ -465,7 +487,7 @@ def _vray_section(export: Mapping) -> str:
     summaries = _mapping(export.get("summaries")) or {}
     metrics = _mapping(export.get("metric_summaries")) or {}
     tiles, blocks = [], []
-    for name, engine, unit in VRAY_TESTS:
+    for name, engine, unit in tests:
         runs = by_test.get(name)
         if not runs:
             continue
@@ -494,11 +516,8 @@ def _vray_section(export: Mapping) -> str:
             "</thead><tbody>" + "".join(_readings_rows(_mapping(metrics.get(name)) or {})) + "</tbody></table></div>"
             + ("<h4>Over time (last run)</h4>" + "".join(charts) if charts else
                '<p class="muted">No readings over time were stored for this run.</p>'))
-    return ('<section><h2>V-Ray Benchmark</h2><div class="game"><div class="tiles">' + "".join(tiles) + "</div>"
-            '<p class="muted">V-Ray Benchmark\'s own scores: vsamples for V-Ray on the CPU, vpaths for V-Ray GPU '
-            "(CUDA and RTX). Higher is faster; scores of different engines (CPU, CUDA, RTX) cannot be compared "
-            "with each other, only with the same test on benchmark.chaos.com. Each test renders for 1 minute. Nothing "
-            "was uploaded.</p>" + "".join(blocks) + "</div></section>")
+    return (f'<section><h2>{esc(heading)}</h2><div class="game"><div class="tiles">' + "".join(tiles) + "</div>"
+            f'<p class="muted">{esc(explanation)}</p>' + "".join(blocks) + "</div></section>")
 
 
 def _session_name(session: Any) -> str:
@@ -1041,6 +1060,7 @@ def render_session_report(export: Mapping) -> str:
         + _stress_section(export_mapping)
         + _blender_section(export_mapping)
         + _vray_section(export_mapping)
+        + _cinebench_section(export_mapping)
         + _summary_section(export_mapping)
         + _charts_section(export_mapping)
         + _metrics_section(export_mapping)

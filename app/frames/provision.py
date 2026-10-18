@@ -149,9 +149,10 @@ def fetch_releases(opener: Callable = urllib.request.urlopen, timeout: float = 2
 def download_verified(url: str, dest: Path, size: int, sha256: str,
                       opener: Callable = urllib.request.urlopen, timeout: float = 60,
                       progress: Callable[[int, int], None] = lambda done, total: None,
-                      max_bytes: int = MAX_DOWNLOAD_BYTES) -> Optional[str]:
+                      max_bytes: int = MAX_DOWNLOAD_BYTES, md5: Optional[str] = None) -> Optional[str]:
     """Download to dest via dest.partial; None when size and SHA-256 match, else the reason
-    (the partial file is removed). An existing dest is never overwritten."""
+    (the partial file is removed). An existing dest is never overwritten. A vendor that publishes only an MD5
+    (Maxon's server sends Content-MD5) is checked with md5 instead, when sha256 is empty."""
     dest = Path(dest)
     if dest.exists():
         return f"already exists: {dest}"
@@ -159,7 +160,7 @@ def download_verified(url: str, dest: Path, size: int, sha256: str,
         return f"unexpected size {size}"
     dest.parent.mkdir(parents=True, exist_ok=True)
     partial = dest.with_name(dest.name + ".partial")
-    digest, done = hashlib.sha256(), 0
+    digest, done = (hashlib.sha256() if sha256 or not md5 else hashlib.md5()), 0
     try:
         req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
         with opener(req, timeout=timeout) as resp, open(partial, "wb") as f:
@@ -175,8 +176,8 @@ def download_verified(url: str, dest: Path, size: int, sha256: str,
                 progress(done, size)
         if done != size:
             raise ValueError(f"size {done} differs from the published size {size}")
-        if digest.hexdigest() != sha256:
-            raise ValueError("SHA-256 differs from the published checksum")
+        if digest.hexdigest() != (sha256 or md5):
+            raise ValueError(("SHA-256" if sha256 else "MD5") + " differs from the published checksum")
         os.replace(partial, dest)
         return None
     except Exception as e:

@@ -93,6 +93,35 @@ INSTALLERS: Dict[str, dict] = {
             "folder": "vray-benchmark-6.00.02", "exe": "vray-benchmark-6.00.02", "single": True,
             "note": "Before its first run the app shows Chaos's license agreement and asks you to accept it."}},
     },
+    "cinebench_2026": {
+        # Cinebench 2026 (Maxon, free): the zips linked from maxon.net/en/downloads/cinebench-downloads, read on
+        # 2026-10-19. Maxon publishes no SHA-256; its download server sends Content-MD5, pinned here with the size
+        # (a newer upload under the same address is refused until it is pinned again). Cinebench.exe is at the
+        # zip's root (the zip's own listing, read with range requests: x64 29,410 files / 4.1 GB unpacked,
+        # ARM64 29,358 files / 1.8 GB). Windows x64 and ARM64 only: Maxon has no Linux build (macOS is a dmg).
+        "windows": {"arch": ["x64", "arm64"], "zip_by_arch": {
+            "x64": {
+                "product": "Cinebench 2026 (Windows x64)", "version": "2026",
+                "url": "https://mx-app-blob-prod.maxon.net/mx-package-production/website/windows/maxon/cinebench/"
+                       "Cinebench2026_win_x86_64.zip",
+                "hosts": ["mx-app-blob-prod.maxon.net"], "size": 2697130801,
+                "md5": "593594ea7dc8385db9772daeb99ab1ad",
+                "folder": "cinebench-2026-x64", "exe": "Cinebench.exe",
+                "max_files": 30000, "max_unpacked": 4500 * 1024 ** 2,
+                "note": "About 4.1 GB once extracted. Cinebench may show Maxon's license agreement on its first "
+                        "run; accept it there once."},
+            "arm64": {
+                "product": "Cinebench 2026 (Windows ARM64)", "version": "2026",
+                "url": "https://mx-app-blob-prod.maxon.net/mx-package-production/website/windows/maxon/cinebench/"
+                       "Cinebench2026_win_arm64.zip",
+                "hosts": ["mx-app-blob-prod.maxon.net"], "size": 783373346,
+                "md5": "fa53a16db96f17b03d023b44e80ebe28",
+                "folder": "cinebench-2026-arm64", "exe": "Cinebench.exe",
+                "max_files": 30000, "max_unpacked": 2000 * 1024 ** 2,
+                "note": "About 1.8 GB once extracted. Cinebench may show Maxon's license agreement on its first "
+                        "run; accept it there once."},
+        }},
+    },
     # 3DMark is on Steam (the library scan may find only the free demo); Windows only
     "d3dmark": {"windows": {"steam": 223850}},
 }
@@ -101,3 +130,5 @@ INSTALLERS: Dict[str, dict] = {
 INSTALLERS["blender_benchmark_gpu"] = INSTALLERS["blender_benchmark"]
 # the V-Ray GPU runs use the same program
 INSTALLERS["vray_benchmark_gpu"] = INSTALLERS["vray_benchmark_rtx"] = INSTALLERS["vray_benchmark"]
+# the single-thread run of Cinebench 2026 uses the same program
+INSTALLERS["cinebench_2026_single"] = INSTALLERS["cinebench_2026"]
