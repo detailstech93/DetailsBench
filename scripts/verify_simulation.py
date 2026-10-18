@@ -1,6 +1,7 @@
 """Real-machine check (run manually): run each simulation script in data/scripts once and print what happened.
 
 Keys are typed into the program's window: do not touch the keyboard or mouse while it runs.
+Unverified scripts (a game started through Steam) run only when named:
     .venv\\Scripts\\python.exe scripts\\verify_simulation.py [script_id ...]
 """
 
@@ -19,7 +20,7 @@ def main(ids):
     for e in errors:
         print("SCRIPT ERROR", e)
     for wl in workloads:
-        if ids and wl.id not in ids:
+        if (ids and wl.id not in ids) or (not ids and not wl.verified):
             continue
         print(f"== {wl.id}: {wl.availability()}")
         if not wl.availability()[0]:

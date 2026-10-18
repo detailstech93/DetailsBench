@@ -517,6 +517,15 @@ with a warning not to use the keyboard or mouse while they run.
   the official 7-Zip 26.04 x64 installer (SHA-256 checked), unpacked with 7za to `%USERPROFILE%\Tools\7-ZipFM`
   (or `PCBM_7ZIPFM`, or an installed 7-Zip). Real run here: 170.013 GIPS after 10 passes in 54 s, window closed.
   `python scripts/verify_simulation.py` repeats it.
+- **Cyberpunk 2077 built-in benchmark** (`data/scripts/cyberpunk2077_benchmark.json`, **not verified**): a script
+  can also start a Steam game (`"steam_app"`, found in the local Steam libraries; launched with `--launcher-skip
+  -skipStartScreen` through the same safe `steam://` path as the frame capture). Its processes are the new ones in
+  its install folder; only those are closed. The script saves a screenshot of the menu, waits up to 15 minutes for
+  a new `Documents\CD Projekt Red\Cyberpunk 2077\benchmarkResults\*\summary.json`, copies it to the run folder
+  and reads `Data.averageFps` (score), `minFps`, `maxFps`. It sends **no keys**: the user starts Settings > Run
+  Benchmark. The game was not run while writing this (starting it unattended was not allowed), so the menu path,
+  folder and JSON keys are assumptions; a file that does not match gives "invalid", never 0, and is kept to fix the
+  script. `python scripts/verify_simulation.py cyberpunk2077_builtin_benchmark` runs it once.
 
 ### Telemetry
 

@@ -165,6 +165,45 @@ class Win32Desktop:
     def close(self, hwnd: int) -> None:
         self.user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
 
+    def screenshot(self, path) -> Tuple[int, int]:
+        """Save the primary screen as a PNG (GDI; an exclusive-fullscreen game may come out black)."""
+        gdi32 = ctypes.WinDLL("gdi32")
+        width, height = self.user32.GetSystemMetrics(0), self.user32.GetSystemMetrics(1)
+        screen = self.user32.GetDC(0)
+        mem = gdi32.CreateCompatibleDC(screen)
+        bmp = gdi32.CreateCompatibleBitmap(screen, width, height)
+        try:
+            gdi32.SelectObject(mem, bmp)
+            gdi32.BitBlt(mem, 0, 0, width, height, screen, 0, 0, 0x00CC0020)       # SRCCOPY
+            header = (ctypes.c_uint32 * 10)(40, width, (-height) & 0xFFFFFFFF, 1 | (32 << 16), 0, 0, 0, 0, 0, 0)
+            pixels = ctypes.create_string_buffer(width * height * 4)
+            gdi32.GetDIBits(mem, bmp, 0, height, pixels, header, 0)
+        finally:
+            gdi32.DeleteObject(bmp)
+            gdi32.DeleteDC(mem)
+            self.user32.ReleaseDC(0, screen)
+        write_png(path, width, height, pixels.raw)
+        return width, height
+
+
+def write_png(path, width: int, height: int, bgra: bytes) -> None:
+    """Minimal PNG writer (RGB, no dependencies) for top-down BGRA rows."""
+    import struct
+    import zlib
+    rows = bytearray()
+    for y in range(height):
+        row = bgra[y * width * 4:(y + 1) * width * 4]
+        rgb = bytearray(width * 3)
+        rgb[0::3], rgb[1::3], rgb[2::3] = row[2::4], row[1::4], row[0::4]
+        rows += b"\x00" + rgb
+
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+    png += chunk(b"IDAT", zlib.compress(bytes(rows), 6)) + chunk(b"IEND", b"")
+    with open(path, "wb") as f:
+        f.write(png)
+
 
 def default_desktop():
     return Win32Desktop() if os.name == "nt" else None

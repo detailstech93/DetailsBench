@@ -85,7 +85,7 @@ def workload(desktop):
 
 def test_shipped_scripts_are_valid_and_chords_parse():
     workloads, errors = sim.load_scripts()
-    assert errors == [] and [w.id for w in workloads] == ["sevenzip_fm_benchmark"]
+    assert errors == [] and [w.id for w in workloads] == ["cyberpunk2077_builtin_benchmark", "sevenzip_fm_benchmark"]
     assert parse_chord("alt+t") == [0x12, ord("T")] and parse_chord("enter") == [0x0D]
     assert parse_chord("ctrl+shift+f5") == [0x11, 0x10, 0x74] and parse_chord("win+r") is None
     bad = dict(SCRIPT, steps=[{"do": "keys", "window": "x", "keys": ["hyper+q"]}])
@@ -138,3 +138,77 @@ def test_cancel_timeout_and_not_installed(tmp_path, monkeypatch):
     assert timed.status == "timed_out" and timed.score is None and never.terminated == [100]   # no window: ended
     missing = sim.SimulationWorkload(SCRIPT, env={}, exists=lambda p: False, which=lambda n: None)
     assert missing.availability()[0] is False and missing.run(RunContext(output_dir=tmp_path)).status == "skipped"
+
+
+GAME = json.loads((Path(sim.SCRIPTS_DIR) / "cyberpunk2077_benchmark.json").read_text(encoding="utf-8"))
+
+
+class FakeSteam:
+    """Plays Steam and the game: launching adds a process in the folder that writes a result file."""
+
+    def __init__(self, result_text, status="launched"):
+        self.result_text, self.status = result_text, status
+        self.procs, self.closed, self.launched = {7: "steam_helper"}, None, None
+        self.write_to = None
+
+    def launch(self, appid, folder, args, timeout, clock):
+        self.launched = (appid, folder, args)
+        if self.status == "launched":
+            self.procs[50] = "Cyberpunk2077.exe"
+            if self.result_text is not None:
+                self.write_to.parent.mkdir(parents=True)
+                self.write_to.write_text(self.result_text, encoding="utf-8")
+        return {"status": self.status, "message": "new process in the game folder: Cyberpunk2077.exe"}
+
+    def folder_procs(self, folder):
+        return dict(self.procs)
+
+    def close(self, started):
+        self.closed = sorted(started)
+        return "closed politely"
+
+
+class GameDesktop(FakeDesktop):
+    def windows(self, pids):
+        return [Window(9, 50, "W2ViewportClass", "Cyberpunk 2077")] if 50 in pids else []
+
+    def screenshot(self, path):
+        Path(path).write_bytes(b"png")
+
+
+def run_game(tmp_path, monkeypatch, steam, timeout=60):
+    monkeypatch.setattr(sim.ScriptRun, "pause", lambda self, s: None)
+    steam.write_to = tmp_path / "home" / "Documents" / "CD Projekt Red" / "Cyberpunk 2077" / "benchmarkResults" / "b1" / "summary.json"
+    wl = sim.SimulationWorkload(GAME, env={"USERPROFILE": str(tmp_path / "home")}, desktop=GameDesktop(),
+                                find_game=lambda appid: "Z:/Steam/common/Cyberpunk 2077" if appid == 1091500 else None,
+                                steam_hooks=steam)
+    out = tmp_path / "run"
+    return wl, wl.run(RunContext(output_dir=out, timeout_seconds=timeout)), out
+
+
+def test_steam_game_script_reads_the_result_file_and_closes_only_new_processes(tmp_path, monkeypatch):
+    # the JSON layout is this script's (unverified) assumption, not a recorded file
+    steam = FakeSteam(json.dumps({"Data": {"averageFps": 88.5, "minFps": 70.25, "maxFps": 120}}))
+    wl, result, out = run_game(tmp_path, monkeypatch, steam)
+    assert wl.availability() == (True, "found (Steam library)") and wl.verified is False
+    assert result.status == "completed" and result.score == 88.5 and result.unit == "FPS"
+    assert result.metrics == {"min_fps": (70.25, "FPS"), "max_fps": (120.0, "FPS")}
+    assert steam.launched == (1091500, "Z:/Steam/common/Cyberpunk 2077", ["--launcher-skip", "-skipStartScreen"])
+    assert steam.closed == [50]                                   # never the helper that ran before
+    assert (out / "result_b1_summary.json").exists() and (out / "screenshot_menu.png").exists()
+
+
+def test_steam_game_failures_never_score(tmp_path, monkeypatch):
+    _, wrong_keys, out = run_game(tmp_path / "a", monkeypatch, FakeSteam(json.dumps({"fps": 90})))
+    assert wrong_keys.status == "invalid" and wrong_keys.score is None and "average_fps" in wrong_keys.error
+    assert (out / "result_b1_summary.json").exists()                 # kept to fix the script
+    _, not_json, _ = run_game(tmp_path / "b", monkeypatch, FakeSteam("<html>"))
+    assert not_json.status == "invalid" and not_json.score is None
+    steam = FakeSteam(None, status="unconfirmed")
+    _, no_start, _ = run_game(tmp_path / "c", monkeypatch, steam)
+    assert no_start.status == "failed" and steam.closed is None
+    monkeypatch.setattr(sim, "POLL_SECONDS", 0.01)
+    _, no_file, _ = run_game(tmp_path / "d", monkeypatch, FakeSteam(None), timeout=0.2)
+    assert no_file.status == "timed_out" and no_file.score is None
+    missing = sim.SimulationWorkload(GAME, find_game=lambda appid: None)
+    assert missing.availability()[0] is False

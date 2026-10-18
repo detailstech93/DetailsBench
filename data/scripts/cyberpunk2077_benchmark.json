@@ -1,0 +1,24 @@
+{
+  "id": "cyberpunk2077_builtin_benchmark",
+  "display_name": "Cyberpunk 2077 built-in benchmark (assisted: you start it from the menu)",
+  "benchmark_type": "game",
+  "steam_app": 1091500,
+  "timeout_seconds": 1200,
+  "verified": false,
+  "warning": "Cyberpunk 2077 starts through Steam. When its main menu shows, start the built-in benchmark yourself (Settings, then Run Benchmark); the app waits up to 15 minutes for the result file and then closes the game. Do not use the computer otherwise meanwhile.",
+  "steps": [
+    {"do": "launch_steam", "args": ["--launcher-skip", "-skipStartScreen"], "timeout": 120},
+    {"do": "wait_window", "name": "game", "timeout": 120},
+    {"do": "wait", "seconds": 20},
+    {"do": "screenshot", "name": "menu"},
+    {"do": "wait_file", "name": "result", "glob": "%USERPROFILE%\\Documents\\CD Projekt Red\\Cyberpunk 2077\\benchmarkResults\\*\\summary.json", "timeout": 900, "settle": 3},
+    {"do": "screenshot", "name": "result"},
+    {"do": "read_json", "file": "result", "values": {
+      "average_fps": {"path": ["Data", "averageFps"], "unit": "FPS"},
+      "min_fps": {"path": ["Data", "minFps"], "unit": "FPS"},
+      "max_fps": {"path": ["Data", "maxFps"], "unit": "FPS"}
+    }}
+  ],
+  "score": {"value": "average_fps", "unit": "FPS", "higher_is_better": true},
+  "notes": "NOT VERIFIED. Running the game was not allowed while the user was away (2026-10-18), so the menu keys, the result folder and the JSON keys (Data.averageFps / minFps / maxFps) are assumptions from public descriptions of the game's benchmark. No keys are sent: the user starts the benchmark. If the file or its keys differ, the run is 'invalid' (never a 0) and the file is copied to the run folder to fix this script. Frame times by PresentMon are a separate capture (Frame capture tab)."
+}
