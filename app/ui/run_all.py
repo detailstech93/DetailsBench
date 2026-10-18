@@ -27,13 +27,10 @@ INSTALL, INSTALLED_ONLY = "install", "installed_only"
 
 
 def ask_choice(parent, text: str) -> Optional[str]:
-    box = QMessageBox(QMessageBox.Question, "Run all tests", text, parent=parent)
-    install = box.addButton("Install them, then run all", QMessageBox.AcceptRole)
-    only = box.addButton("Run only installed tests", QMessageBox.NoRole)
-    box.addButton(QMessageBox.Cancel)
-    box.setDefaultButton(install)
-    box.exec()
-    return {install: INSTALL, only: INSTALLED_ONLY}.get(box.clickedButton())
+    from app.ui.long_question import ask_buttons
+    return ask_buttons(parent, "Run all tests", text, [("Install them, then run all", INSTALL),
+                                                       ("Run only installed tests", INSTALLED_ONLY),
+                                                       ("Cancel", None)])
 
 
 class Item:

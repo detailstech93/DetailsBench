@@ -540,8 +540,8 @@ class FrameCapturePanel(QGroupBox):
 
     # ---- capture ------------------------------------------------------------------
     def confirm(self, text: str) -> bool:
-        return QMessageBox.question(self, "Capture frames?", text,
-                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes
+        from app.ui.long_question import ask_yes_no
+        return ask_yes_no(self, "Capture frames?", text)
 
     def _create_session(self, workload, profile) -> int:
         from app.manifest import build_manifest, git_commit

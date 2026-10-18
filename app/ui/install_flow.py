@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 
 
 def ask_yes(parent, title: str, text: str) -> bool:
-    return QMessageBox.question(parent, title, text, QMessageBox.Yes | QMessageBox.No,
-                                QMessageBox.No) == QMessageBox.Yes
+    from app.ui.long_question import ask_yes_no
+    return ask_yes_no(parent, title, text)
 
 
 class InstallFlow(QObject):

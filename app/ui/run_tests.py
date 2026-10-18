@@ -14,8 +14,8 @@ import webbrowser
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFormLayout, QGroupBox, QLabel, QMessageBox,
-                               QSpinBox, QVBoxLayout)
+from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QGroupBox, QLabel,
+                               QMessageBox, QScrollArea, QSpinBox, QVBoxLayout, QWidget)
 
 from app.catalog import TestEntry
 from app.games import presets
@@ -143,7 +143,14 @@ class RunTestsDialog(QDialog):
                  initial: Optional["presets.GamePreset"] = None):
         super().__init__(parent)
         self.setWindowTitle("Run tests")
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        # everything but the buttons scrolls: with many tests and games the dialog is taller than the screen
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QScrollArea.NoFrame)
+        body = QWidget()
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(0, 0, 0, 0)
         names = "\n".join(f"  • {e.name}" for e in entries)
         layout.addWidget(QLabel(f"{len(entries)} test(s):\n{names}"))
         form = QFormLayout()
@@ -183,7 +190,18 @@ class RunTestsDialog(QDialog):
         buttons.button(QDialogButtonBox.Ok).setText("Next: review and start")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        self.scroll.setWidget(body)
+        outer.addWidget(self.scroll)
+        outer.addWidget(buttons)
+        self._fit_screen(body)
+
+    def _fit_screen(self, body: QWidget):
+        """As tall as the content, but never taller than the screen (then the content scrolls)."""
+        screen = (self.parent().screen() if self.parent() is not None else None) or QApplication.primaryScreen()
+        room = screen.availableGeometry().height() * 0.85 if screen is not None else 800
+        want = body.sizeHint().height() + 80
+        self.scroll.setMinimumHeight(int(min(want, room) - 80))
+        self.resize(max(self.sizeHint().width(), body.sizeHint().width() + 40), int(min(want, room)))
 
     def choice(self) -> RunChoice:
         return RunChoice(self.repetitions.value(), self.warmup.value(), self.cooldown.value(),

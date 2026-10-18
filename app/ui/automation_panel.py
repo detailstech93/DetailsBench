@@ -358,8 +358,8 @@ class AutomationPanel(QGroupBox):
             ReportDialog(f"Reports: session #{self.last_session_id}", self.report_text(), self).exec()
 
     def confirm(self, text: str) -> bool:
-        return QMessageBox.question(self, "Run automated benchmarks?", text,
-                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes
+        from app.ui.long_question import ask_yes_no
+        return ask_yes_no(self, "Run automated benchmarks?", text)
 
     def _create_session(self, workloads, profile) -> int:
         from app.manifest import build_manifest, git_commit
