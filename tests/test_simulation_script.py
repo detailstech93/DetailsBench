@@ -126,6 +126,42 @@ def test_missing_result_is_invalid_and_stubborn_program_is_ended(tmp_path, monke
     assert sorted(desk.terminated) == [100, 101]
 
 
+def test_program_that_ends_early_fails_at_once(tmp_path, monkeypatch):
+    monkeypatch.setattr(sim, "ENDED_GRACE_SECONDS", 0)
+    monkeypatch.setattr(sim.ScriptRun, "pause", lambda self, s: None)
+    desk = FakeDesktop(foreground=100)
+    original = desk.press
+
+    def crash_on_b(codes):
+        original(codes)
+        if desk.pressed[-1] == "b":
+            desk.main.alive = False                   # 7-Zip crashes instead of opening the Benchmark window
+            desk.pressed.append("crashed")
+    desk.press = crash_on_b
+    desk.child_started = lambda: False
+    result = workload(desk).run(RunContext(output_dir=tmp_path, timeout_seconds=600))
+    assert result.status == "failed" and result.score is None
+    assert result.error == "the program ended before window 'bench' happened (closed or crashed)"
+
+
+def test_game_closed_before_its_result_fails_at_once(tmp_path, monkeypatch):
+    monkeypatch.setattr(sim, "ENDED_GRACE_SECONDS", 0)
+    steam = FakeSteam(None)
+    original = steam.launch
+
+    def launch_then_quit(*args):
+        res = original(*args)
+        steam.procs.pop(50)
+        steam.procs[51] = "Cyberpunk2077.exe"            # e.g. Steam restarts the exe once ...
+        return res
+    steam.launch = launch_then_quit
+    wl = sim.SimulationWorkload(GAME, env={"USERPROFILE": str(tmp_path)}, desktop=GameDesktop(),
+                                find_game=lambda appid: "Z:/g", steam_hooks=steam)
+    monkeypatch.setattr(sim.ScriptRun, "pause", lambda self, s: steam.procs.pop(51, None) and None)
+    result = wl.run(RunContext(output_dir=tmp_path / "run", timeout_seconds=600))
+    assert result.status == "failed" and "the program ended before" in result.error   # ... then the user quits
+
+
 def test_cancel_timeout_and_not_installed(tmp_path, monkeypatch):
     monkeypatch.setattr(sim, "POLL_SECONDS", 0.01)
     monkeypatch.setattr(sim, "CLOSE_GRACE_SECONDS", 0.05)
@@ -166,6 +202,9 @@ class FakeSteam:
     def close(self, started):
         self.closed = sorted(started)
         return "closed politely"
+
+    def alive(self, info):
+        return info in self.procs.values()
 
 
 class GameDesktop(FakeDesktop):

@@ -100,3 +100,23 @@ def test_averages_leave_out_warmups_and_failures(db, tmp_path):
     avg = plan_averages(database.get_runs(sid))["tool_a"]
     assert avg["count"] == 3 and avg["mean"] == 12.0 and avg["unit"] == "pts" and round(avg["cv_percent"], 1) == 16.7
     assert averages_text({"tool_a": avg}) == "tool_a: mean 12 pts over 3 run(s), CV 16.7%"
+
+
+def test_database_error_ends_the_plan_but_keeps_it_resumable(db, tmp_path):
+    import sqlite3
+    database, sid = db
+    real = database.create_result
+    calls = []
+
+    def full(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 2:
+            raise sqlite3.OperationalError("database or disk is full")
+        return real(*args, **kwargs)
+    database.create_result = full
+    path = tmp_path / jr.JOURNAL_NAME
+    with pytest.raises(sqlite3.OperationalError):
+        AutomationRunner(database, sid, [PlanItem(Scripted("tool_a", [ok(1.0), ok(2.0), ok(3.0)]), repetitions=3,
+                                                  warmup_runs=0)], tmp_path, journal=jr.PlanJournal(path)).run()
+    data = jr.read_journal(path)
+    assert data["done"] == [["tool_a", 1, False]] and data["current"] == ["tool_a", 2, False]

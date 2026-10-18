@@ -104,6 +104,8 @@ py -3.10 -m venv .venv
 
 A packaged build that runs without Python (PyInstaller, one folder, `dist\PCBenchmarkManager\PCBenchmarkManager.exe`)
 is described in [packaging/README.md](packaging/README.md), with what it cannot do.
+What the app does when a tool, game, plan or the app itself fails, and the test or real check behind each case:
+[docs/FAILURE_CASES.md](docs/FAILURE_CASES.md).
 
 ## Usage
 

@@ -262,6 +262,9 @@ class AutomationPanel(QGroupBox):
                          f"{interrupted[1]}) is stored as failed; it has no result.")
         if missing:
             lines.append("Not available now, skipped: " + ", ".join(missing))
+        session_gone = self.db.get_session(int(data["session_id"])) is None
+        if session_gone:
+            lines.append("Its session is no longer in the database, so it cannot be resumed; Discard removes it.")
         warnings = [p.workload.warning for p in plan if getattr(p.workload, "warning", None)]
         if warnings:
             lines.append("WARNING: " + "\n".join(warnings))
@@ -272,6 +275,9 @@ class AutomationPanel(QGroupBox):
             self.update_resume()
             return False
         if choice != "resume":
+            return False
+        if session_gone:
+            self.status_label.setText("The interrupted plan cannot be resumed: its session was deleted.")
             return False
         sid = int(data["session_id"])
         self.last_session_id, self.last_summary = sid, None

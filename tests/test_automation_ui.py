@@ -216,3 +216,9 @@ def test_resume_or_discard_an_interrupted_plan(qapp, tmp_path):
     panel.reload()
     panel.ask_resume = lambda text: "discard"
     assert panel.resume_plan() is False and not path.exists() and "discarded" in panel.status_label.text()
+    journal["session_id"] = 999                     # its session was deleted meanwhile
+    path.write_text(json.dumps(journal), encoding="utf-8")
+    asked.clear()
+    panel.ask_resume = lambda text: (asked.append(text), "resume")[1]
+    assert panel.resume_plan() is False and "cannot be resumed" in asked[0] and path.exists()
+    assert "session was deleted" in panel.status_label.text() and not panel.is_running()

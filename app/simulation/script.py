@@ -41,6 +41,7 @@ LOG_FILE = "simulation_log.txt"
 CONTROLS_FILE = "window_controls.json"
 CLOSE_GRACE_SECONDS = 10.0
 POLL_SECONDS = 0.5
+ENDED_GRACE_SECONDS = 10.0    # a launcher may end before the game it starts shows up: wait before "ended"
 STEP_KINDS = ("launch", "launch_steam", "wait_window", "keys", "wait", "wait_control", "read", "screenshot",
               "wait_file", "read_json")
 
@@ -179,6 +180,10 @@ class SteamHooks:
         from app.frames.game_close import close_game
         return close_game(started)
 
+    def alive(self, info) -> bool:
+        from app.frames.game_close import is_alive
+        return is_alive(info)
+
 
 class ScriptRun:
     def __init__(self, script: dict, exe: str, desktop, ctx: RunContext,
@@ -222,13 +227,29 @@ class ScriptRun:
 
     def until(self, what: str, timeout: float, check: Callable[[], object]):
         end = min(self.clock() + timeout, self.deadline)
+        ended_since = None
         while True:
             found = check()
             if found:
                 return found
+            if not self.program_ended():
+                ended_since = None
+            elif ended_since is None:
+                ended_since = self.clock()
+            if ended_since is not None and self.clock() - ended_since >= ENDED_GRACE_SECONDS:
+                raise StepError("failed", f"the program ended before {what} happened (closed or crashed)")
             if self.clock() > end:
                 raise StepError("timed_out", f"{what} did not happen within {timeout:.0f} s")
             self.pause(POLL_SECONDS)
+
+    def program_ended(self) -> bool:
+        """Every process the script started has ended (a Steam game: every new one in its folder)."""
+        self.pids()
+        if self.root is not None and self.procs:
+            return not any(p.is_running() for p in self.procs.values())
+        if self.before is not None and self.started:
+            return not any(self.steam.alive(info) for info in self.started.values())
+        return False
 
     def window_matching(self, step):
         cls, title = step.get("class"), step.get("title")
