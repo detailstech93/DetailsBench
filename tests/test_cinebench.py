@@ -30,8 +30,10 @@ def test_the_end_of_a_real_run():
             "DURINGRENDERING Preparation time 10519.2 ms\nRENDERPROGRESSTYPE::AFTERRENDERING 733600.4 ms\n"
             "renderTime 733600.4 ms\nValues: {517.567} -> Avg/Deviation: 517.567/0.000\nCB 517.57 (0.00)\n")
     assert cinebench.parse_score(tail) == (517.57, None)
-    assert cinebench.CinebenchWorkload("cinebench_2026_single").verified
-    assert not cinebench.CinebenchWorkload("cinebench_2026").verified       # Multiple Threads not seen yet
+    multi = ("Values: {7943.592,7890.146,7859.734,7903.345} -> Avg/Deviation: 7899.204/30.114\n"
+             "CB 7899.20 (0.00)\n")                                       # Multiple Threads, session 17
+    assert cinebench.parse_score(multi) == (7899.2, None)
+    assert all(w.verified for w in cinebench.cinebench_workloads())
 
 
 def test_one_zip_per_architecture_and_no_linux():

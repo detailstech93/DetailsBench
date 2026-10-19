@@ -11,8 +11,10 @@ Maxon: on Windows the `start /b /wait "parentconsole"` part is needed for a cons
 quits and prints the result in the console (no result file). A minimum test duration is active by default
 (g_CinebenchMinimumTestDuration changes it; the app keeps Maxon's default so scores match other people's).
 The score line is read as "CB <points>". Seen on a real run on the owner's PC (2026-10-19, session 16, Single Thread):
-"Values: {517.567} -> Avg/Deviation: 517.567/0.000" then "CB 517.57 (0.00)", read as 517.57 pts; Single Thread is
-marked verified, Multiple Threads (same output, not seen yet) not yet. Scores of Cinebench 2026 can't be compared with 2024 or R23.
+"Values: {517.567} -> Avg/Deviation: 517.567/0.000" then "CB 517.57 (0.00)", read as 517.57 pts.
+Multiple Threads (session 17): four passes of about 152 s, "Values: {7943.592,7890.146,7859.734,7903.345} ->
+Avg/Deviation: 7899.204/30.114" then "CB 7899.20 (0.00)", read as 7899.2 pts. Both are marked verified.
+Scores of Cinebench 2026 can't be compared with 2024 or R23.
 Nothing is uploaded.
 """
 
@@ -96,7 +98,7 @@ class CinebenchWorkload(Workload):
 
     def __init__(self, test_id: str = "cinebench_2026", exe: Optional[Path] = None):
         self.id = test_id
-        self.verified = test_id == "cinebench_2026_single"     # seen on a real run (session 16, 2026-10-19)
+        self.verified = True        # seen on real runs on the owner's PC (sessions 16 and 17, 2026-10-19)
         self.title, self.option = MODES[test_id]
         self.exe = exe if exe is not None else program_path()
         self.display_name = f"Cinebench 2026 ({self.title})"
