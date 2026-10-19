@@ -511,6 +511,19 @@ def _ycruncher_section(export: Mapping) -> str:
         decimals=3)
 
 
+HANDBRAKE_TESTS = (("handbrake_x264_1080p", "H.264 (x264), 1080p", "fps"),
+                   ("handbrake_x265_1080p", "H.265 (x265), 1080p", "fps"))
+
+
+def _handbrake_section(export: Mapping) -> str:
+    return _tiles_section(
+        export, "HandBrake", HANDBRAKE_TESTS,
+        "HandBrake's own average encoding speed, in frames per second, for the Big Buck Bunny 1080p clip (10:34 "
+        "min) with HandBrake's presets Fast 1080p30 (H.264) and H.265 MKV 1080p30, on the CPU. Higher is faster. "
+        "Comparable only with the same preset, clip and HandBrake version. Nothing was uploaded.",
+        decimals=1)
+
+
 PASSMARK_TESTS = (("passmark_cpu", "CPU Mark", "points"), ("passmark_2d", "2D Graphics Mark", "points"),
                   ("passmark_3d", "3D Graphics Mark", "points"), ("passmark_memory", "Memory Mark", "points"))
 
@@ -1192,6 +1205,7 @@ def render_session_report(export: Mapping) -> str:
         + _cinebench_section(export_mapping)
         + _passmark_section(export_mapping)
         + _ycruncher_section(export_mapping)
+        + _handbrake_section(export_mapping)
         + _pugetbench_section(export_mapping)
         + _earlier_section(export_mapping)
         + _summary_section(export_mapping)

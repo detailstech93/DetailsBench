@@ -145,6 +145,24 @@ INSTALLERS: Dict[str, dict] = {
             "note": "About 175 MB once extracted. Before its first run the app shows y-cruncher's license and asks "
                     "you to accept it."}},
     },
+    "handbrake_x264_1080p": {
+        # HandBrake's test clip (Blender's own server, read on 2026-10-19: Blender publishes no checksum, so size
+        # and SHA-256 come from a download here); the Install button then gets HandBrakeCLI (HANDBRAKE_CLI below)
+        "windows": {"arch": ["x64", "arm64"], "zip": {
+            "product": "Big Buck Bunny 1080p 30 fps, test clip for HandBrake (Blender Foundation, CC BY 3.0)",
+            "version": "2013", "url": "https://download.blender.org/demo/movies/BBB/bbb_sunflower_1080p_30fps_normal.mp4.zip",
+            "hosts": ["download.blender.org"], "size": 275524128,
+            "sha256": "e320fef389ec749117d0c1583945039266a40f25483881c2ff0d33207e62b362",
+            "folder": "bbb-sunflower-1080p30", "exe": "bbb_sunflower_1080p_30fps_normal.mp4", "then": "handbrake_cli",
+            "note": "The clip is 263 MB once extracted; it is only read (encoded), never changed."}},
+        "linux": {"arch": ["x64", "arm64"], "zip": {
+            "product": "Big Buck Bunny 1080p 30 fps, test clip for HandBrake (Blender Foundation, CC BY 3.0)",
+            "version": "2013", "url": "https://download.blender.org/demo/movies/BBB/bbb_sunflower_1080p_30fps_normal.mp4.zip",
+            "hosts": ["download.blender.org"], "size": 275524128,
+            "sha256": "e320fef389ec749117d0c1583945039266a40f25483881c2ff0d33207e62b362",
+            "folder": "bbb-sunflower-1080p30", "exe": "bbb_sunflower_1080p_30fps_normal.mp4", "then": "handbrake_cli",
+            "note": "The clip is 263 MB once extracted; it is only read (encoded), never changed."}},
+    },
     # 3DMark is on Steam (the library scan may find only the free demo); Windows only
     "d3dmark": {"windows": {"steam": 223850}},
 }
@@ -156,6 +174,30 @@ INSTALLERS["vray_benchmark_gpu"] = INSTALLERS["vray_benchmark_rtx"] = INSTALLERS
 # the single-thread run of Cinebench 2026 uses the same program
 INSTALLERS["cinebench_2026_single"] = INSTALLERS["cinebench_2026"]
 INSTALLERS["ycruncher_pi_2_5b"] = INSTALLERS["ycruncher_pi_1b"]
+INSTALLERS["handbrake_x265_1080p"] = INSTALLERS["handbrake_x264_1080p"]
+
+# HandBrakeCLI 1.11.2 (2026-06-07), installed after the clip (app/pro/handbrake.py). Windows: the zips of HandBrake's
+# own GitHub release (handbrake.fr links there); size and SHA-256 as GitHub lists them, equal on a download here
+# (2026-10-19); HandBrakeCLI.exe at the zip's root. Linux: HandBrake ships only the GUI as a Flatpak, so the CLI
+# is the distribution's package: Debian/Ubuntu "handbrake-cli" (universe), Arch "handbrake-cli" (extra); Fedora and
+# openSUSE have it only in RPM Fusion / Packman, which the app does not add. Names not checked on a real system.
+HANDBRAKE_CLI = {
+    "windows": {
+        "x64": {"product": "HandBrakeCLI (Windows x64)", "version": "1.11.2",
+                "url": "https://github.com/HandBrake/HandBrake/releases/download/1.11.2/"
+                       "HandBrakeCLI-1.11.2-win-x86_64.zip",
+                "hosts": ["github.com"], "size": 25721458,
+                "sha256": "80bfe8d5f5d11cc3ef76b834add3ed4e82dee6523ffeb435c283f88b1a21f09d",
+                "folder": "handbrakecli-1.11.2-x64", "exe": "HandBrakeCLI.exe"},
+        "arm64": {"product": "HandBrakeCLI (Windows ARM64)", "version": "1.11.2",
+                  "url": "https://github.com/HandBrake/HandBrake/releases/download/1.11.2/"
+                         "HandBrakeCLI-1.11.2-win-aarch64.zip",
+                  "hosts": ["github.com"], "size": 19316730,
+                  "sha256": "708ac040bf1ca41d46dbe5f355b588863d60366a67072a974e6829c314ac060d",
+                  "folder": "handbrakecli-1.11.2-arm64", "exe": "HandBrakeCLI.exe"},
+    },
+    "linux": {"debian": "handbrake-cli", "arch": "handbrake-cli"},
+}
 # PassMark's automatic tests (app/pro/passmark.py) use the same program. On Linux, PassMark's own command-line
 # program (CPU and Memory tests only): the zips linked from passmark.com/products/pt_linux/download.php, 11.0
 # Build 1004 (2025-11-12), read on 2026-10-19. PassMark publishes no checksum: size and SHA-256 pinned from the

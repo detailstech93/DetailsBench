@@ -27,7 +27,7 @@ python3 -m venv .venv
 .venv/bin/python scripts/main.py
 ```
 
-- [ ] 1.1 Tests: all pass (Windows result for comparison: 1153 passed, 1 skipped). Send: the failures' last lines.
+- [ ] 1.1 Tests: all pass (Windows result for comparison: 1166 passed, 1 skipped). Send: the failures' last lines.
 - [ ] 1.2 The window opens. If Qt says "could not load the Qt platform plugin xcb", install `libxcb-cursor0`
       (Debian/Ubuntu) or `xcb-util-cursor` (Fedora/Arch) and start again.
 - [ ] 1.3 **This PC** screen: processor, memory, graphics, OS look right; "not certain" / "not available" where the
@@ -53,6 +53,9 @@ python3 -m venv .venv
       the app says. Send if "invalid": results_cpu.yml / results_memory.yml and passmark_stdout.txt.
 - [ ] 3.4 **y-cruncher** (x64 only): Install (static tar.xz from numberworld.org), accept its license in the app, run
       Pi 1 billion digits. Send if "invalid": ycruncher_log.txt and stdout_ycruncher.txt.
+- [ ] 3.5 **HandBrake** (x64 and ARM64): Install (the Big Buck Bunny 1080p clip from download.blender.org, then
+      handbrake-cli by password prompt; Debian/Ubuntu and Arch only), run H.264 then H.265. Score in fps; the
+      encoded file is deleted after. Send if "invalid": stderr_handbrake.txt.
 - Not on Linux: Cinebench (no Linux build), PassMark 2D/3D, PugetBench, 7-Zip's window test.
 
 ## 4. Games with MangoHud (Steam, Proton)

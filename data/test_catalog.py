@@ -112,6 +112,16 @@ TEST_INFO: Dict[str, dict] = {
         "supported_os": ["windows", "linux"], "supported_architectures": {"x64": "native", "arm64": "unsupported"},
         "expected_minutes": 8,
     },
+    "handbrake_x264_1080p": {
+        "group": "cpu", "official_url": "https://handbrake.fr/downloads2.php",
+        "supported_os": ["windows", "linux"], "supported_architectures": {"x64": "native", "arm64": "native"},
+        "expected_minutes": 4,
+    },
+    "handbrake_x265_1080p": {
+        "group": "cpu", "official_url": "https://handbrake.fr/downloads2.php",
+        "supported_os": ["windows", "linux"], "supported_architectures": {"x64": "native", "arm64": "native"},
+        "expected_minutes": 12,
+    },
     "cyberpunk2077_builtin_benchmark": {
         "group": "game", "official_url": "https://store.steampowered.com/app/1091500/",
         "supported_os": ["windows"],

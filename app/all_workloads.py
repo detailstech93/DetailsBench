@@ -9,6 +9,7 @@ def load_workloads() -> Tuple[list, List[str]]:
     from app.automation.cli_workload import load_workloads as load_cli
     from app.pro.blender_benchmark import blender_workloads
     from app.pro.cinebench import cinebench_workloads
+    from app.pro.handbrake import handbrake_workloads
     from app.pro.passmark import passmark_workloads
     from app.pro.vray_benchmark import vray_workloads
     from app.pro.ycruncher import ycruncher_workloads
@@ -18,5 +19,6 @@ def load_workloads() -> Tuple[list, List[str]]:
     workloads, errors = load_cli()
     scripts, script_errors = load_scripts()
     return (workloads + [LlamaBenchyWorkload(None), MlperfClientWorkload()] + storage_workloads() + stress_workloads() + blender_workloads() + vray_workloads()
-            + cinebench_workloads() + passmark_workloads() + ycruncher_workloads() + scripts,
+            + cinebench_workloads() + passmark_workloads() + ycruncher_workloads()
+            + handbrake_workloads() + scripts,
             errors + script_errors)

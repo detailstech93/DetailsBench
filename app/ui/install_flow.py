@@ -40,10 +40,21 @@ def _ncurses_install(exe, progress):
     return passmark.install_ncurses5(progress)
 
 
+def _handbrake_text() -> str:
+    from app.pro import handbrake
+    return handbrake.cli_install_text()
+
+
+def _handbrake_install(clip, progress):
+    from app.pro import handbrake
+    return handbrake.install_cli(clip, progress)
+
+
 # what the same Install button downloads after a "zip" tool ("then" in data/installers.py): (text for the
 # question, download(exe, progress) -> winget.Outcome)
 THEN = {"blender_content": (_blender_text, _blender_download),
-        "ncurses5": (_ncurses_text, _ncurses_install)}
+        "ncurses5": (_ncurses_text, _ncurses_install),
+        "handbrake_cli": (_handbrake_text, _handbrake_install)}
 
 
 def ask_yes(parent, title: str, text: str) -> bool:
