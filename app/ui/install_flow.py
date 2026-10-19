@@ -30,9 +30,20 @@ def _blender_download(exe, progress):
     return bb.download_content(exe, progress=progress)
 
 
+def _ncurses_text() -> str:
+    from app.pro import passmark
+    return passmark.ncurses_install_text()
+
+
+def _ncurses_install(exe, progress):
+    from app.pro import passmark
+    return passmark.install_ncurses5(progress)
+
+
 # what the same Install button downloads after a "zip" tool ("then" in data/installers.py): (text for the
 # question, download(exe, progress) -> winget.Outcome)
-THEN = {"blender_content": (_blender_text, _blender_download)}
+THEN = {"blender_content": (_blender_text, _blender_download),
+        "ncurses5": (_ncurses_text, _ncurses_install)}
 
 
 def ask_yes(parent, title: str, text: str) -> bool:

@@ -74,7 +74,7 @@ TEST_INFO: Dict[str, dict] = {
     },
     "passmark_cpu": {
         "group": "cpu", "official_url": "https://www.passmark.com/products/performancetest/",
-        "supported_os": ["windows"], "supported_architectures": {"x64": "native", "arm64": "unverified"},
+        "supported_os": ["windows", "linux"], "supported_architectures": {"x64": "native", "arm64": "unverified"},
         "expected_minutes": 3,
     },
     "passmark_2d": {
@@ -89,7 +89,7 @@ TEST_INFO: Dict[str, dict] = {
     },
     "passmark_memory": {
         "group": "cpu", "official_url": "https://www.passmark.com/products/performancetest/",
-        "supported_os": ["windows"], "supported_architectures": {"x64": "native", "arm64": "unverified"},
+        "supported_os": ["windows", "linux"], "supported_architectures": {"x64": "native", "arm64": "unverified"},
         "expected_minutes": 3,
     },
     "cinebench_2026": {

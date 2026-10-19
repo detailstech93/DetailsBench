@@ -132,6 +132,30 @@ INSTALLERS["blender_benchmark_gpu"] = INSTALLERS["blender_benchmark"]
 INSTALLERS["vray_benchmark_gpu"] = INSTALLERS["vray_benchmark_rtx"] = INSTALLERS["vray_benchmark"]
 # the single-thread run of Cinebench 2026 uses the same program
 INSTALLERS["cinebench_2026_single"] = INSTALLERS["cinebench_2026"]
-# PassMark's automatic tests (app/pro/passmark.py) use the same program
-for _id in ("passmark_cpu", "passmark_2d", "passmark_3d", "passmark_memory"):
+# PassMark's automatic tests (app/pro/passmark.py) use the same program. On Linux, PassMark's own command-line
+# program (CPU and Memory tests only): the zips linked from passmark.com/products/pt_linux/download.php, 11.0
+# Build 1004 (2025-11-12), read on 2026-10-19. PassMark publishes no checksum: size and SHA-256 pinned from the
+# downloaded zips (a newer upload under the same address is refused until it is pinned again). Each zip holds
+# PerformanceTest/PerformanceTest_Linux_<arch> (an ELF, x86-64 / AArch64) and readme.txt. Its server refuses
+# curl's default User-Agent but answers the app's. It needs ncurses 5 ("then": installed after the zip).
+# ARM 32-bit has a zip too; the app does not tell ARM 32-bit machines apart, so it is not offered.
+_PASSMARK_LINUX = {"arch": ["x64", "arm64"], "zip_by_arch": {
+    "x64": {
+        "product": "PassMark PerformanceTest Linux (x86-64)", "version": "11.0.1004",
+        "url": "https://www.passmark.com/downloads/PerformanceTest_Linux_x86-64.zip",
+        "hosts": ["www.passmark.com"], "size": 5646190,
+        "sha256": "dab991f957373a5cfaa1e1b212a882bbb4d0fb85abaa22fc7694e8bd9dc070ad",
+        "folder": "passmark-performancetest-linux-11.0.1004",
+        "exe": "PerformanceTest/PerformanceTest_Linux_x86-64", "then": "ncurses5"},
+    "arm64": {
+        "product": "PassMark PerformanceTest Linux (ARM64)", "version": "11.0.1004",
+        "url": "https://www.passmark.com/downloads/PerformanceTest_Linux_ARM64.zip",
+        "hosts": ["www.passmark.com"], "size": 2588994,
+        "sha256": "968d247170df1a060e798ce0e9c033c83c8e018fafbd2930d4db666c7d435021",
+        "folder": "passmark-performancetest-linux-11.0.1004",
+        "exe": "PerformanceTest/PerformanceTest_Linux_ARM64", "then": "ncurses5"},
+}}
+for _id in ("passmark_cpu", "passmark_memory"):
+    INSTALLERS[_id] = {**INSTALLERS["passmark_performancetest"], "linux": _PASSMARK_LINUX}
+for _id in ("passmark_2d", "passmark_3d"):            # graphics tests: Windows only
     INSTALLERS[_id] = INSTALLERS["passmark_performancetest"]

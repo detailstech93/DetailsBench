@@ -66,7 +66,98 @@ def test_no_mark_a_declined_prompt_and_linux_are_never_scores(tmp_path, monkeypa
                                                                                    "error": "no"}))
     assert refused.run(_ctx(tmp_path)).status == "failed"
     monkeypatch.setattr(passmark.sys, "platform", "linux")
+    r = passmark.PassMarkWorkload("passmark_3d", exe=exe).run(_ctx(tmp_path))
+    assert r.status == "skipped" and "CPU and Memory tests only" in r.error
+    r = passmark.PassMarkWorkload("passmark_cpu", exe=exe, ncurses=lambda: False).run(_ctx(tmp_path))
+    assert r.status == "skipped" and "ncurses 5" in r.error
+    monkeypatch.setattr(passmark.sys, "platform", "darwin")
     assert passmark.PassMarkWorkload("passmark_cpu", exe=exe).run(_ctx(tmp_path)).status == "skipped"
+
+
+LINUX_YML = """Version:
+  Major: 11
+  Minor: 0
+  Build: 1004
+Results:
+  Results Complete: true
+  NumTestProcesses: 16
+  CPU_INTEGER_MATH: 51234.5
+  SUMM_CPU: 30123.4
+  SUMM_ME: 2890.1
+"""
+
+
+def test_reading_the_linux_results_file():
+    assert passmark.parse_linux_results("SUMM_CPU", LINUX_YML) == (30123.4, None)
+    assert passmark.parse_linux_results("SUMM_ME", LINUX_YML) == (2890.1, None)
+    assert passmark.parse_linux_results("SUMM_ME", "Results:\n  SUMM_CPU: 1\n")[1] == "no SUMM_ME in " \
+                                                                                     "PerformanceTest's results"
+    assert passmark.parse_linux_results("SUMM_CPU", "")[1] == "PerformanceTest wrote no results file"
+    half = LINUX_YML.replace("Results Complete: true", "Results Complete: false")
+    assert passmark.parse_linux_results("SUMM_CPU", half) == (None, "PerformanceTest says its results are not "
+                                                                    "complete")
+    assert passmark.parse_linux_results("SUMM_CPU", "Results:\n  SUMM_CPU: 0\n")[0] is None
+
+
+def test_a_linux_run_uses_autorun_in_the_run_folder(tmp_path, monkeypatch):
+    from app.automation.process import ProcessOutcome
+    monkeypatch.setattr(passmark.sys, "platform", "linux")
+    seen = {}
+
+    def fake_run(command, out, err, timeout, stop, cwd=None, env=None, **kw):
+        seen.update(command=command, cwd=cwd, env=env)
+        Path(out).write_text("", encoding="utf-8")
+        Path(err).write_text("", encoding="utf-8")
+        (Path(cwd) / "results_memory.yml").write_text(LINUX_YML, encoding="utf-8")
+        return ProcessOutcome(0, False, False, 95.0)
+    monkeypatch.setattr(passmark, "run_process", fake_run)
+    exe = tmp_path / "PerformanceTest" / "PerformanceTest_Linux_x86-64"
+    exe.parent.mkdir()
+    exe.write_bytes(b"")
+    w = passmark.PassMarkWorkload("passmark_memory", exe=exe, ncurses=lambda: True)
+    assert not w.needs_admin and "does not send them" in w.warning and w.availability()[0]
+    r = w.run(_ctx(tmp_path))
+    assert r.status == "completed" and r.score == 2890.1 and r.unit == "points" and not w.verified
+    assert seen["command"] == [str(exe), "-r", "2"] and Path(seen["cwd"]) == (tmp_path / "run").resolve()
+    assert seen["env"]["TERM"] and "does not upload" in r.note
+    cpu = passmark.PassMarkWorkload("passmark_cpu", exe=exe, ncurses=lambda: True)
+    monkeypatch.setattr(passmark, "run_process", lambda *a, **k: ProcessOutcome(1, False, False, 2.0))
+    r = cpu.run(RunContext(output_dir=str(tmp_path / "run2"), timeout_seconds=60, stop_event=threading.Event()))
+    assert r.status == "invalid" and r.score is None and "wrote no results file" in r.error
+
+
+def test_linux_install_unpacks_the_pinned_zip_then_ncurses(tmp_path):
+    for arch, exe in (("x64", "PerformanceTest_Linux_x86-64"), ("arm64", "PerformanceTest_Linux_ARM64")):
+        for tid in ("passmark_cpu", "passmark_memory"):
+            plan = plan_for(tid, host=Host("linux", arch, "debian"))
+            assert plan["kind"] == "zip" and plan["exe"] == "PerformanceTest/" + exe and plan["then"] == "ncurses5"
+            assert len(plan["sha256"]) == 64 and plan["hosts"] == ["www.passmark.com"]
+    assert plan_for("passmark_3d", host=Host("linux", "x64", "debian")) is None
+    assert plan_for("passmark_cpu", host=Host("linux", "x86", "debian")) is None
+    from app.ui.install_flow import THEN
+    assert "ncurses5" in THEN
+    lib = tmp_path / "usr" / "lib" / "x86_64-linux-gnu"
+    lib.mkdir(parents=True)
+    assert not passmark.ncurses5_present([str(tmp_path / "usr" / "lib")])
+    (lib / "libncurses.so.5.9").write_bytes(b"")
+    assert passmark.ncurses5_present([str(tmp_path / "usr" / "lib"), str(tmp_path / "missing")])
+
+
+def test_ncurses_is_installed_only_when_missing_and_known():
+    ran = []
+    done = passmark.install_ncurses5(present=lambda: True, run=lambda argv: ran.append(argv))
+    assert done.ok and not ran
+    commands = lambda family, pkg: ([["/usr/bin/pkexec", "/usr/bin/dnf", "install", "-y", pkg]], None)
+    out = passmark.install_ncurses5(present=lambda: False, family=lambda: "fedora", commands=commands,
+                                    run=lambda argv: ran.append(argv) or "done")
+    assert out.ok and ran == [[["/usr/bin/pkexec", "/usr/bin/dnf", "install", "-y", "ncurses-compat-libs"]]]
+    out = passmark.install_ncurses5(present=lambda: False, family=lambda: "debian", commands=commands,
+                                    run=lambda argv: "cancelled (password prompt declined)")
+    assert not out.ok and "libncurses5 was not installed" in out.message
+    out = passmark.install_ncurses5(present=lambda: False, family=lambda: "arch")
+    assert not out.ok and "cannot install" in out.message
+    assert "libncurses5" in passmark.ncurses_install_text(present=lambda: False, family=lambda: "debian")
+    assert "already installed" in passmark.ncurses_install_text(present=lambda: True)
 
 
 def test_install_and_the_report_section():

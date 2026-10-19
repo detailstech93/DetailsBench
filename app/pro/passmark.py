@@ -18,8 +18,20 @@ alone. The helper writes the script and PassMark writes its results in a folder 
 the results come back as text. A declined prompt is a skipped run. PassMark's license page lists
 "disable automatic uploading of results" as a paid feature: the free version may send results to PassMark. The
 owner accepted that on 2026-10-19 on the condition that every run says so first (WARNING below).
-Disk Mark is left out: it writes test files to a drive (DiskSpd and fio cover the drives). No Linux build is
-used yet (PassMark's Linux version is a different command-line program with CPU and memory tests only).
+Disk Mark is left out: it writes test files to a drive (DiskSpd and fio cover the drives).
+
+Linux: PassMark's own command-line program (CPU Mark and Memory Mark only; no 2D/3D), unpacked by the Install
+button from PassMark's zip into the app's tools folder (data/installers.py), started in the run folder as
+
+    PerformanceTest_Linux_<arch> -r 1      (CPU Suite only; -r 2: Memory Suite only)
+
+PassMark's Linux FAQ (passmark.com/support/pt_linux_faq.php, read 2026-10-19): -r runs the tests by itself and
+writes results_cpu.yml / results_memory.yml; "Autorun will only export results to a file, it will not upload the
+results." The results go to the working directory (PassMark staff on their forum). The program's own help text
+lists the same options; the result keys SUMM_CPU and SUMM_ME and "Results Complete" are names inside the
+program (11.0 Build 1004), not yet seen in a real results file, so these runs are not marked verified either.
+It needs the ncurses 5 library (the FAQ: libncurses5 on Ubuntu, ncurses-compat-libs on Fedora and Red Hat); the
+Install button installs it after the zip when it is missing.
 """
 
 import csv
@@ -27,9 +39,11 @@ import io
 import os
 import re
 import sys
+import time
 from pathlib import Path
 from typing import Optional, Tuple
 
+from app.automation.process import run_process
 from app.automation.workload import RunContext, Workload, WorkloadResult
 
 # test id: (mark name, script test group)
@@ -45,6 +59,111 @@ SW_SHOWNORMAL = 1                           # its 2D and 3D tests draw in its wi
 WARNING = ("PassMark PerformanceTest's free version may send the results to PassMark by itself (turning that "
            "off needs a PassMark license). Windows asks once for administrator permission when the run starts; "
            "PassMark's window and its test windows open meanwhile: do not use the computer.")
+
+# Linux: test id: (the -r value, the key in its results file, the results file)
+LINUX_MODES = {
+    "passmark_cpu": ("1", "SUMM_CPU", "results_cpu.yml"),
+    "passmark_memory": ("2", "SUMM_ME", "results_memory.yml"),
+}
+LINUX_WARNING = ("PassMark's Linux program in its autorun mode only writes the results to a file and does not "
+                 "send them to PassMark (PassMark's FAQ). Do not use the computer while it runs.")
+# the ncurses 5 package by distribution family, as PassMark's Linux FAQ names it (Ubuntu: libncurses5; Fedora and
+# Red Hat: ncurses-compat-libs). Ubuntu 24.04 and newer have no libncurses5 package: the FAQ installs PassMark's
+# listed .deb files by hand there, which the app does not do.
+NCURSES5_PACKAGES = {"debian": "libncurses5", "fedora": "ncurses-compat-libs"}
+LIB_DIRS = ("/lib", "/lib64", "/usr/lib", "/usr/lib64", "/usr/local/lib")
+FAQ_URL = "https://passmark.com/support/pt_linux_faq.php"
+
+
+def _is_linux() -> bool:
+    return sys.platform.startswith("linux")
+
+
+def ncurses5_present(dirs=LIB_DIRS) -> bool:
+    """libncurses.so.5 in a library folder (or one level down: /usr/lib/x86_64-linux-gnu and the like)."""
+    for d in dirs:
+        base = Path(d)
+        for folder in [base] + ([p for p in base.iterdir() if p.is_dir()] if base.is_dir() else []):
+            try:
+                if any(folder.glob("libncurses.so.5*")):
+                    return True
+            except OSError:
+                continue
+    return False
+
+
+def linux_plan() -> Optional[dict]:
+    from app.install.plans import plan_for
+    plan = plan_for("passmark_cpu")
+    return plan if plan and plan.get("kind") == "zip" else None
+
+
+def linux_program_path(plan: Optional[dict] = None, data_dir: Optional[Path] = None) -> Optional[Path]:
+    from app.install import direct
+    plan = plan if plan is not None else linux_plan()
+    if not plan:
+        return None
+    exe = direct.target_folder(plan, data_dir) / plan["exe"]
+    return exe if exe.is_file() else None
+
+
+def _family() -> Optional[str]:
+    from app.install.plans import this_host
+    return this_host().family
+
+
+def ncurses_install_text(present=ncurses5_present, family=_family) -> str:
+    """What the Install button does after unpacking PassMark's Linux zip (shown before the owner says Yes)."""
+    if present():
+        return "The ncurses 5 library it needs is already installed."
+    package = NCURSES5_PACKAGES.get(family() or "")
+    if package:
+        return (f"It needs the ncurses 5 library: after the zip the app installs {package} (the package PassMark's "
+                "FAQ names) with your distribution's package manager, and the system asks for your password "
+                f"(pkexec). Ubuntu 24.04 and newer have no such package; PassMark's FAQ ({FAQ_URL}) shows the "
+                "files to install there by hand.")
+    return (f"It needs the ncurses 5 library, which the app cannot install on this distribution: see PassMark's "
+            f"FAQ ({FAQ_URL}).")
+
+
+def install_ncurses5(progress=lambda text: None, present=ncurses5_present, family=_family, commands=None,
+                     run=None):
+    """After the zip: install the ncurses 5 package through pkexec when it is missing (winget.Outcome)."""
+    from app.install import winget
+    if present():
+        return winget.Outcome(True, "PassMark PerformanceTest for Linux installed; ncurses 5 is already there.")
+    package = NCURSES5_PACKAGES.get(family() or "")
+    if not package:
+        return winget.Outcome(False, "PassMark PerformanceTest for Linux was unpacked, but it needs the ncurses 5 "
+                                     f"library, which the app cannot install here: see {FAQ_URL}")
+    if commands is None:
+        from app.install.plans import linux_commands as commands
+    if run is None:
+        from app.ui.frame_capture_panel import run_commands as run
+    argv, problem = commands(family(), package)
+    if problem:
+        return winget.Outcome(False, f"PassMark PerformanceTest for Linux was unpacked; {package} was not "
+                                     f"installed: {problem}")
+    progress(f"Installing {package} (enter your password in the system prompt)...")
+    text = run(argv)
+    if text != "done":
+        return winget.Outcome(False, f"PassMark PerformanceTest for Linux was unpacked; {package} was not "
+                                     f"installed: {text}. See {FAQ_URL}")
+    return winget.Outcome(True, f"PassMark PerformanceTest for Linux and {package} installed.")
+
+
+def parse_linux_results(key: str, text: str) -> Tuple[Optional[float], Optional[str]]:
+    """(the mark, None) or (None, why) from results_cpu.yml / results_memory.yml ("SUMM_CPU: 12345.6")."""
+    if not text.strip():
+        return None, "PerformanceTest wrote no results file"
+    done = re.search(r"^\s*Results Complete:\s*(\S+)", text, re.MULTILINE)
+    if done and done.group(1).strip("'\"").lower() in ("false", "no", "0"):
+        return None, "PerformanceTest says its results are not complete"
+    m = re.search(r"^\s*" + re.escape(key) + r":\s*['\"]?([\d.]+)", text, re.MULTILINE)
+    value = _number(m.group(1)) if m else None
+    if value is None:
+        return None, f"no {key} in PerformanceTest's results"
+    return value, None
 
 
 def program_path() -> Optional[Path]:
@@ -113,38 +232,62 @@ class PassMarkWorkload(Workload):
 
     needs_admin = True              # one UAC prompt for the whole run: app/frames/admin_helper.py
 
-    def __init__(self, test_id: str = "passmark_cpu", exe: Optional[Path] = None, helper=None):
+    def __init__(self, test_id: str = "passmark_cpu", exe: Optional[Path] = None, helper=None, ncurses=None):
         self.id = test_id
         self.verified = False       # the exported files have not been seen on a real run here yet
         self.mark, self.group = MODES[test_id]
-        self.exe = exe if exe is not None else program_path()
+        self._linux = _is_linux()
+        self.exe = exe if exe is not None else (linux_program_path() if self._linux else program_path())
         self.display_name = f"PassMark PerformanceTest ({self.mark})"
         self.benchmark_type = "gpu" if test_id in ("passmark_2d", "passmark_3d") else "cpu"   # memory: with the CPU
         self._helper = helper
+        self._ncurses = ncurses or ncurses5_present
+        if self._linux:             # no administrator rights and no upload on Linux
+            self.needs_admin = False
+            self.warning = LINUX_WARNING
 
     def availability(self) -> Tuple[bool, str]:
+        if self._linux:
+            if self.id not in LINUX_MODES:
+                return False, "PassMark's Linux program has the CPU and Memory tests only"
+            if not self.exe:
+                return False, "PassMark PerformanceTest for Linux is not installed (Install button)"
+            if not self._ncurses():
+                return False, ("PassMark's Linux program needs the ncurses 5 library (libncurses.so.5): the Install "
+                               "button installs it on Debian/Ubuntu and Fedora/Red Hat; otherwise see " + FAQ_URL)
+            return True, str(self.exe)
         if sys.platform != "win32":
-            return False, "PassMark PerformanceTest for Windows; its Linux version is not supported by the app yet"
+            return False, "PassMark PerformanceTest runs on Windows and Linux"
         if not self.exe:
             return False, "PassMark PerformanceTest is not installed (Install button)"
         return True, str(self.exe)
 
     def executable(self) -> Tuple[Optional[str], str]:
+        if self._linux:
+            return (str(self.exe) if self.exe else None), "the app's tools folder (Install button)"
         return (str(self.exe) if self.exe else None), "Program Files\\PerformanceTest"
 
     def version(self) -> Optional[str]:
         if not self.exe:
             return None
+        if self._linux:             # the pinned zip's version (the program prints it only in its screen)
+            return (linux_plan() or {}).get("version")
         from app.benchmark_manager import get_pe_version
         return get_pe_version(str(self.exe))
 
     def describe_command(self) -> Optional[str]:
-        return f'"{self.exe}" /s <script: RUN {self.group}> (through the administrator helper)' if self.exe else None
+        if not self.exe:
+            return None
+        if self._linux:
+            return f'"{self.exe}" -r {LINUX_MODES[self.id][0]} (in the run folder)' if self.id in LINUX_MODES else None
+        return f'"{self.exe}" /s <script: RUN {self.group}> (through the administrator helper)'
 
     def run(self, ctx: RunContext) -> WorkloadResult:
         available, why = self.availability()
         if not available:
             return WorkloadResult(status="skipped", error=why)
+        if self._linux:
+            return self._run_linux(ctx)
         folder = Path(ctx.output_dir).resolve()
         folder.mkdir(parents=True, exist_ok=True)
         csv_path, text_path = folder / "passmark_results.csv", folder / "passmark_results.txt"
@@ -184,6 +327,42 @@ class PassMarkWorkload(Workload):
             return WorkloadResult(status="invalid", error=why + (f"; exit code {exit_code}" if exit_code else ""),
                                   **common)
         note = f"PassMark PerformanceTest; test: {self.mark} ({self.group}); PassMark's default test length"
+        return WorkloadResult(status="completed", score=round(score, 1), unit=UNIT, metrics={}, note=note,
+                              **common)
+
+    def _run_linux(self, ctx: RunContext) -> WorkloadResult:
+        r, key, name = LINUX_MODES[self.id]
+        folder = Path(ctx.output_dir).resolve()
+        folder.mkdir(parents=True, exist_ok=True)
+        results = folder / name                     # -r writes into the working directory: the run folder
+        out, err = folder / "passmark_stdout.txt", folder / "passmark_stderr.txt"
+        command = [str(self.exe), "-r", r]
+        env = dict(os.environ)
+        env.setdefault("TERM", "xterm")             # its screen uses ncurses, which needs a terminal type
+        started = time.time()
+        outcome = run_process(command, out, err, ctx.timeout_seconds, ctx.stop_event, cwd=str(folder), env=env)
+        common = {"command": command, "exit_code": outcome.exit_code,
+                  "duration_seconds": round(outcome.duration_seconds, 3), "stdout_path": str(out),
+                  "stderr_path": str(err)}
+        if outcome.start_error:
+            return WorkloadResult(status="failed", error=f"could not start: {outcome.start_error}", **common)
+        if outcome.cancelled:
+            return WorkloadResult(status="cancelled", error="stopped by user", **common)
+        if outcome.timed_out:
+            return WorkloadResult(status="timed_out", error=f"timeout after {ctx.timeout_seconds:g} s", **common)
+        text = ""
+        try:
+            if results.is_file() and results.stat().st_mtime >= started - 2:     # written by this run
+                with open(results, "r", encoding="utf-8", errors="replace") as f:
+                    text = f.read(16 * 1024 * 1024)
+        except OSError:
+            pass
+        score, why = parse_linux_results(key, text)
+        if score is None:
+            code = outcome.exit_code
+            return WorkloadResult(status="invalid", error=why + (f"; exit code {code}" if code else ""), **common)
+        note = (f"PassMark PerformanceTest Linux; test: {self.mark} (-r {r}); PassMark's default test length; "
+                "autorun writes the results to a file and does not upload them")
         return WorkloadResult(status="completed", score=round(score, 1), unit=UNIT, metrics={}, note=note,
                               **common)
 
