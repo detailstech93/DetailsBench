@@ -12,8 +12,10 @@ script; EXPORTCSV and EXIT save the results and close the program; the /a switch
 Read 2026-10-19. What the exported files look like has not been seen on a real run, so the tests are not
 marked verified and a file without the mark is "invalid" (never a 0).
 
-PerformanceTest asks for administrator rights (its manifest: requireAdministrator), so each run goes through the
-Windows UAC prompt (app/frames/elevated.py); a declined prompt is a skipped run. PassMark's license page lists
+PerformanceTest asks for administrator rights (its manifest: requireAdministrator), so it runs through the app's
+administrator helper (app/frames/admin_helper.py): one UAC prompt for a whole run of tests, or one for this test
+alone. The helper writes the script and PassMark writes its results in a folder only administrators can open;
+the results come back as text. A declined prompt is a skipped run. PassMark's license page lists
 "disable automatic uploading of results" as a paid feature: the free version may send results to PassMark. The
 owner accepted that on 2026-10-19 on the condition that every run says so first (WARNING below).
 Disk Mark is left out: it writes test files to a drive (DiskSpd and fio cover the drives). No Linux build is
@@ -41,7 +43,7 @@ UNIT = "points"
 EXE_NAME = "PerformanceTest64.exe"          # the x64 program (seen in PerformanceTest 11.1, 2026-10-19)
 SW_SHOWNORMAL = 1                           # its 2D and 3D tests draw in its windows: shown normally
 WARNING = ("PassMark PerformanceTest's free version may send the results to PassMark by itself (turning that "
-           "off needs a PassMark license). Windows asks for administrator permission at the start of each run; "
+           "off needs a PassMark license). Windows asks once for administrator permission when the run starts; "
            "PassMark's window and its test windows open meanwhile: do not use the computer.")
 
 
@@ -109,14 +111,16 @@ class PassMarkWorkload(Workload):
     timeout_seconds = 1800          # a full test group with its windows; a slow PC takes longer
     warning = WARNING
 
-    def __init__(self, test_id: str = "passmark_cpu", exe: Optional[Path] = None, elevated=None):
+    needs_admin = True              # one UAC prompt for the whole run: app/frames/admin_helper.py
+
+    def __init__(self, test_id: str = "passmark_cpu", exe: Optional[Path] = None, helper=None):
         self.id = test_id
         self.verified = False       # the exported files have not been seen on a real run here yet
         self.mark, self.group = MODES[test_id]
         self.exe = exe if exe is not None else program_path()
         self.display_name = f"PassMark PerformanceTest ({self.mark})"
         self.benchmark_type = "gpu" if test_id in ("passmark_2d", "passmark_3d") else "cpu"   # memory: with the CPU
-        self._elevated = elevated
+        self._helper = helper
 
     def availability(self) -> Tuple[bool, str]:
         if sys.platform != "win32":
@@ -135,7 +139,7 @@ class PassMarkWorkload(Workload):
         return get_pe_version(str(self.exe))
 
     def describe_command(self) -> Optional[str]:
-        return f'"{self.exe}" /s <run folder>\\passmark_script.ptscript (RUN {self.group})' if self.exe else None
+        return f'"{self.exe}" /s <script: RUN {self.group}> (through the administrator helper)' if self.exe else None
 
     def run(self, ctx: RunContext) -> WorkloadResult:
         available, why = self.availability()
@@ -144,37 +148,41 @@ class PassMarkWorkload(Workload):
         folder = Path(ctx.output_dir).resolve()
         folder.mkdir(parents=True, exist_ok=True)
         csv_path, text_path = folder / "passmark_results.csv", folder / "passmark_results.txt"
-        script = folder / "passmark_script.ptscript"
-        script.write_text(script_text(self.group, csv_path, text_path), encoding="ascii")
-        run = self._elevated
-        if run is None:
-            from app.frames.elevated import run_elevated as run
-        args = ["/s", str(script)]
-        outcome = run(str(self.exe), args, str(self.exe.parent), ctx.timeout_seconds, ctx.stop_event,
-                      show=SW_SHOWNORMAL)
-        common = {"command": [str(self.exe)] + args, "exit_code": outcome.exit_code,
-                  "duration_seconds": round(outcome.duration_seconds or 0.0, 3), "stdout_path": str(csv_path),
-                  "stderr_path": str(text_path)}
-        if outcome.status == "uac_declined":
-            return WorkloadResult(status="skipped", error="the administrator prompt was declined; nothing ran",
-                                  **common)
-        if outcome.status == "start_failed":
-            return WorkloadResult(status="failed", error=outcome.error or "could not start", **common)
-        if outcome.status == "stopped":
+        from app.frames import admin_helper
+        helper, own = self._helper or admin_helper.session(), None
+        command = [str(self.exe), "/s", f"<script: RUN {self.group}>"]
+        if helper is None:                  # no helper for this run of tests: one for this test only
+            own = helper = admin_helper.AdminHelper()
+            why = own.start()
+            if why is not None:
+                return WorkloadResult(status="skipped" if "declined" in why else "failed",
+                                      error=why + "; nothing ran", command=command)
+        try:
+            answer = helper.passmark(self.group, ctx.timeout_seconds, ctx.stop_event)
+        finally:
+            if own is not None:
+                own.close()
+        for path, key in ((csv_path, "csv"), (text_path, "txt")):    # written by the app, not elevated
+            try:
+                path.write_text(str(answer.get(key) or ""), encoding="utf-8")
+            except OSError:
+                pass
+        exit_code = answer.get("exit_code")
+        common = {"command": command, "exit_code": exit_code,
+                  "duration_seconds": round(float(answer.get("duration_seconds") or 0.0), 3),
+                  "stdout_path": str(csv_path), "stderr_path": str(text_path)}
+        status = answer.get("status")
+        if status in ("start_failed", "refused"):
+            return WorkloadResult(status="failed", error=str(answer.get("error") or "could not start"), **common)
+        if status == "stopped":
             return WorkloadResult(status="cancelled", error="stopped by user", **common)
-        if outcome.status == "timed_out":
+        if status == "timed_out":
             return WorkloadResult(status="timed_out", error=f"timeout after {ctx.timeout_seconds:g} s (a PassMark "
                                   "message waiting for an answer?)", **common)
-
-        def read(p: Path) -> str:
-            try:
-                return p.read_text(encoding="utf-8-sig", errors="replace")
-            except OSError:
-                return ""
-        score, why = parse_mark(self.mark, read(csv_path), read(text_path))
+        score, why = parse_mark(self.mark, str(answer.get("csv") or ""), str(answer.get("txt") or ""))
         if score is None:
-            return WorkloadResult(status="invalid", error=why + (f"; exit code {outcome.exit_code}"
-                                                                 if outcome.exit_code else ""), **common)
+            return WorkloadResult(status="invalid", error=why + (f"; exit code {exit_code}" if exit_code else ""),
+                                  **common)
         note = f"PassMark PerformanceTest; test: {self.mark} ({self.group}); PassMark's default test length"
         return WorkloadResult(status="completed", score=round(score, 1), unit=UNIT, metrics={}, note=note,
                               **common)

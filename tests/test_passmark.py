@@ -1,10 +1,9 @@
-"""PassMark PerformanceTest workloads with a fake elevated runner: no UAC prompt, nothing runs."""
+"""PassMark PerformanceTest workloads with a fake administrator helper: no UAC prompt, nothing runs."""
 
 import threading
 from pathlib import Path
 
 from app.automation.workload import RunContext
-from app.frames.elevated import ElevatedOutcome
 from app.install.plans import Host, plan_for
 from app.pro import passmark
 from app.report import _passmark_section
@@ -31,34 +30,41 @@ def _exe(tmp_path):
     return exe
 
 
-def test_a_run_reads_the_mark_from_its_csv(tmp_path, monkeypatch):
-    monkeypatch.setattr(passmark.sys, "platform", "win32")
-    seen = {}
+class FakeHelper:
+    def __init__(self, answer):
+        self.answer, self.asked = answer, []
 
-    def elevated(exe, args, cwd, timeout, stop, show=None):
-        seen.update(exe=exe, args=args, cwd=cwd, show=show)
-        script = Path(args[1]).read_text(encoding="ascii")
-        assert "RUN ME_ALL" in script
-        (Path(args[1]).parent / "passmark_results.csv").write_text("Memory Mark,3456.7\n", encoding="utf-8")
-        return ElevatedOutcome("exited", exit_code=0, duration_seconds=120.0)
-    w = passmark.PassMarkWorkload("passmark_memory", exe=_exe(tmp_path), elevated=elevated)
+    def passmark(self, group, timeout, stop=None):
+        self.asked.append(group)
+        return self.answer
+
+
+def test_a_run_reads_the_mark_the_helper_sends_back(tmp_path, monkeypatch):
+    monkeypatch.setattr(passmark.sys, "platform", "win32")
+    helper = FakeHelper({"op": "done", "status": "exited", "exit_code": 0, "duration_seconds": 120.0,
+                         "csv": "Memory Mark,3456.7\n", "txt": ""})
+    w = passmark.PassMarkWorkload("passmark_memory", exe=_exe(tmp_path), helper=helper)
     r = w.run(_ctx(tmp_path))
     assert r.status == "completed" and r.score == 3456.7 and r.unit == "points" and not w.verified
-    assert seen["args"][0] == "/s" and seen["args"][1].endswith("passmark_script.ptscript")
-    assert seen["show"] == passmark.SW_SHOWNORMAL and seen["cwd"] == str(tmp_path)
-    assert "sends" not in w.warning and "may send the results to PassMark" in w.warning
+    assert helper.asked == ["ME_ALL"] and w.needs_admin
+    assert (tmp_path / "run" / "passmark_results.csv").read_text(encoding="utf-8") == "Memory Mark,3456.7\n"
+    assert "may send the results to PassMark" in w.warning and "once" in w.warning
 
 
 def test_no_mark_a_declined_prompt_and_linux_are_never_scores(tmp_path, monkeypatch):
     monkeypatch.setattr(passmark.sys, "platform", "win32")
     exe = _exe(tmp_path)
-    empty = passmark.PassMarkWorkload("passmark_cpu", exe=exe,
-                                      elevated=lambda *a, **k: ElevatedOutcome("exited", exit_code=0))
+    empty = passmark.PassMarkWorkload("passmark_cpu", exe=exe, helper=FakeHelper({"status": "exited",
+                                                                                  "exit_code": 0}))
     r = empty.run(_ctx(tmp_path))
     assert r.status == "invalid" and r.score is None and "wrote no results file" in r.error
-    no = passmark.PassMarkWorkload("passmark_3d", exe=exe, elevated=lambda *a, **k: ElevatedOutcome("uac_declined"))
-    r = no.run(_ctx(tmp_path))
+    from app.frames import admin_helper
+    monkeypatch.setattr(admin_helper.AdminHelper, "start", lambda self: "the administrator prompt was declined")
+    r = passmark.PassMarkWorkload("passmark_3d", exe=exe).run(_ctx(tmp_path))
     assert r.status == "skipped" and r.score is None and "declined" in r.error
+    refused = passmark.PassMarkWorkload("passmark_2d", exe=exe, helper=FakeHelper({"status": "refused",
+                                                                                   "error": "no"}))
+    assert refused.run(_ctx(tmp_path)).status == "failed"
     monkeypatch.setattr(passmark.sys, "platform", "linux")
     assert passmark.PassMarkWorkload("passmark_cpu", exe=exe).run(_ctx(tmp_path)).status == "skipped"
 

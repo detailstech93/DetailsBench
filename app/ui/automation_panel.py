@@ -293,6 +293,14 @@ class AutomationPanel(QGroupBox):
 
     def _start_worker(self, sid: int, plan, cooldown: float, **resume):
         self.plan_workloads = [item.workload for item in plan]
+        if any(getattr(wl, "needs_admin", False) for wl in self.plan_workloads):
+            # one UAC prompt now for the whole run, so nobody has to stay at the PC (declined: each such test
+            # asks for itself)
+            from app.frames import admin_helper
+            self.status_label.setText("Asking Windows once for administrator permission for this run...")
+            why = admin_helper.begin()
+            if why:
+                self.status_label.setText(f"No administrator helper ({why}); each test that needs it will ask.")
         self.worker = AutomationWorker(self.db, sid, plan, self.output_root, cooldown,
                                        self.screenshot_box.isChecked(),
                                        telemetry_sources.new_sampler if self.telemetry_box.isChecked() else None,
@@ -455,6 +463,8 @@ class AutomationPanel(QGroupBox):
         if self.is_running():
             self.worker.stop()
             self.worker.wait(wait_ms)
+        from app.frames import admin_helper
+        admin_helper.end()
 
     def _set_running(self, running: bool):
         self.run_btn.setEnabled(not running)
@@ -485,6 +495,8 @@ class AutomationPanel(QGroupBox):
 
     @Slot(object)
     def _on_finished(self, summary):
+        from app.frames import admin_helper
+        admin_helper.end()                  # the administrator helper ends with the run
         self._set_running(False)
         self.last_summary = summary
         self.reports = find_reports(summary)

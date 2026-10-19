@@ -4,7 +4,12 @@ import sys
 import os
 
 # Add the project root to Python path
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# the administrator helper of a run of tests (app/frames/admin_helper.py): no window, no database
+if len(sys.argv) > 1 and sys.argv[1] == "--admin-helper":
+    from app.frames.admin_helper import helper_main
+    sys.exit(helper_main(sys.argv[2:]))
 
 
 def main():
