@@ -499,6 +499,18 @@ def _cinebench_section(export: Mapping) -> str:
         "Maxon's default minimum time. Nothing was uploaded.")
 
 
+YCRUNCHER_TESTS = (("ycruncher_pi_1b", "Pi, 1 billion digits", "s"), ("ycruncher_pi_2_5b", "Pi, 2.5 billion digits", "s"))
+
+
+def _ycruncher_section(export: Mapping) -> str:
+    return _tiles_section(
+        export, "y-cruncher", YCRUNCHER_TESTS,
+        "y-cruncher's own time to compute Pi on every CPU thread, in seconds. Lower is faster. Each size can be "
+        "compared only with the same size and y-cruncher version (HWBOT and numberworld.org list such times). It "
+        "uses a lot of memory: 2.5 billion digits needs much more than 1 billion. Nothing was uploaded.",
+        decimals=3)
+
+
 PASSMARK_TESTS = (("passmark_cpu", "CPU Mark", "points"), ("passmark_2d", "2D Graphics Mark", "points"),
                   ("passmark_3d", "3D Graphics Mark", "points"), ("passmark_memory", "Memory Mark", "points"))
 
@@ -521,7 +533,8 @@ def _pugetbench_section(export: Mapping) -> str:
         "Systems; command-line runs need Puget's paid license, so the app does not run it.", readings=False)
 
 
-def _tiles_section(export: Mapping, heading: str, tests, explanation: str, readings: bool = True) -> str:
+def _tiles_section(export: Mapping, heading: str, tests, explanation: str, readings: bool = True,
+                   decimals: int = 0) -> str:
     """A tool with several tests, each with its own unit: one tile per test, what ran, how the PC behaved and
     charts over time."""
     session_is_test = _truthy((_mapping(export.get("session")) or {}).get("is_test"))
@@ -549,10 +562,12 @@ def _tiles_section(export: Mapping, heading: str, tests, explanation: str, readi
                          '<div class="value"><span>no score</span></div></div>')
             blocks.append(f"<h3>{esc(engine)}</h3><p>The test did not finish: {_text(runs[-1].get('note'))}.</p>")
             continue
-        score = _whole((_mapping((_mapping(summaries.get(name)) or {}).get("stats")) or {}).get("mean"))
+        mean = (_mapping((_mapping(summaries.get(name)) or {}).get("stats")) or {}).get("mean")
+        score = _whole(mean) if not decimals or _whole(mean) is None else float(mean)
         unit = str(done[-1].get("unit") or unit)          # the unit the program printed
         tiles.append(f'<div class="tile good"><div class="label">{esc(engine)}</div><div class="value">'
-                     + (f"{score:,} <span>{unit}</span>" if score is not None else "<span>-</span>") + "</div></div>")
+                     + (f"{score:,.{decimals}f} <span>{unit}</span>" if score is not None else "<span>-</span>")
+                     + "</div></div>")
         details = {}
         for part in str(done[-1].get("note") or "").split("; "):
             key, sep, value = part.partition(": ")
@@ -1176,6 +1191,7 @@ def render_session_report(export: Mapping) -> str:
         + _vray_section(export_mapping)
         + _cinebench_section(export_mapping)
         + _passmark_section(export_mapping)
+        + _ycruncher_section(export_mapping)
         + _pugetbench_section(export_mapping)
         + _earlier_section(export_mapping)
         + _summary_section(export_mapping)

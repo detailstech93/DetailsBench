@@ -11,11 +11,12 @@ def load_workloads() -> Tuple[list, List[str]]:
     from app.pro.cinebench import cinebench_workloads
     from app.pro.passmark import passmark_workloads
     from app.pro.vray_benchmark import vray_workloads
+    from app.pro.ycruncher import ycruncher_workloads
     from app.simulation.script import load_scripts
     from app.storage.disk_tools import storage_workloads
     from app.stress.workload import stress_workloads
     workloads, errors = load_cli()
     scripts, script_errors = load_scripts()
     return (workloads + [LlamaBenchyWorkload(None), MlperfClientWorkload()] + storage_workloads() + stress_workloads() + blender_workloads() + vray_workloads()
-            + cinebench_workloads() + passmark_workloads() + scripts,
+            + cinebench_workloads() + passmark_workloads() + ycruncher_workloads() + scripts,
             errors + script_errors)

@@ -1,4 +1,4 @@
-"""One-click install of a tool the vendor ships as a zip or tar.gz (no package), e.g. the Blender Benchmark launcher.
+"""One-click install of a tool the vendor ships as a zip, tar.gz or tar.xz (no package), e.g. the Blender Benchmark launcher.
 
 The file's address, size and SHA-256 are pinned in data/installers.py ("zip"), read from the vendor's own download
 server and checked by hand when they were added. The app downloads it into its own tools folder
@@ -67,7 +67,8 @@ def checksum_text(plan: dict) -> str:
 
 
 def archive_suffix(url: str) -> str:
-    return ".tar.gz" if urlparse(url).path.endswith((".tar.gz", ".tgz")) else ".zip"
+    path = urlparse(url).path
+    return ".tar.gz" if path.endswith((".tar.gz", ".tgz")) else ".tar.xz" if path.endswith(".tar.xz") else ".zip"
 
 
 def place_single(download: Path, dest: Path, exe: str) -> Optional[str]:
@@ -102,7 +103,7 @@ def _check(names_sizes, partial: Path, max_files: int = MAX_EXTRACTED_FILES, max
 
 def extract(archive: Path, dest: Path, exe: str, max_files: int = MAX_EXTRACTED_FILES,
             max_bytes: int = MAX_EXTRACTED_BYTES) -> Optional[str]:
-    """Extract a zip or tar.gz into dest (which must not exist) through dest.partial; None when done, else why."""
+    """Extract a zip, tar.gz or tar.xz into dest (which must not exist) through dest.partial; None when done, else why."""
     partial = dest.with_name(dest.name + ".partial")
     if partial.exists():
         shutil.rmtree(partial)                     # our own leftover from an interrupted extraction
@@ -114,7 +115,7 @@ def extract(archive: Path, dest: Path, exe: str, max_files: int = MAX_EXTRACTED_
                 _check([(i.filename, i.file_size) for i in infos], partial, max_files, max_bytes)
                 z.extractall(partial)
         else:
-            with tarfile.open(archive, "r:gz") as t:
+            with tarfile.open(archive, "r:*") as t:      # gzip or xz (y-cruncher's Linux build)
                 members = t.getmembers()
                 bad = [m.name for m in members if not (m.isfile() or m.isdir())]
                 if bad:

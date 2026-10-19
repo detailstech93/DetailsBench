@@ -122,6 +122,29 @@ INSTALLERS: Dict[str, dict] = {
                         "run; accept it there once."},
         }},
     },
+    "ycruncher_pi_1b": {
+        # y-cruncher 0.8.7 (Alexander J. Yee, free for non-commercial use and technology reviews): the files linked
+        # from numberworld.org/y-cruncher on its CDN, read on 2026-10-19. Size and SHA-256 equal the ones GitHub
+        # lists for the same files in the author's release (github.com/Mysticial/y-cruncher), and were checked on a
+        # download here. Windows: the zip of 0.8.7.9547b (the "b" build is Windows only); Linux: the static build
+        # (works on most distributions). x64 only: no ARM build.
+        "windows": {"arch": ["x64"], "zip": {
+            "product": "y-cruncher (Windows x64)", "version": "0.8.7.9547b",
+            "url": "https://cdn.numberworld.org/y-cruncher-downloads/y-cruncher%20v0.8.7.9547b.zip",
+            "hosts": ["cdn.numberworld.org"], "size": 47198240,
+            "sha256": "3be696c1cc44907f2ea73aac35de4a5d45048255308f34ed4410a743163a4f87",
+            "folder": "y-cruncher-0.8.7.9547b", "exe": "y-cruncher v0.8.7.9547b/y-cruncher.exe",
+            "note": "About 160 MB once extracted. Before its first run the app shows y-cruncher's license and asks "
+                    "you to accept it. It needs Microsoft's Visual C++ runtime (most PCs have it)."}},
+        "linux": {"arch": ["x64"], "zip": {
+            "product": "y-cruncher (Linux x64, static)", "version": "0.8.7.9547",
+            "url": "https://cdn.numberworld.org/y-cruncher-downloads/y-cruncher%20v0.8.7.9547-static.tar.xz",
+            "hosts": ["cdn.numberworld.org"], "size": 35954568,
+            "sha256": "e22ff344f42763520d2331f19ed6177f3a7c78ac5bd462e9c060c38267181490",
+            "folder": "y-cruncher-0.8.7.9547-static", "exe": "y-cruncher v0.8.7.9547-static/y-cruncher",
+            "note": "About 175 MB once extracted. Before its first run the app shows y-cruncher's license and asks "
+                    "you to accept it."}},
+    },
     # 3DMark is on Steam (the library scan may find only the free demo); Windows only
     "d3dmark": {"windows": {"steam": 223850}},
 }
@@ -132,6 +155,7 @@ INSTALLERS["blender_benchmark_gpu"] = INSTALLERS["blender_benchmark"]
 INSTALLERS["vray_benchmark_gpu"] = INSTALLERS["vray_benchmark_rtx"] = INSTALLERS["vray_benchmark"]
 # the single-thread run of Cinebench 2026 uses the same program
 INSTALLERS["cinebench_2026_single"] = INSTALLERS["cinebench_2026"]
+INSTALLERS["ycruncher_pi_2_5b"] = INSTALLERS["ycruncher_pi_1b"]
 # PassMark's automatic tests (app/pro/passmark.py) use the same program. On Linux, PassMark's own command-line
 # program (CPU and Memory tests only): the zips linked from passmark.com/products/pt_linux/download.php, 11.0
 # Build 1004 (2025-11-12), read on 2026-10-19. PassMark publishes no checksum: size and SHA-256 pinned from the
