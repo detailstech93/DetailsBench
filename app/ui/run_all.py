@@ -54,6 +54,9 @@ class Item:
                 from app.ui.install_flow import THEN
                 text += ". " + THEN[p["then"]][0]()
             return text
+        if self.plan["kind"] == "lmstudio":
+            from app.ai.model_set import install_text
+            return f"- {self.entry.name}: " + install_text(self.plan["test_id"]).splitlines()[0]
         if self.package is not None:
             p = self.package
             return (f"- {self.entry.name}: {p.name} {p.version} by {p.publisher or 'unknown publisher'}, "
@@ -102,7 +105,7 @@ class RunAllFlow(QObject):
                     items.append(Item(e, plan))
                 else:                           # one program for several tests (Blender CPU and GPU)
                     same.entry = dataclasses.replace(same.entry, name=f"{same.entry.name} + {e.name}")
-            elif plan is not None and plan["kind"] in ("winget", "linux"):
+            elif plan is not None and plan["kind"] in ("winget", "linux", "lmstudio"):
                 items.append(Item(e, plan))
             elif e.source == "steam":
                 self.steam_missing.append(e.name)
@@ -118,6 +121,9 @@ class RunAllFlow(QObject):
                 if item.plan["kind"] == "zip":
                     from app.install import direct
                     item.problem = direct.problem(item.plan)
+                elif item.plan["kind"] == "lmstudio":
+                    from app.ai.lmstudio import lms_path
+                    item.problem = None if lms_path() else "LM Studio is not installed"
                 elif item.plan["kind"] == "winget":
                     item.package = self.describe_fn(item.entry.id)
                     item.problem = item.package.problem
@@ -166,6 +172,9 @@ class RunAllFlow(QObject):
             try:
                 if item.plan["kind"] == "zip":
                     lines.append(self.install_zip(item).message)
+                elif item.plan["kind"] == "lmstudio":
+                    from app.ai.model_set import install
+                    lines.append(install(item.plan["test_id"]).message)
                 elif item.package is not None:
                     out = self.install_fn(item.package)
                     lines.append(out.message)

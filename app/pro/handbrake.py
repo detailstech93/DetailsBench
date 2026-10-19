@@ -173,7 +173,7 @@ class HandBrakeWorkload(Workload):
         if _os_key() not in ("windows", "linux"):
             return False, "HandBrake runs here on Windows and Linux only"
         if not self.clip:
-            return False, "the test clip is not downloaded (Install button)"
+            return False, "the test clip is not installed (Install button)"
         if not self.cli:
             return False, "HandBrakeCLI is not installed (Install button)"
         return True, str(self.cli)

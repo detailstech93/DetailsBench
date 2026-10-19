@@ -106,6 +106,8 @@ class InstallFlow(QObject):
             return True
         if plan["kind"] == "zip":
             return self._zip(entry, plan)
+        if plan["kind"] == "lmstudio":
+            return self._lmstudio(entry, plan)
         self._show(f"Asking Windows Package Manager about {entry.name}...")
         self.start_thread(lambda: self.described.emit(self._safe(lambda: self.describe_fn(entry.id),
                                                                  winget.Package(entry.id, ""))))
@@ -153,6 +155,16 @@ class InstallFlow(QObject):
                 outcome = then[1](exe, self._progress)
             return outcome
         self.start_thread(lambda: self.finished.emit(self._safe(work, failed)))
+        return True
+
+    def _lmstudio(self, entry: TestEntry, plan: dict) -> bool:
+        from app.ai import model_set
+        if not self.ask(self.window, "Install", model_set.install_text(plan["test_id"])):
+            return False
+        self._show(f"Downloading {entry.name} with LM Studio...")
+        failed = winget.Outcome(False, "")
+        self.start_thread(lambda: self.finished.emit(self._safe(
+            lambda: model_set.install(plan["test_id"], self._progress), failed)))
         return True
 
     def _progress(self, text: str):

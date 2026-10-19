@@ -41,6 +41,24 @@ TEST_INFO: Dict[str, dict] = {
         "group": "ai", "official_url": "https://pypi.org/project/llama-benchy/",
         "expected_minutes": 5,
     },
+    "llama_benchy_qwen35_4b": {
+        "group": "ai", "official_url": "https://lmstudio.ai/models/qwen3.5",
+        "supported_os": ["windows", "linux"],
+        "supported_architectures": {"x64": "native", "arm64": "unverified"},
+        "expected_minutes": 5,
+    },
+    "llama_benchy_gemma4_12b": {
+        "group": "ai", "official_url": "https://lmstudio.ai/models/gemma-4",
+        "supported_os": ["windows", "linux"],
+        "supported_architectures": {"x64": "native", "arm64": "unverified"},
+        "expected_minutes": 6,
+    },
+    "llama_benchy_qwen38_27b": {
+        "group": "ai", "official_url": "https://lmstudio.ai/models/qwen3.8",
+        "supported_os": ["windows", "linux"],
+        "supported_architectures": {"x64": "native", "arm64": "unverified"},
+        "expected_minutes": 8,
+    },
     "mlperf_client": {
         "group": "ai", "official_url": "https://github.com/mlcommons/mlperf_client/releases",
         "supported_os": ["windows"],

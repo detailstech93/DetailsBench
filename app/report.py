@@ -524,6 +524,29 @@ def _handbrake_section(export: Mapping) -> str:
         decimals=1)
 
 
+def _model_sections(export: Mapping) -> str:
+    """One section per fixed LM Studio model (app/ai/model_set.py), also one the owner removed since."""
+    from app.ai.model_set import CONTEXT, PP, TG, all_models
+    try:
+        models = all_models()
+    except Exception:                   # settings not readable: the built-in names only
+        from app.ai.model_set import MODELS as models
+    ids = list(models) + sorted({str(r.get("benchmark_name")) for r in export.get("runs") or []
+                                 if str(r.get("benchmark_name", "")).startswith("llama_benchy_")} - set(models))
+    sections = []
+    for test_id in ids:
+        title, key, quant, _size = models.get(test_id, (test_id, "", "", ""))
+        model = f"{key} {quant}" if key else "the model named on the tile"
+        sections.append(_tiles_section(
+            export, f"{title} (llama-benchy)", ((test_id, f"{title}, {quant}" if quant else title, "tok/s"),),
+            f"Token generation in tokens per second (llama-benchy, total tg at depth 0, one request, gpt2 token "
+            f"counts) for {model} in LM Studio, loaded by the app with context {CONTEXT}, every layer on the "
+            f"graphics card and one request at a time; prompt {PP} tokens, {TG} generated. Higher is faster. "
+            "Comparable only with the same model, quantization, LM Studio engine and llama-benchy version. Nothing "
+            "was uploaded.", decimals=1))
+    return "".join(sections)
+
+
 MLPERF_TESTS = (("mlperf_client", "Phi-4 mini", "tok/s"), ("mlperf_client_llama31", "Llama 3.1 8B", "tok/s"),
                 ("mlperf_client_phi4reason", "Phi-4 reasoning", "tok/s"), ("mlperf_client_qwen3", "Qwen3 8B", "tok/s"))
 
@@ -1220,6 +1243,7 @@ def render_session_report(export: Mapping) -> str:
         + _passmark_section(export_mapping)
         + _ycruncher_section(export_mapping)
         + _handbrake_section(export_mapping)
+        + _model_sections(export_mapping)
         + _mlperf_section(export_mapping)
         + _pugetbench_section(export_mapping)
         + _earlier_section(export_mapping)

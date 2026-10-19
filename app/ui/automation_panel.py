@@ -417,7 +417,7 @@ class AutomationPanel(QGroupBox):
             return bool(started and started[0])      # empty: it asks or downloads first, the run starts later
         chosen = {}
         for wl in workloads:
-            if hasattr(wl, "configure"):      # llama-benchy: model and settings are chosen for every plan
+            if hasattr(wl, "configure") and getattr(wl, "asks_settings", True):   # llama-benchy: chosen every plan
                 settings = self.choose_settings(wl)
                 if not settings:
                     self.status_label.setText("No llama-benchy settings chosen; nothing was run.")

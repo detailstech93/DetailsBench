@@ -435,6 +435,7 @@ class MainWindow(QMainWindow):
         self.tests_page.rescan_requested.connect(self.start_scan)
         self.tests_page.run_requested.connect(self.run_tests)
         self.tests_page.run_plan_requested.connect(self.run_saved_plan)
+        self.tests_page.ai_models_requested.connect(self.edit_ai_models)
         from app.ui.install_flow import InstallFlow
         self.install_flow = InstallFlow(self)
         self.tests_page.install_requested.connect(self.install_flow.start)
@@ -475,6 +476,14 @@ class MainWindow(QMainWindow):
         """Run one or more tests from the Tests screen (repetitions dialog, then the plan)."""
         from app.ui.run_tests import start_tests
         start_tests(self, entries)
+
+    def edit_ai_models(self):
+        """Add or remove the owner's own fixed AI models; the Tests screen is read again after a change."""
+        from app.ui.ai_models_dialog import AiModelsDialog
+        dialog = AiModelsDialog(self, self.frame_panel.data_dir)
+        dialog.exec()
+        if dialog.changed:
+            self.start_scan()
 
     def run_saved_plan(self, path=None):
         """Run the same tests with the same numbers as a saved plan (app/experiment.py)."""

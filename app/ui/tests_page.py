@@ -67,6 +67,7 @@ class TestsPage(QWidget):
     run_requested = Signal(list)      # [TestEntry], all can_run()
     run_all_requested = Signal(list)  # every entry shown (app/ui/run_all.py offers the installs first)
     run_plan_requested = Signal()     # "Run a saved plan..." (app/experiment.py)
+    ai_models_requested = Signal()    # "AI models..." (app/ui/ai_models_dialog.py)
     rescan_requested = Signal()
     install_requested = Signal(object)      # TestEntry: missing, with a one-click install (app/install)
 
@@ -132,7 +133,13 @@ class TestsPage(QWidget):
         self.run_plan_btn.setToolTip("Every run from this screen is saved as a plan (tests, runs, warm-ups, pause, "
                                      "game settings). Pick one to run the same again.")
         self.run_plan_btn.clicked.connect(lambda: self.busy or self.run_plan_requested.emit())
+        self.ai_models_btn = QPushButton("AI models...")
+        self.ai_models_btn.setMinimumHeight(40)
+        self.ai_models_btn.setToolTip("The LM Studio models measured with fixed settings (llama-benchy): add your "
+                                      "own model or remove it again.")
+        self.ai_models_btn.clicked.connect(lambda: self.busy or self.ai_models_requested.emit())
         row.addWidget(self.hint, 1)
+        row.addWidget(self.ai_models_btn)
         row.addWidget(self.run_plan_btn)
         row.addWidget(self.run_all_btn)
         row.addWidget(self.run_btn)

@@ -4,6 +4,7 @@ plan_for() returns one of
     {"kind": "winget", "test_id", "winget", "hosts", "path_prefix"}      Windows, an installer for this arch
     {"kind": "linux", "family", "package"}                                Linux, a package for this family
     {"kind": "steam", "app_id"}                                           Steam's install dialog
+    {"kind": "lmstudio", "test_id"}                                       a fixed model through LM Studio's lms get
     {"kind": "zip", "test_id", **pinned zip}                              the vendor's zip (app/install/direct.py;
                                                                           "zip_by_arch": one per architecture)
 or None: no install fits, the Tests screen keeps the official download page.
@@ -47,6 +48,9 @@ def plan_for(test_id: str, source: str = "", app_id=None, host: Optional[Host] =
             return {"kind": "steam", "app_id": int(app_id)}
         except (TypeError, ValueError):
             return None
+    from app.ai.model_set import all_models
+    if test_id.startswith("llama_benchy_") and test_id in all_models():   # LM Studio downloads the model itself
+        return {"kind": "lmstudio", "test_id": test_id} if host.os in ("windows", "linux") else None
     entry = (INSTALLERS.get(test_id) or {}).get(host.os)
     if not entry:
         return None
