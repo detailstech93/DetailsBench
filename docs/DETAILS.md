@@ -592,7 +592,8 @@ one-time code shown under it.
   minute every request waits 60 s. Clients outside the local network are refused; "This PC only" binds to 127.0.0.1.
   The app never changes firewall rules (Windows may ask; that answer is the owner's).
 - The page shows the PC's specs and only the tests that need nobody at the PC (no typed score, no license still to
-  accept, no llama-benchy settings window, no Steam frame capture). It starts them with measured runs, warm-ups and
+  accept, no llama-benchy settings window, no Steam frame capture, and on Windows nothing that needs the
+  UAC prompt: PassMark and the game benchmarks). It starts them with measured runs, warm-ups and
   the pause, shows the progress, has an emergency stop and opens the last report.
 - A remote start opens no window on the PC: the page's Start answers the start question, games use the preset chosen
   last on the PC, a stress test its last length, and LibreHardwareMonitor is used only if it already runs.

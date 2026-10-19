@@ -4,3 +4,4 @@ pefile>=2024.8.26
 psutil>=5.9.0
 numpy>=1.24
 wgpu==0.31.0
+llama-benchy==0.4.0     # AI tests through LM Studio (app/ai/llama_benchy.py)

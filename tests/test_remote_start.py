@@ -149,8 +149,12 @@ def test_only_tests_that_need_nobody_are_offered():
                _entry("llama_benchy_gemma4_12b", ref=SimpleNamespace(configure=None, asks_settings=False),
                       group="ai"),
                _entry("geekbench_6", source="library"), _entry("steam_game", source="steam", group="game")]
-    ids = [e.id for e in remote_entries(entries) if e.can_run()]
+    ids = [e.id for e in remote_entries(entries, "linux") if e.can_run()]
     assert ids == ["sevenzip_benchmark", "vray_gpu", "llama_benchy_gemma4_12b"]
+    admin = [_entry("passmark_cpu", ref=SimpleNamespace(needs_admin=True)),
+             _entry("cyberpunk", ref=SimpleNamespace(script={"steam_app": 1091500}), group="game")]
+    assert [e.id for e in remote_entries(admin, "linux")] == ["passmark_cpu", "cyberpunk"]
+    assert remote_entries(admin, "win32") == []         # the UAC prompt would wait at the PC
 
 
 def _window(tmp_path, entries, running=False):

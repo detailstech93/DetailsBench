@@ -565,6 +565,38 @@ PASSMARK_TESTS = (("passmark_cpu", "CPU Mark", "points"), ("passmark_2d", "2D Gr
                   ("passmark_3d", "3D Graphics Mark", "points"), ("passmark_memory", "Memory Mark", "points"))
 
 
+SEVENZIP_TESTS = (("sevenzip_benchmark", "Command line (7z b), total rating", "MIPS"),
+                  ("sevenzip_fm_benchmark", "File Manager benchmark, total rating", "GIPS"))
+STORAGE_TESTS = (("diskspd", "DiskSpd, sequential read", "MiB/s"), ("fio", "fio, sequential read", "MiB/s"))
+FREE_LLAMA_TESTS = (("llama_benchy", "llama-benchy, model chosen for the run", "tok/s"),)
+
+
+def _sevenzip_section(export: Mapping) -> str:
+    return _tiles_section(
+        export, "7-Zip", SEVENZIP_TESTS,
+        "7-Zip's own benchmark rating (compress and decompress, every CPU thread). Higher is faster. 1 GIPS = "
+        "1000 MIPS; the command line and the File Manager benchmark are separate tests and compare only with "
+        "the same test and 7-Zip version. Nothing was uploaded.")
+
+
+def _storage_section(export: Mapping) -> str:
+    return _tiles_section(
+        export, "Storage", STORAGE_TESTS,
+        "Sequential read in MiB/s (1 MiB blocks, queue depth 8) on the drive that holds the app's data, with the "
+        "OS cache off. Higher is faster. Each run also measured sequential write and random 4 KiB read and write "
+        "(queue depth 32): MiB/s, IOPS and latency are in Extra metrics below and in storage_report.md in the run "
+        "folder. DiskSpd and fio compare only with the same tool. Nothing was uploaded.", decimals=1)
+
+
+def _free_llama_section(export: Mapping) -> str:
+    return _tiles_section(
+        export, "llama-benchy (model chosen for the run)", FREE_LLAMA_TESTS,
+        "Token generation in tokens per second with the LM Studio model and settings chosen before the run (they "
+        "are on the tile and in the runs table). Higher is faster. Comparable only with the same model, "
+        "quantization, settings and LM Studio engine; for results that compare between PCs use the fixed AI "
+        "models. Nothing was uploaded.", decimals=1)
+
+
 def _passmark_section(export: Mapping) -> str:
     return _tiles_section(
         export, "PassMark PerformanceTest", PASSMARK_TESTS,
@@ -1243,6 +1275,9 @@ def render_session_report(export: Mapping) -> str:
         + _passmark_section(export_mapping)
         + _ycruncher_section(export_mapping)
         + _handbrake_section(export_mapping)
+        + _sevenzip_section(export_mapping)
+        + _storage_section(export_mapping)
+        + _free_llama_section(export_mapping)
         + _model_sections(export_mapping)
         + _mlperf_section(export_mapping)
         + _pugetbench_section(export_mapping)

@@ -79,7 +79,8 @@ a { color:var(--accent); }
   <section>
     <h2>Tests</h2>
     <p class="muted">Only tests that run by themselves are here. Tests that need someone at the PC (typed
-    scores, a license still to accept, Steam games with frame capture) start from the PC.</p>
+    scores, a license still to accept, an administrator prompt, Steam games with frame capture) start from the
+    PC.</p>
     <div class="row"><button id="all">Select all</button><button id="none">Select none</button></div>
     <div id="tests"></div>
     <div class="grid" style="margin-top:12px">

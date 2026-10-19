@@ -19,8 +19,8 @@ The app loads its own copy, `lms load <key> --identifier pcbm-<test id> -c 4096 
 Other loaded models are not touched, but they share the graphics card: the warning says so. A model that does not
 fit with every layer on the card fails to load and the run says so (no score). llama-benchy counts tokens with the
 gpt2 tokenizer on every PC (--tokenizer gpt2: the identifier is not a Hugging Face name, and the same tokenizer
-everywhere keeps the counts comparable). Real runs on this computer 2026-10-19 (Gemma 4 12B): first with the NVIDIA card
-"lost" (nvidia-smi), so on the CPU (8.6 tok/s, not a score); after a restart on the RTX 5090 Laptop GPU: loaded in
+everywhere keeps the counts comparable). Real runs on this computer 2026-10-19 (Gemma 4 12B): first with the NVIDIA
+card "lost" (nvidia-smi), so on the CPU (8.6 tok/s, not a score); after a restart on the RTX 5090 Laptop GPU: loaded in
 9.8 s, pp 1,664.7 tok/s, tg 83.8 tok/s, unloaded after. Only Gemma 4 12B is marked verified (the others' downloads
 and loads have not been seen here yet).
 
@@ -230,7 +230,9 @@ class FixedModelWorkload(llama_benchy.LlamaBenchyWorkload):
         if self.lms is None:
             return False, "LM Studio is not installed (its CLI lms was not found)"
         if not self.exe:
-            return False, "llama-benchy not installed in the app's Python (or set PCBM_LLAMA_BENCHY)"
+            # not "not installed": the Tests screen would offer the Install button, which downloads only the model
+            return False, ("llama-benchy is missing from the app's Python: pip install -r requirements.txt (or set "
+                           "PCBM_LLAMA_BENCHY)")
         return installed(list_models(self.lms, self._lms_run), self.key, self.quant)
 
     def _command(self, result_path: str) -> List[str]:

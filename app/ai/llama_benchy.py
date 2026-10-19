@@ -259,5 +259,9 @@ class LlamaBenchyWorkload(Workload):
             return WorkloadResult(status="invalid", error=f"output not usable: {error}", metrics=metrics, **common)
         (folder / REPORT_FILE).write_text(report_markdown(json.loads(text), ai_run), encoding="utf-8")
         metrics.update({k: v for k, v in ai_run.items() if isinstance(v, str)})
-        return WorkloadResult(status="completed", score=score, unit="tok/s", metrics=metrics, **common)
+        parts = (("Model", ai_run.get("model")), ("Quantization", ai_run.get("quantization")),
+                 ("Backend", ai_run.get("backend")), ("Context", ai_run.get("context_length")),
+                 ("pp/tg", f"{self.pp}/{self.tg}"))
+        note = "; ".join(f"{k}: {v}" for k, v in parts if v)       # the report's tile names what was measured
+        return WorkloadResult(status="completed", score=score, unit="tok/s", metrics=metrics, note=note, **common)
 

@@ -2,7 +2,8 @@
 gets (app/remote/server.py). Every answer is made on the Qt thread (MainThread), as if the owner had pressed the
 buttons on the Tests screen; nothing on the PC waits for a click when the page starts a run:
 - only tests that run by themselves are offered (no typed score, no license still to accept, no llama-benchy
-  settings window, no Steam frame capture);
+  settings window, no Steam frame capture, and on Windows nothing that needs the UAC prompt: PassMark and the game
+  benchmarks, whose PresentMon runs as administrator; nobody could answer the prompt from the page);
 - the counts come from the page, game tests use the game preset chosen last on the PC, a stress test its last
   length;
 - the start question is answered by the page's Start button (its text is kept in the status line);
@@ -11,6 +12,7 @@ buttons on the Tests screen; nothing on the PC waits for a click when the page s
 """
 
 import logging
+import sys
 import threading
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
@@ -64,8 +66,9 @@ class MainThread(QObject):
         return box["value"]
 
 
-def remote_entries(entries: List[TestEntry]) -> List[TestEntry]:
+def remote_entries(entries: List[TestEntry], platform: str = sys.platform) -> List[TestEntry]:
     """The tests the page may start: automatic ones that need nobody at the PC."""
+    from app.ui.run_tests import game_of
     out = []
     for e in entries:
         ref = e.ref
@@ -76,6 +79,8 @@ def remote_entries(entries: List[TestEntry]) -> List[TestEntry]:
             continue
         if hasattr(ref, "configure") and getattr(ref, "asks_settings", True):
             continue
+        if platform == "win32" and (getattr(ref, "needs_admin", False) or game_of(e) is not None):
+            continue                            # the UAC prompt would wait at the PC
         out.append(e)
     order = {g: i for i, (g, _) in enumerate(GROUPS)}
     return sorted(out, key=lambda e: (order.get(e.group, len(order)), e.name.lower()))
@@ -147,8 +152,10 @@ class RemoteApi:
         return {"specs": specs, "tests": tests,
                 "defaults": {"repetitions": max(1, int(profile.repetitions)), "warmup_runs": int(profile.warmup_runs),
                              "cooldown_seconds": int(profile.cooldown_seconds)},
-                "note": "Game tests use the game settings chosen last on the PC. A failed run is stored as failed "
-                        "and run once more; uneven scores get up to a few extra runs."}
+                "note": "A failed run is stored as failed and run once more; uneven scores get up to a few extra "
+                        "runs." + (" Game tests use the game settings chosen last on the PC." if sys.platform !=
+                                   "win32" else " PassMark and game tests ask Windows for administrator rights, "
+                                   "so they start from the PC.")}
 
     def state(self) -> dict:
         return self.main.run(self._state)

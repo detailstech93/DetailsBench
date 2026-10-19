@@ -51,6 +51,13 @@ def test_installed_needs_the_fixed_quantization_selected():
     assert not ok and "not installed" in why
 
 
+def test_without_llama_benchy_there_is_no_misleading_install_button(tmp_path):
+    w = ms.FixedModelWorkload("llama_benchy_gemma4_12b", exe=None, lms=tmp_path / "lms.exe", run=FakeLms())
+    w.exe = None
+    ok, why = w.availability()
+    assert not ok and "requirements.txt" in why and "not installed" not in why and "not found" not in why
+
+
 def test_the_lms_commands():
     assert ms.get_command("lms", "qwen/qwen3.5-4b", "Q4_K_M") == ["lms", "get", "qwen/qwen3.5-4b@q4_k_m", "--gguf", "-y"]
     assert ms.load_command("lms", "qwen/qwen3.5-4b", "pcbm-x") == [
@@ -106,6 +113,22 @@ def test_a_model_that_does_not_fit_stores_no_score_and_is_unloaded(tmp_path):
     assert fake.calls[-1] == ["unload", "pcbm-llama_benchy_gemma4_12b"]
     w = _workload(tmp_path, FakeLms(), "llama_benchy_qwen38_27b")
     assert w.run(RunContext(output_dir=tmp_path / "b")).status == "skipped"
+
+
+def test_the_other_tests_have_their_own_report_sections():
+    from app.report import _free_llama_section, _sevenzip_section, _storage_section
+    runs = [{"benchmark_name": n, "status": "completed", "is_warmup": False, "unit": u, "note": note}
+            for n, u, note in (("sevenzip_benchmark", "MIPS", ""), ("fio", "MiB/s", ""),
+                               ("llama_benchy", "tok/s", "Model: qwen/qwen3-8b; Quantization: Q4_K_M"))]
+    export = {"session": {}, "runs": runs, "summaries": {"sevenzip_benchmark": {"stats": {"mean": 150123.4}},
+                                                       "fio": {"stats": {"mean": 6890.25}},
+                                                       "llama_benchy": {"stats": {"mean": 55.55}}}}
+    assert "<h2>7-Zip</h2>" in _sevenzip_section(export) and "150,123 <span>MIPS</span>" in _sevenzip_section(export)
+    assert "6,890.2 <span>MiB/s</span>" in _storage_section(export) and "DiskSpd" not in _storage_section(export)[:200]
+    html = _free_llama_section(export)
+    assert "55.5 <span>tok/s</span>" in html or "55.6 <span>tok/s</span>" in html
+    assert "qwen/qwen3-8b" in html
+    assert _sevenzip_section({"runs": []}) == ""
 
 
 def test_install_plan_and_report_sections():
