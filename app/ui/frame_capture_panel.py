@@ -294,6 +294,7 @@ class FrameCapturePanel(QGroupBox):
         self.benchmark_factory = None                    # tests swap in a fake GameBenchmark
         self.linux_which = None                          # tests swap in a fake shutil.which (Linux games)
         self.x11_check = None                            # tests swap in a fake X11 session check
+        self.session_env = None                          # tests swap in a fake environment (Wayland or X11)
         self.forced_factory = None                       # tests swap in a fake ForcedSettings
         self.settings_reader = None                      # tests swap in a fake read_for_dialog
         from app.ui.game_settings_dialog import GameSettingsDialog
@@ -979,6 +980,17 @@ class FrameCapturePanel(QGroupBox):
             return False
         return True
 
+    def _wayland(self) -> bool:
+        from app.simulation.x11_desktop import is_wayland
+        return is_wayland(self.session_env)
+
+    @staticmethod
+    def _wayland_note() -> str:
+        return ("   Wayland session: the app reads the game's own window through XWayland and sends keys only while "
+                "that window is in front and has the keyboard. The game must run through XWayland (Proton's "
+                "default; not with PROTON_ENABLE_WAYLAND). Your desktop may ask once to allow remote input: allow "
+                "it. Not yet checked on a real Wayland desktop.\n")
+
     def linux_text(self, spec, profile, total: int, declared, forced_values=None, by_launch=False) -> str:
         from app.ui.game_settings_dialog import describe
         return (f"Benchmark {spec.game_name} automatically (Linux, MangoHud):\n\n"
@@ -1000,6 +1012,7 @@ class FrameCapturePanel(QGroupBox):
                    f"The app presses {', '.join(c for _, c in spec.start_keys)} in the game (only while it is the "
                    "active window). Keep the game in front.\n" if spec.start_keys else
                    f"Get to the scene you want to measure during the first {spec.settle_seconds} s.\n")
+                + (self._wayland_note() if (spec.steps or spec.start_keys) and self._wayland() else "")
                 + f"3. Then the app closes the game: only processes started from the game's folder (for Proton: the "
                 f"ones whose command line names it), politely first, by force after 30 s. Unsaved progress is "
                 f"lost. Steam stays open for the next game.\n\n"

@@ -43,11 +43,13 @@ def test_tesseract_install_plan_per_distribution():
 
 
 def test_session_check_and_keys():
-    assert "Wayland" in xd.session_problem({"XDG_SESSION_TYPE": "wayland", "DISPLAY": ":0"})
-    assert "Wayland" in xd.session_problem({"WAYLAND_DISPLAY": "wayland-0", "DISPLAY": ":0"})
+    assert xd.session_problem({"XDG_SESSION_TYPE": "wayland", "DISPLAY": ":0"}) is None     # XWayland is there
+    assert xd.session_problem({"WAYLAND_DISPLAY": "wayland-0", "DISPLAY": ":0"}) is None
+    assert "XWayland" in xd.session_problem({"XDG_SESSION_TYPE": "wayland"})
+    assert xd.is_wayland({"WAYLAND_DISPLAY": "wayland-0"}) and not xd.is_wayland({"XDG_SESSION_TYPE": "x11"})
     assert xd.session_problem({"XDG_SESSION_TYPE": "x11", "DISPLAY": ":0", "WAYLAND_DISPLAY": "x"}) is None
     assert "DISPLAY" in xd.session_problem({"XDG_SESSION_TYPE": "x11"})
-    assert xd.X11Desktop.open({"XDG_SESSION_TYPE": "wayland"}) is None and "Wayland" in xd.X11Desktop.why
+    assert xd.X11Desktop.open({"XDG_SESSION_TYPE": "wayland"}) is None and "XWayland" in xd.X11Desktop.why
     names = [xd.keysym_name(c) for c in parse_chord("ctrl+shift+a") + parse_chord("enter") + parse_chord("f5")
              + parse_chord("up") + parse_chord("esc") + parse_chord("7")]
     assert names == ["Control_L", "Shift_L", "a", "Return", "F5", "Up", "Escape", "7"]
@@ -113,6 +115,28 @@ class FakeX:
     def XTestFakeButtonEvent(self, d, button, down, delay):
         self.events.append(("button", button, down))
 
+    # XWayland mode: the active window 77 is at (500, 300) on the X screen; focus on its child 78 (or elsewhere)
+    focus = 78
+    parents = {78: 77, 77: 1, 90: 1}
+
+    def XGetGeometry(self, d, window, root, x, y, w, h, border, depth):
+        w._obj.value, h._obj.value = 2, 2
+        self.geometry_of = window
+        return 1
+
+    def XTranslateCoordinates(self, d, src, dst, sx, sy, rx, ry, child):
+        rx._obj.value, ry._obj.value = 500, 300
+        return 1
+
+    def XGetInputFocus(self, d, focus, revert):
+        focus._obj.value = self.focus
+
+    def XQueryTree(self, d, window, root, parent, children, n):
+        if window not in self.parents:
+            return 0
+        parent._obj.value = self.parents[window]
+        return 1
+
 
 def test_x11_desktop_with_a_fake_xlib(tmp_path):
     x = FakeX()
@@ -157,3 +181,48 @@ def test_linux_panel_needs_x11_and_offers_tesseract(tmp_path):
     p.linux_which = lambda name: "/usr/bin/" + name
     assert p.linux_steps_ready(spec)
     assert p.linux_steps_ready(SimpleNamespace(game_name="G", steps=[], start_keys=[(5, "enter")]))
+
+
+def test_xwayland_mode_uses_the_game_window_and_needs_its_focus(tmp_path):
+    x = FakeX()
+    desk = xd.X11Desktop(x, x, 123, xwayland=True)
+    assert desk.foreground_pid() == 4242               # the X focus is on a child of the active window
+    x.focus = 90                                       # another X window has the keyboard
+    assert desk.foreground_pid() is None
+    for gone in (0, 1):                                # None / PointerRoot: a Wayland window is in front
+        x.focus = gone
+        assert desk.foreground_pid() is None
+    assert desk.screenshot(tmp_path / "w.png") == (2, 2) and x.geometry_of == 77 and desk.origin == (500, 300)
+    x.events.clear()
+    desk.mouse_to(10, 20)
+    assert x.events[0] == ("to", 510, 320)             # a word in the window's picture, moved to the X screen
+    plain = xd.X11Desktop(x, x, 123)
+    plain.screenshot(tmp_path / "s.png")
+    x.events.clear()
+    plain.mouse_to(10, 20)
+    assert plain.origin == (0, 0) and x.events[0] == ("to", 10, 20)
+
+
+def test_xwayland_screenshot_without_an_active_window(tmp_path):
+    x = FakeX()
+    x.XGetWindowProperty = lambda *a: 1                 # no _NET_ACTIVE_WINDOW
+    try:
+        xd.X11Desktop(x, x, 123, xwayland=True).screenshot(tmp_path / "w.png")
+        raise AssertionError("no window must not give a picture")
+    except OSError as e:
+        assert "not in front" in str(e)
+
+
+def test_linux_text_mentions_xwayland_on_wayland(tmp_path):
+    from PySide6.QtWidgets import QApplication
+    import sys
+    QApplication.instance() or QApplication(sys.argv)
+    from tests.test_frame_capture_ui import make_panel
+    p = make_panel(tmp_path, platform_name="linux")
+    spec = SimpleNamespace(game_name="SOTTR", app_id="750920", launch_args=[], settle_seconds=5, seconds=60,
+                           warmup_runs=0, repetitions=3, wait_seconds=lambda: 200.0, steps=[{"see": "x"}],
+                           start_keys=[])
+    p.session_env = {"XDG_SESSION_TYPE": "wayland", "DISPLAY": ":0"}
+    assert "XWayland" in p.linux_text(spec, SimpleNamespace(name="p"), 180, {})
+    p.session_env = {"XDG_SESSION_TYPE": "x11", "DISPLAY": ":0"}
+    assert "XWayland" not in p.linux_text(spec, SimpleNamespace(name="p"), 180, {})

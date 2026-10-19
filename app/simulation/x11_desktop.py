@@ -8,10 +8,19 @@ XTestFakeButtonEvent, XTestFakeMotionEvent, the documented way to send test inpu
 A Proton game is an X11 program (Wine's X11 driver sets _NET_WM_PID to the game's own process), so the same check
 as on Windows holds: a key goes out only while the active window belongs to a process the launch started.
 
-Wayland sessions are refused: there a program cannot read the screen or send input to other programs without
-the compositor's portal, and the active window cannot be read, so keys could not be checked to reach the game.
-The owner can log in to an X11 session ("on Xorg" / "Plasma (X11)") for menu-step games. Xlib is not thread safe:
-every call holds one lock (the step player runs in its own thread).
+Wayland sessions (owner, 2026-10-19: look into Wayland): a Proton game still runs as an X11 program, under
+XWayland, so the app works with the game's own X window there instead of the screen ("xwayland" mode):
+- the screenshot is the game's window (XGetImage of that window; the root window of XWayland is not the screen),
+  and a click on a word is moved by the window's place on the X screen (XTranslateCoordinates);
+- XTEST works between the X11 programs inside XWayland (Xwayland is a Wayland client: its XTEST does not move the
+  real pointer, but X11 programs get the events; xorg/xserver MR 465). Newer KWin can send XWayland's XTEST through
+  the remote desktop portal (libei; KWin MR 5619): the desktop may then ask once to allow it;
+- a key goes out only while the game's X window is the active one (_NET_ACTIVE_WINDOW, as on X11) AND has the X
+  input focus (XGetInputFocus; with a Wayland window in front XWayland's focus is not on the game), so a key can
+  never go to a Wayland window. A game running as a native Wayland program (PROTON_ENABLE_WAYLAND) has no X window:
+  no key is sent and the run says the game was not in front.
+Not checked on a real Wayland desktop yet. Xlib is not thread safe: every call holds one lock (the step player
+runs in its own thread).
 """
 
 import ctypes
@@ -42,14 +51,19 @@ def keysym_name(code: int) -> Optional[str]:
     return None
 
 
-def session_problem(env=None) -> Optional[str]:
-    """Why menu steps cannot run in this Linux session, or None."""
+def is_wayland(env=None) -> bool:
     env = os.environ if env is None else env
     kind = (env.get("XDG_SESSION_TYPE") or "").lower()
-    if kind == "wayland" or (env.get("WAYLAND_DISPLAY") and kind != "x11"):
-        return ("this is a Wayland session, where the app cannot read the screen or send keys to a game; log in "
-                "to an X11 session (\"on Xorg\" / \"Plasma (X11)\" at the login screen) for menu-step games")
+    return kind == "wayland" or bool(env.get("WAYLAND_DISPLAY") and kind != "x11")
+
+
+def session_problem(env=None) -> Optional[str]:
+    """Why menu steps cannot run in this Linux session, or None (a Wayland session with XWayland is usable)."""
+    env = os.environ if env is None else env
     if not env.get("DISPLAY"):
+        if is_wayland(env):
+            return ("this Wayland session has no XWayland (DISPLAY is not set), which the app needs to read the "
+                    "game's window and send it keys; turn XWayland on, or log in to an X11 session")
         return "no X11 display (DISPLAY is not set)"
     return None
 
@@ -65,11 +79,13 @@ class X11Desktop:
     """The real X11 desktop. open() returns None when it cannot be used (the reason in .why)."""
     why: Optional[str] = None
 
-    def __init__(self, x11, xtst, display):
+    def __init__(self, x11, xtst, display, xwayland: bool = False):
         self.x, self.xtst, self.d = x11, xtst, display
         self.root = x11.XDefaultRootWindow(display)
         self.lock = threading.Lock()
         self._atoms = {}
+        self.xwayland = xwayland
+        self.origin = (0, 0)            # where the last screenshot's top left is on the X screen
 
     @classmethod
     def open(cls, env=None) -> "Optional[X11Desktop]":
@@ -94,7 +110,7 @@ class X11Desktop:
             cls.why = "the X server has no XTEST extension (needed to send keys)"
             return None
         cls.why = None
-        return cls(x11, xtst, display)
+        return cls(x11, xtst, display, xwayland=is_wayland(env))
 
     # the screen
     def size(self) -> Tuple[int, int]:
@@ -102,10 +118,33 @@ class X11Desktop:
             screen = self.x.XDefaultScreen(self.d)
             return self.x.XDisplayWidth(self.d, screen), self.x.XDisplayHeight(self.d, screen)
 
+    def _window_box(self, window: int) -> Tuple[int, int, int, int]:
+        """(x, y on the X screen, width, height) of a window."""
+        root, child = ctypes.c_ulong(), ctypes.c_ulong()
+        x, y, rx, ry = ctypes.c_int(), ctypes.c_int(), ctypes.c_int(), ctypes.c_int()
+        w, h, border, depth = ctypes.c_uint(), ctypes.c_uint(), ctypes.c_uint(), ctypes.c_uint()
+        if not self.x.XGetGeometry(self.d, window, ctypes.byref(root), ctypes.byref(x), ctypes.byref(y),
+                                   ctypes.byref(w), ctypes.byref(h), ctypes.byref(border), ctypes.byref(depth)):
+            raise OSError("the game's window size could not be read")
+        self.x.XTranslateCoordinates(self.d, window, self.root, 0, 0, ctypes.byref(rx), ctypes.byref(ry),
+                                     ctypes.byref(child))
+        return rx.value, ry.value, w.value, h.value
+
     def screenshot(self, path) -> Tuple[int, int]:
-        width, height = self.size()
+        """X11: the whole screen. XWayland: the active window (the game's), whose place is kept for clicks."""
+        if self.xwayland:
+            with self.lock:
+                window = self._cardinal(self.root, "_NET_ACTIVE_WINDOW")
+                if not window:
+                    raise OSError("no X11 window is active (the game is not in front, or it runs as a Wayland "
+                                  "program)")
+                x, y, width, height = self._window_box(window)
+            source, self.origin = window, (x, y)
+        else:
+            width, height = self.size()
+            source, self.origin = self.root, (0, 0)
         with self.lock:
-            ptr = self.x.XGetImage(self.d, self.root, 0, 0, width, height, ALL_PLANES, ZPIXMAP)
+            ptr = self.x.XGetImage(self.d, source, 0, 0, width, height, ALL_PLANES, ZPIXMAP)
             if not ptr:
                 raise OSError("XGetImage returned nothing")
             try:
@@ -148,10 +187,33 @@ class X11Desktop:
             if prop.value:
                 self.x.XFree(prop)
 
+    def _focus_inside(self, window: int) -> bool:
+        """The X input focus is on the window or one of its children (Wine may focus a child window)."""
+        focus, revert = ctypes.c_ulong(), ctypes.c_int()
+        self.x.XGetInputFocus(self.d, ctypes.byref(focus), ctypes.byref(revert))
+        current = focus.value
+        for _ in range(32):
+            if current == window:
+                return True
+            if current in (0, 1, self.root):            # None, PointerRoot, or the root: not the game
+                return False
+            root, parent, children, n = ctypes.c_ulong(), ctypes.c_ulong(), ctypes.c_void_p(), ctypes.c_uint()
+            if not self.x.XQueryTree(self.d, current, ctypes.byref(root), ctypes.byref(parent),
+                                     ctypes.byref(children), ctypes.byref(n)):
+                return False
+            if children.value:
+                self.x.XFree(children)
+            current = parent.value
+        return False
+
     def foreground_pid(self) -> Optional[int]:
         with self.lock:
             window = self._cardinal(self.root, "_NET_ACTIVE_WINDOW")
-            return self._cardinal(window, "_NET_WM_PID") if window else None
+            if not window:
+                return None
+            if self.xwayland and not self._focus_inside(window):
+                return None             # a Wayland window is in front: XWayland's focus is elsewhere
+            return self._cardinal(window, "_NET_WM_PID")
 
     # input
     def _keycode(self, code: int) -> int:
@@ -185,8 +247,9 @@ class X11Desktop:
             self._keys(codes, False)
 
     def mouse_to(self, x: int, y: int) -> None:
+        """A point of the last screenshot (XWayland: of the game's window, moved by its place)."""
         with self.lock:
-            self.xtst.XTestFakeMotionEvent(self.d, -1, int(x), int(y), 0)
+            self.xtst.XTestFakeMotionEvent(self.d, -1, int(x) + self.origin[0], int(y) + self.origin[1], 0)
             self.x.XFlush(self.d)
 
     def mouse_move(self, dx: int, dy: int) -> None:
@@ -217,6 +280,12 @@ def _types(x, t) -> None:
     x.XStringToKeysym.restype, x.XStringToKeysym.argtypes = ul, [ctypes.c_char_p]
     x.XKeysymToKeycode.restype, x.XKeysymToKeycode.argtypes = ctypes.c_ubyte, [vp, ul]
     x.XFlush.argtypes = [vp]
+    ptr = ctypes.POINTER
+    x.XGetGeometry.argtypes = [vp, ul, ptr(ul), ptr(c_int), ptr(c_int), ptr(c_uint), ptr(c_uint), ptr(c_uint),
+                               ptr(c_uint)]
+    x.XTranslateCoordinates.argtypes = [vp, ul, ul, c_int, c_int, ptr(c_int), ptr(c_int), ptr(ul)]
+    x.XGetInputFocus.argtypes = [vp, ptr(ul), ptr(c_int)]
+    x.XQueryTree.argtypes = [vp, ul, ptr(ul), ptr(ul), ptr(vp), ptr(c_uint)]
     t.XTestQueryExtension.argtypes = [vp] + [ctypes.POINTER(c_int)] * 4
     t.XTestFakeKeyEvent.argtypes = [vp, c_uint, ctypes.c_bool, ul]
     t.XTestFakeButtonEvent.argtypes = [vp, c_uint, ctypes.c_bool, ul]
