@@ -1,5 +1,6 @@
 """run_process with REAL child processes (the current Python), no mocks."""
 
+import os
 import sys
 import threading
 import time
@@ -67,3 +68,10 @@ def test_missing_executable(tmp_path):
 def test_workload_result_rejects_inconsistent(kwargs):
     with pytest.raises(ValueError):
         WorkloadResult(**kwargs)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows consoles only")
+def test_a_hidden_console_still_writes_to_the_files(tmp_path):
+    out, err = tmp_path / "out.txt", tmp_path / "err.txt"
+    r = run_process([sys.executable, "-c", "print('CB 123.4')"], out, err, 30, threading.Event(), hidden_console=True)
+    assert r.exit_code == 0 and "CB 123.4" in out.read_text()

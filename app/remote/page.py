@@ -119,13 +119,19 @@ a { color:var(--accent); }
   </section>
 
   <section id="reportBox" class="hidden">
-    <h2>Report</h2>
-    <div class="row">
-      <select id="reportPick" style="flex:1; min-width:200px"></select>
-      <button id="reportReload">Reload</button>
-      <a id="reportOpen" class="btn" target="_blank" rel="noopener">Open full screen</a>
+    <div class="row" style="align-items:center">
+      <h2 style="flex:1; margin:0">Report</h2>
+      <button id="reportToggle">Show</button>
     </div>
-    <iframe id="reportFrame" title="Report"></iframe>
+    <p id="reportNew" class="muted"></p>
+    <div id="reportBody" class="hidden">
+      <div class="row">
+        <select id="reportPick" style="flex:1; min-width:200px"></select>
+        <button id="reportReload">Reload</button>
+        <a id="reportOpen" class="btn" target="_blank" rel="noopener">Open full screen</a>
+      </div>
+      <iframe id="reportFrame" title="Report"></iframe>
+    </div>
   </section>
 
   <section>
@@ -321,7 +327,25 @@ function openReport(name) {
   const url = "/report/" + encodeURIComponent(name);
   shownReport = name;
   $("reportOpen").href = url;
-  $("reportFrame").src = url + "?t=" + Date.now();      // always the file as it is now, never a kept copy
+  const o = [...$("reportPick").options].find((x) => x.value === name);
+  $("reportNew").textContent = o ? o.textContent : "";
+  if (reportShown()) loadFrame(); else $("reportFrame").removeAttribute("src");   // loaded only when shown
+}
+
+function loadFrame() {
+  if (shownReport) $("reportFrame").src = "/report/" + encodeURIComponent(shownReport) + "?t=" + Date.now();
+}
+
+// the report opens and closes with its button; the owner's choice is kept on this phone (owner, 2026-10-19)
+function reportShown() {
+  try { return localStorage.getItem("pcbm-report") === "open"; } catch (e) { return false; }
+}
+
+function showReportBody(open) {
+  try { localStorage.setItem("pcbm-report", open ? "open" : "closed"); } catch (e) {}
+  $("reportBody").classList.toggle("hidden", !open);
+  $("reportToggle").textContent = open ? "Hide" : "Show";
+  if (open) loadFrame(); else $("reportFrame").removeAttribute("src");
 }
 
 function showState(s) {
@@ -351,7 +375,7 @@ function showState(s) {
     if (finished) picked = false;
     if (!picked || finished) {
       showReports(newest).then(() => {
-        if (finished) $("reportBox").scrollIntoView({ behavior: "smooth" });
+        if (finished) $("reportNew").textContent = "New: " + $("reportNew").textContent;   // stays closed if closed
       });
     }
   }
@@ -395,6 +419,8 @@ $("none").onclick = () => { document.querySelectorAll("#tests input").forEach((c
 $("askYes").onclick = () => answer(true);
 $("askNo").onclick = () => answer(false);
 $("reportPick").onchange = () => { picked = $("reportPick").selectedIndex > 0; openReport($("reportPick").value); };
+$("reportToggle").onclick = () => showReportBody(!reportShown());
+showReportBody(reportShown());
 $("reportReload").onclick = () => { picked = false; showReports(knownReport || ""); };
 $("start").onclick = async () => {
   const ids = [...document.querySelectorAll("#tests input:checked")].map((c) => c.value);

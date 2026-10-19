@@ -538,6 +538,12 @@ publishes and they are kept outside the project, in `%USERPROFILE%\Tools` (nothi
   write, 208k / 148k IOPS random 4K; fio 6,687 / 6,158 MiB/s, 180k / 123k IOPS.
   `python scripts/verify_storage.py <folder>` repeats both.
 
+- **Cinebench 2026** (Maxon, `app/pro/cinebench.py`; Multiple Threads and Single Thread): always one measured run
+  and no warm-up, whatever the run settings or the profile say (`fixed_counts = (0, 1)`; owner, 2026-10-19).
+  Cinebench renders for its own minimum duration (about 10 minutes) and averages its passes, so a second run adds
+  time, not accuracy. It runs in a hidden console of its own: with no console at all (the app's default) its
+  `"parentconsole"` output was empty after 11 minutes (session 13). Not yet checked on a real run.
+
 Blender's benchmark is not added: its launcher downloads Blender and the scenes itself, and its JSON output is a
 list that the spec parser does not read yet.
 
@@ -618,7 +624,9 @@ one-time code shown under it.
   run ends the page says how it ended and reads the tests again (also whenever a test is installed or a license
   accepted on the PC).
 - The report shown is the newest one in the reports folder (also after the app started again), unless an older one
-  was picked in the list; the list names each report's tests, and **Reload** loads it again.
+  was picked in the list; the list names each report's tests, and **Reload** loads it again. The report part opens
+  and closes with its **Show / Hide** button (closed at first; the choice is kept on that phone). Closed, it shows
+  one line with the report's time and tests ("New:" in front when a run just ended) and loads nothing.
 - **Restart as administrator** (Tests screen, and Prompts in the remote window; Windows only, `app/elevation.py`,
   `app/ui/admin_restart.py`): Windows' administrator prompt shows on its secure desktop and nothing remote can answer
   it, so the owner answers it once at the PC. The app starts again through the normal UAC prompt (ShellExecute

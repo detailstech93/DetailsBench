@@ -68,7 +68,7 @@ def test_a_run_reads_the_points(tmp_path, monkeypatch):
     seen = {}
 
     def fake_run(command, out, err, timeout, stop, cwd=None, **k):
-        seen["command"], seen["cwd"] = command, cwd
+        seen["command"], seen["cwd"], seen["console"] = command, cwd, k.get("hidden_console")
         Path(out).write_text("Cinebench 2026\nCB 2101.53 (0.00)\n", encoding="utf-8")
         Path(err).write_text("", encoding="utf-8")
         return SimpleNamespace(exit_code=0, timed_out=False, cancelled=False, duration_seconds=612.0,
@@ -80,6 +80,7 @@ def test_a_run_reads_the_points(tmp_path, monkeypatch):
     assert r.status == "completed" and r.score == 2101.53 and r.unit == "pts" and not w.verified
     assert seen["command"].endswith("g_CinebenchCpu1Test=true") and seen["cwd"] == str(tmp_path)
     assert "Single Thread" in r.note
+    assert seen["console"] is True          # Cinebench prints only into a console (none: nothing, 2026-10-19)
 
 
 def test_no_score_is_never_stored(tmp_path, monkeypatch):
@@ -109,3 +110,13 @@ def test_its_own_report_section():
     html = _cinebench_section(export)
     assert "<h2>Cinebench 2026</h2>" in html and "40,123" in html and "no score" in html
     assert _cinebench_section({"runs": []}) == ""
+
+
+def test_one_run_and_no_warm_up_whatever_the_settings(tmp_path):
+    """Owner, 2026-10-19: Cinebench averages its own passes for about 10 min; 3 runs and a warm-up took 46 min."""
+    from types import SimpleNamespace as NS
+    from app.ui.automation_panel import AutomationPanel
+    other = NS(id="sevenzip_benchmark", timeout_seconds=600)
+    plan = AutomationPanel.build_plan(None, [cinebench.CinebenchWorkload("cinebench_2026", exe=tmp_path / "x.exe"),
+                                             other], NS(warmup_runs=1, repetitions=3), extra_runs=2)
+    assert [(p.warmup_runs, p.repetitions, p.max_extra_runs) for p in plan] == [(0, 1, 0), (1, 3, 2)]

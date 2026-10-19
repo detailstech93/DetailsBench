@@ -74,6 +74,9 @@ def parse_score(text: str) -> Tuple[Optional[float], Optional[str]]:
 
 class CinebenchWorkload(Workload):
     timeout_seconds = 3600          # Maxon's default minimum duration plus loading; a slow PC takes longer
+    # one run, no warm-up, whatever the run settings say (owner, 2026-10-19): Cinebench renders for its minimum
+    # duration (about 10 min) and averages its own passes, so a second run adds time, not accuracy
+    fixed_counts = (0, 1)
 
     def __init__(self, test_id: str = "cinebench_2026", exe: Optional[Path] = None):
         self.id = test_id
@@ -107,7 +110,10 @@ class CinebenchWorkload(Workload):
         folder.mkdir(parents=True, exist_ok=True)
         command = build_command(str(self.exe), self.option)
         out, err = folder / "stdout_cinebench.txt", folder / "stderr_cinebench.txt"
-        outcome = run_process(command, out, err, ctx.timeout_seconds, ctx.stop_event, cwd=str(self.exe.parent))
+        # a hidden console of its own: with none (the app's default) Cinebench printed nothing in 11 minutes on the
+        # owner's PC (2026-10-19, session 13); Maxon's "parentconsole" prints into the console it was started from
+        outcome = run_process(command, out, err, ctx.timeout_seconds, ctx.stop_event, cwd=str(self.exe.parent),
+                              hidden_console=True)
         common = {"command": [command], "exit_code": outcome.exit_code,
                   "duration_seconds": round(outcome.duration_seconds, 3), "stdout_path": str(out),
                   "stderr_path": str(err)}

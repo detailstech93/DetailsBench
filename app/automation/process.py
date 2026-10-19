@@ -54,15 +54,24 @@ def terminate_tree(pid: int, grace: float = GRACE_SECONDS) -> List[int]:
 def run_process(command: List[str], stdout_path: Path, stderr_path: Path,
                 timeout_seconds: Optional[float], stop_event: threading.Event,
                 cwd: Optional[str] = None, poll_seconds: float = 0.1,
-                env: Optional[dict] = None, stdin_path: Optional[Path] = None) -> ProcessOutcome:
-    """stdin_path: a file given to the program as its input (e.g. the answer to a question it asks)."""
+                env: Optional[dict] = None, stdin_path: Optional[Path] = None,
+                hidden_console: bool = False) -> ProcessOutcome:
+    """stdin_path: a file given to the program as its input (e.g. the answer to a question it asks).
+    hidden_console (Windows): give the program a console of its own that is never shown, instead of none at all,
+    for programs that print only into the console they were started from (Cinebench's "parentconsole")."""
     flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    startup = None
+    if os.name == "nt" and hidden_console:
+        flags = subprocess.CREATE_NEW_CONSOLE
+        startup = subprocess.STARTUPINFO()
+        startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startup.wShowWindow = 0                         # SW_HIDE
     start = time.monotonic()
     feed_path = stdin_path or os.devnull
     with open(stdout_path, "wb") as out, open(stderr_path, "wb") as err, open(feed_path, "rb") as feed:
         try:
             proc = subprocess.Popen(command, stdout=out, stderr=err, stdin=feed,
-                                    cwd=cwd, env=env, shell=False, creationflags=flags)
+                                    cwd=cwd, env=env, shell=False, creationflags=flags, startupinfo=startup)
         except OSError as e:
             return ProcessOutcome(None, False, False, time.monotonic() - start, start_error=str(e))
         timed_out = cancelled = False
