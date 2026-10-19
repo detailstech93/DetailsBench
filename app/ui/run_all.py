@@ -201,7 +201,7 @@ class RunAllFlow(QObject):
         self._run_tests()
 
     def _run_tests(self) -> bool:
-        runnable = [e for e in self.window.tests_page.entries if e.can_run()]
+        runnable = [e for e in self.window.tests_page.entries if e.can_run() and not e.waits_for_typed_score()]
         if not runnable:
             QMessageBox.information(self.window, "Run all tests", "No test can run on this PC yet.")
             return False

@@ -267,7 +267,7 @@ class TestsPage(QWidget):
 
     def select_all_installed(self):
         for e in self.entries:
-            if e.can_run():
+            if e.can_run() and not e.waits_for_typed_score():     # those only run alone
                 self.set_checked(e.id, True)
 
     def update_run_button(self):

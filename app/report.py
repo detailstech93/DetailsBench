@@ -511,7 +511,17 @@ def _passmark_section(export: Mapping) -> str:
         "PerformanceTest version on passmark.com. PassMark's free version may send the results to PassMark.")
 
 
-def _tiles_section(export: Mapping, heading: str, tests, explanation: str) -> str:
+def _pugetbench_section(export: Mapping) -> str:
+    from app.pro.pugetbench import TESTS
+    return _tiles_section(
+        export, "PugetBench for Creators", TESTS,
+        "PugetBench's Overall Score for each application, TYPED IN BY YOU from PugetBench's results screen (a "
+        "manual entry: the app did not read it). Higher is faster. Scores can be compared only with the same "
+        "application, preset and PugetBench version. PugetBench's free version may upload its results to Puget "
+        "Systems; command-line runs need Puget's paid license, so the app does not run it.", readings=False)
+
+
+def _tiles_section(export: Mapping, heading: str, tests, explanation: str, readings: bool = True) -> str:
     """A tool with several tests, each with its own unit: one tile per test, what ran, how the PC behaved and
     charts over time."""
     session_is_test = _truthy((_mapping(export.get("session")) or {}).get("is_test"))
@@ -550,6 +560,9 @@ def _tiles_section(export: Mapping, heading: str, tests, explanation: str) -> st
                 details[key] = value
         details["Measured runs"] = str(len(done)) + (" (the score is their average)" if len(done) > 1 else "")
         kv = "".join(f"<tr><th>{esc(k)}</th><td>{esc(v)}</td></tr>" for k, v in details.items())
+        if not readings:            # typed in by the owner: no readings were taken during the test
+            blocks.append(f"<h3>{esc(engine)}</h3>" + f'<table class="kv">{kv}</table>')
+            continue
         charts = _series_charts(done[-1], BLENDER_CHARTS)
         blocks.append(
             f"<h3>{esc(engine)}</h3>" + f'<table class="kv">{kv}</table>'
@@ -1105,6 +1118,7 @@ def render_session_report(export: Mapping) -> str:
         + _vray_section(export_mapping)
         + _cinebench_section(export_mapping)
         + _passmark_section(export_mapping)
+        + _pugetbench_section(export_mapping)
         + _summary_section(export_mapping)
         + _charts_section(export_mapping)
         + _metrics_section(export_mapping)

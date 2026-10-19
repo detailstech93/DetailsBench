@@ -873,35 +873,42 @@ class MainWindow(QMainWindow):
         return sid
 
     def _ask_result(self, bm: BenchmarkInfo, session_label: str) -> Optional[dict]:
-        from app.ui.record_dialog import RecordResultDialog
+        from app.ui.record_dialog import PugetResultDialog, RecordResultDialog
+        from app.pro import pugetbench
+        if bm.name == pugetbench.LIBRARY_ID:
+            dialog = PugetResultDialog(session_label, bm.version, self)
+            return dialog.values if dialog.exec() == QDialog.Accepted else None
         unit = "score" if bm.type == BenchmarkType.WEB else "points"
         dialog = RecordResultDialog(bm.display_name, session_label, unit, self)
         return dialog.values if dialog.exec() == QDialog.Accepted else None
 
-    def _on_record_clicked(self, bm: BenchmarkInfo):
+    def _on_record_clicked(self, bm: BenchmarkInfo) -> Optional[int]:
+        """Ask for one manual result and store it; the session id, or None when nothing was stored."""
         label = f"#{self.current_session_id}" if self.current_session_id else "new session"
         values = self._ask_result(bm, label)
         if values is None:
-            return
+            return None
         sid = self._ensure_session()
         if sid is None:
             self.run_log.append("No database available; result not saved.")
-            return
+            return None
+        name = values.get("benchmark_name") or bm.name           # PugetBench: one test per application
         try:
-            run_index = len(self.db.get_runs(sid, bm.name, include_test=True))
+            run_index = len(self.db.get_runs(sid, name, include_test=True))
             self.db.create_result(
-                sid, bm.name, bm.type.value, values["score"], values["unit"],
+                sid, name, bm.type.value, values["score"], values["unit"],
                 benchmark_version=bm.version, is_manual=True, status=values["status"],
                 is_warmup=values["is_warmup"], run_index=run_index, note=values["note"])
         except Exception as exc:
             logger.exception("Could not save result")
             self.run_log.append(f"Result NOT saved: {exc}")
-            return
+            return None
         kind = "warmup" if values["is_warmup"] else "measured"
         score = values["score"] if values["score"] is not None else "no score"
-        self.run_log.append(f"Saved {kind} run #{run_index} of {bm.display_name} in session #{sid}: "
-                            f"{values['status']}, {score} [MANUAL]")
+        self.run_log.append(f"Saved {kind} run #{run_index} of {values.get('display_name') or bm.display_name} in "
+                            f"session #{sid}: {values['status']}, {score} [MANUAL]")
         self.refresh_history_screen()
+        return sid
 
     def _create_run_tab(self) -> QWidget:
         """Create Run Benchmarks tab for launching and assisted execution."""

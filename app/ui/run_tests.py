@@ -132,6 +132,14 @@ class PresetBox(QGroupBox):
         self.summary.setText("\n".join(self.lines()))
 
 
+def leave_out_typed(entries: List[TestEntry]) -> Tuple[List[TestEntry], List[TestEntry]]:
+    """(entries to run, tests left out). A test that waits for a typed score only runs alone, never in a run of
+    several tests (a test selected by mistake must not stop the others waiting for someone to type)."""
+    if len(entries) <= 1:
+        return list(entries), []
+    return ([e for e in entries if not e.waits_for_typed_score()], [e for e in entries if e.waits_for_typed_score()])
+
+
 def split_entries(entries: List[TestEntry]):
     """(automatic workloads for one plan, other entries that keep their own flow)."""
     runnable = [e for e in entries if e.can_run()]
@@ -309,6 +317,14 @@ def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_re
             return False
         window.status_label.setText("Tests whose license agreement was not accepted are left out.")
     entries = asked
+    entries, typed = leave_out_typed(entries)
+    if typed:
+        names = ", ".join(e.name for e in typed)
+        if not entries:
+            QMessageBox.information(window, "Run tests", f"Not started: {names} wait for a score typed by you, "
+                                    "so they only run one at a time. Select one of them alone.")
+            return False
+        window.status_label.setText(f"Left out (they wait for a score typed by you; run each alone): {names}")
     automatic, others = split_entries(entries)
     lone_game = not automatic and len(others) == 1 and others[0].source == "steam"
     if not automatic and len(others) == 1 and not lone_game:
@@ -377,6 +393,26 @@ def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_re
     return started
 
 
+def record_and_report(window, entry: TestEntry, opener=None) -> Optional[Path]:
+    """The typed score is stored, then the session's report is written and opened (PugetBench gets its own
+    section there)."""
+    sid = window._on_record_clicked(entry.ref)
+    panel = window.automation_panel
+    if sid is None or not panel.output_root:
+        return None
+    try:
+        path = write_report(window.db, sid, Path(panel.output_root).parent / "reports")
+    except Exception as e:
+        logger.exception("Could not write the report")
+        window.status_label.setText(f"The score was saved; the report could not be written: {e}")
+        return None
+    opener = opener or open_report
+    window.status_label.setText(f"Score saved in session #{sid}. Report: {path}")
+    window.tests_page.offer_report(lambda: opener(path))
+    opener(path)
+    return path
+
+
 def start_other(window, entry: TestEntry, choice: Optional[RunChoice] = None) -> bool:
     """One assisted or manual test: hand it to the flow that already runs it. With a choice from the run
     dialog, a Steam game uses its counts and the preset saved for it (no settings window)."""
@@ -404,6 +440,6 @@ def start_other(window, entry: TestEntry, choice: Optional[RunChoice] = None) ->
     if entry.source == "library":
         window._on_launch_clicked(entry.ref)
         window.tests_page.offer_record(f"{entry.name} was started. Run its benchmark, then enter the score.",
-                                       lambda: window._on_record_clicked(entry.ref))
+                                       lambda: record_and_report(window, entry))
         return True
     return False

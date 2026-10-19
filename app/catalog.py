@@ -49,6 +49,12 @@ class TestEntry:
     def can_run(self) -> bool:
         return self.compatible and self.state == INSTALLED
 
+    def waits_for_typed_score(self) -> bool:
+        """The owner runs it and types the score (library entries: PugetBench, Geekbench, web tests...). Such a
+        test only runs alone: in a run of several tests it would stop everything until someone types (owner,
+        2026-10-19)."""
+        return self.source == "library"
+
 
 def check_platform(info: dict, environment: Optional[dict]) -> Tuple[bool, str]:
     """(compatible, reason) from supported_os / supported_architectures against the profile dict.

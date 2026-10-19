@@ -76,3 +76,34 @@ class RecordResultDialog(QDialog):
             "unit": self.unit.text().strip() or "points", "note": self.note.text().strip() or None,
         }
         self.accept()
+
+
+class PugetResultDialog(RecordResultDialog):
+    """PugetBench for Creators: which application ran, its Overall Score and what ran (versions, preset)."""
+
+    def __init__(self, session_label: str, puget_version=None, parent=None):
+        from app.pro import pugetbench
+        super().__init__("PugetBench for Creators", session_label, "points", parent)
+        self.puget_version = puget_version
+        self.application = QComboBox()
+        self.application.addItems([app for _, app, _ in pugetbench.TESTS])
+        self.app_version = QLineEdit()
+        self.app_version.setPlaceholderText("e.g. Photoshop 27.0 (shown on PugetBench's results)")
+        self.preset = QLineEdit()
+        self.preset.setPlaceholderText("e.g. Standard")
+        self.score.setPlaceholderText("Overall Score exactly as displayed")
+        form = self.findChild(QFormLayout)
+        form.insertRow(0, "Application:", self.application)
+        form.addRow("Application version:", self.app_version)
+        form.addRow("Preset:", self.preset)
+
+    def _try_accept(self):
+        from app.pro import pugetbench
+        super()._try_accept()
+        if self.values is None:
+            return
+        app = self.application.currentText()
+        self.values["benchmark_name"] = pugetbench.test_for(app)
+        self.values["display_name"] = f"PugetBench {app}"
+        self.values["note"] = pugetbench.note_text(self.puget_version, self.app_version.text(), self.preset.text(),
+                                                   self.values["note"] or "")
