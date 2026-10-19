@@ -153,7 +153,8 @@ class SimulationWorkload(Workload):
         path, _ = self.executable()
         if path is None:
             return WorkloadResult("skipped", error="the program is not installed")
-        desktop = self._desktop or default_desktop()
+        # scripts drive Win32 windows and dialogs: Windows only (the X11 desktop only serves menu steps)
+        desktop = self._desktop or (default_desktop() if os.name == "nt" else None)
         if desktop is None:
             return WorkloadResult("skipped", error="simulation scripts run on Windows only")
         forced = self._forced(ctx)

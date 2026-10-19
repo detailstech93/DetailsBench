@@ -116,19 +116,40 @@ def _safe_which(which: Callable[[str], Optional[str]], name: str) -> Optional[st
     return path if path else None
 
 
+# Tesseract OCR for menu steps on Linux (app/frames/screen_text.py), with its English data. Package names from
+# each distribution's repository (Debian/Ubuntu tesseract-ocr pulls tesseract-ocr-eng; Arch and Fedora ship the
+# language data separately); not checked on a real system yet, so none is marked verified.
+TESSERACT_INSTALL_ARGS = {
+    "apt-get": ["install", "-y", "tesseract-ocr", "tesseract-ocr-eng"],
+    "dnf": ["install", "-y", "tesseract", "tesseract-langpack-eng"],
+    "pacman": ["-S", "--noconfirm", "--needed", "tesseract", "tesseract-data-eng"],
+    "zypper": ["--non-interactive", "install", "tesseract-ocr", "tesseract-ocr-traineddata-english"],
+}
+
+
 def mangohud_install_plan(
     os_release: dict,
     which: Callable[[str], Optional[str]],
     native_arch: str,
 ) -> InstallPlan:
+    return package_install_plan("MangoHud", "mangohud", INSTALL_ARGS, VERIFIED_ARCH, os_release, which, native_arch)
+
+
+def tesseract_install_plan(os_release: dict, which: Callable[[str], Optional[str]], native_arch: str) -> InstallPlan:
+    return package_install_plan("Tesseract", "tesseract", TESSERACT_INSTALL_ARGS, set(), os_release, which,
+                                native_arch)
+
+
+def package_install_plan(tool: str, binary: str, install_args: dict, verified_arch: set, os_release: dict,
+                         which: Callable[[str], Optional[str]], native_arch: str) -> InstallPlan:
     arch = _clean_arch(native_arch)
 
-    existing = _safe_which(which, "mangohud")
+    existing = _safe_which(which, binary)
     if existing:
         family = distro_family(os_release)
         return InstallPlan(
             family=family,
-            note=f"MangoHud already installed: {existing}",
+            note=f"{tool} already installed: {existing}",
         )
 
     family = distro_family(os_release)
@@ -163,10 +184,10 @@ def mangohud_install_plan(
         return InstallPlan(
             family=family,
             package_manager=package_manager,
-            error="pkexec not found; install MangoHud with your package manager",
+            error=f"pkexec not found; install {tool} with your package manager",
         )
 
-    command = [pkexec_path, package_manager_path] + list(INSTALL_ARGS.get(package_manager, []))
+    command = [pkexec_path, package_manager_path] + list(install_args.get(package_manager, []))
     plan = InstallPlan(
         family=family,
         package_manager=package_manager,
@@ -177,10 +198,10 @@ def mangohud_install_plan(
         plan.needs_update_first = True
         plan.update_command = [pkexec_path, package_manager_path, "update"]
 
-    verified = (family, arch) in VERIFIED_ARCH
+    verified = (family, arch) in verified_arch
     plan.verified = verified
 
     if not verified:
-        plan.note = f"MangoHud availability for {family} on {arch} is not verified"
+        plan.note = f"{tool} availability for {family} on {arch} is not verified"
 
     return plan

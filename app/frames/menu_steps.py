@@ -108,7 +108,7 @@ class StepPlayer:
             self._t0 = self.clock()
         try:
             if self.desktop is None:
-                raise _Stop("keys and screen reading work on Windows only for now")
+                raise _Stop("keys and screen reading need Windows or a Linux X11 session")
             for i, step in enumerate(self.steps, 1):
                 if self.stop.is_set():
                     raise _Stop("stopped")

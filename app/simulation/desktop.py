@@ -269,4 +269,11 @@ def write_png(path, width: int, height: int, bgra: bytes) -> None:
 
 
 def default_desktop():
-    return Win32Desktop() if os.name == "nt" else None
+    """Windows: the Win32 desktop. Linux: an X11 session (app/simulation/x11_desktop.py), else None."""
+    if os.name == "nt":
+        return Win32Desktop()
+    import sys
+    if sys.platform.startswith("linux"):
+        from app.simulation.x11_desktop import X11Desktop
+        return X11Desktop.open()
+    return None

@@ -1,5 +1,6 @@
 """Linux game benchmark with MangoHud, all faked: no Steam, no game, no MangoHud (runs on any host)."""
 
+import os
 import re
 import threading
 import time
@@ -50,6 +51,7 @@ class Fakes:
         self.frames, self.state, self.mangohud, self.writes_log = frames, state, mangohud, writes_log
         self.exits, self.shutdowns = exits, 0
         self.closed = []
+        self.log_at = 30.0              # fake seconds when MangoHud's log (and summary) appear
 
     # Hooks
     def mangohud_installed(self):
@@ -90,7 +92,7 @@ class Fakes:
 
     def sleep(self, seconds):
         self.now[0] += seconds
-        if self.started and self.writes_log and self.now[0] >= 30 and not (self.logs / "done").exists():
+        if self.started and self.writes_log and self.now[0] >= self.log_at and not (self.logs / "done").exists():
             (self.logs / "fossilize_replay_2026-10-19_10-00-00.csv").write_text(log_text(5000), encoding="utf-8")
             (self.logs / "Game.exe_2026-10-19_10-00-01.csv").write_text(log_text(self.frames), encoding="utf-8")
             (self.logs / "Game.exe_2026-10-19_10-00-01_summary.csv").write_text("x\n", encoding="utf-8")
@@ -128,7 +130,7 @@ def test_linux_runs_that_cannot_start_start_nothing(tmp_path):
         _, cap = run(tmp_path, fakes)
         assert cap.status == "failed" and words in cap.message and fakes.started is None
     fakes = Fakes(tmp_path)
-    _, cap = run(tmp_path, fakes, steps=[{"see": "options"}])
+    _, cap = run(tmp_path, fakes, route={"loop_from": 0})
     assert cap.status == "failed" and "Windows only" in cap.message and fakes.started is None
 
 
@@ -178,3 +180,63 @@ def test_which_steam_is_the_apps_and_the_clean_exit(tmp_path):
     why = mh.shutdown_steam(lambda n: "/usr/games/steam", running=lambda: True, start=lambda c: None,
                             sleep=lambda s: now.__setitem__(0, now[0] + s), clock=lambda: now[0], wait=10)
     assert "still open" in why
+
+
+def test_linux_menu_steps_measure_from_the_benchmark_start(tmp_path):
+    from types import SimpleNamespace
+    from app.frames.game_benchmark import steps_bound_seconds
+    from tests.test_menu_steps import FakeSteps
+    fakes = Fakes(tmp_path, frames=3000)            # 150 s of frames: menus first, then the benchmark
+    fakes.log_at = 120.0                            # MangoHud still logging when the measured time is over
+    steps = [{"see": "options", "within": 30, "click": "options"}, {"see": "stop", "within": 60, "mark": True}]
+    s = GameBenchmarkSpec(game_name="Game", app_id="123", install_path=str(fakes.install), discovered_appids=["123"],
+                          presentmon_path="/usr/bin/mangohud", seconds=20, warmup_runs=1, repetitions=2,
+                          settle_seconds=10, steps=steps)
+    player = FakeSteps(fakes, mark_after=40)
+    plain_sleep, stamped = fakes.sleep, []
+
+    def sleep(seconds):                             # the log's last frame is written when the game closes: its
+        plain_sleep(seconds)                        # time says when its first frame was (150 s of frames earlier)
+        log = fakes.logs / "Game.exe_2026-10-19_10-00-01.csv" if fakes.started else None
+        if log is not None and log.exists() and not stamped:
+            stamped.append(time.time())
+            os.utime(log, (stamped[0] + 150, stamped[0] + 150))
+    bench = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=True, mangohud_hooks=fakes,
+                          clock=fakes.clock, sleep=sleep, folder_procs=fakes.folder_procs,
+                          closer=fakes.closer, remote_session=lambda: False,
+                          desktop=SimpleNamespace(foreground_pid=lambda: 7), step_player=lambda st: player)
+    cap = bench.run()
+    assert cap.status == "recorded", cap.message
+    assert f"log_duration={int(s.wait_seconds()) + steps_bound_seconds(steps)}" in \
+        (tmp_path / "run" / "MangoHud.conf").read_text()
+    starts = [w.result.metrics["window_start_s"][0] for w in cap.windows]
+    # 10-30, 30-50, 50-70 s moved past the 40 s in the menus (less the moment between the launch and the stamp)
+    assert all(abs(a - b) < 2 for a, b in zip(starts, [50.0, 70.0, 90.0])), starts
+    assert "menu steps: test" in cap.message and fakes.closed == [[7]]
+    assert steps_bound_seconds(steps) == 30 + 60 + 60
+
+
+def test_linux_menu_steps_that_fail_or_cannot_run(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from tests.test_menu_steps import FakeSteps
+    fakes = Fakes(tmp_path)
+    fakes.log_at = 1e9
+    s = GameBenchmarkSpec(game_name="Game", app_id="123", install_path=str(fakes.install), discovered_appids=["123"],
+                          presentmon_path="/usr/bin/mangohud", seconds=20, steps=[{"see": "stop", "within": 9,
+                                                                                    "mark": True}])
+    bench = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=True, mangohud_hooks=fakes,
+                          clock=fakes.clock, sleep=fakes.sleep, folder_procs=fakes.folder_procs,
+                          closer=fakes.closer, desktop=SimpleNamespace(foreground_pid=lambda: 7),
+                          step_player=lambda st: FakeSteps(fakes, problem="step 1: 'stop' did not appear"))
+    cap = bench.run()
+    assert cap.status == "failed" and "did not reach the game's benchmark" in cap.message
+    assert "'stop' did not appear" in cap.message and fakes.closed == [[7]]
+    import app.simulation.desktop as desktop
+    from app.simulation.x11_desktop import X11Desktop
+    monkeypatch.setattr(desktop, "default_desktop", lambda: None)
+    monkeypatch.setattr(X11Desktop, "why", "this is a Wayland session")
+    fakes = Fakes(tmp_path / "b")
+    bench = GameBenchmark(s, tmp_path / "b" / "run", None, lambda m: None, linux=True, mangohud_hooks=fakes,
+                          clock=fakes.clock, sleep=fakes.sleep, folder_procs=fakes.folder_procs, closer=fakes.closer)
+    cap = bench.run()
+    assert cap.status == "failed" and "Wayland" in cap.message and fakes.started is None

@@ -52,6 +52,17 @@ MARK_SETTLE_SECONDS = 5           # after the benchmark's own start is seen, onl
 MIN_WINDOW_SECONDS = 20
 
 
+def steps_bound_seconds(steps) -> int:
+    """The longest the menu steps can take (every word waited for to its limit, every pause and hold): MangoHud
+    must still be logging when the benchmark starts that late."""
+    total = 0.0
+    for s in steps or []:
+        total += float(s.get("within", 0)) + float(s.get("wait", 0)) + float(s.get("settle", 0))
+        total += float(s.get("seconds", 1.0)) if "hold" in s else 0.0
+        total += 0.5 * len([c for c in str(s.get("press", "")).split(",") if c.strip()])
+    return int(total) + 60
+
+
 def fit_to_benchmark(spec: "GameBenchmarkSpec", length: int) -> Optional[str]:
     """A built-in benchmark runs `length` s after its start mark, then shows its results screen: every window
     must end before that, or the results screen's FPS would be measured. Shortens the settle time and, when
@@ -517,9 +528,14 @@ class GameBenchmark:
         spec = self.spec
         hooks = self.mangohud_hooks or mh.Hooks()
         self.run_dir.mkdir(parents=True, exist_ok=True)
-        if spec.steps or spec.start_keys or spec.route:
-            return GameCapture("failed", "this game's benchmark needs menu steps, keys or a route, which work on "
-                               "Windows only so far; nothing was started")
+        if spec.route:
+            return GameCapture("failed", "this game's benchmark needs a route, which works on Windows only so far; "
+                               "nothing was started")
+        if spec.steps or spec.start_keys:          # menu steps / keys: an X11 session (app/simulation/x11_desktop.py)
+            if self._desk() is None:
+                from app.simulation.x11_desktop import X11Desktop
+                return GameCapture("failed", "menu steps and keys cannot run here: "
+                                   + (X11Desktop.why or "no desktop") + "; nothing was started")
         if not hooks.mangohud_installed():
             return GameCapture("failed", "MangoHud is not installed (Frame capture screen: Install MangoHud); "
                                "nothing was started")
@@ -542,7 +558,9 @@ class GameBenchmark:
             if why:
                 return GameCapture("failed", f"Steam is open without MangoHud and did not exit ({why}); close it "
                                    "yourself (Steam menu > Exit) and run again; nothing was started", command=command)
-        duration = int(spec.wait_seconds())
+        # with menu steps the benchmark starts later than the game's first frame: MangoHud logs long enough for the
+        # menus too, and the app closes the game itself once the measured time after the start mark is over
+        duration = int(spec.wait_seconds()) + (steps_bound_seconds(spec.steps) if spec.steps else 0)
         config.write_text(mh.config_text(shared_logs, duration), encoding="utf-8")    # read when the game starts
         (self.run_dir / mh.CONFIG_NAME).write_text(mh.config_text(shared_logs, duration), encoding="utf-8")
         logs = self.run_dir / mh.LOGS_FOLDER
@@ -573,26 +591,76 @@ class GameBenchmark:
         t0, t0_wall = self.clock(), time.time()
         limit = duration + mh.LAUNCH_TIMEOUT_SECONDS     # MangoHud starts logging only when the game draws
         stopped, shown = False, None
-        while True:
-            if self.stop_event.is_set():
-                stopped = True
-                break
-            if mh.logging_done(shared_logs, since - 2):
-                break                   # log_duration reached: MangoHud wrote its summary
-            elapsed = self.clock() - t0
-            if elapsed >= limit:
-                break
-            self._note_started()
-            if int(elapsed) != shown:
-                shown = int(elapsed)
-                self.on_progress(f"{spec.game_name}: {elapsed:.0f} s (MangoHud logs {duration} s from the game's "
-                                 f"first frames). The first {spec.settle_seconds} s are not measured. It is closed "
-                                 "at the end.")
-            self.sleep(self.poll_seconds)
+        pending = sorted(spec.start_keys)
+        t_front = t0 if not pending and not spec.steps else None
+        steps = None                    # menu step player, started when the game is in front (as on Windows)
+        t_mark = None                   # clock() when the steps saw the benchmark start
+        try:
+            while True:
+                if self.stop_event.is_set():
+                    stopped = True
+                    break
+                if mh.logging_done(shared_logs, since - 2):
+                    break               # log_duration reached: MangoHud wrote its summary
+                elapsed = self.clock() - t0
+                if elapsed >= limit:
+                    break
+                self._note_started()
+                if t_front is None:
+                    try:
+                        front = self._game_in_front()
+                    except Exception:
+                        front = True    # cannot tell: count from now
+                    if front or elapsed >= FRONT_WAIT_SECONDS:
+                        t_front = self.clock()
+                        if not front:
+                            self.key_notes.append(f"the game was not in front after {elapsed:.0f} s; keys counted "
+                                                  "from then")
+                    else:
+                        self.sleep(self.poll_seconds)
+                        continue
+                if spec.steps and steps is None:
+                    steps = self._steps().start()
+                if steps is not None:
+                    if t_mark is None and steps.mark_time is not None:
+                        t_mark = steps.mark_time
+                    if t_mark is None:
+                        if steps.done.is_set():
+                            break       # the menus did not lead to the benchmark: failed below
+                        if int(elapsed) != shown:
+                            shown = int(elapsed)
+                            self.on_progress(f"{spec.game_name}: going through its menus to the benchmark "
+                                             f"({elapsed:.0f} s); keep the game in front.")
+                        self.sleep(self.poll_seconds)
+                        continue
+                    if self.clock() - t_mark >= spec.wait_seconds():
+                        break           # the measured time after the start mark is over: the app closes the game
+                if pending:
+                    try:
+                        self._press_due(pending, self.clock() - t_front)
+                    except Exception as e:          # keys only help; the capture goes on without them
+                        self.key_notes.append(f"keys stopped: {e}")
+                        pending.clear()
+                if int(elapsed) != shown:
+                    shown = int(elapsed)
+                    self.on_progress(f"{spec.game_name}: {elapsed:.0f} s (MangoHud logs {duration} s from the "
+                                     f"game's first frames). The first {spec.settle_seconds} s are not measured. It "
+                                     "is closed at the end.")
+                self.sleep(self.poll_seconds)
+        finally:
+            if steps is not None:
+                steps.stop.set()
+                steps.join(5)
         closed = self._close_game()
+        if self.key_notes:
+            closed += "; start keys: " + ", ".join(self.key_notes)
+        if steps is not None:
+            closed += "; " + steps.summary()
         tel = sampler.stop() if sampler is not None else None
         prefix = "stopped by user; " if stopped else ""
         mh.move_new_logs(shared_logs, logs, since - 2)    # this run's logs belong to its run folder
+        if steps is not None and t_mark is None and not stopped:
+            return GameCapture("failed", "the app did not reach the game's benchmark" + closed, command=command)
         best = mh.best_log(logs, since - 2)
         if best is None:
             return GameCapture("cancelled" if stopped else "failed",
@@ -607,8 +675,12 @@ class GameBenchmark:
             offset = first_frame_offset(path.stat().st_mtime - t0_wall, recorded)
         except OSError:
             offset = 0.0
+        if t_mark is not None:          # windows count from the benchmark's start, not the game's first frame
+            mark_shift = max(0.0, (t_mark - t0) - offset)
+            windows = [(a + mark_shift, b + mark_shift) for a, b in windows]
+            frame_windows = split_frames(frametimes, windows)
         sample_windows = slice_samples(tel.samples if tel else [], offset, windows)
-        out = self._outcomes(frame_windows, windows, recorded, sample_windows, stopped, None, command)
+        out = self._outcomes(frame_windows, windows, recorded, sample_windows, stopped, steps, command)
         name = mh.program_name(path)
         return GameCapture("recorded", f"{recorded:.0f} s of {name} recorded by MangoHud ({path.name})" + closed,
                            process=(name, None), windows=out, command=command,

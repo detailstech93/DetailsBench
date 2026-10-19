@@ -293,6 +293,7 @@ class FrameCapturePanel(QGroupBox):
         self._after_tool: Optional[Callable[[], object]] = None
         self.benchmark_factory = None                    # tests swap in a fake GameBenchmark
         self.linux_which = None                          # tests swap in a fake shutil.which (Linux games)
+        self.x11_check = None                            # tests swap in a fake X11 session check
         self.forced_factory = None                       # tests swap in a fake ForcedSettings
         self.settings_reader = None                      # tests swap in a fake read_for_dialog
         from app.ui.game_settings_dialog import GameSettingsDialog
@@ -490,27 +491,36 @@ class FrameCapturePanel(QGroupBox):
 
     def install_mangohud(self, os_release: Optional[dict] = None, which: Callable = shutil.which):
         from app.frames.linux_install import mangohud_install_plan
-        plan = mangohud_install_plan(read_os_release() if os_release is None else os_release, which, self.arch)
+        self._install_linux_tool("MangoHud", mangohud_install_plan, os_release, which)
+
+    def install_tesseract(self, os_release: Optional[dict] = None, which: Callable = shutil.which):
+        """Tesseract reads the game's menus for menu steps on Linux (app/frames/screen_text.py)."""
+        from app.frames.linux_install import tesseract_install_plan
+        self._install_linux_tool("Tesseract", tesseract_install_plan, os_release, which)
+
+    def _install_linux_tool(self, name: str, make_plan, os_release, which):
+        plan = make_plan(read_os_release() if os_release is None else os_release, which, self.arch)
         if plan.error:
-            self.status_label.setText(f"MangoHud: {plan.error}")
+            self.status_label.setText(f"{name}: {plan.error}")
             return
         if not plan.command:
-            self.status_label.setText(plan.note or "MangoHud already installed.")
+            self.status_label.setText(plan.note or f"{name} already installed.")
             return
         commands = ([plan.update_command] if plan.needs_update_first else []) + [plan.command]
-        text = ("Install MangoHud with the system package manager. The system asks for your password "
+        text = (f"Install {name} with the system package manager. The system asks for your password "
                 "(pkexec).\n\n" + "\n".join(subprocess.list2cmdline(c) for c in commands))
         if plan.note:
             text += "\n\n" + plan.note
         if not self.confirm_download(text):
             self.status_label.setText("Install cancelled.")
             return
-        self.status_label.setText("Installing MangoHud...")
+        self.status_label.setText(f"Installing {name}...")
+        self._installing = name
         self._run_task(lambda: self.command_runner(commands), self._on_installed)
 
     @Slot(object)
     def _on_installed(self, result):
-        self.status_label.setText(f"MangoHud install: {result}")
+        self.status_label.setText(f"{getattr(self, '_installing', 'MangoHud')} install: {result}")
 
     def ask_presentmon_file(self) -> str:
         path, _ = QFileDialog.getOpenFileName(self, "Select the official PresentMon executable", "",
@@ -808,9 +818,11 @@ class FrameCapturePanel(QGroupBox):
                 spec.route = route
                 # nothing before the route starts is measured
                 spec.settle_seconds = max(spec.settle_seconds, int(route["loop_from"]))
-        if linux and (spec.steps or spec.start_keys or spec.route):
-            self.status_label.setText(f"{spec.game_name}'s benchmark needs menu steps, keys or a route, which work "
-                                      "on Windows only so far; nothing was started.")
+        if linux and spec.route:
+            self.status_label.setText(f"{spec.game_name}'s benchmark needs a route, which works on Windows only so "
+                                      "far; nothing was started.")
+            return False
+        if linux and (spec.steps or spec.start_keys) and not self.linux_steps_ready(spec):
             return False
         fitted = None
         if spec.steps and spec.benchmark_seconds:
@@ -950,6 +962,23 @@ class FrameCapturePanel(QGroupBox):
                 logger.warning("Could not save the MangoHud choice: %s", e)
         return mangohud
 
+    def linux_steps_ready(self, spec) -> bool:
+        """Menu steps / start keys on Linux need an X11 session and (for menu steps) Tesseract to read the screen;
+        a missing Tesseract is offered for install, like MangoHud."""
+        from app.simulation.x11_desktop import session_problem
+        problem = (self.x11_check or session_problem)()
+        if problem:
+            self.status_label.setText(f"{spec.game_name}'s benchmark goes through its menus: {problem}. Nothing "
+                                      "was started.")
+            return False
+        which = self.linux_which or shutil.which
+        if spec.steps and not which("tesseract"):
+            self.status_label.setText(f"{spec.game_name}'s benchmark goes through its menus, which the app reads "
+                                      "with Tesseract (not installed). Install it, then press Benchmark again.")
+            self.install_tesseract(which=which)
+            return False
+        return True
+
     def linux_text(self, spec, profile, total: int, declared, forced_values=None, by_launch=False) -> str:
         from app.ui.game_settings_dialog import describe
         return (f"Benchmark {spec.game_name} automatically (Linux, MangoHud):\n\n"
@@ -961,9 +990,17 @@ class FrameCapturePanel(QGroupBox):
                 f"2. MangoHud logs every frame for about {spec.wait_seconds():.0f} s from the game's first frames. "
                 f"The first {spec.settle_seconds} s (loading, menus) are not measured, then {spec.warmup_runs} "
                 f"warmup + {spec.repetitions} measured runs of {spec.seconds} s each (profile {profile.name!r}), "
-                f"{total} s of game time. Get to the scene you want to measure during the first "
-                f"{spec.settle_seconds} s.\n"
-                f"3. Then the app closes the game: only processes started from the game's folder (for Proton: the "
+                f"{total} s of game time. "
+                + ("The app goes through the game's menus to its built-in benchmark by itself: before each key it "
+                   "reads the screen (Tesseract) and presses only when the expected word is there, and only while "
+                   "the game's window is the active one (X11). Measuring starts when the benchmark starts; the "
+                   f"{spec.settle_seconds} s above count from then. If a word does not come, nothing is guessed: "
+                   "the run stops and the screenshot is kept. Keep the game in front (borderless or windowed). "
+                   "Not yet checked on a real Linux PC.\n" if spec.steps else
+                   f"The app presses {', '.join(c for _, c in spec.start_keys)} in the game (only while it is the "
+                   "active window). Keep the game in front.\n" if spec.start_keys else
+                   f"Get to the scene you want to measure during the first {spec.settle_seconds} s.\n")
+                + f"3. Then the app closes the game: only processes started from the game's folder (for Proton: the "
                 f"ones whose command line names it), politely first, by force after 30 s. Unsaved progress is "
                 f"lost. Steam stays open for the next game.\n\n"
                 "MangoHud works with Vulkan games: Proton games and native Vulkan ones. A native OpenGL game writes "

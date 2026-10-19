@@ -78,7 +78,7 @@ def test_linux_panel_forces_settings_except_registry_games(tmp_path, monkeypatch
     assert p.declared_settings_for(ROTTR) == {"ray_tracing": True} and p.declared_settings_for(APP) == {}
     from types import SimpleNamespace
     spec = SimpleNamespace(game_name="Cyberpunk 2077", app_id=APP, launch_args=[], settle_seconds=5, seconds=60,
-                           warmup_runs=0, repetitions=3, wait_seconds=lambda: 200.0)
+                           warmup_runs=0, repetitions=3, wait_seconds=lambda: 200.0, steps=[], start_keys=[])
     text = p.linux_text(spec, SimpleNamespace(name="p"), 180, {}, {"ray_tracing": False}, False)
     assert "Forced game settings: " in text and "compatdata/1091500/pfx" in text
     assert "not forced on Linux" not in text

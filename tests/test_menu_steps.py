@@ -121,7 +121,7 @@ def test_optional_word_and_a_black_screen(tmp_path):
 def test_without_a_windows_desktop_nothing_is_pressed(tmp_path):
     p = StepPlayer([{"press": "enter"}], None, lambda: True, tmp_path)
     p.run()
-    assert p.problem == "keys and screen reading work on Windows only for now"
+    assert p.problem == "keys and screen reading need Windows or a Linux X11 session"
 
 
 def test_steps_data_is_checked():
@@ -158,8 +158,10 @@ def test_read_image_lines_and_errors(tmp_path, monkeypatch):
     def slow(*a, **k):
         raise subprocess.TimeoutExpired("powershell.exe", 30)
     assert "did not answer" in screen_text.read_image(tmp_path / "a.png", run=slow)[1]
-    monkeypatch.setattr(screen_text.os, "name", "posix")
-    assert screen_text.read_image(tmp_path / "a.png", run=ok) == ([], "reading the screen works on Windows only for now")
+    monkeypatch.setattr(screen_text.os, "name", "posix")                 # Linux: Tesseract
+    monkeypatch.setattr(screen_text.shutil, "which", lambda name: None)
+    assert "Tesseract (the OCR program for Linux) is not installed" in screen_text.read_image(tmp_path / "a.png",
+                                                                                              run=ok)[1]
     assert screen_text.find_word(["Run Benchmark Test"], ["stop", "BENCHMARK"]) == "BENCHMARK"
     assert screen_text.find_word([], "x") is None
 
