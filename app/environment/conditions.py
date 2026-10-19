@@ -6,6 +6,9 @@ ReBench, owner 2026-10-18/19). Read only: nothing is changed, the owner decides.
   scheme's GUID and name). Power saver is a warning. Linux: /sys/firmware/acpi/platform_profile (kernel ACPI
   platform profile; "low-power" is a warning) and the CPU frequency governor of cpu0.
 - Background CPU load: the whole CPU over one second, and the busiest programs (names only) when it is high.
+- Start temperature: the hottest CPU sensor and each NVIDIA GPU, read once from the app's telemetry sources
+  (LibreHardwareMonitor / psutil on Linux for the CPU, nvidia-smi for the GPU). A PC still warm from an earlier run
+  boosts less at the start, so its first scores come out lower. Missing sensors are left out.
 """
 
 import re
@@ -20,6 +23,8 @@ SAMPLE_SECONDS = 1.0
 POWER_SAVER_GUID = "a1841308-3541-4fab-bc81-f71556f20b4a"      # Windows' built-in Power saver scheme
 SCHEME = re.compile(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\s*\(([^)]*)\)")
 IDLE_NAMES = {"system idle process", "idle"}
+WARM_CPU_C = 60.0               # a CPU above this before a run is called still warm
+WARM_GPU_C = 55.0
 
 
 def _item(name: str, value: str, ok: bool, advice: str = "") -> dict:
@@ -116,12 +121,52 @@ def _sample(seconds: float = SAMPLE_SECONDS):
     return whole, busiest
 
 
-def check(platform: str = sys.platform, battery=None, plan=None, sample=None) -> List[dict]:
-    """The items that could be read, in order: power, power plan, background load."""
+def _read_temperatures() -> dict:
+    from app.telemetry import sources
+    out = {}
+    for source in sources.default_sources():
+        try:
+            if source.available()[0]:
+                out.update(source.read())
+        except Exception:
+            pass                    # a sensor that cannot be read is left out
+    return out
+
+
+def temperature_item(read=None) -> Optional[dict]:
+    """From a telemetry reading {key: (value, unit)}: cpu_temperature_hottest and gpu<N>_temperature."""
+    try:
+        reading = (read or _read_temperatures)()
+    except Exception:
+        return None
+    parts, warm = [], []
+    cpu = reading.get("cpu_temperature_hottest")
+    if cpu:
+        parts.append(f"CPU {cpu[0]:.0f} C")
+        if cpu[0] > WARM_CPU_C:
+            warm.append("CPU")
+    for key in sorted(k for k in reading if k.startswith("gpu") and k.endswith("_temperature")):
+        value = reading[key][0]
+        label = "GPU" if key == "gpu0_temperature" and "gpu1_temperature" not in reading else \
+            f"GPU {key[3:-len('_temperature')]}"
+        parts.append(f"{label} {value:.0f} C")
+        if value > WARM_GPU_C:
+            warm.append(label)
+    if not parts:
+        return None
+    if warm:
+        return _item("Start temperature", ", ".join(parts), False,
+                     f"{' and '.join(warm)} still warm (above {WARM_CPU_C:g} C CPU / {WARM_GPU_C:g} C GPU): wait a few "
+                     "minutes or use a longer pause, or the first run may score lower")
+    return _item("Start temperature", ", ".join(parts), True)
+
+
+def check(platform: str = sys.platform, battery=None, plan=None, sample=None, temps=None) -> List[dict]:
+    """The items that could be read, in order: power, power plan, background load, start temperature."""
     items = [battery_item(battery),
              windows_plan_item(plan) if platform == "win32" else
              linux_plan_item(plan) if platform.startswith("linux") else None,
-             load_item(sample)]
+             load_item(sample), temperature_item(temps)]
     return [i for i in items if i]
 
 

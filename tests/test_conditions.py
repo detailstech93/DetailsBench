@@ -42,3 +42,17 @@ def test_check_text_manifest_and_report():
     assert "<h2>PC before the run</h2>" in html and "Power saver" in html and "may have made" in html
     assert "Check: Power saver lowers" in html
     assert build_manifest({"id": 1})["conditions"] is None and _conditions_section({"manifest": {}}) == ""
+
+
+def test_start_temperature():
+    assert c.temperature_item(lambda: {}) is None and c.temperature_item(lambda: 1 / 0) is None
+    cool = c.temperature_item(lambda: {"cpu_temperature_hottest": (41.0, "C"), "gpu0_temperature": (38.0, "C"),
+                                       "ram_used": (20.0, "%")})
+    assert cool == c._item("Start temperature", "CPU 41 C, GPU 38 C", True)
+    warm = c.temperature_item(lambda: {"cpu_temperature_hottest": (72.4, "C"), "gpu0_temperature": (40.0, "C"),
+                                       "gpu1_temperature": (66.0, "C")})
+    assert warm["value"] == "CPU 72 C, GPU 0 40 C, GPU 1 66 C" and not warm["ok"]
+    assert warm["advice"].startswith("CPU and GPU 1 still warm")
+    items = c.check("win32", battery=lambda: None, plan=lambda: "", sample=lambda: (1.0, []),
+                    temps=lambda: {"gpu0_temperature": (70.0, "C")})
+    assert [i["name"] for i in items] == ["Background load", "Start temperature"] and not items[1]["ok"]
