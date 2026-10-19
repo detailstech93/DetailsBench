@@ -62,6 +62,27 @@ GAME_MENU_STEPS: Dict[int, dict] = {
         "note": "Options, Display and Graphics, R for the benchmark; measuring starts when its FPS shows. "
                 "The benchmark takes about 2.5 min.",
     },
+    2369390: {      # Far Cry 6: main menu -> Options -> Video -> (E) Quality -> (E E) Advanced -> F5 Benchmark
+        # Steam starts it through Ubisoft Connect (signed in by the owner); MarkBench's deprecated harness,
+        # read 2026-10-19: Space skips the logos and the intro, Esc closes a "later" popup
+        "steps": [
+            {"see": "options", "within": 300,
+             "dismiss": {"government": "space", "original": "space", "later": "esc"},
+             "settle": 2, "click": "options", "wait": 3},
+            {"see": "video", "within": 30, "settle": 1, "click": "video", "wait": 3},
+            # the Video page has the Video Adapter setting; E moves one tab to the right
+            {"see": "adapter", "within": 30, "settle": 1, "press": "e", "wait": 2},
+            {"see": "filtering", "within": 30, "press": "e, e", "wait": 2},
+            # the Advanced page (Enable Framerate Lock): F5 starts the benchmark
+            {"see": "lock", "within": 30, "press": "f5", "wait": 3},
+            # "Toggle UI" shows in the lower right while it runs
+            {"see": "toggle", "within": 90, "mark": True, "again": {"press": "f5", "every": 10, "while": "lock"}},
+        ],
+        "benchmark_seconds": 60,        # MarkBench waits 60 s after "toggle", then for its results screen
+        "verified": False,
+        "note": "Options, Video, two tabs right, F5 for the benchmark; measuring starts when 'Toggle UI' shows. "
+                "The benchmark takes about a minute.",
+    },
 }
 
 

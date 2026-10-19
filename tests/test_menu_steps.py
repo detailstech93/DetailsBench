@@ -319,3 +319,21 @@ def test_shadow_of_the_tomb_raider_path_and_launch(tmp_path):
                     ("mouse", (240, 10)), ("button", True), ("button", False),
                     parse_chord("up"), parse_chord("right"), parse_chord("r")]
     assert "closed a popup ('adapter')" in p.summary()
+
+
+def test_far_cry_6_path(tmp_path):
+    from data.game_start_keys import benchmark_seconds_for
+    assert benchmark_seconds_for(2369390) == 60
+    timeline = [(0, ["Ubisoft"]), (20, ["The Government of Yara"]), (22, ["Loading"]),
+                (30, ["An original story"]), (32, ["Loading"]), (34, ["Remind me later"]), (36, ["Loading"]),
+                (40, ["Continue", "Options", "Exit"]), (50, ["Video", "Quality"]), (60, ["Video Adapter"]),
+                (66, ["Texture Filtering"]), (72, ["Enable Framerate Lock"]), (80, ["Toggle UI"])]
+    p, desk, clock = player(tmp_path, menu_steps_for(2369390), timeline)
+    p.run()
+    assert p.problem is None and 80 <= p.mark_time < 82
+    keys = [e[1] if e[0] == "press" else (e[0], e[1]) for e in desk.events]
+    assert keys == [parse_chord("space"), parse_chord("space"), parse_chord("esc"),
+                    ("mouse", (40, 110)), ("button", True), ("button", False),
+                    ("mouse", (40, 10)), ("button", True), ("button", False),
+                    parse_chord("e"), parse_chord("e"), parse_chord("e"), parse_chord("f5")]
+    assert "benchmark started ('toggle' seen at 8" in p.summary()
