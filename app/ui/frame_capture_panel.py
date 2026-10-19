@@ -46,6 +46,14 @@ logger = logging.getLogger(__name__)
 
 REMOTE_WARNING = ("WARNING: this is a Remote Desktop session. PresentMon recorded no frames in one on the "
                   "test machine; run the capture at the computer's own screen.")
+# asked once, the first time a game is benchmarked on Linux (the owner's choice of 2026-10-19)
+LINUX_CONSENT_TEXT = ("Game benchmarks on Linux measure with MangoHud. For that, the app starts Steam itself, "
+                      "with MangoHud switched on for that Steam only (the environment variable MANGOHUD=1 and the "
+                      "app's own MangoHud settings). Nothing in Steam's settings or your MangoHud settings is "
+                      "changed, and nothing stays switched on after you close that Steam.\n\n"
+                      "Steam must be closed before each game benchmark (the app never closes it). While that Steam "
+                      "is open, other Vulkan games you start from it also load MangoHud, without its overlay.\n\n"
+                      "Allow this? You are asked only this once.")
 
 
 def is_remote_session() -> bool:
@@ -282,6 +290,8 @@ class FrameCapturePanel(QGroupBox):
         self.games = games
         self._after_tool: Optional[Callable[[], object]] = None
         self.benchmark_factory = None                    # tests swap in a fake GameBenchmark
+        self.linux_which = None                          # tests swap in a fake shutil.which (Linux games)
+        self.steam_check = None                          # tests swap in a fake "is Steam open" (Linux games)
         self.forced_factory = None                       # tests swap in a fake ForcedSettings
         self.settings_reader = None                      # tests swap in a fake read_for_dialog
         from app.ui.game_settings_dialog import GameSettingsDialog
@@ -734,23 +744,29 @@ class FrameCapturePanel(QGroupBox):
         if self.db is None or self.output_root is None:
             self.status_label.setText("No database available; nothing was captured.")
             return False
-        if not self.is_windows():
-            self.status_label.setText("Game benchmarks capture frames with PresentMon, which is Windows-only; "
-                                      "MangoHud capture on Linux is not implemented yet.")
+        linux = self.platform_name.startswith("linux")
+        if not self.is_windows() and not linux:
+            self.status_label.setText("Game benchmarks run on Windows (PresentMon) and Linux (MangoHud).")
             return False
         game = self.game_combo.currentData()
         if not game:
             self.status_label.setText("No installed Steam game found (Steam tab, or rescan).")
             return False
-        path = self.presentmon_path()
-        problem = check_presentmon_path(path)
-        if problem:
-            if self._setting_path():
-                self.status_label.setText(f"{problem}. Use 'Select PresentMon...' to choose it again.")
-            elif not self._download_then(lambda: self.benchmark_game()):
-                self.status_label.setText("Still looking for PresentMon; press Benchmark game... again in a moment.")
-            return False
-        if self.telemetry_box.isChecked() and not tools_ready:
+        if linux:
+            path = self.linux_ready()
+            if path is None:
+                return False
+        else:
+            path = self.presentmon_path()
+            problem = check_presentmon_path(path)
+            if problem:
+                if self._setting_path():
+                    self.status_label.setText(f"{problem}. Use 'Select PresentMon...' to choose it again.")
+                elif not self._download_then(lambda: self.benchmark_game()):
+                    self.status_label.setText("Still looking for PresentMon; press Benchmark game... again in a "
+                                              "moment.")
+                return False
+        if self.is_windows() and self.telemetry_box.isChecked() and not tools_ready:
             started = []
             self.lhm.ensure(lambda: started.append(self.benchmark_game(tools_ready=True, ask_settings=ask_settings,
                                                                        counts=counts)))
@@ -786,6 +802,10 @@ class FrameCapturePanel(QGroupBox):
                 spec.route = route
                 # nothing before the route starts is measured
                 spec.settle_seconds = max(spec.settle_seconds, int(route["loop_from"]))
+        if linux and (spec.steps or spec.start_keys or spec.route):
+            self.status_label.setText(f"{spec.game_name}'s benchmark needs menu steps, keys or a route, which work "
+                                      "on Windows only so far; nothing was started.")
+            return False
         fitted = None
         if spec.steps and spec.benchmark_seconds:
             from app.frames.game_benchmark import fit_to_benchmark
@@ -793,10 +813,12 @@ class FrameCapturePanel(QGroupBox):
         total = spec.settle_seconds + spec.seconds * spec.count
         from app.games.settings_file import adapter_for
         from app.ui.game_settings_dialog import describe
-        if ask_settings and adapter_for(spec.app_id) is not None and self._ask_game_settings() == "cancelled":
+        if (ask_settings and not linux and adapter_for(spec.app_id) is not None
+                and self._ask_game_settings() == "cancelled"):
             self.status_label.setText("Cancelled; nothing was started.")
             return False
-        forced_values = self.forced_settings_for(spec.app_id)
+        # Linux: a Proton game keeps its settings inside its Wine prefix, which the settings files do not know yet
+        forced_values = {} if linux else self.forced_settings_for(spec.app_id)
         declared = self.declared_settings_for(spec.app_id)
         spec.launch_args = game_launch_args(spec.app_id, forced_values)
         by_launch = getattr(adapter_for(spec.app_id), "base", None) == "launch"
@@ -863,6 +885,8 @@ class FrameCapturePanel(QGroupBox):
                      + ("" if spec.route.get("verified") else
                         "\nThis route is a draft not yet watched on a real run: watch it and stop the run if the "
                         "character does something unexpected."))
+        if linux:
+            text = self.linux_text(spec, profile, total, declared)
         if self.remote_check():
             text += "\n\n" + REMOTE_WARNING
         if not self.confirm(text):
@@ -890,13 +914,62 @@ class FrameCapturePanel(QGroupBox):
         self.worker.start()
         return True
 
+    def linux_ready(self) -> Optional[str]:
+        """MangoHud's path when a Linux game run can start, else None (the status says why). The first time, the
+        owner is asked once whether the app may start Steam itself with MangoHud (app/frames/mangohud_run.py)."""
+        from app.frames import mangohud_run as mh
+        which = self.linux_which or shutil.which
+        mangohud = which("mangohud")
+        if not mangohud:
+            self.status_label.setText("Game benchmarks on Linux measure with MangoHud, which is not installed. "
+                                      "Install it, then press Benchmark game... again.")
+            self.install_mangohud(which=which)
+            return None
+        if not load_settings(self.data_dir)[0].get(mh.CONSENT_KEY):
+            if not self.confirm(LINUX_CONSENT_TEXT):
+                self.status_label.setText("Not allowed; nothing was started. Game benchmarks on Linux need the app "
+                                          "to start Steam with MangoHud.")
+                return None
+            try:
+                save_setting(self.data_dir, mh.CONSENT_KEY, True)
+            except (OSError, ValueError) as e:
+                logger.warning("Could not save the MangoHud choice: %s", e)
+        if (self.steam_check or mh.steam_running)():
+            self.status_label.setText("Steam is open. Close it (Steam menu > Exit), then press Benchmark game... "
+                                      "again: the app starts Steam itself with MangoHud for the benchmark. The app "
+                                      "never closes Steam.")
+            return None
+        return mangohud
+
+    def linux_text(self, spec, profile, total: int, declared) -> str:
+        from app.ui.game_settings_dialog import describe
+        return (f"Benchmark {spec.game_name} automatically (Linux, MangoHud):\n\n"
+                f"1. The app starts Steam with MangoHud switched on for this Steam only (MANGOHUD=1 and the app's "
+                f"own MangoHud settings in the run folder; nothing in Steam's settings is changed) and asks it to "
+                f"launch the game (steam -applaunch {spec.app_id}"
+                + (" " + " ".join(spec.launch_args) if spec.launch_args else "") + ").\n"
+                f"2. MangoHud logs every frame for about {spec.wait_seconds():.0f} s from the game's first frames. "
+                f"The first {spec.settle_seconds} s (loading, menus) are not measured, then {spec.warmup_runs} "
+                f"warmup + {spec.repetitions} measured runs of {spec.seconds} s each (profile {profile.name!r}), "
+                f"{total} s of game time. Get to the scene you want to measure during the first "
+                f"{spec.settle_seconds} s.\n"
+                f"3. Then the app closes the game: only processes started from the game's folder (for Proton: the "
+                f"ones whose command line names it), politely first, by force after 30 s. Unsaved progress is "
+                f"lost. Steam stays open.\n\n"
+                "MangoHud works with Vulkan games: Proton games and native Vulkan ones. A native OpenGL game writes "
+                "no log (the run then says so). Not yet checked on a real Linux PC.\n\n"
+                + ("Game settings declared by you (not checked): " + describe(declared) + "." if declared else
+                   "Game settings are not forced on Linux yet; the game's own are used."))
+
     def _create_game_session(self, spec, profile, environment, capture, forced=None, declared=None) -> int:
         from app.games.settings_file import declared_record
         from app.manifest import build_manifest, git_commit
         name = f"{spec.game_name} {datetime.now().strftime('%Y-%m-%d %H:%M')}"
         process = capture.process[0] if capture.process else "?"
+        mangohud = os.path.basename(spec.presentmon_path) == "mangohud"       # Linux
+        tool = "MangoHud" if mangohud else "PresentMon"
         sid = self.db.create_session(name, f"Game benchmark of {spec.game_name} (Steam {spec.app_id}), "
-                                           f"PresentMon capture of {process}", is_manual=False)
+                                           f"{tool} capture of {process}", is_manual=False)
         settings = dict(profile.settings(), capture_seconds=spec.seconds, settle_seconds=spec.settle_seconds,
                         steam_app_id=spec.app_id, game_process=process,
                         game_settings=forced.record.to_dict() if forced is not None else
@@ -904,13 +977,13 @@ class FrameCapturePanel(QGroupBox):
         version = None
         try:
             from app.benchmark_manager import get_pe_version
-            version = get_pe_version(spec.presentmon_path)
+            version = None if mangohud else get_pe_version(spec.presentmon_path)
         except Exception:
             pass
         manifest = build_manifest(
             {"id": sid, "name": name, "is_test": False, "is_manual": False},
             run_settings=settings, environment=environment,
-            benchmarks_used=[{"name": "presentmon", "display_name": "PresentMon", "version": version,
+            benchmarks_used=[{"name": tool.lower(), "display_name": tool, "version": version,
                               "executable_path": spec.presentmon_path, "detection_method": "found or downloaded"}],
             commit=git_commit())
         try:

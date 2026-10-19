@@ -34,16 +34,39 @@ def _inside(path: Optional[str], folder: str) -> bool:
     return inside(path, folder_roots(folder))
 
 
-def processes_in_folder(folder: str, iter_procs: Optional[Callable[[], Iterable]] = None) -> Dict[int, ProcInfo]:
-    """{pid: ProcInfo} of running processes whose executable is inside folder."""
+def unix_path(arg: str) -> str:
+    """A Wine path on Wine's Z: drive (the whole Linux file system) as the Linux path: Z:\\home\\a -> /home/a."""
+    if len(arg) > 2 and arg[0] in "Zz" and arg[1] == ":" and arg[2] in "\\/":
+        return arg[2:].replace("\\", "/")
+    return arg
+
+
+def _in_command_line(cmdline, folder: str) -> Optional[str]:
+    """Linux: a game under Proton runs as Wine (its executable is Proton's), with the game's .exe in its command
+    line; the first argument inside the folder names it."""
+    for arg in cmdline or []:
+        path = unix_path(str(arg))
+        if path.startswith("/") and _inside(path, folder):
+            return path
+    return None
+
+
+def processes_in_folder(folder: str, iter_procs: Optional[Callable[[], Iterable]] = None,
+                        linux: Optional[bool] = None) -> Dict[int, ProcInfo]:
+    """{pid: ProcInfo} of running processes whose executable is inside folder (Linux: or whose command line names
+    a file inside it, for Proton)."""
+    linux = sys.platform.startswith("linux") if linux is None else linux
     if iter_procs is None:
         import psutil
-        iter_procs = lambda: psutil.process_iter(["pid", "exe", "create_time"])
+        attrs = ["pid", "exe", "create_time"] + (["cmdline"] if linux else [])
+        iter_procs = lambda: psutil.process_iter(attrs)
     found = {}
     try:
         for proc in iter_procs():
             info = getattr(proc, "info", proc)
             exe = info.get("exe")
+            if linux and not _inside(exe, folder):
+                exe = _in_command_line(info.get("cmdline"), folder) or exe
             if _inside(exe, folder) and info.get("pid") is not None and info.get("create_time") is not None:
                 found[int(info["pid"])] = ProcInfo(int(info["pid"]), float(info["create_time"]), exe)
     except Exception:

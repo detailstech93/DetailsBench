@@ -191,7 +191,7 @@ class FakeSteps:
 
 def bench(tmp_path, fakes, steps_obj):
     s = spec(install_path=str(fakes.install), steps=[{"see": "stop", "within": 60, "mark": True}])
-    return s, GameBenchmark(s, tmp_path / "run", None, lambda m: None, elevated_runner=fakes.elevated,
+    return s, GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=False, elevated_runner=fakes.elevated,
                             launcher=fakes.launcher, snapshot=fakes.snapshot, clock=fakes.clock, sleep=fakes.sleep,
                             folder_procs=fakes.folder_procs, closer=fakes.closer,
                             exe_lister=lambda folder: ["Game.exe"], step_player=lambda steps: steps_obj).run()
@@ -242,7 +242,7 @@ def test_every_read_is_logged(tmp_path):
 def test_a_remote_desktop_capture_is_never_a_score(tmp_path):
     fakes = Fakes(tmp_path, game_frames=4000)
     s = spec(install_path=str(fakes.install))
-    cap = GameBenchmark(s, tmp_path / "run", None, lambda m: None, elevated_runner=fakes.elevated,
+    cap = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=False, elevated_runner=fakes.elevated,
                         launcher=fakes.launcher, snapshot=fakes.snapshot, clock=fakes.clock, sleep=fakes.sleep,
                         folder_procs=fakes.folder_procs, closer=fakes.closer, exe_lister=lambda folder: ["Game.exe"],
                         remote_session=lambda: True).run()

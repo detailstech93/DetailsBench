@@ -102,7 +102,7 @@ def test_a_capture_plays_the_route_and_always_releases(tmp_path):
     fakes = Fakes(tmp_path)
     desk = FrontDesk(fakes)
     s = spec(install_path=str(fakes.install), route=ROUTE)
-    bench = GameBenchmark(s, tmp_path / "run", None, lambda m: None, elevated_runner=fakes.elevated,
+    bench = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=False, elevated_runner=fakes.elevated,
                           launcher=fakes.launcher, snapshot=fakes.snapshot, clock=fakes.clock, sleep=fakes.sleep,
                           folder_procs=fakes.folder_procs, closer=fakes.closer,
                           exe_lister=lambda folder: ["Game.exe"], desktop=desk)

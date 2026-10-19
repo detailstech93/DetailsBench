@@ -19,6 +19,7 @@ the moment the game was asked to close (approximate, about one second).
 import logging
 import os
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -177,7 +178,8 @@ class GameBenchmark:
                  sleep: Callable[[float], None] = time.sleep, poll_seconds: float = 1.0,
                  folder_procs: Optional[Callable[[], dict]] = None, closer: Optional[Callable[[dict], str]] = None,
                  exe_lister: Callable[[str], List[str]] = game_exe_names, desktop=None,
-                 step_player: Optional[Callable] = None, remote_session: Optional[Callable[[], bool]] = None):
+                 step_player: Optional[Callable] = None, remote_session: Optional[Callable[[], bool]] = None,
+                 linux: Optional[bool] = None, mangohud_hooks=None):
         self.spec = spec
         self.run_dir = Path(run_dir)
         self.stop_event = stop_event or threading.Event()
@@ -206,6 +208,8 @@ class GameBenchmark:
         self.key_notes: List[str] = []
         self.step_player = step_player          # makes the menu step player (tests pass a fake)
         self.remote_session = remote_session or is_remote_session
+        self.linux = sys.platform.startswith("linux") if linux is None else linux
+        self.mangohud_hooks = mangohud_hooks     # app/frames/mangohud_run.py Hooks (tests pass a fake)
 
     def _desk(self):
         if self._desktop is None:
@@ -266,7 +270,7 @@ class GameBenchmark:
             return None
 
     def run(self) -> GameCapture:
-        capture = self._run()
+        capture = self._run_mangohud() if self.linux else self._run()
         try:        # the message stays in the run folder even when the app is closed before it is read
             (self.run_dir / LOG_NAME).write_text(
                 f"status: {capture.status}\nmessage: {capture.message}\n"
@@ -468,6 +472,14 @@ class GameBenchmark:
             windows = [(a + mark_shift, b + mark_shift) for a, b in windows]
             frame_windows = split_frames(frametimes, windows)
         sample_windows = slice_samples(tel.samples if tel else [], offset, windows)
+        out = self._outcomes(frame_windows, windows, recorded, sample_windows, stopped, steps, command)
+        return GameCapture("recorded", f"{recorded:.0f} s of {pick[0]} recorded" + closed, process=pick,
+                           windows=out, command=command,
+                           telemetry_unavailable=dict(tel.unavailable) if tel else {})
+
+    def _outcomes(self, frame_windows, windows, recorded, sample_windows, stopped, steps, command):
+        """One WindowOutcome per window: a score only for a usable window of a local (not remote) session."""
+        spec = self.spec
         common = {"command": command}
         remote = self.remote_session()
         out = []
@@ -497,8 +509,96 @@ class GameBenchmark:
                     if getattr(steps, "started_shot", None):
                         result.note = f"Proof screenshot: {steps.started_shot}"
             out.append(WindowOutcome(is_warmup, run_index, result, sample_windows[k]))
-        return GameCapture("recorded", f"{recorded:.0f} s of {pick[0]} recorded" + closed, process=pick,
-                           windows=out, command=command,
+        return out
+
+    # ---- Linux: MangoHud (app/frames/mangohud_run.py) ------------------------------------------------
+    def _run_mangohud(self) -> GameCapture:
+        from app.frames import mangohud_run as mh
+        spec = self.spec
+        hooks = self.mangohud_hooks or mh.Hooks()
+        self.run_dir.mkdir(parents=True, exist_ok=True)
+        if spec.steps or spec.start_keys or spec.route:
+            return GameCapture("failed", "this game's benchmark needs menu steps, keys or a route, which work on "
+                               "Windows only so far; nothing was started")
+        if not hooks.mangohud_installed():
+            return GameCapture("failed", "MangoHud is not installed (Frame capture screen: Install MangoHud); "
+                               "nothing was started")
+        command = hooks.command(spec.app_id, spec.launch_args)
+        if command is None:
+            return GameCapture("failed", "the steam command was not found (the Flatpak Steam is not supported "
+                               "yet); nothing was started")
+        if hooks.steam_running():
+            return GameCapture("failed", "Steam is open: close it (Steam menu > Exit) so the app can start it with "
+                               "MangoHud for this run; nothing was started", command=command)
+        logs = self.run_dir / mh.LOGS_FOLDER
+        logs.mkdir(exist_ok=True)
+        config = self.run_dir / mh.CONFIG_NAME
+        duration = int(spec.wait_seconds())
+        config.write_text(mh.config_text(logs, duration), encoding="utf-8")
+        since = time.time()
+        self._before = self.folder_procs()
+        self.on_progress(f"Starting Steam with MangoHud and {spec.game_name}...")
+        try:
+            hooks.start(command, mh.environment(config))
+        except Exception as e:
+            return GameCapture("failed", f"Steam could not be started: {e}", command=command)
+        deadline = self.clock() + mh.LAUNCH_TIMEOUT_SECONDS
+        while not self._started:
+            if self.stop_event.is_set():
+                return GameCapture("cancelled", "stopped by user while the game was starting" + self._close_game(),
+                                   command=command)
+            if self.clock() >= deadline:
+                return GameCapture("failed", f"no game process appeared within {mh.LAUNCH_TIMEOUT_SECONDS:g} s "
+                                   "(Steam may be updating, signing in or showing a dialog)", command=command)
+            self.sleep(self.poll_seconds)
+            self._note_started()
+        sampler = None
+        if self.sampler_factory is not None:
+            try:
+                sampler = self.sampler_factory().start()
+            except Exception as e:
+                self.on_progress(f"telemetry not started: {e}")
+        t0, t0_wall = self.clock(), time.time()
+        limit = duration + mh.LAUNCH_TIMEOUT_SECONDS     # MangoHud starts logging only when the game draws
+        stopped, shown = False, None
+        while True:
+            if self.stop_event.is_set():
+                stopped = True
+                break
+            if mh.logging_done(logs):
+                break                   # log_duration reached: MangoHud wrote its summary
+            elapsed = self.clock() - t0
+            if elapsed >= limit:
+                break
+            self._note_started()
+            if int(elapsed) != shown:
+                shown = int(elapsed)
+                self.on_progress(f"{spec.game_name}: {elapsed:.0f} s (MangoHud logs {duration} s from the game's "
+                                 f"first frames). The first {spec.settle_seconds} s are not measured. It is closed "
+                                 "at the end.")
+            self.sleep(self.poll_seconds)
+        closed = self._close_game()
+        tel = sampler.stop() if sampler is not None else None
+        prefix = "stopped by user; " if stopped else ""
+        best = mh.best_log(logs, since - 2)
+        if best is None:
+            return GameCapture("cancelled" if stopped else "failed",
+                               prefix + "MangoHud wrote no frame log (it works with Vulkan games: Proton games and "
+                               "native Vulkan ones; a native OpenGL game writes none)" + closed, command=command)
+        path, parsed = best
+        frametimes = parsed.frametimes_ms
+        recorded = game_seconds(frametimes)
+        windows = spec.windows()
+        frame_windows = split_frames(frametimes, windows)
+        try:                            # the log's last frame was written when the file last changed
+            offset = first_frame_offset(path.stat().st_mtime - t0_wall, recorded)
+        except OSError:
+            offset = 0.0
+        sample_windows = slice_samples(tel.samples if tel else [], offset, windows)
+        out = self._outcomes(frame_windows, windows, recorded, sample_windows, stopped, None, command)
+        name = mh.program_name(path)
+        return GameCapture("recorded", f"{recorded:.0f} s of {name} recorded by MangoHud ({path.name})" + closed,
+                           process=(name, None), windows=out, command=command,
                            telemetry_unavailable=dict(tel.unavailable) if tel else {})
 
 

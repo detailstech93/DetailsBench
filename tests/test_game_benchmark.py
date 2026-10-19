@@ -85,7 +85,7 @@ def spec(**kw):
 
 def run(tmp_path, fakes, stop=None, sampler=None, **kw):
     s = spec(install_path=str(fakes.install), **kw)
-    bench = GameBenchmark(s, tmp_path / "run", stop, lambda m: None, sampler_factory=sampler,
+    bench = GameBenchmark(s, tmp_path / "run", stop, lambda m: None, linux=False, sampler_factory=sampler,
                           elevated_runner=fakes.elevated, launcher=fakes.launcher, snapshot=fakes.snapshot,
                           clock=fakes.clock, sleep=fakes.sleep, folder_procs=fakes.folder_procs,
                           closer=fakes.closer, exe_lister=lambda folder: ["Game.exe", "Launcher.exe"])
@@ -262,7 +262,7 @@ def test_start_keys_go_only_into_the_game_when_it_is_in_front(tmp_path):
     desk = FakeDesktop(fakes, [(0, 7), (30, 999), (50, 7)])       # another program is in front at 30-50 s
     s = spec(install_path=str(fakes.install),
              start_keys=[(40.0, "esc"), (5.0, "enter"), (60.0, "nokey"), (61.0, "down")])
-    bench = GameBenchmark(s, tmp_path / "run", None, lambda m: None, elevated_runner=fakes.elevated,
+    bench = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=False, elevated_runner=fakes.elevated,
                           launcher=fakes.launcher, snapshot=fakes.snapshot, clock=fakes.clock, sleep=fakes.sleep,
                           folder_procs=fakes.folder_procs, closer=fakes.closer,
                           exe_lister=lambda folder: ["Game.exe"], desktop=desk)
@@ -316,7 +316,7 @@ def test_keys_wait_for_the_game_window_of_a_slow_loading_game(tmp_path):
     fakes = Fakes(tmp_path)
     desk = FakeDesktop(fakes, [(0, 999), (200, 7)])                # loading: another window in front
     s = spec(install_path=str(fakes.install), start_keys=[(5.0, "enter")])
-    bench = GameBenchmark(s, tmp_path / "run", None, lambda m: None, elevated_runner=fakes.elevated,
+    bench = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=False, elevated_runner=fakes.elevated,
                           launcher=fakes.launcher, snapshot=fakes.snapshot, clock=fakes.clock, sleep=fakes.sleep,
                           folder_procs=fakes.folder_procs, closer=fakes.closer,
                           exe_lister=lambda folder: ["Game.exe"], desktop=desk)

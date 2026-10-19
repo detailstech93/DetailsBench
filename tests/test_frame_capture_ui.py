@@ -433,6 +433,42 @@ def test_benchmark_game_lists_installed_games_and_stores_every_window(qapp, pane
     assert "run 1: 60.0 fps, 1% low 40.0" in p.status_label.text()
 
 
+def test_linux_game_benchmark_asks_once_then_needs_steam_closed(qapp, tmp_path):
+    from app.frames import mangohud_run as mh
+    p = make_panel(tmp_path, platform_name="linux")
+    finish(qapp, p)
+    p.games = lambda: GAMES
+    p.refresh_games()
+    installs = []
+    p.install_mangohud = lambda **kw: installs.append(kw)
+    p.linux_which = lambda name: None
+    assert p.benchmark_game() is False and len(installs) == 1 and p.capture_asked == []
+    p.linux_which = lambda name: "/usr/bin/" + name
+    steam_open = [True]
+    p.steam_check = lambda: steam_open[0]
+    answers = [False]
+    p.confirm = lambda text: (p.capture_asked.append(text), answers.pop(0))[1]
+    assert p.benchmark_game() is False and "Not allowed" in p.status_label.text()
+    assert "asked only this once" in p.capture_asked[0] and not load_settings(p.data_dir)[0].get(mh.CONSENT_KEY)
+    answers[:] = [True]
+    assert p.benchmark_game() is False and "Steam is open" in p.status_label.text()
+    assert load_settings(p.data_dir)[0][mh.CONSENT_KEY] is True
+    steam_open[0] = False
+    seen = []
+    p.benchmark_factory = fake_benchmark(seen=seen)
+    answers[:] = [True]                         # only the run's own question now: the permission was saved
+    assert p.benchmark_game() is True
+    p.worker.wait(10000)
+    qapp.processEvents()
+    text = p.capture_asked[-1]
+    assert "steam -applaunch 123" in text and "nothing in Steam's settings is changed" in text
+    assert "UAC" not in text and len(p.capture_asked) == 3
+    spec, _ = seen[0]
+    assert spec.presentmon_path == "/usr/bin/mangohud"
+    session = p.db.get_sessions(include_test=True)[0]
+    assert "MangoHud capture of Game.exe" in session["description"]
+
+
 def test_benchmark_game_that_records_nothing_creates_no_session(qapp, panel):
     p, db, _ = panel
     p.select_presentmon()
