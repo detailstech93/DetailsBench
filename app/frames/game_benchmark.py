@@ -527,17 +527,29 @@ class GameBenchmark:
         if command is None:
             return GameCapture("failed", "the steam command was not found (the Flatpak Steam is not supported "
                                "yet); nothing was started")
-        if hooks.steam_running():
-            return GameCapture("failed", "Steam is open: close it (Steam menu > Exit) so the app can start it with "
-                               "MangoHud for this run; nothing was started", command=command)
-        logs = self.run_dir / mh.LOGS_FOLDER
-        logs.mkdir(exist_ok=True)
-        config = self.run_dir / mh.CONFIG_NAME
+        shared = hooks.folder()                     # one place for every game: the app's Steam stays usable
+        shared_logs = shared / mh.LOGS_FOLDER
+        config = shared / mh.CONFIG_NAME
+        try:
+            shared_logs.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            return GameCapture("failed", f"the MangoHud folder could not be made ({e}); nothing was started")
+        state = hooks.steam_state(config)
+        if state == "other":                        # opened without the app's MangoHud setting
+            self.on_progress("Steam is open without MangoHud: asking it to exit (steam -shutdown), then starting "
+                             "it again with MangoHud...")
+            why = hooks.shutdown()
+            if why:
+                return GameCapture("failed", f"Steam is open without MangoHud and did not exit ({why}); close it "
+                                   "yourself (Steam menu > Exit) and run again; nothing was started", command=command)
         duration = int(spec.wait_seconds())
-        config.write_text(mh.config_text(logs, duration), encoding="utf-8")
+        config.write_text(mh.config_text(shared_logs, duration), encoding="utf-8")    # read when the game starts
+        (self.run_dir / mh.CONFIG_NAME).write_text(mh.config_text(shared_logs, duration), encoding="utf-8")
+        logs = self.run_dir / mh.LOGS_FOLDER
         since = time.time()
         self._before = self.folder_procs()
-        self.on_progress(f"Starting Steam with MangoHud and {spec.game_name}...")
+        self.on_progress(f"Asking the Steam with MangoHud to launch {spec.game_name}..." if state == "ours" else
+                         f"Starting Steam with MangoHud and {spec.game_name}...")
         try:
             hooks.start(command, mh.environment(config))
         except Exception as e:
@@ -565,7 +577,7 @@ class GameBenchmark:
             if self.stop_event.is_set():
                 stopped = True
                 break
-            if mh.logging_done(logs):
+            if mh.logging_done(shared_logs, since - 2):
                 break                   # log_duration reached: MangoHud wrote its summary
             elapsed = self.clock() - t0
             if elapsed >= limit:
@@ -580,6 +592,7 @@ class GameBenchmark:
         closed = self._close_game()
         tel = sampler.stop() if sampler is not None else None
         prefix = "stopped by user; " if stopped else ""
+        mh.move_new_logs(shared_logs, logs, since - 2)    # this run's logs belong to its run folder
         best = mh.best_log(logs, since - 2)
         if best is None:
             return GameCapture("cancelled" if stopped else "failed",

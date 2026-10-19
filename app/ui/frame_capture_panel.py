@@ -50,9 +50,11 @@ REMOTE_WARNING = ("WARNING: this is a Remote Desktop session. PresentMon recorde
 LINUX_CONSENT_TEXT = ("Game benchmarks on Linux measure with MangoHud. For that, the app starts Steam itself, "
                       "with MangoHud switched on for that Steam only (the environment variable MANGOHUD=1 and the "
                       "app's own MangoHud settings). Nothing in Steam's settings or your MangoHud settings is "
-                      "changed, and nothing stays switched on after you close that Steam.\n\n"
-                      "Steam must be closed before each game benchmark (the app never closes it). While that Steam "
-                      "is open, other Vulkan games you start from it also load MangoHud, without its overlay.\n\n"
+                      "changed, and nothing stays switched on after that Steam exits.\n\n"
+                      "Several games in a row use that same Steam. If Steam is already open without MangoHud "
+                      "(opened by you), the app asks it to exit by itself (steam -shutdown, like Steam menu > "
+                      "Exit) and starts it again with MangoHud; close your own games first. While that Steam is "
+                      "open, other Vulkan games you start from it also load MangoHud, without its overlay.\n\n"
                       "Allow this? You are asked only this once.")
 
 
@@ -291,7 +293,6 @@ class FrameCapturePanel(QGroupBox):
         self._after_tool: Optional[Callable[[], object]] = None
         self.benchmark_factory = None                    # tests swap in a fake GameBenchmark
         self.linux_which = None                          # tests swap in a fake shutil.which (Linux games)
-        self.steam_check = None                          # tests swap in a fake "is Steam open" (Linux games)
         self.forced_factory = None                       # tests swap in a fake ForcedSettings
         self.settings_reader = None                      # tests swap in a fake read_for_dialog
         from app.ui.game_settings_dialog import GameSettingsDialog
@@ -934,18 +935,14 @@ class FrameCapturePanel(QGroupBox):
                 save_setting(self.data_dir, mh.CONSENT_KEY, True)
             except (OSError, ValueError) as e:
                 logger.warning("Could not save the MangoHud choice: %s", e)
-        if (self.steam_check or mh.steam_running)():
-            self.status_label.setText("Steam is open. Close it (Steam menu > Exit), then press Benchmark game... "
-                                      "again: the app starts Steam itself with MangoHud for the benchmark. The app "
-                                      "never closes Steam.")
-            return None
         return mangohud
 
     def linux_text(self, spec, profile, total: int, declared) -> str:
         from app.ui.game_settings_dialog import describe
         return (f"Benchmark {spec.game_name} automatically (Linux, MangoHud):\n\n"
-                f"1. The app starts Steam with MangoHud switched on for this Steam only (MANGOHUD=1 and the app's "
-                f"own MangoHud settings in the run folder; nothing in Steam's settings is changed) and asks it to "
+                f"1. The app uses the Steam it started with MangoHud (MANGOHUD=1 and the app's own MangoHud "
+                f"settings; nothing in Steam's settings is changed): if Steam is closed it starts it; if Steam is "
+                f"open without MangoHud it asks it to exit first (steam -shutdown). Then it asks Steam to "
                 f"launch the game (steam -applaunch {spec.app_id}"
                 + (" " + " ".join(spec.launch_args) if spec.launch_args else "") + ").\n"
                 f"2. MangoHud logs every frame for about {spec.wait_seconds():.0f} s from the game's first frames. "
@@ -955,7 +952,7 @@ class FrameCapturePanel(QGroupBox):
                 f"{spec.settle_seconds} s.\n"
                 f"3. Then the app closes the game: only processes started from the game's folder (for Proton: the "
                 f"ones whose command line names it), politely first, by force after 30 s. Unsaved progress is "
-                f"lost. Steam stays open.\n\n"
+                f"lost. Steam stays open for the next game.\n\n"
                 "MangoHud works with Vulkan games: Proton games and native Vulkan ones. A native OpenGL game writes "
                 "no log (the run then says so). Not yet checked on a real Linux PC.\n\n"
                 + ("Game settings declared by you (not checked): " + describe(declared) + "." if declared else

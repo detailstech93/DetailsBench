@@ -42,19 +42,32 @@ def test_proton_processes_are_found_by_their_command_line(tmp_path):
 
 
 class Fakes:
-    def __init__(self, tmp_path, frames=2000, steam_open=False, mangohud=True, writes_log=True):
+    def __init__(self, tmp_path, frames=2000, state="closed", mangohud=True, writes_log=True, exits=True):
         self.install = tmp_path / "steamapps" / "common" / "Game"
+        self.data = tmp_path / "data"
         self.now = [0.0]
         self.started = None
-        self.frames, self.steam_open, self.mangohud, self.writes_log = frames, steam_open, mangohud, writes_log
+        self.frames, self.state, self.mangohud, self.writes_log = frames, state, mangohud, writes_log
+        self.exits, self.shutdowns = exits, 0
         self.closed = []
 
     # Hooks
     def mangohud_installed(self):
         return self.mangohud
 
-    def steam_running(self):
-        return self.steam_open
+    def folder(self):
+        return self.data / "mangohud"
+
+    def steam_state(self, config):
+        assert config == self.folder() / "MangoHud.conf"
+        return self.state
+
+    def shutdown(self):
+        self.shutdowns += 1
+        if self.exits:
+            self.state = "closed"
+            return None
+        return "Steam was still open 120 s after steam -shutdown"
 
     def command(self, app_id, args):
         return ["/usr/games/steam", "-applaunch", str(app_id)] + list(args)
@@ -110,7 +123,7 @@ def test_a_linux_run_starts_steam_with_mangohud_and_reads_the_game_log(tmp_path)
 
 
 def test_linux_runs_that_cannot_start_start_nothing(tmp_path):
-    for fakes, words in ((Fakes(tmp_path, steam_open=True), "Steam is open"),
+    for fakes, words in ((Fakes(tmp_path, state="other", exits=False), "did not exit"),
                          (Fakes(tmp_path, mangohud=False), "MangoHud is not installed")):
         _, cap = run(tmp_path, fakes)
         assert cap.status == "failed" and words in cap.message and fakes.started is None
@@ -136,3 +149,32 @@ def test_stop_while_steam_starts(tmp_path):
     stop.set()
     _, cap = run(tmp_path, fakes, stop=stop)
     assert cap.status == "cancelled"
+
+
+def test_several_games_reuse_the_apps_steam_and_a_users_steam_is_asked_to_exit(tmp_path):
+    ours = Fakes(tmp_path / "a", state="ours")
+    _, cap = run(tmp_path / "a", ours)
+    assert cap.status == "recorded" and ours.shutdowns == 0 and ours.started is not None
+    logs = tmp_path / "a" / "run" / "mangohud_logs"
+    assert (logs / "Game.exe_2026-10-19_10-00-01.csv").is_file()           # moved into the run folder
+    assert not (ours.folder() / "mangohud_logs" / "Game.exe_2026-10-19_10-00-01.csv").exists()
+    users = Fakes(tmp_path / "b", state="other")
+    _, cap = run(tmp_path / "b", users)
+    assert cap.status == "recorded" and users.shutdowns == 1
+
+
+def test_which_steam_is_the_apps_and_the_clean_exit(tmp_path):
+    conf = tmp_path / "MangoHud.conf"
+    mine = {"MANGOHUD": "1", "MANGOHUD_CONFIGFILE": str(conf)}
+    assert mh.steam_state(conf, lambda: []) == "closed"
+    assert mh.steam_state(conf, lambda: [mine, mine]) == "ours"
+    assert mh.steam_state(conf, lambda: [mine, None]) == "other"
+    assert mh.steam_state(conf, lambda: [{"MANGOHUD": "1"}]) == "other"
+    started, now, alive = [], [0.0], [True, True, False]
+    why = mh.shutdown_steam(lambda n: "/usr/games/steam", running=lambda: alive.pop(0),
+                            start=started.append, sleep=lambda s: now.__setitem__(0, now[0] + s),
+                            clock=lambda: now[0])
+    assert why is None and started == [["/usr/games/steam", "-shutdown"]]
+    why = mh.shutdown_steam(lambda n: "/usr/games/steam", running=lambda: True, start=lambda c: None,
+                            sleep=lambda s: now.__setitem__(0, now[0] + s), clock=lambda: now[0], wait=10)
+    assert "still open" in why
