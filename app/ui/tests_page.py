@@ -30,9 +30,12 @@ class RunState:
     total: Optional[int] = None
     text: str = ""
     fraction: float = 0.0           # of the run going on now (a stress test knows it from its minutes)
+    share: Optional[float] = None   # a download: the part done (0..1), with no runs
 
 
 def progress_percent(state: RunState) -> Optional[int]:
+    if state.share is not None and not state.total:
+        return max(0, min(100, round(100 * state.share)))
     if not state.total:
         return None
     return max(0, min(100, round(100 * (state.done + state.fraction) / state.total)))

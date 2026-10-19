@@ -41,6 +41,29 @@ SETTINGS_KEY = "remote_start"          # settings.json: {"port": ..., "local_onl
 GROUP_TITLES = dict(GROUPS)
 REPORT_NAME = re.compile(r"^[\w\-. ]{1,200}\.html$")
 MAX_REPORTS = 15
+TITLE = re.compile(r"<title>(?:Benchmark report: )?(.*?)</title>", re.S)
+
+
+def report_title(path: Path) -> str:
+    """What a report is about (the tests, from its <title>), for the page's list; "" when unreadable."""
+    import html
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            head = f.read(8192)
+    except OSError:
+        return ""
+    m = TITLE.search(head)
+    return html.unescape(m.group(1)).strip()[:160] if m else ""
+
+
+def tests_key(entries: List[TestEntry]) -> str:
+    """Changes when a test is installed, removed or its license accepted: the page then reads the tests again."""
+    import zlib
+    parts = []
+    for e in entries:
+        lic = getattr(e.ref, "license", None)
+        parts.append(f"{e.id}:{e.state}:{bool(lic) and bool(e.ref.license_ok())}")
+    return format(zlib.crc32("|".join(parts).encode("utf-8")), "08x")
 ADMIN_WARNING = ("Windows asks once for administrator rights at the start, on the PC: someone must press Yes there "
                  "(No: each such test asks for itself).")
 GAME_WARNING = ("A game: it opens on the PC's screen, and Windows asks for administrator rights on the PC at each "
@@ -326,6 +349,9 @@ class RemoteApi:
             if running and p and 0 < p < 100 and gone > 5:
                 out["left"] = "about " + elapsed_text(gone * (100 - p) / p)
         out["tests"] = plan_tests(panel, w.db, running)
+        listed = self.reports()
+        out["newest_report"] = listed[0]["name"] if listed else ""     # also after the app started again
+        out["tests_key"] = tests_key(page.entries)
         return out
 
     def start(self, ids, repetitions, warmup_runs, cooldown_seconds) -> Tuple[bool, str]:
@@ -358,7 +384,8 @@ class RemoteApi:
             except OSError:
                 continue
         found.sort(reverse=True)
-        return [{"name": n, "time": time.strftime("%Y-%m-%d %H:%M", time.localtime(t))} for t, n in found[:MAX_REPORTS]]
+        return [{"name": n, "time": time.strftime("%Y-%m-%d %H:%M", time.localtime(t)),
+                 "title": report_title(folder / n)} for t, n in found[:MAX_REPORTS]]
 
     def report(self, name: Optional[str] = None) -> Optional[str]:
         """The last report written (no name), or one of reports() by its name; None when there is none."""

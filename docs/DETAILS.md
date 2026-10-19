@@ -260,6 +260,8 @@ Session History tab: select a session in the sessions table, then:
   from the manifest and the reproducibility settings (`app/report.py`). An **Extra metrics** table lists the mean,
   min and max of each frame capture and telemetry metric over the same runs as the statistics (metrics whose unit
   differs between runs are not summarized). The app asks before opening it.
+  The big title names what was tested (e.g. "PassMark CPU Mark · 7-Zip"; more than four: the first three and
+  "and N more"), with the session name, number and time below it in small letters; the page title says the same.
   The Environment section comes first (what the tests ran on), right under the title. The Summary is one card per
   benchmark: each run (the warm-up marked "not counted"), then the average (mean) in bold, then median, min, max,
   std dev, CV %, runs used and excluded, so it reads on a phone as well as on a PC.
@@ -611,7 +613,12 @@ one-time code shown under it.
   `start(entry, confirmed=True)` in `app/ui/install_flow.py`). winget may still show an administrator prompt on the PC.
   Steam installs and Linux packages (password prompt) stay at the PC. A license not accepted yet has an
   **Accept license** button that shows the license text with I accept / I do not accept (`POST /api/question` and
-  `/api/act`, only for tests whose info offers that action).
+  `/api/act`, only for tests whose info offers that action). These buttons sit outside the greyed part of the row.
+  A download moves the green bar with its percent (MB done of the total), here and on the PC; when an install or a
+  run ends the page says how it ended and reads the tests again (also whenever a test is installed or a license
+  accepted on the PC).
+- The report shown is the newest one in the reports folder (also after the app started again), unless an older one
+  was picked in the list; the list names each report's tests, and **Reload** loads it again.
 - **Restart as administrator** (Tests screen, and Prompts in the remote window; Windows only, `app/elevation.py`,
   `app/ui/admin_restart.py`): Windows' administrator prompt shows on its secure desktop and nothing remote can answer
   it, so the owner answers it once at the PC. The app starts again through the normal UAC prompt (ShellExecute

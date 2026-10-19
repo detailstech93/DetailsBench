@@ -687,17 +687,39 @@ def _session_name(session: Any) -> str:
     return esc("Untitled session")
 
 
+def _tested_names(export: Mapping) -> list:
+    """The benchmarks of the session in run order (real runs only), each once."""
+    runs = export.get("runs") if isinstance(export.get("runs"), list) else []
+    names = []
+    for r in runs:
+        if isinstance(r, Mapping) and not _truthy(r.get("is_test")):
+            name = r.get("benchmark_name")
+            if isinstance(name, str) and name and name not in names:
+                names.append(name)
+    return names
+
+
+def _tested_title(export: Mapping) -> str:
+    """What was tested, for the big title (owner, 2026-10-19: not "Automated <date>"); "" when no run."""
+    names = _tested_names(export)
+    if len(names) > 4:
+        names = names[:3] + [f"and {len(names) - 3} more"]
+    return esc(" · ".join(names))
+
+
 def _header_section(export: Mapping) -> str:
     session = _mapping(export.get("session")) or {}
     name = _session_name(session)
     session_id = _text(session.get("id"), "-")
     created_at = _text(session.get("created_at"), "-")
+    tested = _tested_title(export)
 
-    parts = [
-        "<section class=\"header\">",
-        f'<h1 dir="auto">{name}</h1>',
-        f"<p>Session #{session_id} - created {created_at}</p>",
-    ]
+    parts = ["<section class=\"header\">"]
+    if tested:
+        parts += [f'<h1 dir="auto" class="tested">{tested}</h1>',
+                  f'<p class="session" dir="auto">{name} · Session #{session_id} - created {created_at}</p>']
+    else:
+        parts += [f'<h1 dir="auto">{name}</h1>', f"<p>Session #{session_id} - created {created_at}</p>"]
 
     if _truthy(session.get("is_test")):
         parts.append('<p class="badge test">TEST DATA - not real results</p>')
@@ -1175,6 +1197,8 @@ def _style_block() -> str:
         "h1{"
         "font-size:1.7rem;"
         "}"
+        "h1.tested{font-size:2rem;}"
+        ".header p.session{color:var(--muted);margin:0;}"
         "h2{"
         "font-size:1.2rem;"
         "color:var(--accent);"
@@ -1254,6 +1278,9 @@ def render_session_report(export: Mapping) -> str:
     """Render a complete offline HTML5 report for one benchmark session."""
     export_mapping = _mapping(export) or {}
     title_name = _session_name(export_mapping.get("session"))
+    tested = _tested_title(export_mapping)
+    if tested:
+        title_name = f"{tested} - {title_name}"
 
     document = (
         "<!doctype html>"

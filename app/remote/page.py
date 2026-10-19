@@ -54,8 +54,10 @@ button:disabled { opacity:.45; cursor:default; }
 .ptest .count { font-size:13px; color:var(--muted); white-space:nowrap; }
 .group { margin-top:12px; font-weight:700; font-size:13px; text-transform:uppercase; letter-spacing:.04em;
   color:var(--muted); }
-.test { display:flex; gap:10px; align-items:flex-start; padding:8px 0; border-bottom:1px solid var(--line); }
-.test:last-child { border-bottom:0; }
+.item { padding:8px 0; border-bottom:1px solid var(--line); }
+.item:last-child { border-bottom:0; }
+.test { display:flex; gap:10px; align-items:flex-start; }
+.item > .act { margin-left:28px; }
 .test input { margin-top:4px; width:18px; height:18px; flex:none; }
 .test small { color:var(--muted); display:block; }
 .test.off { opacity:.55; }
@@ -71,7 +73,7 @@ details summary { cursor:pointer; font-weight:600; }
 iframe { width:100%; height:70vh; border:1px solid var(--line); border-radius:8px; background:#fff; margin-top:10px; }
 a { color:var(--accent); }
 .sticky { position:sticky; bottom:0; background:var(--card); padding-top:10px; }
-.act { margin-top:6px; padding:5px 12px; font-size:13px; }
+.act { margin-top:6px; padding:7px 14px; font-size:14px; }
 #ask { position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center;
   padding:16px; z-index:10; }
 #ask .box { background:var(--card); border-radius:12px; padding:16px; max-width:640px; width:100%; max-height:90vh;
@@ -120,6 +122,7 @@ a { color:var(--accent); }
     <h2>Report</h2>
     <div class="row">
       <select id="reportPick" style="flex:1; min-width:200px"></select>
+      <button id="reportReload">Reload</button>
       <a id="reportOpen" class="btn" target="_blank" rel="noopener">Open full screen</a>
     </div>
     <iframe id="reportFrame" title="Report"></iframe>
@@ -154,6 +157,7 @@ let code = "";
 try { code = sessionStorage.getItem("pcbm-code") || ""; } catch (e) {}
 const $ = (id) => document.getElementById(id);
 let running = false, timer = null, shownReport = "", knownReport = null, wasRunning = null;
+let picked = false, testsKey = null;    // picked: the owner chose an older report in the list
 
 async function call(path, body) {
   const opt = { headers: { "X-Code": code }, credentials: "same-origin" };
@@ -199,6 +203,7 @@ function showInfo(info) {
   let group = null;
   for (const t of info.tests) {
     if (t.group !== group) { group = t.group; box.append(el("div", group, "group")); }
+    const item = el("div", undefined, "item");
     const row = el("label", undefined, "test" + (t.can_start ? "" : " off"));
     const cb = el("input"); cb.type = "checkbox"; cb.value = t.id; cb.disabled = !t.can_start;
     cb.addEventListener("change", countPicked);
@@ -209,10 +214,11 @@ function showInfo(info) {
     txt.append(el("small", meta.join(", ")));
     if (t.why) txt.append(el("span", t.why, "why"));
     if (t.warning) txt.append(el("span", t.warning, "warn"));
-    if (t.install) txt.append(actButton("Install", t, "install"));
-    if (t.license) txt.append(actButton("Accept license", t, "license"));
     row.append(cb, txt);
-    box.append(row);
+    item.append(row);
+    if (t.install) item.append(actButton("Install", t, "install"));     // outside the greyed part: it can be pressed
+    if (t.license) item.append(actButton("Accept license", t, "license"));
+    box.append(item);
   }
   if (!info.tests.length) box.append(el("p", "No test for this PC was found.", "muted"));
   $("rep").value = info.defaults.repetitions;
@@ -301,7 +307,7 @@ async function showReports(pick) {
     const sel = $("reportPick");
     sel.replaceChildren();
     for (const r of d.reports || []) {
-      const o = el("option", r.time + "  " + r.name); o.value = r.name; sel.append(o);
+      const o = el("option", r.time + "  " + (r.title || r.name)); o.value = r.name; sel.append(o);
     }
     if (!sel.options.length) { $("reportBox").classList.add("hidden"); return; }
     $("reportBox").classList.remove("hidden");
@@ -315,7 +321,7 @@ function openReport(name) {
   const url = "/report/" + encodeURIComponent(name);
   shownReport = name;
   $("reportOpen").href = url;
-  $("reportFrame").src = url;
+  $("reportFrame").src = url + "?t=" + Date.now();      // always the file as it is now, never a kept copy
 }
 
 function showState(s) {
@@ -332,13 +338,22 @@ function showState(s) {
   showPlan(s.tests);
   $("stop").disabled = !s.running;
   $("start").disabled = s.running;
-  if (wasRunning && !s.running) setTimeout(reloadInfo, 4000);   // an install or a run ended: tests may have changed
-  if (s.report_name && !s.running && (s.report_name !== knownReport || wasRunning)) {
-    const finished = wasRunning;              // a run just ended: show its report
-    knownReport = s.report_name;
-    showReports(s.report_name).then(() => {
-      if (finished) $("reportBox").scrollIntoView({ behavior: "smooth" });
-    });
+  const finished = wasRunning && !s.running;
+  if (finished) {                                   // a run or an install ended: say how, read the tests again
+    $("message").textContent = s.text || "Finished.";
+    setTimeout(reloadInfo, 4000);
+  }
+  if (testsKey !== null && s.tests_key && s.tests_key !== testsKey && !asking) reloadInfo();
+  if (s.tests_key) testsKey = s.tests_key;
+  const newest = s.report_name || s.newest_report || "";
+  if (newest && !s.running && (newest !== knownReport || finished)) {
+    knownReport = newest;
+    if (finished) picked = false;
+    if (!picked || finished) {
+      showReports(newest).then(() => {
+        if (finished) $("reportBox").scrollIntoView({ behavior: "smooth" });
+      });
+    }
   }
   wasRunning = s.running;
 }
@@ -362,6 +377,7 @@ async function connect() {
     $("login").classList.add("hidden");
     $("app").classList.remove("hidden");
     showInfo(info);
+    picked = false; knownReport = null;
     await refresh();
     if (!shownReport) showReports("");
     if (!timer) timer = setInterval(refresh, 2000);
@@ -378,7 +394,8 @@ $("none").onclick = () => { document.querySelectorAll("#tests input").forEach((c
                             countPicked(); };
 $("askYes").onclick = () => answer(true);
 $("askNo").onclick = () => answer(false);
-$("reportPick").onchange = () => openReport($("reportPick").value);
+$("reportPick").onchange = () => { picked = $("reportPick").selectedIndex > 0; openReport($("reportPick").value); };
+$("reportReload").onclick = () => { picked = false; showReports(knownReport || ""); };
 $("start").onclick = async () => {
   const ids = [...document.querySelectorAll("#tests input:checked")].map((c) => c.value);
   if (!ids.length) { $("message").textContent = "Tick at least one test."; return; }

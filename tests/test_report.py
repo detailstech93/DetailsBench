@@ -276,7 +276,8 @@ def test_runs_used_is_an_integer_and_rtl_text_gets_auto_direction():
     }
     html_text = render_session_report(export)
     assert "<td>3</td>" in html_text and "3.00" not in html_text
-    assert '<h1 dir="auto">جلسة</h1>' in html_text
+    assert '<h1 dir="auto" class="tested">bench</h1>' in html_text
+    assert '<p class="session" dir="auto">جلسة · Session #' in html_text
     assert '<td class="note" dir="auto">ملاحظة</td>' in html_text
 
 
@@ -414,3 +415,18 @@ def test_game_build_and_the_proof_screenshot_are_in_the_report(tmp_path):
     hostile["runs"].append({**hostile["runs"][0], "benchmark_name": "other", "benchmark_type": "cpu",
                             "note": 'x <img class="proof" alt="x" data-proof="AAAA">'})
     assert "src=" not in render_session_report(hostile)
+
+
+def test_the_big_title_says_what_was_tested():
+    """Owner, 2026-10-19: the report starts with the tests in large letters, not "Automated <date>"."""
+    runs = [{"benchmark_name": n, "status": "completed", "score": 1.0, "run_index": i}
+            for i, n in enumerate(["PassMark CPU Mark", "7-Zip", "PassMark CPU Mark", "<x>"])]
+    runs.append({"benchmark_name": "hidden", "status": "completed", "score": 1.0, "is_test": True})
+    html_text = render_session_report({"session": {"id": 12, "name": "Automated 2026-10-19 21:27"}, "runs": runs})
+    assert '<h1 dir="auto" class="tested">PassMark CPU Mark · 7-Zip · &lt;x&gt;</h1>' in html_text
+    assert "Automated 2026-10-19 21&#58;27 · Session #12" in html_text
+    assert "hidden" not in html_text.split('class="tested">')[1].split("</h1>")[0]
+    assert ("<title>Benchmark report: PassMark CPU Mark · 7-Zip · &lt;x&gt; - Automated 2026-10-19 21&#58;27"
+            "</title>") in html_text
+    many = [{"benchmark_name": f"t{i}", "status": "completed", "score": 1.0} for i in range(6)]
+    assert '>t0 · t1 · t2 · and 3 more</h1>' in render_session_report({"session": {"name": "s"}, "runs": many})

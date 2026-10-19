@@ -186,11 +186,17 @@ class InstallFlow(QObject):
                 text += "\n\n" + then[0]()
             if not self._ask("Install", text):
                 return False
-        self._show(f"Downloading {plan['product']} {plan['version']}...")
+        what = f"{plan['product']} {plan['version']}"
+        self._show(f"Downloading {what}...")
         failed = winget.Outcome(False, "")
 
+        def downloaded(done: int, total: int):     # the green bar (and the remote page) follow the download
+            if total > 0:
+                self.state = RunState(True, 0, None, f"Downloading {what}: {done / 1e6:,.0f} of {total / 1e6:,.0f} MB",
+                                      share=min(1.0, done / total))
+
         def work():
-            outcome = self.direct.install(entry.name, plan)
+            outcome = self.direct.install(entry.name, plan, progress=downloaded)
             if outcome.ok and then:
                 exe = self.direct.target_folder(plan) / plan["exe"]
                 outcome = then[1](exe, self._progress)

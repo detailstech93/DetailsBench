@@ -169,3 +169,16 @@ def test_install_and_the_report_section():
         "summaries": {"passmark_cpu": {"stats": {"mean": 31245.6}}}}
     html = _passmark_section(export)
     assert "<h2>PassMark PerformanceTest</h2>" in html and "31,246" in html and "may send the results" in html
+
+
+def test_performancetest_11_results_read_this_computer_only():
+    """The format PerformanceTest 11 wrote on the owner's PC (2026-10-19, session 12): a header with
+    "CPU Mark (Composite average)", seven baseline rows of other computers, then "This Computer" with a percentile."""
+    header = "Computer,Integer Math (MOps./Sec.),CPU Mark (Composite average),Memory Mark (Composite average)"
+    rows = [header, "Baseline #1,45488.3,13800.2,3300.1", "Baseline #2,91636.8,29850.7,3144.2",
+            '"This Computer",155663.9 (92%),61060.5 (98%),N/A']
+    text = "\n".join(rows) + "\n"
+    assert passmark.parse_mark("CPU Mark", text) == (61060.5, None)          # never a baseline's 13800.2
+    assert passmark.parse_mark("Memory Mark", text)[0] is None                 # N/A is not a score
+    only_baselines = "\n".join(rows[:3]) + "\n"
+    assert passmark.parse_mark("CPU Mark", only_baselines)[0] is None

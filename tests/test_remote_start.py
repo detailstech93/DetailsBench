@@ -403,3 +403,43 @@ def test_a_license_is_read_and_accepted_from_the_page(qapp):
     assert api.act("vray_benchmark", "license") == (True, "V-Ray Benchmark: license accepted.") and accepted
     assert api.question("vray_benchmark", "license")[0] is False         # nothing left to accept
     assert api.question("nope", "license")[0] is False
+
+
+def test_the_list_says_what_each_report_is_about_and_the_newest_is_known(tmp_path, qapp):
+    from app.ui.remote_control import MainThread, RemoteApi, report_title
+    folder = tmp_path / "reports"
+    folder.mkdir()
+    (folder / "session_12_a.html").write_text("<html><head><title>Benchmark report: PassMark CPU Mark - Automated "
+                                              "2026-10-19 21&#58;27</title></head></html>", encoding="utf-8")
+    (folder / "session_3_b.html").write_text("<p>no title</p>", encoding="utf-8")
+    assert report_title(folder / "session_12_a.html") == "PassMark CPU Mark - Automated 2026-10-19 21:27"
+    assert report_title(folder / "missing.html") == ""
+    window = SimpleNamespace(frame_panel=SimpleNamespace(data_dir=tmp_path), last_report_path=None,
+                             automation_panel=SimpleNamespace(output_root=str(tmp_path / "runs")))
+    titles = {r["name"]: r["title"] for r in RemoteApi(window, MainThread()).reports()}
+    assert titles == {"session_12_a.html": "PassMark CPU Mark - Automated 2026-10-19 21:27", "session_3_b.html": ""}
+
+
+def test_the_tests_key_changes_when_a_test_is_installed_or_its_license_accepted():
+    from app.ui.remote_control import tests_key
+    accepted = []
+    ref = SimpleNamespace(license=("vray", "V-Ray", str), license_ok=lambda: bool(accepted))
+    before = tests_key([_entry("vray_benchmark", ref=ref), _entry("blender", state="missing")])
+    assert before == tests_key([_entry("vray_benchmark", ref=ref), _entry("blender", state="missing")])
+    assert before != tests_key([_entry("vray_benchmark", ref=ref), _entry("blender")])
+    accepted.append(1)
+    assert before != tests_key([_entry("vray_benchmark", ref=ref), _entry("blender", state="missing")])
+
+
+def test_the_page_keeps_install_buttons_out_of_the_grey_and_follows_the_newest_report():
+    from app.remote.page import PAGE
+    assert "item.append(actButton(" in PAGE and "txt.append(actButton(" not in PAGE
+    assert "s.newest_report" in PAGE and "s.tests_key" in PAGE and '"?t=" + Date.now()' in PAGE
+    assert 'id="reportReload"' in PAGE
+
+
+def test_a_download_moves_the_bar():
+    from app.ui.tests_page import RunState, progress_percent
+    assert progress_percent(RunState(True, 0, None, "Downloading V-Ray: 300 of 1,200 MB", share=0.25)) == 25
+    assert progress_percent(RunState(True, 0, None, "Installing...")) is None          # no known part: moving bar
+    assert progress_percent(RunState(True, 1, 4, "", fraction=0.5)) == 38                # runs keep their own count

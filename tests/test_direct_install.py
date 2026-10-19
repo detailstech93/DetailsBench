@@ -144,7 +144,8 @@ def test_the_same_button_then_downloads_blender_and_the_scenes(qapp, monkeypatch
     monkeypatch.setitem(install_flow.THEN, "blender_content", (lambda: "Then Blender and the scenes.", content))
     flow, win, asked, _ = flow_for(qapp, [True], None, None)
     real = direct.install
-    monkeypatch.setattr(flow.direct, "install", lambda name, p: real(name, p, tmp_path, opener=opener_for(data)))
+    monkeypatch.setattr(flow.direct, "install",
+                        lambda name, p, **k: real(name, p, tmp_path, opener=opener_for(data), **k))
     monkeypatch.setattr(flow.direct, "target_folder", lambda p, d=None: tmp_path / "tools" / p["folder"])
     assert flow.start(entry("blender_benchmark"))
     assert "Then Blender and the scenes." in asked[0]
@@ -158,7 +159,8 @@ def test_the_install_button_asks_then_installs_and_scans_again(qapp, monkeypatch
     monkeypatch.setattr("app.ui.install_flow.install_plan", lambda e, host=None: plan)
     flow, win, asked, _ = flow_for(qapp, [True], None, None)
     real = direct.install
-    monkeypatch.setattr(flow.direct, "install", lambda name, p: real(name, p, tmp_path, opener=opener_for(data)))
+    monkeypatch.setattr(flow.direct, "install",
+                        lambda name, p, **k: real(name, p, tmp_path, opener=opener_for(data), **k))
     assert flow.start(entry("blender_benchmark"))
     assert "Download and install" in asked[0] and win.scans == 1 and (tmp_path / "tools" / "tool-1.0" / "tool.exe").is_file()
     flow, win, asked, _ = flow_for(qapp, [False], None, None)

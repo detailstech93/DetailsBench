@@ -190,6 +190,7 @@ def script_text(group: str, csv_path: Path, text_path: Path) -> str:
 
 def _number(text: str) -> Optional[float]:
     text = text.strip().replace(",", "")
+    text = re.sub(r"\s*\(\d+(?:\.\d+)?%\)$", "", text)      # "61060.5 (98%)": the percentile PassMark adds
     try:
         value = float(text)
     except ValueError:
@@ -201,13 +202,22 @@ def _key(text: str) -> str:
     return re.sub(r"[^a-z0-9]", "", text.lower())
 
 
+def _name_key(text: str) -> str:
+    """A column's name without what PassMark adds in brackets: "CPU Mark (Composite average)" -> "cpumark"."""
+    return _key(re.sub(r"\s*\([^)]*\)\s*$", "", text))
+
+
 def parse_mark(mark: str, csv_text: str, plain_text: str = "") -> Tuple[Optional[float], Optional[str]]:
     """(the mark, None), or (None, why). The CSV may list "<mark>,<value>" on one row or put the mark in a header
-    with its value below; the text export may say "<mark>: <value>"."""
+    with its value below; the text export may say "<mark>: <value>".
+
+    PerformanceTest 11 (seen 2026-10-19) writes a header "Computer, ..., CPU Mark (Composite average), ...", then
+    seven "Baseline #n" rows of other computers, then "This Computer" with "61060.5 (98%)". Only the row of this
+    computer is ever read: a baseline is another PC's score."""
     want = _key(mark)
     rows = [r for r in csv.reader(io.StringIO(csv_text)) if any(c.strip() for c in r)]
     for k, row in enumerate(rows):
-        keys = [_key(c) for c in row]
+        keys = [_name_key(c) for c in row]
         if want not in keys:
             continue
         col = keys.index(want)
@@ -215,9 +225,11 @@ def parse_mark(mark: str, csv_text: str, plain_text: str = "") -> Tuple[Optional
             value = _number(cell)
             if value is not None:
                 return value, None
-        for below in rows[k + 1:]:              # a header: the value in the same column below
-            if col < len(below) and _number(below[col]) is not None:
-                return _number(below[col]), None
+        below = [r for r in rows[k + 1:] if r and not _key(r[0]).startswith("baseline")]
+        own = [r for r in below if _key(r[0]) == "thiscomputer"]
+        for r in own or below:                  # a header: the value in the same column below
+            if col < len(r) and _number(r[col]) is not None:
+                return _number(r[col]), None
     m = re.search(re.escape(mark) + r"\s*[:=\t ]\s*([\d,]+(?:\.\d+)?)", plain_text, re.IGNORECASE)
     if m and _number(m.group(1)) is not None:
         return _number(m.group(1)), None
