@@ -150,9 +150,9 @@ def split_entries(entries: List[TestEntry]):
 class RunTestsDialog(QDialog):
     def __init__(self, entries: List[TestEntry], profile, others: List[TestEntry], parent=None,
                  games: Optional[List[Tuple[str, str]]] = None, offered: Optional[Offered] = None,
-                 initial: Optional["presets.GamePreset"] = None):
+                 initial: Optional["presets.GamePreset"] = None, saved: Optional[dict] = None):
         super().__init__(parent)
-        self.setWindowTitle("Run tests")
+        self.setWindowTitle("Run tests" if saved is None else "Run a saved plan")
         outer = QVBoxLayout(self)
         # everything but the buttons scrolls: with many tests and games the dialog is taller than the screen
         self.scroll = QScrollArea()
@@ -163,6 +163,9 @@ class RunTestsDialog(QDialog):
         layout.setContentsMargins(0, 0, 0, 0)
         names = "\n".join(f"  • {e.name}" for e in entries)
         layout.addWidget(QLabel(f"{len(entries)} test(s):\n{names}"))
+        if saved is not None:
+            layout.addWidget(QLabel(f"Numbers from the saved plan ({saved.get('created') or 'no date'}); you can "
+                                    "still change them."))
         form = QFormLayout()
         self.repetitions = QSpinBox()
         self.repetitions.setRange(1, 50)
@@ -181,7 +184,7 @@ class RunTestsDialog(QDialog):
         from app.ui.automation_panel import EXTRA_RUNS
         self.extra_runs = QCheckBox(f"Up to {EXTRA_RUNS} more runs when the scores vary more than "
                                     f"{CV_LIMIT_PERCENT:g}% (needs 3 runs or more)")
-        self.extra_runs.setChecked(True)
+        self.extra_runs.setChecked(True if saved is None else saved.get("extra_runs", 0) > 0)
         self.extra_runs_count = EXTRA_RUNS
         form.addRow("Uneven scores:", self.extra_runs)
         form.addRow("", QLabel("A run that fails is stored as failed and run once more by itself."))
@@ -191,7 +194,7 @@ class RunTestsDialog(QDialog):
             self.stress_minutes = QComboBox()
             for m in MINUTE_CHOICES:
                 self.stress_minutes.addItem(f"{m} min", m)
-            current = stress_minutes()
+            current = stress_minutes() if not (saved or {}).get("stress_minutes") else saved["stress_minutes"]
             self.stress_minutes.setCurrentIndex(max(0, self.stress_minutes.findData(current)))
             form.addRow("Stress test length (each run):", self.stress_minutes)
         layout.addLayout(form)
@@ -228,8 +231,9 @@ class RunTestsDialog(QDialog):
                          self.extra_runs_count if self.extra_runs.isChecked() else 0)
 
 
-def ask_choice(window, entries, profile, others, games=None, offered=None, initial=None) -> Optional[RunChoice]:
-    dialog = RunTestsDialog(entries, profile, others, window, games, offered, initial)
+def ask_choice(window, entries, profile, others, games=None, offered=None, initial=None,
+               saved=None) -> Optional[RunChoice]:
+    dialog = RunTestsDialog(entries, profile, others, window, games, offered, initial, saved)
     return dialog.choice() if dialog.exec() == QDialog.Accepted else None
 
 
@@ -319,7 +323,19 @@ def check_licenses(window, entries: List[TestEntry], ask=_ask_license, open_url=
     return [e for e in entries if not (getattr(e.ref, "license", None) and e.ref.license[0] in refused)]
 
 
-def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_report, licenses=check_licenses) -> bool:
+def _save_plan(data_dir, entries: List[TestEntry], choice: RunChoice) -> Optional[Path]:
+    """The plan file for "Run a saved plan..." (app/experiment.py); a failure is logged, the run goes on."""
+    from app import experiment
+    try:
+        return experiment.save(data_dir, [e.id for e in entries], choice)
+    except (OSError, ValueError, TypeError):
+        logger.exception("Could not save the plan file")
+        return None
+
+
+def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_report, licenses=check_licenses,
+                saved: Optional[dict] = None) -> bool:
+    """`saved`: a plan read by app/experiment.py; its numbers fill the dialog (the owner still confirms)."""
     asked = licenses(window, entries)
     if len(asked) < len(entries):
         if not asked:
@@ -349,10 +365,18 @@ def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_re
     data_dir = window.frame_panel.data_dir
     games = [g for g in (game_of(e) for e in automatic + others) if g]
     offered = read_offered(games, data_dir) if games else {}
-    choice = ask(window, automatic or others, window.selected_profile(), [] if lone_game else others,
-                 games, offered, last_preset(data_dir) if games else None)
+    profile, initial = window.selected_profile(), last_preset(data_dir) if games else None
+    extra = {}
+    if saved is not None:
+        profile = dataclasses.replace(profile, repetitions=saved["repetitions"], warmup_runs=saved["warmup_runs"],
+                                      cooldown_seconds=saved["cooldown_seconds"])
+        if games and saved.get("game_preset"):
+            initial = presets.GamePreset.from_dict(saved["game_preset"])
+        extra = {"saved": saved}
+    choice = ask(window, automatic or others, profile, [] if lone_game else others, games, offered, initial, **extra)
     if choice is None:
         return False
+    _save_plan(data_dir, automatic + others, choice)
     if games and choice.preset is not None:
         try:
             lines = save_preset(data_dir, games, choice.preset, offered)

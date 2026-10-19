@@ -66,6 +66,7 @@ class TestsPage(QWidget):
     __test__ = False        # not a pytest class
     run_requested = Signal(list)      # [TestEntry], all can_run()
     run_all_requested = Signal(list)  # every entry shown (app/ui/run_all.py offers the installs first)
+    run_plan_requested = Signal()     # "Run a saved plan..." (app/experiment.py)
     rescan_requested = Signal()
     install_requested = Signal(object)      # TestEntry: missing, with a one-click install (app/install)
 
@@ -126,7 +127,13 @@ class TestsPage(QWidget):
         self.run_all_btn.setToolTip("Every test for this PC. Tests that are not installed are listed first: install "
                                     "them, then everything runs, or run only what is installed.")
         self.run_all_btn.clicked.connect(lambda: self.busy or self.run_all_requested.emit(list(self.entries)))
+        self.run_plan_btn = QPushButton("Run a saved plan...")
+        self.run_plan_btn.setMinimumHeight(40)
+        self.run_plan_btn.setToolTip("Every run from this screen is saved as a plan (tests, runs, warm-ups, pause, "
+                                     "game settings). Pick one to run the same again.")
+        self.run_plan_btn.clicked.connect(lambda: self.busy or self.run_plan_requested.emit())
         row.addWidget(self.hint, 1)
+        row.addWidget(self.run_plan_btn)
         row.addWidget(self.run_all_btn)
         row.addWidget(self.run_btn)
         layout.addLayout(row)
@@ -274,6 +281,7 @@ class TestsPage(QWidget):
         n = len(self.selected_ids())
         self.run_btn.setEnabled(n > 0 and not self.busy)
         self.run_all_btn.setEnabled(bool(self.entries) and not self.busy)
+        self.run_plan_btn.setEnabled(bool(self.entries) and not self.busy)
         self.run_btn.setText(f"Run selected ({n})..." if n else "Run selected...")
 
     def run_selected(self):

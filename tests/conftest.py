@@ -37,6 +37,14 @@ def _no_real_conditions_check(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_plan_files(monkeypatch, tmp_path):
+    """Every run from the Tests screen saves its plan file (app/experiment.py) in the data folder: in tests it goes
+    to the test's own temporary folder, never this PC's data."""
+    from app import experiment
+    monkeypatch.setattr(experiment, "folder", lambda data_dir: tmp_path / "plans")
+
+
+@pytest.fixture(autouse=True)
 def _no_real_telemetry(monkeypatch):
     """Runs started from the panels record telemetry by default (nvidia-smi, psutil, a local
     LibreHardwareMonitor server). Tests must not depend on this computer, so no source is used

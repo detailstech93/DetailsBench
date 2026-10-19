@@ -434,6 +434,7 @@ class MainWindow(QMainWindow):
         self.tests_page = TestsPage()
         self.tests_page.rescan_requested.connect(self.start_scan)
         self.tests_page.run_requested.connect(self.run_tests)
+        self.tests_page.run_plan_requested.connect(self.run_saved_plan)
         from app.ui.install_flow import InstallFlow
         self.install_flow = InstallFlow(self)
         self.tests_page.install_requested.connect(self.install_flow.start)
@@ -474,6 +475,30 @@ class MainWindow(QMainWindow):
         """Run one or more tests from the Tests screen (repetitions dialog, then the plan)."""
         from app.ui.run_tests import start_tests
         start_tests(self, entries)
+
+    def run_saved_plan(self, path=None):
+        """Run the same tests with the same numbers as a saved plan (app/experiment.py)."""
+        from app import experiment
+        from app.ui.run_tests import start_tests
+        if path is None:
+            from PySide6.QtWidgets import QFileDialog
+            folder = experiment.folder(self.frame_panel.data_dir)
+            start = folder / experiment.LAST if (folder / experiment.LAST).exists() else folder
+            path, _ = QFileDialog.getOpenFileName(self, "Run a saved plan", str(start), "Plan files (*.json)")
+            if not path:
+                return False
+        plan, why = experiment.load(path)
+        if plan is None:
+            QMessageBox.warning(self, "Run a saved plan", f"This plan cannot be run: {why}")
+            return False
+        found, missing = experiment.resolve(plan, self.tests_page.entries)
+        if not found:
+            QMessageBox.information(self, "Run a saved plan", "None of the plan's tests can run on this PC now:\n"
+                                    + "\n".join(f"  • {m}" for m in missing))
+            return False
+        if missing:
+            self.status_label.setText("Not run (not on this PC now, or not ready): " + ", ".join(missing))
+        return start_tests(self, found, saved=plan)
     
     def _create_dashboard_tab(self) -> QWidget:
         """Create Dashboard tab with system specs."""
