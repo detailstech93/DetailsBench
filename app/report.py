@@ -709,26 +709,33 @@ def _header_section(export: Mapping) -> str:
     return "".join(parts)
 
 
-def _each_run(export: Mapping, name: Any) -> str:
+def _run_lines(export: Mapping, name: Any) -> list:
     """Every run's own result for one benchmark, in run order: the warm-up first (not counted), then each
-    measured run, so the summary shows each result before the mean."""
+    measured run, as (label, value HTML, note)."""
     runs = export.get("runs") if isinstance(export.get("runs"), list) else []
     own = [r for r in runs if isinstance(r, Mapping) and r.get("benchmark_name") == name
            and not _truthy(r.get("is_test"))]
     own.sort(key=lambda r: (not _truthy(r.get("is_warmup")), r.get("run_index") or 0))
-    parts = []
+    lines = []
     for r in own:
-        label = "Warm-up" if _truthy(r.get("is_warmup")) else f"Run {r.get('run_index')}"
+        warmup = _truthy(r.get("is_warmup"))
+        label = "Warm-up" if warmup else f"Run {r.get('run_index')}"
         score = r.get("score")
         ok = isinstance(score, (int, float)) and not isinstance(score, bool)
         value = (_format_number(score) + (f" {esc(r.get('unit'))}" if r.get("unit") else "")) if ok \
             else esc(r.get("status") or "no result")
-        extra = " (not counted)" if _truthy(r.get("is_warmup")) else ""
-        parts.append(f"{label}: {value}{extra}")
-    return "<br>".join(parts) or "-"
+        lines.append((label, value, "not counted" if warmup else ""))
+    return lines
+
+
+def _each_run(export: Mapping, name: Any) -> str:
+    return "<br>".join(f"{label}: {value}" + (f" ({note})" if note else "")
+                       for label, value, note in _run_lines(export, name)) or "-"
 
 
 def _summary_section(export: Mapping) -> str:
+    """One card per benchmark, readable on a phone: each run on its own line, then the average (mean) and the
+    other numbers under it."""
     summaries = _mapping(export.get("summaries"))
     if summaries is None or not summaries:
         return (
@@ -738,7 +745,7 @@ def _summary_section(export: Mapping) -> str:
             "</section>"
         )
 
-    rows = []
+    cards = []
     for name in sorted(summaries.keys(), key=lambda item: str(item)):
         data = _mapping(summaries.get(name)) or {}
         stats = _mapping(data.get("stats")) or {}
@@ -747,57 +754,40 @@ def _summary_section(export: Mapping) -> str:
         runs_used = str(included) if isinstance(included, int) and not isinstance(included, bool) else "-"
         if _truthy(data.get("mixed_sources")):
             runs_used += " (mixed manual/real)"
+        lines = _run_lines(export, name)
+        unit = ""
+        runs = export.get("runs") if isinstance(export.get("runs"), list) else []
+        for r in runs:
+            if isinstance(r, Mapping) and r.get("benchmark_name") == name and r.get("unit"):
+                unit = f" {esc(r.get('unit'))}"
+                break
 
+        run_rows = "".join(
+            ('<tr class="warmup">' if note else "<tr>") + f"<th>{label}</th><td>{value}"
+            + (f' <span class="muted">({note})</span>' if note else "") + "</td></tr>"
+            for label, value, note in lines) or '<tr><th>Runs</th><td>-</td></tr>'
         mean = _format_number(stats.get("mean"))
-        median = _format_number(stats.get("median"))
-        minimum = _format_number(stats.get("min"))
-        maximum = _format_number(stats.get("max"))
-        stdev = _format_number(stats.get("stdev"))
-        cv = _format_percent(stats.get("cv_percent"))
-        excluded = _format_excluded(data.get("excluded"))
-
-        rows.append(
-            "<tr>"
-            f'<td dir="auto">{esc(name)}</td>'
-            f"<td>{runs_used}</td>"
-            f'<td class="each-run">{_each_run(export, name)}</td>'
-            f"<td>{mean}</td>"
-            f"<td>{median}</td>"
-            f"<td>{minimum}</td>"
-            f"<td>{maximum}</td>"
-            f"<td>{stdev}</td>"
-            f"<td>{cv}</td>"
-            f"<td>{excluded}</td>"
-            "</tr>"
+        average = (f'<tr class="average"><th>Average (mean)</th><td>{mean}'
+                   + (unit if mean != "-" else "") + "</td></tr>")
+        numbers = [("Median", _format_number(stats.get("median"))), ("Min", _format_number(stats.get("min"))),
+                   ("Max", _format_number(stats.get("max"))), ("Std dev", _format_number(stats.get("stdev"))),
+                   ("CV %", _format_percent(stats.get("cv_percent"))), ("Runs used", runs_used),
+                   ("Excluded", _format_excluded(data.get("excluded")))]
+        stat_rows = "".join(f"<tr><th>{k}</th><td>{v}</td></tr>" for k, v in numbers)
+        cards.append(
+            '<div class="sum-card">'
+            f'<h3 dir="auto">{esc(name)}</h3>'
+            '<table class="sum">'
+            f"<tbody>{run_rows}{average}{stat_rows}</tbody>"
+            "</table>"
+            "</div>"
         )
-
-    table = (
-        "<table>"
-        "<thead>"
-        "<tr>"
-        "<th>Benchmark</th>"
-        "<th>Runs used</th>"
-        "<th>Each run</th>"
-        "<th>Mean</th>"
-        "<th>Median</th>"
-        "<th>Min</th>"
-        "<th>Max</th>"
-        "<th>Std dev</th>"
-        "<th>CV %</th>"
-        "<th>Excluded</th>"
-        "</tr>"
-        "</thead>"
-        "<tbody>"
-        + "".join(rows)
-        + "</tbody>"
-        "</table>"
-    )
 
     return (
         "<section>"
         "<h2>Summary</h2>"
-        '<div class="table-wrap">'
-        + table
+        '<div class="sum-cards">'
+        + "".join(cards)
         + "</div>"
         "</section>"
     )
@@ -998,7 +988,7 @@ def _environment_section(export: Mapping) -> str:
         )
 
     table = (
-        "<table>"
+        '<table class="env">'
         "<thead>"
         "<tr>"
         "<th>Field</th>"
@@ -1229,6 +1219,17 @@ def _style_block() -> str:
         "border-bottom:none;"
         "}"
         "td.note{white-space:normal;min-width:220px;}"
+        ".sum-cards{display:flex;flex-wrap:wrap;gap:12px;}"
+        ".sum-card{flex:1 1 280px;max-width:520px;border:1px solid var(--line);border-radius:10px;padding:10px 14px;}"
+        ".sum-card h3{margin:2px 0 6px;font-size:1rem;overflow-wrap:anywhere;}"
+        "table.sum{min-width:0;}"
+        "table.env{min-width:0;}"
+        "table.env td{white-space:normal;overflow-wrap:anywhere;}"
+        "table.sum th,table.sum td{white-space:normal;padding:5px 6px;}"
+        "table.sum th{width:45%;font-weight:400;}"
+        "table.sum tr.warmup td,table.sum tr.warmup th{color:var(--muted);}"
+        "table.sum tr.average th,table.sum tr.average td{font-weight:700;color:inherit;font-size:1.05rem;"
+        "border-top:2px solid var(--line);}"
         ".tiles{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0;}"
         ".tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 16px;"
         "min-width:110px;}"
@@ -1266,6 +1267,7 @@ def render_session_report(export: Mapping) -> str:
         "<body>"
         "<main>"
         + _header_section(export_mapping)
+        + _environment_section(export_mapping)       # first: what the tests ran on (owner, 2026-10-19)
         + _conditions_section(export_mapping)
         + _game_section(export_mapping)
         + _stress_section(export_mapping)
@@ -1286,7 +1288,6 @@ def render_session_report(export: Mapping) -> str:
         + _charts_section(export_mapping)
         + _metrics_section(export_mapping)
         + _runs_section(export_mapping)
-        + _environment_section(export_mapping)
         + _reproducibility_section(export_mapping)
         + (
             "<section>"

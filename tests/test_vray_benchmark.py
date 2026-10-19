@@ -222,9 +222,11 @@ def test_summary_shows_each_run_then_the_mean():
     page = render_session_report(export)
     part = page[page.index("<h2>Summary</h2>"):]
     part = part[:part.index("</table>")]
-    assert "<th>Each run</th><th>Mean</th>" in part
-    assert ("Warm-up: 34,745.00 vsamples (not counted)<br>Run 1: 34,347.00 vsamples<br>Run 2: 34,214.00 vsamples<br>"
-            "Run 3: 34,347.00 vsamples</td><td>34,302.67") in part
+    assert ('<tr class="warmup"><th>Warm-up</th><td>34,745.00 vsamples <span class="muted">(not counted)</span>'
+            "</td></tr><tr><th>Run 1</th><td>34,347.00 vsamples</td></tr><tr><th>Run 2</th><td>34,214.00 vsamples"
+            "</td></tr><tr><th>Run 3</th><td>34,347.00 vsamples</td></tr>"
+            '<tr class="average"><th>Average (mean)</th><td>34,302.67 vsamples</td></tr>'
+            "<tr><th>Median</th>") in part
 
 
 def test_the_unit_is_the_one_the_program_printed():

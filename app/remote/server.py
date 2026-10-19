@@ -12,12 +12,15 @@ network can start tests and follow them.
   pages (/report, /report/<name>) on the phone and inside the page.
 - What the page can do: read the PC's specs and its tests (the ones that can start remotely can be ticked), start
   some of them with repetitions, warm-ups and the pause, follow the progress, press stop, read the reports of the
-  reports folder. Nothing else: no file is written from a request, a report is picked only by a name the app lists,
+  reports folder, install a missing test or accept a test's license after reading the app's own question (only
+  where the app offers it). Nothing else: no file is written from a request, a report is picked only by a name the
+  app lists,
   no command or program name comes from the page (a test is picked by its id, and only ids the app offers are
   accepted).
 
 `api` is any object with info(), state(), start(ids, repetitions, warmup_runs, cooldown_seconds) -> (ok, text),
-stop() -> text, reports() -> [{"name", "time"}] and report(name=None) -> Optional[str] (HTML). The app's one
+stop() -> text, reports() -> [{"name", "time"}], report(name=None) -> Optional[str] (HTML), and question(id, what)
+/ act(id, what) -> (ok, text) for "install" or "license" (only for tests whose info says so). The app's one
 (app/ui/remote_control.py) runs them on the Qt thread.
 """
 
@@ -105,6 +108,16 @@ def check_start(body: object, offered: List[str]) -> Tuple[Optional[dict], str]:
             return None, f"{key} must be a whole number from {low} to {high}"
         out[key] = value
     return out, ""
+
+
+def check_action(body: object, tests: List[dict]) -> Tuple[Optional[str], str]:
+    """(test id, "install" or "license") for a test the app offers that action for, or (None, why)."""
+    if not isinstance(body, dict) or body.get("what") not in ("install", "license"):
+        return None, "not an install or license request"
+    test_id, what = body.get("id"), body["what"]
+    if not isinstance(test_id, str) or not any(t.get("id") == test_id and t.get(what) for t in tests):
+        return None, f"this test has no {what} to do from here"
+    return test_id, what
 
 
 class Guard:
@@ -234,7 +247,7 @@ def _handler(server: "RemoteServer"):
             if not self._allowed():
                 return
             path = self.path.split("?")[0]
-            if path not in ("/api/start", "/api/stop"):
+            if path not in ("/api/start", "/api/stop", "/api/question", "/api/act"):
                 self._json(404, {"error": "not found"})
                 return
             if not self._authorised():
@@ -258,6 +271,14 @@ def _handler(server: "RemoteServer"):
                     body = json.loads(raw.decode("utf-8"))
                 except (ValueError, UnicodeDecodeError):
                     self._json(400, {"error": "not JSON"})
+                    return
+                if path in ("/api/question", "/api/act"):
+                    test_id, what = check_action(body, server.api.info().get("tests", []))
+                    if test_id is None:
+                        self._json(400, {"error": what})
+                        return
+                    ok, text = (server.api.question if path == "/api/question" else server.api.act)(test_id, what)
+                    self._json(200 if ok else 409, {"ok": ok, "text": text})
                     return
                 request, why = check_start(body, [t["id"] for t in server.api.info().get("tests", [])
                                                   if t.get("can_start", True)])

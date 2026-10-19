@@ -261,9 +261,9 @@ def test_summary_rows_are_sorted_by_benchmark_name():
 
     html_text = render_session_report(export)
 
-    alpha_index = html_text.index("<td dir=\"auto\">alpha</td>")
-    mid_index = html_text.index("<td dir=\"auto\">mid</td>")
-    zeta_index = html_text.index("<td dir=\"auto\">zeta</td>")
+    alpha_index = html_text.index("<h3 dir=\"auto\">alpha</h3>")
+    mid_index = html_text.index("<h3 dir=\"auto\">mid</h3>")
+    zeta_index = html_text.index("<h3 dir=\"auto\">zeta</h3>")
 
     assert alpha_index < mid_index < zeta_index
 

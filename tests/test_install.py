@@ -333,3 +333,28 @@ def test_passmark_is_found_by_its_real_names():
     # the uninstall entry and the folder as PerformanceTest 11.1 writes them (2026-10-18)
     assert name.search("PerformanceTest 11") and name.search("PerformanceTest") and name.search("PerformanceTest64.exe")
     assert not name.search("PerformanceTest_Help") and not name.search("My PerformanceTest Notes")
+
+
+def test_an_install_from_the_remote_page_asks_nothing_at_the_pc(qapp, monkeypatch):
+    """The owner saw the same question on the phone and pressed Install there (app/ui/remote_control.py)."""
+    from app.ui import install_flow
+    warned = []
+    monkeypatch.setattr(install_flow.QMessageBox, "warning", lambda *a: warned.append(a[2]))
+    pkg = winget.parse_show(SHOW, "sevenzip_benchmark", "7zip.7zip", ["www.7-zip.org"])
+    text, why = install_flow.question_text(entry("sevenzip_benchmark"), WIN_X64, describe=lambda tid: pkg)
+    assert "https://www.7-zip.org/a/7z2604-x64.msi" in text and "administrator prompt" in text and why == ""
+    installed = []
+    flow, win, asked, _ = flow_for(qapp, [], lambda tid: pkg,
+                                   lambda p: installed.append(p) or winget.Outcome(True, "7-Zip 26.04 installed."))
+    assert flow.start(entry("sevenzip_benchmark"), confirmed=True)
+    assert asked == [] and installed == [pkg] and win.scans == 1
+    flow, win, asked, _ = flow_for(qapp, [], lambda tid: pkg, lambda p: winget.Outcome(False, "disk full"))
+    assert flow.start(entry("sevenzip_benchmark"), confirmed=True)
+    assert warned == [] and "disk full" in flow.state.text            # the page reads it; no box at the PC
+    # Steam's dialog and Linux's password prompt need someone at the PC: never from the page
+    steam = entry("steam_1593500", source="steam", ref={"app_id": "1593500", "name": "GoW"})
+    assert install_flow.question_text(steam, WIN_X64)[0] is None
+    flow, win, asked, opened = flow_for(qapp, [], None, None)
+    assert not flow.start(steam, confirmed=True) and opened == []
+    assert install_flow.question_text(entry("fio"), DEBIAN_ARM)[0] is None
+    assert install_flow.question_text(entry("cinebench"), WIN_X64)[0] is None

@@ -364,3 +364,42 @@ def test_reports_are_listed_and_only_those_can_be_read(tmp_path, qapp):
         assert api.report(bad) is None, bad
     window.last_report_path = folder / "session_1_a.html"
     assert api.report() == "<p>one</p>"
+
+
+def test_install_and_license_only_where_the_app_offers_them():
+    tests = [{"id": "vray_benchmark", "install": False, "license": True},
+             {"id": "ycruncher_pi_1b", "install": True, "license": False}]
+    assert rs.check_action({"id": "vray_benchmark", "what": "license"}, tests) == ("vray_benchmark", "license")
+    assert rs.check_action({"id": "ycruncher_pi_1b", "what": "install"}, tests) == ("ycruncher_pi_1b", "install")
+    for bad in ({"id": "vray_benchmark", "what": "install"}, {"id": "nope", "what": "license"},
+                {"id": "ycruncher_pi_1b", "what": "run"}, {"id": 5, "what": "install"}, ["x"]):
+        assert rs.check_action(bad, tests)[0] is None, bad
+
+
+def test_the_page_asks_and_installs_through_the_server(served):
+    api, server, base = served
+    seen = []
+    api.info = lambda: {"tests": [{"id": "ycruncher_pi_1b", "install": True, "license": False}]}
+    api.question = lambda tid, what: seen.append(("q", tid, what)) or (True, "Download 47 MB from numberworld.org?")
+    api.act = lambda tid, what: seen.append(("a", tid, what)) or (True, "Installing")
+    req = {"id": "ycruncher_pi_1b", "what": "install"}
+    assert call(base + "/api/question", body=req)[0] == 401 and not seen
+    status, _, body = call(base + "/api/question", "ABCD2345", req)
+    assert status == 200 and b"numberworld" in body
+    assert call(base + "/api/act", "ABCD2345", {**req, "what": "license"})[0] == 400
+    assert call(base + "/api/act", "ABCD2345", req)[0] == 200
+    assert seen == [("q", "ycruncher_pi_1b", "install"), ("a", "ycruncher_pi_1b", "install")]
+
+
+def test_a_license_is_read_and_accepted_from_the_page(qapp):
+    from app.ui.remote_control import MainThread, RemoteApi
+    accepted = []
+    ref = SimpleNamespace(license=("vray", "V-Ray Benchmark", lambda: "Read https://www.chaos.com/eula first."),
+                          license_ok=lambda: bool(accepted), accept_license=lambda: accepted.append(1))
+    e = _entry("vray_benchmark", ref=ref)
+    window = SimpleNamespace(tests_page=SimpleNamespace(entries=[e], host=None))
+    api = RemoteApi(window, MainThread())
+    assert api.question("vray_benchmark", "license") == (True, "Read https://www.chaos.com/eula first.")
+    assert api.act("vray_benchmark", "license") == (True, "V-Ray Benchmark: license accepted.") and accepted
+    assert api.question("vray_benchmark", "license")[0] is False         # nothing left to accept
+    assert api.question("nope", "license")[0] is False

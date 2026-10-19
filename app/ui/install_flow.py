@@ -4,6 +4,11 @@ winget: ask winget about the package in the background, show what will be downlo
 SHA256) and ask; only after Yes is it installed, still in the background, with the moving bar on the Tests screen.
 Then the app scans again so the test shows as installed. Linux: the distribution's package manager through
 pkexec, after the owner saw the exact commands. A Steam game opens Steam's own install dialog.
+
+From the remote page (app/ui/remote_control.py) the same question is shown on the phone first (question_text);
+the owner's Install there is the answer, so start(entry, confirmed=True) asks nothing at the PC and shows no
+message box there (what happened is in the progress text the page reads). Only downloads that need nobody at the
+PC go this way (a vendor zip, an LM Studio model, winget); Steam's dialog and Linux's password prompt stay at the PC.
 """
 
 import logging
@@ -57,6 +62,37 @@ THEN = {"blender_content": (_blender_text, _blender_download),
         "handbrake_cli": (_handbrake_text, _handbrake_install)}
 
 
+REMOTE_KINDS = ("zip", "lmstudio", "winget")
+WINGET_NOTE = "\n\nWindows may show an administrator prompt on the PC during the install: someone must press Yes there."
+
+
+def question_text(entry: TestEntry, host=None, describe=winget.describe):
+    """(the question the Install button would ask, "") or (None, why it cannot be installed from the phone). May
+    take a few seconds (winget is asked about the package): call it off the Qt thread."""
+    plan = install_plan(entry, host)
+    if plan is None:
+        return None, "the app cannot install it (only its official download page)"
+    kind = plan.get("kind", "winget")
+    if kind not in REMOTE_KINDS:
+        return None, ("Steam installs it at the PC" if kind == "steam" else
+                      "the system asks for the password at the PC")
+    if kind == "zip":
+        from app.install import direct
+        bad = direct.problem(plan)
+        if bad:
+            return None, bad
+        text = direct.confirm_text(entry.name, plan)
+        then = THEN.get(plan.get("then", ""))
+        return (text + ("\n\n" + then[0]() if then else "")), ""
+    if kind == "lmstudio":
+        from app.ai import model_set
+        return model_set.install_text(plan["test_id"]), ""
+    pkg = describe(entry.id)
+    if pkg.problem:
+        return None, pkg.problem
+    return winget.confirm_text(pkg) + WINGET_NOTE, ""
+
+
 def ask_yes(parent, title: str, text: str) -> bool:
     from app.ui.long_question import ask_yes_no
     return ask_yes_no(parent, title, text)
@@ -81,26 +117,30 @@ class InstallFlow(QObject):
                                                                          name="install").start())
         self.state = RunState()
         self.entry: Optional[TestEntry] = None
+        self.remote = False                 # started from the remote page: answered there, no window at the PC
         self.described.connect(self._on_described)
         self.finished.connect(self._on_finished)
 
     def busy(self) -> bool:
         return self.state.running
 
-    def start(self, entry: TestEntry) -> bool:
+    def start(self, entry: TestEntry, confirmed: bool = False) -> bool:
+        """`confirmed`: the owner already answered the question on the remote page."""
         if self.busy():
             return False
         plan = install_plan(entry, self.window.tests_page.host)
         if plan is None:
             return False
-        self.entry = entry
+        if confirmed and plan.get("kind", "winget") not in REMOTE_KINDS:
+            return False
+        self.entry, self.remote = entry, confirmed
         if plan["kind"] == "linux":
             return self._linux(entry, plan)
         if plan["kind"] == "steam":
             url = winget.steam_install_url(plan["app_id"])
-            if not self.ask(self.window, "Install", f"Open Steam's install dialog for {entry.name}?\n\n"
-                            f"Steam shows the size and the folder there and installs it from Steam's servers "
-                            f"({url}). When Steam has finished, press 'I installed something: check again'."):
+            if not self._ask("Install", f"Open Steam's install dialog for {entry.name}?\n\n"
+                             f"Steam shows the size and the folder there and installs it from Steam's servers "
+                             f"({url}). When Steam has finished, press 'I installed something: check again'."):
                 return False
             self.window.tests_page.open_url(url)
             return True
@@ -116,13 +156,13 @@ class InstallFlow(QObject):
     def _linux(self, entry: TestEntry, plan: dict) -> bool:
         commands, problem = self.linux_commands(plan["family"], plan["package"])
         if problem:
-            QMessageBox.warning(self.window, "Install", f"{entry.name} cannot be installed by the app: {problem}.")
+            self._warn(f"{entry.name} cannot be installed by the app: {problem}.")
             return False
         shown = "\n".join(" ".join(c) for c in commands)
-        if not self.ask(self.window, "Install", f"Install {entry.name} with your distribution's package manager?\n\n"
-                        f"{shown}\n\nThe package {plan['package']!r} comes from your distribution's own servers; "
-                        f"the system asks for your password (pkexec). This package name was not checked on a real "
-                        f"{plan['family']} machine yet: if it is not found, nothing is installed."):
+        if not self._ask("Install", f"Install {entry.name} with your distribution's package manager?\n\n"
+                         f"{shown}\n\nThe package {plan['package']!r} comes from your distribution's own servers; "
+                         f"the system asks for your password (pkexec). This package name was not checked on a real "
+                         f"{plan['family']} machine yet: if it is not found, nothing is installed."):
             return False
         self._show(f"Installing {plan['package']} (enter your password in the system prompt)...")
 
@@ -137,14 +177,15 @@ class InstallFlow(QObject):
     def _zip(self, entry: TestEntry, plan: dict) -> bool:
         bad = self.direct.problem(plan)
         if bad:
-            QMessageBox.warning(self.window, "Install", f"{entry.name} cannot be installed by the app: {bad}.")
+            self._warn(f"{entry.name} cannot be installed by the app: {bad}.")
             return False
-        text = self.direct.confirm_text(entry.name, plan)
         then = THEN.get(plan.get("then", ""))
-        if then:
-            text += "\n\n" + then[0]()
-        if not self.ask(self.window, "Install", text):
-            return False
+        if not self.remote:
+            text = self.direct.confirm_text(entry.name, plan)
+            if then:
+                text += "\n\n" + then[0]()
+            if not self._ask("Install", text):
+                return False
         self._show(f"Downloading {plan['product']} {plan['version']}...")
         failed = winget.Outcome(False, "")
 
@@ -159,13 +200,22 @@ class InstallFlow(QObject):
 
     def _lmstudio(self, entry: TestEntry, plan: dict) -> bool:
         from app.ai import model_set
-        if not self.ask(self.window, "Install", model_set.install_text(plan["test_id"])):
+        if not self.remote and not self._ask("Install", model_set.install_text(plan["test_id"])):
             return False
         self._show(f"Downloading {entry.name} with LM Studio...")
         failed = winget.Outcome(False, "")
         self.start_thread(lambda: self.finished.emit(self._safe(
             lambda: model_set.install(plan["test_id"], self._progress), failed)))
         return True
+
+    def _ask(self, title: str, text: str) -> bool:
+        return True if self.remote else self.ask(self.window, title, text)
+
+    def _warn(self, text: str):
+        if self.remote:
+            logger.warning("Remote install: %s", text)
+        else:
+            QMessageBox.warning(self.window, "Install", text)
 
     def _progress(self, text: str):
         self.state = RunState(True, 0, None, text)     # read by the Tests screen's timer
@@ -193,10 +243,10 @@ class InstallFlow(QObject):
     def _on_described(self, pkg: "winget.Package"):
         if pkg.problem:
             self._end(f"Not installed: {pkg.problem}")
-            QMessageBox.warning(self.window, "Install", f"{self.entry.name} cannot be installed by the app: "
-                                f"{pkg.problem}\n\nUse the official download page instead.")
+            self._warn(f"{self.entry.name} cannot be installed by the app: {pkg.problem}\n\nUse the official "
+                       "download page instead.")
             return
-        if not self.ask(self.window, "Install", winget.confirm_text(pkg)):
+        if not self._ask("Install", winget.confirm_text(pkg)):
             self._end("Install cancelled; nothing was downloaded.")
             return
         self.state = RunState(True, 0, None, f"Installing {pkg.name} {pkg.version} with winget "
@@ -211,4 +261,4 @@ class InstallFlow(QObject):
         if outcome.ok:
             self.window.start_scan()
         else:
-            QMessageBox.warning(self.window, "Install", outcome.message)
+            self._warn(outcome.message)

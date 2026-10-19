@@ -71,6 +71,13 @@ details summary { cursor:pointer; font-weight:600; }
 iframe { width:100%; height:70vh; border:1px solid var(--line); border-radius:8px; background:#fff; margin-top:10px; }
 a { color:var(--accent); }
 .sticky { position:sticky; bottom:0; background:var(--card); padding-top:10px; }
+.act { margin-top:6px; padding:5px 12px; font-size:13px; }
+#ask { position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center;
+  padding:16px; z-index:10; }
+#ask .box { background:var(--card); border-radius:12px; padding:16px; max-width:640px; width:100%; max-height:90vh;
+  display:flex; flex-direction:column; gap:10px; }
+#askText { white-space:pre-wrap; overflow:auto; font-size:14px; border:1px solid var(--line); border-radius:8px;
+  padding:10px; background:var(--bg); }
 </style>
 </head>
 <body>
@@ -85,6 +92,15 @@ a { color:var(--accent); }
     style="max-width:220px"><button id="enter" class="go">Connect</button></div>
   <p id="loginError" class="error"></p>
 </section>
+
+<div id="ask" class="hidden">
+  <div class="box">
+    <h2 id="askTitle"></h2>
+    <div id="askText"></div>
+    <a id="askLink" class="hidden" target="_blank" rel="noopener noreferrer"></a>
+    <div class="row"><button id="askYes" class="go"></button><button id="askNo">Cancel</button></div>
+  </div>
+</div>
 
 <div id="app" class="hidden">
   <section>
@@ -111,8 +127,8 @@ a { color:var(--accent); }
 
   <section>
     <h2>Tests</h2>
-    <p class="muted">Every test for this PC. Greyed ones need someone at the PC and start there; an orange note
-    means someone must answer a Windows prompt on the PC.</p>
+    <p class="muted">Every test for this PC. Greyed ones need someone at the PC and start there, unless they have an
+    Install or Accept license button; an orange note means someone must answer a Windows prompt on the PC.</p>
     <div class="row"><button id="all">Select all</button><button id="none">Select none</button>
       <span id="picked" class="muted"></span></div>
     <div id="tests"></div>
@@ -193,6 +209,8 @@ function showInfo(info) {
     txt.append(el("small", meta.join(", ")));
     if (t.why) txt.append(el("span", t.why, "why"));
     if (t.warning) txt.append(el("span", t.warning, "warn"));
+    if (t.install) txt.append(actButton("Install", t, "install"));
+    if (t.license) txt.append(actButton("Accept license", t, "license"));
     row.append(cb, txt);
     box.append(row);
   }
@@ -202,6 +220,56 @@ function showInfo(info) {
   $("cool").value = info.defaults.cooldown_seconds;
   $("note").textContent = info.note || "";
   countPicked();
+}
+
+function actButton(label, t, what) {
+  const b = el("button", label, "act go");
+  b.addEventListener("click", (e) => { e.preventDefault(); askFor(t, what); });
+  return b;
+}
+
+let asking = null;
+
+async function askFor(t, what) {
+  $("message").textContent = what === "install" ? "Asking the PC what " + t.name + " needs..." : "";
+  try {
+    const d = await (await call("/api/question", { id: t.id, what })).json();
+    if (!d.ok) { $("message").textContent = d.text || d.error || "Not possible from here."; return; }
+    asking = { id: t.id, what };
+    $("askTitle").textContent = (what === "install" ? "Install " : "License: ") + t.name;
+    $("askText").textContent = d.text;
+    const url = (d.text.match(/https:\/\/[^\s)"']+/) || [])[0];
+    $("askLink").classList.toggle("hidden", !url);
+    if (url) { $("askLink").href = url; $("askLink").textContent = "Open " + url; }
+    $("askYes").textContent = what === "install" ? "Install" : "I accept";
+    $("askNo").textContent = what === "install" ? "Cancel" : "I do not accept";
+    $("ask").classList.remove("hidden");
+    $("message").textContent = "";
+  } catch (e) { if (e.message !== "code") $("message").textContent = "The PC does not answer."; }
+}
+
+async function answer(yes) {
+  $("ask").classList.add("hidden");
+  const a = asking; asking = null;
+  if (!a || !yes) { $("message").textContent = "Nothing was done."; return; }
+  try {
+    const d = await (await call("/api/act", a)).json();
+    $("message").textContent = d.text || d.error || "";
+    if (a.what === "license") reloadInfo();
+    refresh();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  } catch (e) { if (e.message !== "code") $("message").textContent = "The PC does not answer."; }
+}
+
+async function reloadInfo() {
+  try {
+    const picked = new Set([...document.querySelectorAll("#tests input:checked")].map((c) => c.value));
+    const keep = { rep: $("rep").value, warm: $("warm").value, cool: $("cool").value };
+    showInfo(await (await call("/api/info")).json());
+    document.querySelectorAll("#tests input").forEach((c) => { if (picked.has(c.value) && !c.disabled) c.checked = true; });
+    $("rep").value = keep.rep; $("warm").value = keep.warm; $("cool").value = keep.cool;
+    countPicked();
+  } catch (e) {}
 }
 
 const STATE_WORDS = { running: "running now", waiting: "waiting", done: "done", failed: "failed",
@@ -264,6 +332,7 @@ function showState(s) {
   showPlan(s.tests);
   $("stop").disabled = !s.running;
   $("start").disabled = s.running;
+  if (wasRunning && !s.running) setTimeout(reloadInfo, 4000);   // an install or a run ended: tests may have changed
   if (s.report_name && !s.running && (s.report_name !== knownReport || wasRunning)) {
     const finished = wasRunning;              // a run just ended: show its report
     knownReport = s.report_name;
@@ -274,7 +343,11 @@ function showState(s) {
   wasRunning = s.running;
 }
 
+let polls = 0;
+
 async function refresh() {
+  polls += 1;
+  if (polls % 15 === 0 && !running && !asking) reloadInfo();   // every 30 s: a scan may have found new tests
   try { showState(await (await call("/api/state")).json()); }
   catch (e) { if (e.message !== "code") $("stateText").textContent = "The PC does not answer (is the app open?)."; }
 }
@@ -303,6 +376,8 @@ $("all").onclick = () => { document.querySelectorAll("#tests input:not(:disabled
                            countPicked(); };
 $("none").onclick = () => { document.querySelectorAll("#tests input").forEach((c) => c.checked = false);
                             countPicked(); };
+$("askYes").onclick = () => answer(true);
+$("askNo").onclick = () => answer(false);
 $("reportPick").onchange = () => openReport($("reportPick").value);
 $("start").onclick = async () => {
   const ids = [...document.querySelectorAll("#tests input:checked")].map((c) => c.value);

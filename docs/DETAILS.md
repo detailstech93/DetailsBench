@@ -260,6 +260,9 @@ Session History tab: select a session in the sessions table, then:
   from the manifest and the reproducibility settings (`app/report.py`). An **Extra metrics** table lists the mean,
   min and max of each frame capture and telemetry metric over the same runs as the statistics (metrics whose unit
   differs between runs are not summarized). The app asks before opening it.
+  The Environment section comes first (what the tests ran on), right under the title. The Summary is one card per
+  benchmark: each run (the warm-up marked "not counted"), then the average (mean) in bold, then median, min, max,
+  std dev, CV %, runs used and excluded, so it reads on a phone as well as on a PC.
 - **Export JSON...**: the full session (`app/export.py`, format `pc-benchmark-manager.session` v1): session,
   manifest, runs (each with its `metrics`) and per-benchmark statistics, plus `metric_summaries`.
   NaN/infinity are written as `null`.
@@ -602,7 +605,14 @@ one-time code shown under it.
   (with "Open full screen" and a list of the earlier reports in the reports folder). The right code also gives the
   browser a cookie (HttpOnly, SameSite=Strict, new each switch-on) so the reports open as normal pages; a report
   is picked only by a name the app lists, never by a path.
-- The window: one big switch (green ON / grey OFF), then the address and the code in large letters with Copy and
+- A missing test whose Install needs nobody at the PC (a vendor zip such as V-Ray, an LM Studio model, winget) has an
+  **Install** button on the page: the page shows the same question the Install button asks at the PC (with the
+  official link), and the owner's Install there is the answer, so nothing opens on the PC (`question_text` and
+  `start(entry, confirmed=True)` in `app/ui/install_flow.py`). winget may still show an administrator prompt on the PC.
+  Steam installs and Linux packages (password prompt) stay at the PC. A license not accepted yet has an
+  **Accept license** button that shows the license text with I accept / I do not accept (`POST /api/question` and
+  `/api/act`, only for tests whose info offers that action).
+- The window: one big switch (green ON / grey OFF; it flashes and says "Switching on..." when pressed), then the address and the code in large letters with Copy and
   Open here buttons, the settings (This PC only, port, reports folder) below.
 - A remote start opens no window on the PC: the page's Start answers the start question, games use the preset chosen
   last on the PC, a stress test its last length, and LibreHardwareMonitor is used only if it already runs.

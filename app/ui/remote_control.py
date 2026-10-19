@@ -12,7 +12,10 @@ buttons on the Tests screen; nothing on the PC waits for a click when the page s
 - LibreHardwareMonitor is used only when it already runs (otherwise the run goes ahead without CPU sensors; its
   question would wait at the PC);
 - the page follows the run: the test and run going on now, each test's state and scores so far, the time gone and
-  left, and the report when it is written (shown on the page, with the earlier reports of the reports folder).
+  left, and the report when it is written (shown on the page, with the earlier reports of the reports folder);
+- a missing test whose Install needs nobody at the PC (a vendor zip, an LM Studio model, winget) can be installed
+  from the page: the page shows the same question the Install button asks, and the owner's Install there is the
+  answer (app/ui/install_flow.py); a license not accepted yet can be read and accepted on the page too.
 """
 
 import logging
@@ -23,10 +26,10 @@ import time
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
-from PySide6.QtCore import QObject, QThread, Qt, QUrl, Signal, Slot
+from PySide6.QtCore import QObject, QThread, Qt, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices, QFont, QGuiApplication
-from PySide6.QtWidgets import (QCheckBox, QDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton,
-                               QSpinBox, QVBoxLayout)
+from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
+                               QPushButton, QSpinBox, QVBoxLayout)
 
 from app.catalog import GROUPS, TestEntry
 from app.remote import server as remote
@@ -44,10 +47,14 @@ GAME_WARNING = ("A game: it opens on the PC's screen, and Windows asks for admin
                 "run (frame capture): someone must press Yes there.")
 
 GREEN, GREY = "#2e7d32", "#616161"
-SWITCH_ON = (f"QPushButton {{ background: {GREEN}; color: white; font-size: 15px; font-weight: bold; "
-             "border: 0; border-radius: 8px; padding: 10px 18px; } QPushButton:hover { background: #388e3c; }")
-SWITCH_OFF = (f"QPushButton {{ background: {GREY}; color: white; font-size: 15px; font-weight: bold; "
-              "border: 0; border-radius: 8px; padding: 10px 18px; } QPushButton:hover { background: #757575; }")
+_SWITCH = ("QPushButton {{ background: {0}; color: white; font-size: 15px; font-weight: bold; border: 3px solid {3}; "
+           "border-radius: 8px; padding: 10px 18px; }} QPushButton:hover {{ background: {1}; }} "
+           "QPushButton:pressed {{ background: {2}; padding-top: 13px; padding-bottom: 7px; }}")
+SWITCH_ON = _SWITCH.format(GREEN, "#388e3c", "#1b5e20", GREEN)
+SWITCH_OFF = _SWITCH.format(GREY, "#757575", "#424242", GREY)
+SWITCH_FLASH = 450                     # ms the switch glows after a click: the click was taken
+SWITCH_ON_FLASH = _SWITCH.format(GREEN, "#388e3c", "#1b5e20", "#b9f6ca")
+SWITCH_OFF_FLASH = _SWITCH.format(GREY, "#757575", "#424242", "#e0e0e0")
 PILL = "QLabel {{ background: {0}; color: white; font-weight: bold; border-radius: 10px; padding: 3px 12px; }}"
 CARD = "QFrame#card { border: 1px solid #c8ced8; border-radius: 8px; }"
 BUTTON = "QPushButton { padding: 6px 14px; }"
@@ -101,7 +108,7 @@ def remote_listing(entries: List[TestEntry], platform: str = sys.platform) -> Li
         elif not e.can_run():
             why = f"Not ready on the PC: {e.state_reason or e.state}"[:160]
         elif getattr(ref, "license", None) and not ref.license_ok():
-            why = "Its license agreement is accepted on the PC: run it once there first."
+            why = "Its license agreement is not accepted yet: read it with Accept license."
         elif hasattr(ref, "configure") and getattr(ref, "asks_settings", True):
             why = "Its settings are chosen in a window on the PC: start it there."
         elif platform == "win32" and game_of(e) is not None:
@@ -219,7 +226,8 @@ class RemoteApi:
                                                      ("System", "operating_system")) if si.get(key) is not None]
         tests = [{"id": e.id, "name": e.name, "group": GROUP_TITLES.get(e.group, e.group.title()),
                   "minutes": e.expected_minutes, "verified": bool(e.verified), "can_start": not why,
-                  "why": why, "warning": warning}
+                  "why": why, "warning": warning, "install": self._can_install(e),
+                  "license": bool(e.can_run() and getattr(e.ref, "license", None) and not e.ref.license_ok())}
                  for e, why, warning in remote_listing(w.tests_page.entries)]
         profile = w.selected_profile()
         return {"specs": specs, "tests": tests,
@@ -227,6 +235,65 @@ class RemoteApi:
                              "cooldown_seconds": int(profile.cooldown_seconds)},
                 "note": "A failed run is stored as failed and run once more; uneven scores get up to a few extra "
                         "runs. Game tests use the game settings chosen last on the PC."}
+
+    def _can_install(self, e: TestEntry) -> bool:
+        from app.catalog import MISSING
+        from app.ui.install_flow import REMOTE_KINDS
+        from app.ui.tests_page import install_plan
+        if not e.compatible or e.state != MISSING:
+            return False
+        try:
+            plan = install_plan(e, self.window.tests_page.host)
+        except Exception:
+            return False
+        return plan is not None and plan.get("kind", "winget") in REMOTE_KINDS
+
+    def _entry(self, test_id: str) -> Tuple[Optional[TestEntry], object]:
+        page = self.window.tests_page
+        return next((e for e in page.entries if e.id == test_id), None), page.host
+
+    def question(self, test_id: str, what: str) -> Tuple[bool, str]:
+        """The question the PC would ask before an install or about a license, to show on the page."""
+        entry, host = self.main.run(lambda: self._entry(test_id))
+        if entry is None:
+            return False, "No such test on this PC."
+        if what == "license":
+            lic = getattr(entry.ref, "license", None)
+            if not lic or entry.ref.license_ok():
+                return False, "Nothing to accept for this test."
+            return True, lic[2]()
+        if not self.main.run(lambda: self._can_install(entry)):
+            return False, "This test cannot be installed from here."
+        from app.ui.install_flow import question_text
+        text, why = question_text(entry, host)          # winget is asked here, off the Qt thread
+        return (True, text) if text else (False, f"Cannot be installed from here: {why}")
+
+    def act(self, test_id: str, what: str) -> Tuple[bool, str]:
+        """The owner answered Yes on the page: accept the license, or start the install (no window at the PC)."""
+        def run():
+            w = self.window
+            entry, _ = self._entry(test_id)
+            if entry is None:
+                return False, "No such test on this PC."
+            if what == "license":
+                lic = getattr(entry.ref, "license", None)
+                if not lic:
+                    return False, "Nothing to accept for this test."
+                try:
+                    entry.ref.accept_license()
+                except (OSError, ValueError) as e:
+                    return False, f"The answer could not be saved: {e}"
+                logger.info("License of %s accepted from the remote page", lic[1])
+                return True, f"{lic[1]}: license accepted."
+            if w.tests_page.busy or w.automation_panel.is_running() or w.install_flow.busy():
+                return False, "Something is going on at the PC; wait for it first."
+            if not self._can_install(entry):
+                return False, "This test cannot be installed from here."
+            if not w.install_flow.start(entry, confirmed=True):
+                return False, "The install did not start."
+            logger.info("Install of %s started from the remote page", entry.id)
+            return True, f"Installing {entry.name}: follow it under Now."
+        return self.main.run(run)
 
     def state(self) -> dict:
         return self.main.run(self._state)
@@ -493,6 +560,24 @@ class RemoteDialog(QDialog):
         self.refresh()
 
     def toggle(self) -> bool:
+        on = self.control.running()
+        self.switch.setText("Switching off..." if on else "Switching on...")   # seen at once: the click was taken
+        self.switch.setEnabled(False)
+        QApplication.processEvents()
+        try:
+            return self._toggle()
+        finally:
+            self.switch.setEnabled(True)
+            self.switch.setStyleSheet(SWITCH_ON_FLASH if self.control.running() else SWITCH_OFF_FLASH)
+            QTimer.singleShot(SWITCH_FLASH, self._unflash)
+
+    def _unflash(self):
+        try:
+            self.switch.setStyleSheet(SWITCH_ON if self.control.running() else SWITCH_OFF)
+        except RuntimeError:
+            pass                                # the window was closed meanwhile
+
+    def _toggle(self) -> bool:
         if self.control.running():
             self.control.stop()
             self.message.setText("Remote mode is off: the page no longer answers.")
