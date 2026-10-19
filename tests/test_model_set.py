@@ -88,14 +88,15 @@ def test_a_run_loads_its_own_copy_and_always_unloads_it(tmp_path, monkeypatch):
     monkeypatch.setattr(llama_benchy, "run_process", run_process)
     fake = FakeLms()
     w = _workload(tmp_path, fake)
-    assert w.availability() == (True, "") and not w.verified and not w.asks_settings
+    assert w.availability() == (True, "") and w.verified and not w.asks_settings
     r = w.run(RunContext(output_dir=tmp_path / "run", timeout_seconds=60, stop_event=threading.Event()))
     assert r.status == "completed" and r.score == 61.25 and r.unit == "tok/s"
     assert seen["command"][seen["command"].index("--model") + 1] == "pcbm-llama_benchy_gemma4_12b"
     assert ["--runs", "3"] == seen["command"][seen["command"].index("--runs"):][:2]
     assert [c[0] for c in fake.calls if c[0] != "ls"] == ["unload", "load", "unload"]
     assert "Context: 4096" in r.note and "google/gemma-4-12b-qat Q4_0" in r.note
-    assert (tmp_path / "run" / "lms_load.txt").is_file()
+    assert (tmp_path / "run" / "lms_load.txt").is_file() and seen["command"][-2:] == ["--tokenizer", "gpt2"]
+    assert json.loads((tmp_path / "run" / "ai_run.json").read_text(encoding="utf-8"))["tokenizer"] == "gpt2"
 
 
 def test_a_model_that_does_not_fit_stores_no_score_and_is_unloaded(tmp_path):

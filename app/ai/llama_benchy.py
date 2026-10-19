@@ -246,7 +246,7 @@ class LlamaBenchyWorkload(Workload):
             after = self._model_record()
             record = after if "context_length" in after else record
         ai_run = {**record, "tool": "llama-benchy", "tool_version": VERSION,
-                  "tokenizer": tokenizer_used(log, self.model), "pp": self.pp, "tg": self.tg,
+                  "tokenizer": tokenizer_used(log, getattr(self, "tokenizer", None) or self.model), "pp": self.pp, "tg": self.tg,
                   "depths": self.depths, "concurrency": self.concurrency, "prefix_caching": self.prefix_caching,
                   "runs": self.runs}
         (folder / "ai_run.json").write_text(json.dumps(ai_run, indent=2), encoding="utf-8")

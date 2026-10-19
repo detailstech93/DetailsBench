@@ -19,8 +19,10 @@ The app loads its own copy, `lms load <key> --identifier pcbm-<test id> -c 4096 
 Other loaded models are not touched, but they share the graphics card: the warning says so. A model that does not
 fit with every layer on the card fails to load and the run says so (no score). llama-benchy counts tokens with the
 gpt2 tokenizer on every PC (--tokenizer gpt2: the identifier is not a Hugging Face name, and the same tokenizer
-everywhere keeps the counts comparable). First real run on this computer 2026-10-19 (Gemma 4 12B): load, 3 runs and
-unload worked; the NVIDIA card was "lost" at the time (nvidia-smi), so it ran on the CPU. Not marked verified.
+everywhere keeps the counts comparable). Real runs on this computer 2026-10-19 (Gemma 4 12B): first with the NVIDIA card
+"lost" (nvidia-smi), so on the CPU (8.6 tok/s, not a score); after a restart on the RTX 5090 Laptop GPU: loaded in
+9.8 s, pp 1,664.7 tok/s, tg 83.8 tok/s, unloaded after. Only Gemma 4 12B is marked verified (the others' downloads
+and loads have not been seen here yet).
 
 The owner is not bound to these three: "AI models..." on the Tests screen adds any LM Studio model and quantization
 (kept in settings.json, "ai_fixed_models"); each becomes its own test with the same fixed settings, and can be
@@ -209,14 +211,16 @@ def install(test_id: str, progress=lambda text: None, lms: Optional[Path] = None
 
 
 class FixedModelWorkload(llama_benchy.LlamaBenchyWorkload):
-    verified = False                  # the loading part has not been seen on a real run here yet
+    VERIFIED = ("llama_benchy_gemma4_12b",)     # a real run on this computer (2026-10-19, RTX 5090 Laptop GPU)
     asks_settings = False             # fixed model and settings: the free test's dialog is not shown
+    tokenizer = "gpt2"                # --tokenizer gpt2 on every PC (recorded in ai_run.json)
 
     def __init__(self, test_id: str, exe: Optional[Path] = None, lms: Optional[Path] = None,
                  run: Callable = _run, model: Optional[Tuple[str, str, str, str]] = None, **kwargs):
         title, self.key, self.quant, self.size = model or all_models()[test_id]
         super().__init__(identifier(test_id), pp=PP, tg=TG, depths=(0,), runs=RUNS, exe=exe, **kwargs)
         self.id = test_id
+        self.verified = test_id in self.VERIFIED
         self.title = title
         self.display_name = f"llama-benchy: {title} ({self.quant})"
         self.lms = lms if lms is not None else lmstudio.lms_path()
