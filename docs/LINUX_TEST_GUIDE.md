@@ -51,6 +51,8 @@ python3 -m venv .venv
 - [ ] 3.3 **PassMark** (x64 and ARM64; CPU Mark and Memory Mark only): Install (zip from passmark.com, then ncurses 5
       by password prompt), run CPU Mark, then Memory Mark. On Ubuntu 24.04+ libncurses5 has no package: note what
       the app says. Send if "invalid": results_cpu.yml / results_memory.yml and passmark_stdout.txt.
+- [ ] 3.4 **y-cruncher** (x64 only): Install (static tar.xz from numberworld.org), accept its license in the app, run
+      Pi 1 billion digits. Send if "invalid": ycruncher_log.txt and stdout_ycruncher.txt.
 - Not on Linux: Cinebench (no Linux build), PassMark 2D/3D, PugetBench, 7-Zip's window test.
 
 ## 4. Games with MangoHud (Steam, Proton)
