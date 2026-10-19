@@ -654,17 +654,22 @@ class FrameCapturePanel(QGroupBox):
                 self.game_combo.setCurrentIndex(index)
 
     def _show_game_settings_state(self):
-        from app.games.settings_file import adapter_for
         game = self.game_combo.currentData()
-        ok = bool(game) and adapter_for(game.get("app_id")) is not None
+        ok = bool(game) and self.can_force(game.get("app_id"))
         self.game_settings_btn.setEnabled(bool(game) and not self.is_running())
         if not ok:
             self.game_settings_btn.setToolTip("Records the settings you set in this game (declared, not checked). "
                                               "Forcing settings is supported for: Cyberpunk 2077, Borderlands 3, Rise of the Tomb Raider, Red Dead Redemption 2, The Witcher 3, Counter-Strike 2, DOOM (2016).")
 
+    def can_force(self, app_id) -> bool:
+        """The game's settings can be forced here (Linux: through its Proton prefix; not the registry ones)."""
+        from app.games.proton import supported
+        from app.games.settings_file import adapter_for
+        return supported(adapter_for(app_id), self.platform_name)
+
     def declared_settings_for(self, app_id) -> Dict[str, object]:
-        from app.games.settings_file import DECLARED_KEY, adapter_for
-        if adapter_for(app_id) is not None:
+        from app.games.settings_file import DECLARED_KEY
+        if self.can_force(app_id):
             return {}
         settings, _ = load_settings(self.data_dir)
         every = settings.get(DECLARED_KEY)
@@ -684,8 +689,8 @@ class FrameCapturePanel(QGroupBox):
         return True
 
     def forced_settings_for(self, app_id) -> Dict[str, object]:
-        from app.games.settings_file import adapter_for, saved_choice
-        if adapter_for(app_id) is None:
+        from app.games.settings_file import saved_choice
+        if not self.can_force(app_id):
             return {}
         settings, _ = load_settings(self.data_dir)
         return saved_choice(settings, app_id)
@@ -701,8 +706,8 @@ class FrameCapturePanel(QGroupBox):
         if not game:
             return "unavailable"
         app_id = str(game.get("app_id"))
-        from app.games.settings_file import DECLARED_KEY, adapter_for
-        if adapter_for(app_id) is None:
+        from app.games.settings_file import DECLARED_KEY
+        if not self.can_force(app_id):
             from app.ui.game_settings_dialog import DECLARED_CHOICES
             dialog = self.declared_dialog_factory(str(game.get("name")), DECLARED_CHOICES, {},
                                                   self.declared_settings_for(app_id))
@@ -814,12 +819,12 @@ class FrameCapturePanel(QGroupBox):
         total = spec.settle_seconds + spec.seconds * spec.count
         from app.games.settings_file import adapter_for
         from app.ui.game_settings_dialog import describe
-        if (ask_settings and not linux and adapter_for(spec.app_id) is not None
+        if (ask_settings and self.can_force(spec.app_id)
                 and self._ask_game_settings() == "cancelled"):
             self.status_label.setText("Cancelled; nothing was started.")
             return False
-        # Linux: a Proton game keeps its settings inside its Wine prefix, which the settings files do not know yet
-        forced_values = {} if linux else self.forced_settings_for(spec.app_id)
+        # Linux: a Proton game's settings are read and written inside its Wine prefix (app/games/proton.py)
+        forced_values = self.forced_settings_for(spec.app_id)
         declared = self.declared_settings_for(spec.app_id)
         spec.launch_args = game_launch_args(spec.app_id, forced_values)
         by_launch = getattr(adapter_for(spec.app_id), "base", None) == "launch"
@@ -887,7 +892,7 @@ class FrameCapturePanel(QGroupBox):
                         "\nThis route is a draft not yet watched on a real run: watch it and stop the run if the "
                         "character does something unexpected."))
         if linux:
-            text = self.linux_text(spec, profile, total, declared)
+            text = self.linux_text(spec, profile, total, declared, forced_values, by_launch)
         if self.remote_check():
             text += "\n\n" + REMOTE_WARNING
         from app.environment import conditions as pc_now
@@ -945,7 +950,7 @@ class FrameCapturePanel(QGroupBox):
                 logger.warning("Could not save the MangoHud choice: %s", e)
         return mangohud
 
-    def linux_text(self, spec, profile, total: int, declared) -> str:
+    def linux_text(self, spec, profile, total: int, declared, forced_values=None, by_launch=False) -> str:
         from app.ui.game_settings_dialog import describe
         return (f"Benchmark {spec.game_name} automatically (Linux, MangoHud):\n\n"
                 f"1. The app uses the Steam it started with MangoHud (MANGOHUD=1 and the app's own MangoHud "
@@ -963,8 +968,15 @@ class FrameCapturePanel(QGroupBox):
                 f"lost. Steam stays open for the next game.\n\n"
                 "MangoHud works with Vulkan games: Proton games and native Vulkan ones. A native OpenGL game writes "
                 "no log (the run then says so). Not yet checked on a real Linux PC.\n\n"
-                + ("Game settings declared by you (not checked): " + describe(declared) + "." if declared else
-                   "Game settings are not forced on Linux yet; the game's own are used."))
+                + (("Forced game settings: " + describe(forced_values) + ".\n"
+                    + ("They are passed as the launch arguments above; after the run the app reads the game's "
+                       "settings files to check them." if by_launch else
+                       "Before the launch the app copies the game's settings file (for a Proton game: inside its "
+                       "own Wine prefix, steamapps/compatdata/" + str(spec.app_id) + "/pfx) into the run folder, "
+                       "writes these values and checks them; after the run it checks them again and puts your own "
+                       "file back. Not yet checked on a real Linux PC.")) if forced_values else
+                   "Game settings declared by you (not checked): " + describe(declared) + "." if declared else
+                   "No game settings are forced (Game settings... to choose them); the game's own are used."))
 
     def _create_game_session(self, spec, profile, environment, capture, forced=None, declared=None,
                              conditions=None) -> int:

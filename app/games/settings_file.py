@@ -66,6 +66,14 @@ def _game_name(app_id) -> str:
     return str(names.get(str(app_id)) or f"Steam app {app_id}")
 
 
+def _env_for(app_id, env: Optional[Mapping[str, str]]) -> Mapping[str, str]:
+    """The given environment, else this system's for the game (Linux: the folders inside its Proton prefix)."""
+    if env is not None:
+        return env
+    from app.games.proton import game_env
+    return game_env(app_id)
+
+
 def recover_pending(data_dir: Path, app_ids=None, env: Optional[Mapping[str, str]] = None, reg=None,
                     running=lambda app_id: False) -> List[str]:
     """Put back the settings of every game whose run was cut off before finish() (only the app ids given, when
@@ -85,7 +93,7 @@ def recover_pending(data_dir: Path, app_ids=None, env: Optional[Mapping[str, str
             lines.append(f"{_game_name(app_id)}: still open; its settings are put back after it is closed")
             continue
         try:
-            adapter.store(env, reg).restore(Path(backup))
+            adapter.store(_env_for(app_id, env), reg).restore(Path(backup))
         except (OSError, ValueError) as e:
             lines.append(f"{_game_name(app_id)}: your settings could not be put back ({e}); the copy is {backup}")
             continue
@@ -133,6 +141,8 @@ class FileStore:
         shutil.copy2(self.path, backup)
 
     def restore(self, backup: Path) -> None:
+        if self.path is None:
+            raise OSError("the game's settings folder is not known on this system")
         shutil.copy2(backup, self.path)
 
 
@@ -343,6 +353,7 @@ class ForcedSettings:
         self.adapter = adapter_for(app_id)
         if self.adapter is None:
             raise ValueError(f"no settings adapter for Steam app {app_id}")
+        env = _env_for(app_id, env)
         self.store = self.adapter.store(env, reg)
         self.requested = dict(requested)
         self.backup = Path(run_dir) / (BACKUP_NAME + self.store.backup_suffix)
@@ -473,7 +484,7 @@ def read_for_dialog(app_id, data_dir: Path, env: Optional[Mapping[str, str]] = N
     adapter = adapter_for(app_id)
     if adapter is None:
         raise ValueError(f"no settings adapter for Steam app {app_id}")
-    store = adapter.store(env, reg)
+    store = adapter.store(_env_for(app_id, env), reg)
     if store.exists():
         data = store.read()
     elif adapter.base == "launch":
