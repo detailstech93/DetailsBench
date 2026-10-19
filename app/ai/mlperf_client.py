@@ -8,6 +8,13 @@ Score = overall geomean 2nd+ token generation rate (tok/s) from mlperf_out/resul
 and per-category rates are metrics. Shape read from a real run on this computer (2026-10-18). "Benchmark
 Success" false or an "Error Message" is a failed run, never a score. "Results Verified" is recorded as MLPerf
 Client reports it. ai_run.json records the model, quantization, execution provider, device and tool version.
+
+Scenarios (one test each, the LLM folders shipped with 2.0.1): Phi-4 mini (llm/phi4mini, the first test),
+Llama 3.1 8B (llm/Llama3.1), Phi-4 reasoning 14B (llm/extended/phi4reason) and Qwen3 8B (llm/extended/qwen3), all
+Q4_0. The config is picked by the graphics card's maker: NVIDIA llama.cpp CUDA, AMD Windows ML DirectML, Intel
+OpenVINO GPU (a maker with no config for a scenario is named, never run on another device). NPU configs, the agentic
+scenarios (they run Python code the model writes) and the experimental image generation are not offered. Only
+Phi-4 mini on NVIDIA has been seen on a real run here: the other scenarios and makers are not marked verified.
 """
 
 import json
@@ -16,7 +23,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Mapping, Optional, Tuple
+from typing import Callable, Dict, List, Mapping, Optional, Tuple
 
 from app.automation.process import run_process
 from app.automation.workload import RunContext, Workload, WorkloadResult
@@ -24,6 +31,19 @@ from app.automation.workload import RunContext, Workload, WorkloadResult
 VERSION = "2.0.1"
 DEFAULT_CONFIG = "llm/phi4mini/NVIDIA_llamacpp-CUDA_GPU.json"
 QUANT = re.compile(r"-(Q\d\w*|INT\d+|FP\d+)$", re.IGNORECASE)
+# test id: (title, scenario folder)
+SCENARIOS = {
+    "mlperf_client": ("Phi-4 mini", "llm/phi4mini"),
+    "mlperf_client_llama31": ("Llama 3.1 8B", "llm/Llama3.1"),
+    "mlperf_client_phi4reason": ("Phi-4 reasoning", "llm/extended/phi4reason"),
+    "mlperf_client_qwen3": ("Qwen3 8B", "llm/extended/qwen3"),
+}
+# graphics card maker -> config file names to try, in order (as shipped in each scenario folder)
+VENDOR_CONFIGS = (("nvidia", ("NVIDIA_llamacpp-CUDA_GPU.json",)),
+                  ("amd", ("AMD_WindowsML-DML_GPU.json",)),
+                  ("intel", ("Intel_NativeOpenVINO_GPU_Default.json", "Intel_WindowsML-OpenVINO_GPU.json")))
+VENDOR_NAMES = {"nvidia": "NVIDIA", "amd": "AMD", "intel": "Intel"}
+_GPUS: List[Optional[List[str]]] = []
 WARNING = ("The first run of a config downloads its model (several GB) into the data folder. Do not use the GPU "
            "for anything else during the run (for example LM Studio or a local coding agent).")
 
@@ -36,6 +56,34 @@ def mlperf_path(env: Optional[Mapping[str, str]] = None) -> Optional[Path]:
         if p and Path(p).is_file():
             return Path(p)
     return None
+
+
+def gpu_names() -> List[str]:
+    """This PC's display adapters, read once (Windows)."""
+    if not _GPUS:
+        from app.system_info import get_gpu_names
+        _GPUS.append(get_gpu_names())
+    return list(_GPUS[0] or [])
+
+
+def vendors(names: List[str]) -> List[str]:
+    """Makers in the order VENDOR_CONFIGS tries them (an NVIDIA card before an integrated AMD or Intel one)."""
+    text = " ".join(names).lower()
+    marks = {"nvidia": ("nvidia", "geforce", "quadro"), "amd": ("amd", "radeon"), "intel": ("intel",)}
+    return [v for v, _ in VENDOR_CONFIGS if any(m in text for m in marks[v])]
+
+
+def pick_config(tool_dir: Path, folder: str, names: List[str]) -> Tuple[Optional[str], str]:
+    """(config path relative to the tool, "") for the first maker with a config here, else (None, why)."""
+    found = vendors(names)
+    if not found:
+        return None, "no NVIDIA, AMD or Intel graphics card found"
+    for vendor in found:
+        for name in dict(VENDOR_CONFIGS)[vendor]:
+            if (tool_dir / folder / name).is_file():
+                return f"{folder}/{name}", ""
+    return None, (f"MLPerf Client has no GPU config for {', '.join(VENDOR_NAMES[v] for v in found)} "
+                  f"in {folder}")
 
 
 def build_command(exe: str, config: str, data_dir: str, out_dir: str, csv_path: str) -> List[str]:
@@ -100,22 +148,37 @@ def parse_results(text: str) -> Tuple[Optional[float], Dict[str, object], Dict[s
 
 
 class MlperfClientWorkload(Workload):
-    id = "mlperf_client"
-    display_name = "MLPerf Client"
     benchmark_type = "ai"
     timeout_seconds = 3600
-    verified = True                   # checked with a real run on this computer (2026-10-18)
     warning = WARNING
 
-    def __init__(self, config: str = DEFAULT_CONFIG, exe: Optional[Path] = None, data_dir: Optional[Path] = None):
-        self.config = config
+    def __init__(self, config: Optional[str] = None, exe: Optional[Path] = None, data_dir: Optional[Path] = None,
+                 test_id: str = "mlperf_client", gpus: Optional[Callable[[], List[str]]] = None):
+        self.id = test_id
+        self.title, self.folder = SCENARIOS[test_id]
+        self._config, self._gpus = config, gpus or gpu_names
         self.exe = exe if exe is not None else mlperf_path()
         self.data_dir = data_dir or (self.exe.parent / "data" if self.exe else None)
-        self.display_name = f"MLPerf Client ({config})"
+        self.display_name = f"MLPerf Client ({self.title})"
+        if test_id == "mlperf_client_phi4reason":
+            self.timeout_seconds = 2 * 3600      # a reasoning model writes long answers
+
+    @property
+    def config(self) -> Optional[str]:
+        """The config given, else the one for this PC's graphics card (picked when first needed)."""
+        if self._config is None and self.exe:
+            self._config = pick_config(self.exe.parent, self.folder, self._gpus())[0] or ""
+        return self._config or None
+
+    @property
+    def verified(self) -> bool:
+        return self.config == DEFAULT_CONFIG      # Phi-4 mini on NVIDIA: a real run on this computer (2026-10-18)
 
     def availability(self) -> Tuple[bool, str]:
         if not self.exe:
             return False, "not found (~/Tools/MLPerfClient or PCBM_MLPERF_CLIENT)"
+        if not self.config:
+            return False, pick_config(self.exe.parent, self.folder, self._gpus())[1]
         if not (self.exe.parent / self.config).is_file():
             return False, f"config not found: {self.config}"
         return True, str(self.exe)
@@ -164,4 +227,11 @@ class MlperfClientWorkload(Workload):
         if error:
             status = "failed" if error.startswith("benchmark not successful") else "invalid"
             return WorkloadResult(status=status, error=error, **common)
-        return WorkloadResult(status="completed", score=score, unit="tok/s", metrics=metrics, **common)
+        parts = [("Model", record.get("model")), ("Backend", record.get("backend")), ("Device", record.get("device")),
+                 ("Config", self.config)]
+        note = "; ".join(f"{k}: {v}" for k, v in parts if v)
+        return WorkloadResult(status="completed", score=score, unit="tok/s", metrics=metrics, note=note, **common)
+
+
+def mlperf_workloads() -> list:
+    return [MlperfClientWorkload(test_id=t) for t in SCENARIOS]

@@ -63,7 +63,7 @@ class PyMlperf(mlperf_client.MlperfClientWorkload):
         (tool_dir / mlperf_client.DEFAULT_CONFIG).write_text("{}", encoding="utf-8")
         exe = tool_dir / "mlperf-windows.exe"
         exe.write_bytes(b"")
-        super().__init__(exe=exe)
+        super().__init__(config=mlperf_client.DEFAULT_CONFIG, exe=exe)
         self.script = tool_dir / "fake.py"
         self.script.write_text("import sys, os\nargs = sys.argv[1:]\nout = args[args.index('-o') + 1]\n" + body,
                                encoding="utf-8")
@@ -92,3 +92,44 @@ def test_workload_completed_and_failures(tmp_path):
     missing.exe = None
     assert missing.availability()[0] is False
     assert missing.run(RunContext(output_dir=tmp_path)).status == "skipped"
+
+
+def _tool(tmp_path, files):
+    for f in files:
+        (tmp_path / f).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / f).write_text("{}", encoding="utf-8")
+    exe = tmp_path / "mlperf-windows.exe"
+    exe.write_bytes(b"")
+    return exe
+
+
+def test_each_scenario_picks_the_config_of_this_pcs_graphics_card(tmp_path):
+    exe = _tool(tmp_path, ["llm/Llama3.1/NVIDIA_llamacpp-CUDA_GPU.json", "llm/Llama3.1/AMD_WindowsML-DML_GPU.json",
+                           "llm/extended/phi4reason/Intel_NativeOpenVINO_GPU_Default.json",
+                           "llm/phi4mini/NVIDIA_llamacpp-CUDA_GPU.json"])
+    both = lambda: ["AMD Radeon(TM) Graphics", "NVIDIA GeForce RTX 5090 Laptop GPU"]
+    w = mlperf_client.MlperfClientWorkload(exe=exe, test_id="mlperf_client_llama31", gpus=both)
+    assert w.config == "llm/Llama3.1/NVIDIA_llamacpp-CUDA_GPU.json" and w.availability()[0] and not w.verified
+    assert w.display_name == "MLPerf Client (Llama 3.1 8B)"
+    amd = mlperf_client.MlperfClientWorkload(exe=exe, test_id="mlperf_client_llama31", gpus=lambda: ["AMD Radeon RX 9070"])
+    assert amd.config == "llm/Llama3.1/AMD_WindowsML-DML_GPU.json"
+    reason = mlperf_client.MlperfClientWorkload(exe=exe, test_id="mlperf_client_phi4reason", gpus=both)
+    ok, why = reason.availability()
+    assert not ok and why == "MLPerf Client has no GPU config for NVIDIA, AMD in llm/extended/phi4reason"
+    assert reason.timeout_seconds == 7200
+    none = mlperf_client.MlperfClientWorkload(exe=exe, test_id="mlperf_client_qwen3", gpus=lambda: [])
+    assert none.availability() == (False, "no NVIDIA, AMD or Intel graphics card found")
+    first = mlperf_client.MlperfClientWorkload(exe=exe, gpus=both)
+    assert first.id == "mlperf_client" and first.config == mlperf_client.DEFAULT_CONFIG and first.verified
+    assert [w.id for w in mlperf_client.mlperf_workloads()] == list(mlperf_client.SCENARIOS)
+
+
+def test_mlperf_has_its_own_report_section():
+    from app.report import _mlperf_section
+    export = {"session": {}, "runs": [
+        {"benchmark_name": "mlperf_client_llama31", "status": "completed", "is_warmup": False, "unit": "tok/s",
+         "note": "Model: Llama 3.1 8B gguf-Q4_0; Backend: llama-cpp CUDA"}],
+        "summaries": {"mlperf_client_llama31": {"stats": {"mean": 151.234}}}}
+    html = _mlperf_section(export)
+    assert "<h2>MLPerf Client</h2>" in html and "151.2 <span>tok/s</span>" in html and "llama-cpp CUDA" in html
+    assert _mlperf_section({"runs": []}) == ""

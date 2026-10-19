@@ -524,6 +524,20 @@ def _handbrake_section(export: Mapping) -> str:
         decimals=1)
 
 
+MLPERF_TESTS = (("mlperf_client", "Phi-4 mini", "tok/s"), ("mlperf_client_llama31", "Llama 3.1 8B", "tok/s"),
+                ("mlperf_client_phi4reason", "Phi-4 reasoning", "tok/s"), ("mlperf_client_qwen3", "Qwen3 8B", "tok/s"))
+
+
+def _mlperf_section(export: Mapping) -> str:
+    return _tiles_section(
+        export, "MLPerf Client", MLPERF_TESTS,
+        "MLPerf Client's own geomean token generation rate after the first token, in tokens per second, over its "
+        "fixed prompts (all models Q4_0). Higher is faster. Comparable only with the same scenario, the same "
+        "backend (llama.cpp CUDA, Windows ML DirectML or OpenVINO: shown on each tile) and the same MLPerf Client "
+        "version. Nothing was uploaded.",
+        decimals=1)
+
+
 PASSMARK_TESTS = (("passmark_cpu", "CPU Mark", "points"), ("passmark_2d", "2D Graphics Mark", "points"),
                   ("passmark_3d", "3D Graphics Mark", "points"), ("passmark_memory", "Memory Mark", "points"))
 
@@ -1206,6 +1220,7 @@ def render_session_report(export: Mapping) -> str:
         + _passmark_section(export_mapping)
         + _ycruncher_section(export_mapping)
         + _handbrake_section(export_mapping)
+        + _mlperf_section(export_mapping)
         + _pugetbench_section(export_mapping)
         + _earlier_section(export_mapping)
         + _summary_section(export_mapping)

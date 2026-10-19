@@ -47,6 +47,24 @@ TEST_INFO: Dict[str, dict] = {
         "supported_architectures": {"x64": "native", "arm64": "unverified"},
         "expected_minutes": 15,
     },
+    "mlperf_client_llama31": {
+        "group": "ai", "official_url": "https://github.com/mlcommons/mlperf_client/releases",
+        "supported_os": ["windows"],
+        "supported_architectures": {"x64": "native", "arm64": "unverified"},
+        "expected_minutes": 20,
+    },
+    "mlperf_client_phi4reason": {
+        "group": "ai", "official_url": "https://github.com/mlcommons/mlperf_client/releases",
+        "supported_os": ["windows"],
+        "supported_architectures": {"x64": "native", "arm64": "unverified"},
+        "expected_minutes": 45,
+    },
+    "mlperf_client_qwen3": {
+        "group": "ai", "official_url": "https://github.com/mlcommons/mlperf_client/releases",
+        "supported_os": ["windows"],
+        "supported_architectures": {"x64": "native", "arm64": "unverified"},
+        "expected_minutes": 20,
+    },
     "blender_benchmark": {
         "group": "cpu", "official_url": "https://opendata.blender.org/",
         "supported_os": ["windows", "linux"], "supported_architectures": {"x64": "native", "arm64": "unsupported"},
