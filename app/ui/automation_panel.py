@@ -16,6 +16,7 @@ so the worker asks the panel for one and waits at most 10 s for it.
 
 import logging
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
@@ -316,6 +317,7 @@ class AutomationPanel(QGroupBox):
         self.worker.screenshot_requested.connect(self._on_screenshot_requested)
         self.worker.finished_plan.connect(self._on_finished)
         self._set_running(True)
+        self.plan_started_at, self.plan_ended_at = time.monotonic(), None     # for the remote page's times
         self.worker.start()
 
     def set_checked(self, workload_id: str, checked: bool = True):
@@ -516,6 +518,7 @@ class AutomationPanel(QGroupBox):
     def _on_finished(self, summary):
         from app.frames import admin_helper
         admin_helper.end()                  # the administrator helper ends with the run
+        self.plan_ended_at = time.monotonic()
         self._set_running(False)
         self.last_summary = summary
         self.reports = find_reports(summary)

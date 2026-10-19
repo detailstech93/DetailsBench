@@ -440,6 +440,7 @@ class MainWindow(QMainWindow):
         self.last_report_path = None           # the last report written from the Tests screen (remote page)
         self.remote = RemoteControl(self)
         self.tests_page.remote_requested.connect(self.edit_remote_start)
+        self.tests_page.reports_folder_requested.connect(self.choose_reports_folder)
         from app.ui.install_flow import InstallFlow
         self.install_flow = InstallFlow(self)
         self.tests_page.install_requested.connect(self.install_flow.start)
@@ -488,6 +489,11 @@ class MainWindow(QMainWindow):
         dialog.exec()
         if dialog.changed:
             self.start_scan()
+
+    def choose_reports_folder(self):
+        """Pick the folder every report goes to (app/ui/reports_folder.py)."""
+        from app.ui import reports_folder
+        reports_folder.choose(self, always=True)
 
     def edit_remote_start(self):
         """Switch remote start on or off (app/ui/remote_control.py)."""

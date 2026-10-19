@@ -362,6 +362,8 @@ def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_re
     if panel.is_running() or window.frame_panel.is_running():
         QMessageBox.information(window, "Run tests", "A run is already going on; wait for it or stop it first.")
         return False
+    from app.ui import reports_folder
+    reports_folder.choose(window)                  # the first time: where all reports go
     data_dir = window.frame_panel.data_dir
     games = [g for g in (game_of(e) for e in automatic + others) if g]
     offered = read_offered(games, data_dir) if games else {}
@@ -401,7 +403,8 @@ def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_re
            confirm=None, tools_ready: bool = False) -> bool:
     """Start the plan of automatic tests; the report is written (and opened) when it ends."""
     panel = window.automation_panel
-    folder = Path(panel.output_root).parent / "reports" if panel.output_root else None
+    from app.ui import reports_folder
+    folder = reports_folder.folder(window)
     result: dict = {}
 
     def finished(session_id: int, text: str):
@@ -439,12 +442,14 @@ def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_re
 def record_and_report(window, entry: TestEntry, opener=None) -> Optional[Path]:
     """The typed score is stored, then the session's report is written and opened (PugetBench gets its own
     section there)."""
+    from app.ui import reports_folder
+    reports_folder.choose(window)                  # the first time: where all reports go
     sid = window._on_record_clicked(entry.ref)
-    panel = window.automation_panel
-    if sid is None or not panel.output_root:
+    folder = reports_folder.folder(window)
+    if sid is None or folder is None:
         return None
     try:
-        path = write_report(window.db, sid, Path(panel.output_root).parent / "reports")
+        path = write_report(window.db, sid, folder)
     except Exception as e:
         logger.exception("Could not write the report")
         window.status_label.setText(f"The score was saved; the report could not be written: {e}")

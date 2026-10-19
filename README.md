@@ -28,8 +28,10 @@ different computers can be compared, and each session ends with an HTML report.
 - **Games**: frame capture with PresentMon (Windows) or MangoHud (Linux), forced graphics settings and built-in
   benchmark scripts (Cyberpunk 2077).
 - **Remote mode**: an on/off switch on the Tests screen. When it is on, a phone or another computer on the same
-  local network opens the address the app shows, types its one-time code, and can start tests, follow them,
-  stop them and open the report. Off by default; no internet.
+  local network opens the address the app shows, types its one-time code, sees every test, starts them, follows
+  each test and run with its scores and the time left, stops them and reads the report right there. Off by
+  default; no internet.
+- **Reports folder**: asked once, the first time; every report is saved there.
 - **Telemetry**: temperatures, clocks and power during a run where the hardware reports them.
 - **Advanced**: dashboard, library, history, comparison, Steam and run profiles.
 
@@ -119,7 +121,8 @@ Tests: `pip install -r requirements-dev.txt`, then `python -m pytest -q`.
 - **الألعاب**: قياس الفريمات بـ PresentMon (ويندوز) أو MangoHud (لينكس)، فرض إعدادات الغرافيك، وسكربتات للبنشمارك
   المدمج بالألعاب (Cyberpunk 2077).
 - **وضع التحكم عن بعد**: زر تشغيل/إطفاء بشاشة الاختبارات. لما يكون شغّال، الموبايل أو أي كمبيوتر تاني عنفس الشبكة
-  المحلية بيفتح العنوان يلي بيعرضه التطبيق، بيكتب الكود المؤقت، وبيقدر يشغّل الاختبارات ويتابعها ويوقفها ويفتح التقرير.
+  المحلية بيفتح العنوان يلي بيعرضه التطبيق، بيكتب الكود المؤقت، وبيشوف كل الاختبارات، بيشغّلها، بيتابع كل اختبار وتشغيل مع النتائج والوقت الباقي، بيوقفها وبيقرأ التقرير عنده.
+- **مجلد التقارير**: التطبيق بيسألك مرة وحدة أول مرة وين بدك تنحفظ التقارير، وكل التقارير بتنحفظ فيه.
   مطفي بشكل افتراضي، وما بيستعمل إنترنت.
 - **الحساسات**: الحرارة والترددات والاستهلاك أثناء التشغيل إذا القطع بتعطيها.
 - **متقدم**: لوحة التحكم، المكتبة، السجل، المقارنة، Steam وملفات إعدادات التشغيل.

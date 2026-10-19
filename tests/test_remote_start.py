@@ -55,7 +55,9 @@ class FakeApi:
         self.html = None
 
     def info(self):
-        return {"specs": [["Processor", "X"]], "tests": [{"id": "sevenzip_benchmark", "name": "7-Zip"}],
+        return {"specs": [["Processor", "X"]],
+                "tests": [{"id": "sevenzip_benchmark", "name": "7-Zip", "can_start": True},
+                          {"id": "geekbench_6", "name": "Geekbench 6", "can_start": False, "why": "typed"}],
                 "defaults": {"repetitions": 3, "warmup_runs": 1, "cooldown_seconds": 30}}
 
     def state(self):
@@ -69,8 +71,11 @@ class FakeApi:
         self.stopped += 1
         return "Stopping"
 
-    def report(self):
-        return self.html
+    def reports(self):
+        return [{"name": "session_1_x.html", "time": "2026-10-19 20:07"}] if self.html else []
+
+    def report(self, name=None):
+        return self.html if name in (None, "session_1_x.html") else None
 
 
 @pytest.fixture
@@ -100,7 +105,8 @@ def test_the_server_answers_only_with_the_code(served):
     api, server, base = served
     assert server.addresses() == [f"http://127.0.0.1:{server.port}/"]
     status, headers, body = call(base + "/")
-    assert status == 200 and b"remote start" in body and "frame-ancestors 'none'" in headers["Content-Security-Policy"]
+    assert status == 200 and b"PC Benchmark Manager" in body
+    assert "frame-ancestors 'none'" in headers["Content-Security-Policy"] and "Set-Cookie" not in headers
     assert call(base + "/api/info")[0] == 401
     assert call(base + "/api/info", "WRONG123")[0] == 401
     status, _, body = call(base + "/api/info", "abcd2345")
@@ -119,6 +125,8 @@ def test_start_and_stop_through_the_server(served):
     assert call(base + "/api/start", body=req)[0] == 401 and not api.started
     status, _, body = call(base + "/api/start", "ABCD2345", {**req, "ids": ["powershell"]})
     assert status == 400 and b"cannot start" in body and not api.started
+    status, _, body = call(base + "/api/start", "ABCD2345", {**req, "ids": ["geekbench_6"]})
+    assert status == 400 and b"cannot start" in body and not api.started     # listed, but not startable here
     assert call(base + "/api/start", "ABCD2345", b"not json")[0] == 400
     assert call(base + "/api/start", "ABCD2345", b"x" * (rs.MAX_BODY + 1))[0] == 413
     status, _, body = call(base + "/api/start", "ABCD2345", req)
@@ -140,8 +148,42 @@ def _entry(test_id, source="workload", ref=None, group="cpu", mode="automatic", 
                      compatible=True, compatibility_reason="", verified=False, source=source, ref=ref)
 
 
+def get(url, cookie=None):
+    req = urllib.request.Request(url, headers={"Cookie": cookie} if cookie else {})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.status, r.headers, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.headers, e.read()
+
+
+def test_the_report_opens_as_a_page_after_the_code(served):
+    api, server, base = served
+    assert get(base + "/report")[0] == 401
+    assert get(base + "/report", "pcbm=guess")[0] == 401
+    status, headers, _ = call(base + "/api/state", "ABCD2345")
+    cookie = headers["Set-Cookie"]
+    assert status == 200 and "HttpOnly" in cookie and "SameSite=Strict" in cookie
+    cookie = cookie.split(";")[0]
+    assert get(base + "/report", cookie)[0] == 404                       # no report yet
+    api.html = "<h1>report</h1>"
+    status, headers, body = get(base + "/report", cookie)
+    assert status == 200 and body == b"<h1>report</h1>"
+    assert "script-src" not in headers["Content-Security-Policy"] and headers["X-Frame-Options"] == "SAMEORIGIN"
+    assert get(base + "/report/session_1_x.html", cookie)[0] == 200
+    assert get(base + "/report/..%2Fsettings.json", cookie)[0] == 404
+    status, _, body = call(base + "/api/reports", "ABCD2345")
+    assert status == 200 and json.loads(body)["reports"][0]["name"] == "session_1_x.html"
+    other = rs.RemoteServer(api, local_only=True, port=0, code="ABCD2345")
+    other.start()
+    try:                                                # a new switch-on: the old cookie is no good
+        assert get(f"http://127.0.0.1:{other.port}/report", cookie)[0] == 401
+    finally:
+        other.stop()
+
+
 def test_only_tests_that_need_nobody_are_offered():
-    from app.ui.remote_control import remote_entries
+    from app.ui.remote_control import remote_entries, remote_listing
     lic = SimpleNamespace(license=("vray", "V-Ray", str), license_ok=lambda: False)
     accepted = SimpleNamespace(license=("vray", "V-Ray", str), license_ok=lambda: True)
     entries = [_entry("sevenzip_benchmark"), _entry("vray_benchmark", ref=lic), _entry("vray_gpu", ref=accepted),
@@ -154,7 +196,15 @@ def test_only_tests_that_need_nobody_are_offered():
     admin = [_entry("passmark_cpu", ref=SimpleNamespace(needs_admin=True)),
              _entry("cyberpunk", ref=SimpleNamespace(script={"steam_app": 1091500}), group="game")]
     assert [e.id for e in remote_entries(admin, "linux")] == ["passmark_cpu", "cyberpunk"]
-    assert remote_entries(admin, "win32") == []         # the UAC prompt would wait at the PC
+    # on Windows they can start too (the owner asked for every test, games too), with a warning about the prompt
+    listing = {e.id: (why, warning) for e, why, warning in remote_listing(admin, "win32")}
+    assert listing["passmark_cpu"][0] == "" and "administrator" in listing["passmark_cpu"][1]
+    assert listing["cyberpunk"][0] == "" and "game" in listing["cyberpunk"][1].lower()
+    # every test for this PC is listed; the ones that need someone at the PC say why
+    shown = {e.id: why for e, why, _ in remote_listing(entries + [_entry("blender", state="missing")], "linux")}
+    assert set(shown) == {e.id for e in entries} | {"blender"}
+    assert "typed" in shown["geekbench_6"] and "license" in shown["vray_benchmark"]
+    assert "window" in shown["llama_benchy"] and "Not ready" in shown["blender"] and shown["steam_game"]
 
 
 def _window(tmp_path, entries, running=False):
@@ -226,18 +276,91 @@ def test_answers_are_made_on_the_qt_thread(qapp):
 
 def test_the_switch_window_shows_a_new_code(tmp_path, qapp):
     from app.ui.remote_control import RemoteControl, RemoteDialog
-    window = SimpleNamespace(frame_panel=SimpleNamespace(data_dir=tmp_path))
+    window = SimpleNamespace(frame_panel=SimpleNamespace(data_dir=tmp_path),
+                             automation_panel=SimpleNamespace(output_root=str(tmp_path / "runs")),
+                             status_label=SimpleNamespace(setText=lambda t: None))
     control = RemoteControl.__new__(RemoteControl)
     control.window, control.api, control.server = window, FakeApi(), None
     control.server_class = lambda api, local_only, port: rs.RemoteServer(api, local_only=True, port=0)
     d = RemoteDialog(control)
-    assert not control.running() and d.code.text() == ""
-    assert not d.switch.isChecked() and "OFF" in d.switch.text()
-    assert d.toggle() and d.code.text().startswith("Code: ") and "127.0.0.1" in d.address.text()
-    assert d.switch.isChecked() and "ON" in d.switch.text()
+    assert not control.running() and d.code.text() == "" and d.card.isHidden()
+    assert not d.switch.isChecked() and "OFF" in d.switch.text() and d.pill.text() == "OFF"
+    assert d.reports.text() == str(tmp_path / "reports")
+    assert d.toggle() and d.code.text() == control.server.code and "127.0.0.1" in d.address.text()
+    assert d.switch.isChecked() and "ON" in d.switch.text() and d.pill.text() == "ON" and not d.card.isHidden()
     first = control.server.code
     assert not d.toggle() and d.code.text() == ""
     assert d.toggle() and control.server.code != first
     control.stop()
     saved = json.loads((tmp_path / "settings.json").read_text(encoding="utf-8"))["remote_start"]
     assert set(saved) == {"port", "local_only"}            # the server's "on" is never stored
+
+
+def test_the_reports_folder_is_asked_once(tmp_path, monkeypatch):
+    from app.ui import reports_folder
+    texts = []
+    window = SimpleNamespace(frame_panel=SimpleNamespace(data_dir=tmp_path),
+                             automation_panel=SimpleNamespace(output_root=str(tmp_path / "runs")),
+                             status_label=SimpleNamespace(setText=texts.append))
+    asked = []
+    answer = [""]
+    monkeypatch.setattr(reports_folder, "pick", lambda parent, title, start: asked.append(start) or answer[0])
+    assert reports_folder.folder(window) == tmp_path / "reports"           # nothing picked yet: the data folder
+    assert reports_folder.choose(window) == tmp_path / "reports" and len(asked) == 1
+    assert reports_folder.saved_folder(window) is None                    # cancelled: asked again next time
+    answer[0] = str(tmp_path / "My reports")
+    assert reports_folder.choose(window) == tmp_path / "My reports" and len(asked) == 2
+    assert (tmp_path / "My reports").is_dir() and "My reports" in texts[-1]
+    assert reports_folder.choose(window) == tmp_path / "My reports" and len(asked) == 2   # never asked again
+    assert reports_folder.folder(window) == tmp_path / "My reports"
+    answer[0] = ""
+    assert reports_folder.choose(window, always=True) == tmp_path / "My reports" and len(asked) == 3
+
+
+def test_the_page_follows_each_test_of_the_plan():
+    from app.ui.remote_control import plan_tests
+
+    def item(wid, name, runs, warmups):
+        return SimpleNamespace(workload=SimpleNamespace(id=wid, display_name=name), repetitions=runs,
+                               warmup_runs=warmups)
+    plan = [item("sevenzip_benchmark", "7-Zip", 3, 1), item("blender_cpu", "Blender CPU", 2, 0),
+            item("ycruncher", "y-cruncher", 1, 0)]
+    rows = [{"benchmark_name": "sevenzip_benchmark", "is_warmup": 1, "score": 170000.0, "status": "completed"},
+            {"benchmark_name": "sevenzip_benchmark", "is_warmup": 0, "score": 173304.0, "status": "completed",
+             "unit": "MIPS"},
+            {"benchmark_name": "sevenzip_benchmark", "is_warmup": 0, "score": 172726.0, "status": "completed",
+             "unit": "MIPS"},
+            {"benchmark_name": "sevenzip_benchmark", "is_warmup": 0, "score": None, "status": "failed"}]
+    panel = SimpleNamespace(worker=SimpleNamespace(runner=SimpleNamespace(plan=plan, session_id=24)),
+                            last_session_id=24, step=(4, 6, "Blender CPU: run 1"))
+    db = SimpleNamespace(get_session=lambda sid: {"results": rows} if sid == 24 else None)
+    tests = plan_tests(panel, db, True)
+    assert [t["state"] for t in tests] == ["done", "running", "waiting"]
+    first = tests[0]
+    assert (first["runs"], first["planned"], first["failed"], first["unit"]) == (3, 3, 1, "MIPS")
+    assert first["scores"] == ["173,304", "172,726"] and first["average"] == "173,015"
+    assert [t["state"] for t in plan_tests(panel, db, False)] == ["done", "not run", "not run"]
+    panel.last_session_id = 25                           # another session since: nothing to show
+    assert plan_tests(panel, db, False) == []
+
+
+def test_reports_are_listed_and_only_those_can_be_read(tmp_path, qapp):
+    import os
+    from app.ui.remote_control import MainThread, RemoteApi
+    folder = tmp_path / "reports"
+    folder.mkdir()
+    (folder / "session_1_a.html").write_text("<p>one</p>", encoding="utf-8")
+    (folder / "session_2_b.html").write_text("<p>two</p>", encoding="utf-8")
+    old = time.time() - 100
+    os.utime(folder / "session_1_a.html", (old, old))
+    (tmp_path / "secret.html").write_text("no", encoding="utf-8")
+    window = SimpleNamespace(frame_panel=SimpleNamespace(data_dir=tmp_path), last_report_path=None,
+                             automation_panel=SimpleNamespace(output_root=str(tmp_path / "runs")))
+    api = RemoteApi(window, MainThread())
+    assert [r["name"] for r in api.reports()] == ["session_2_b.html", "session_1_a.html"]
+    assert api.report() == "<p>two</p>"                  # nothing written since the app started: the newest
+    assert api.report("session_1_a.html") == "<p>one</p>"
+    for bad in ("../secret.html", "..\\secret.html", "secret.html", "session_3.html", "x.txt"):
+        assert api.report(bad) is None, bad
+    window.last_report_path = folder / "session_1_a.html"
+    assert api.report() == "<p>one</p>"

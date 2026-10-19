@@ -1,37 +1,56 @@
 """Remote start in the app (plan Phase D): the window that switches the server on and off, and the answers the page
 gets (app/remote/server.py). Every answer is made on the Qt thread (MainThread), as if the owner had pressed the
 buttons on the Tests screen; nothing on the PC waits for a click when the page starts a run:
-- only tests that run by themselves are offered (no typed score, no license still to accept, no llama-benchy
-  settings window, no Steam frame capture, and on Windows nothing that needs the UAC prompt: PassMark and the game
-  benchmarks, whose PresentMon runs as administrator; nobody could answer the prompt from the page);
+- every test for this PC is listed on the page; the ones that need someone at the PC are shown with the reason and
+  cannot be ticked there (a typed score, a license still to accept, the llama-benchy settings window, a Steam game
+  played by hand, a test that is not installed);
+- tests that ask Windows for administrator rights (PassMark: once per run; game benchmarks: PresentMon at each run)
+  can be started, with a warning: the UAC prompt shows on the PC and someone must press Yes there;
 - the counts come from the page, game tests use the game preset chosen last on the PC, a stress test its last
   length;
-- the start question is answered by the page's Start button (its text is kept in the status line);
+- the start question is answered by the page's Start button (its text is kept in the log);
 - LibreHardwareMonitor is used only when it already runs (otherwise the run goes ahead without CPU sensors; its
-  question would wait at the PC).
+  question would wait at the PC);
+- the page follows the run: the test and run going on now, each test's state and scores so far, the time gone and
+  left, and the report when it is written (shown on the page, with the earlier reports of the reports folder).
 """
 
 import logging
+import re
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
-from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
-from PySide6.QtGui import QFont
-from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QPushButton, QSpinBox,
-                               QVBoxLayout)
+from PySide6.QtCore import QObject, QThread, Qt, QUrl, Signal, Slot
+from PySide6.QtGui import QDesktopServices, QFont, QGuiApplication
+from PySide6.QtWidgets import (QCheckBox, QDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton,
+                               QSpinBox, QVBoxLayout)
 
 from app.catalog import GROUPS, TestEntry
 from app.remote import server as remote
-from app.ui.tests_page import progress_percent
+from app.ui.tests_page import elapsed_text, progress_percent
 
 logger = logging.getLogger(__name__)
 
 SETTINGS_KEY = "remote_start"          # settings.json: {"port": ..., "local_only": ...}; never "on"
 GROUP_TITLES = dict(GROUPS)
-SWITCH_ON = "QPushButton { background: #2e7d32; color: white; font-weight: bold; border-radius: 6px; }"
-SWITCH_OFF = "QPushButton { background: #757575; color: white; font-weight: bold; border-radius: 6px; }"
+REPORT_NAME = re.compile(r"^[\w\-. ]{1,200}\.html$")
+MAX_REPORTS = 15
+ADMIN_WARNING = ("Windows asks once for administrator rights at the start, on the PC: someone must press Yes there "
+                 "(No: each such test asks for itself).")
+GAME_WARNING = ("A game: it opens on the PC's screen, and Windows asks for administrator rights on the PC at each "
+                "run (frame capture): someone must press Yes there.")
+
+GREEN, GREY = "#2e7d32", "#616161"
+SWITCH_ON = (f"QPushButton {{ background: {GREEN}; color: white; font-size: 15px; font-weight: bold; "
+             "border: 0; border-radius: 8px; padding: 10px 18px; } QPushButton:hover { background: #388e3c; }")
+SWITCH_OFF = (f"QPushButton {{ background: {GREY}; color: white; font-size: 15px; font-weight: bold; "
+              "border: 0; border-radius: 8px; padding: 10px 18px; } QPushButton:hover { background: #757575; }")
+PILL = "QLabel {{ background: {0}; color: white; font-weight: bold; border-radius: 10px; padding: 3px 12px; }}"
+CARD = "QFrame#card { border: 1px solid #c8ced8; border-radius: 8px; }"
+BUTTON = "QPushButton { padding: 6px 14px; }"
 
 
 class MainThread(QObject):
@@ -66,24 +85,37 @@ class MainThread(QObject):
         return box["value"]
 
 
-def remote_entries(entries: List[TestEntry], platform: str = sys.platform) -> List[TestEntry]:
-    """The tests the page may start: automatic ones that need nobody at the PC."""
+def remote_listing(entries: List[TestEntry], platform: str = sys.platform) -> List[Tuple[TestEntry, str, str]]:
+    """Every test for this PC as (entry, why it cannot start from the page or "", a warning or ""), in the order of
+    the Tests screen's groups."""
     from app.ui.run_tests import game_of
     out = []
     for e in entries:
-        ref = e.ref
-        if e.source != "workload" or not e.can_run() or e.waits_for_typed_score():
-            continue
-        lic = getattr(ref, "license", None)
-        if lic and not ref.license_ok():
-            continue
-        if hasattr(ref, "configure") and getattr(ref, "asks_settings", True):
-            continue
-        if platform == "win32" and (getattr(ref, "needs_admin", False) or game_of(e) is not None):
-            continue                            # the UAC prompt would wait at the PC
-        out.append(e)
+        if not e.compatible:
+            continue                            # not for this PC at all
+        ref, why, warning = e.ref, "", ""
+        if e.waits_for_typed_score():
+            why = "Its score is typed in on the PC: start it there."
+        elif e.source != "workload":
+            why = "It needs someone at the PC (a game played by hand): start it there."
+        elif not e.can_run():
+            why = f"Not ready on the PC: {e.state_reason or e.state}"[:160]
+        elif getattr(ref, "license", None) and not ref.license_ok():
+            why = "Its license agreement is accepted on the PC: run it once there first."
+        elif hasattr(ref, "configure") and getattr(ref, "asks_settings", True):
+            why = "Its settings are chosen in a window on the PC: start it there."
+        elif platform == "win32" and game_of(e) is not None:
+            warning = GAME_WARNING
+        elif platform == "win32" and getattr(ref, "needs_admin", False):
+            warning = ADMIN_WARNING
+        out.append((e, why, warning))
     order = {g: i for i, (g, _) in enumerate(GROUPS)}
-    return sorted(out, key=lambda e: (order.get(e.group, len(order)), e.name.lower()))
+    return sorted(out, key=lambda x: (order.get(x[0].group, len(order)), x[0].name.lower()))
+
+
+def remote_entries(entries: List[TestEntry], platform: str = sys.platform) -> List[TestEntry]:
+    """The tests the page may start."""
+    return [e for e, why, _ in remote_listing(entries, platform) if not why]
 
 
 def remote_start(window, ids: List[str], repetitions: int, warmup_runs: int, cooldown_seconds: int,
@@ -127,7 +159,47 @@ def remote_start(window, ids: List[str], repetitions: int, warmup_runs: int, coo
     window.status_label.setText(f"Started from the remote page: {len(entries)} test(s).")
     note = "" if lhm_ready or not panel.telemetry_box.isChecked() else \
         " Without CPU sensors: LibreHardwareMonitor is not running on the PC."
+    admin = [e for e in entries if remote_listing([e])[0][2]]
+    if admin:
+        note += " Windows will ask for administrator rights on the PC: someone must press Yes there."
     return True, f"Started {len(entries)} test(s), {repetitions} measured run(s) each.{note}"
+
+
+def _score(value) -> str:
+    return f"{value:,.2f}".rstrip("0").rstrip(".") if isinstance(value, float) else str(value)
+
+
+def plan_tests(panel, db, running: bool) -> List[dict]:
+    """Each test of the plan going on now (or the last one): its state, runs and scores so far."""
+    runner = getattr(getattr(panel, "worker", None), "runner", None)
+    sid = getattr(panel, "last_session_id", None)
+    if runner is None or sid is None or getattr(runner, "session_id", sid) != sid:
+        return []
+    try:
+        rows = (db.get_session(sid) or {}).get("results", [])
+    except Exception:
+        logger.exception("Could not read the session's results")
+        rows = []
+    now = panel.step[2] if running else ""
+    out = []
+    for item in runner.plan:
+        wl = item.workload
+        name = wl.display_name
+        mine = [r for r in rows if r.get("benchmark_name") == wl.id]
+        measured = [r for r in mine if not r.get("is_warmup")]
+        good = [r for r in measured if (r.get("status") or "completed") == "completed" and r.get("score") is not None]
+        if running and now.startswith(name + ":"):
+            state = "running"
+        elif running:
+            state = "waiting" if not mine else "running" if len(measured) < item.repetitions else "done"
+        else:
+            state = "done" if good else "failed" if measured else "not run"
+        scores = [float(r["score"]) for r in good]
+        out.append({"name": name, "state": state, "runs": len(measured), "planned": item.repetitions,
+                    "warmups": item.warmup_runs, "failed": len(measured) - len(good),
+                    "scores": [_score(s) for s in scores], "unit": (good[0].get("unit") if good else "") or "",
+                    "average": _score(sum(scores) / len(scores)) if scores else ""})
+    return out
 
 
 class RemoteApi:
@@ -146,29 +218,44 @@ class RemoteApi:
                                                      ("Memory (GB)", "ram_size_gb"), ("Graphics", "gpu_name"),
                                                      ("System", "operating_system")) if si.get(key) is not None]
         tests = [{"id": e.id, "name": e.name, "group": GROUP_TITLES.get(e.group, e.group.title()),
-                  "minutes": e.expected_minutes, "verified": bool(e.verified)}
-                 for e in remote_entries(w.tests_page.entries)]
+                  "minutes": e.expected_minutes, "verified": bool(e.verified), "can_start": not why,
+                  "why": why, "warning": warning}
+                 for e, why, warning in remote_listing(w.tests_page.entries)]
         profile = w.selected_profile()
         return {"specs": specs, "tests": tests,
                 "defaults": {"repetitions": max(1, int(profile.repetitions)), "warmup_runs": int(profile.warmup_runs),
                              "cooldown_seconds": int(profile.cooldown_seconds)},
                 "note": "A failed run is stored as failed and run once more; uneven scores get up to a few extra "
-                        "runs." + (" Game tests use the game settings chosen last on the PC." if sys.platform !=
-                                   "win32" else " PassMark and game tests ask Windows for administrator rights, "
-                                   "so they start from the PC.")}
+                        "runs. Game tests use the game settings chosen last on the PC."}
 
     def state(self) -> dict:
         return self.main.run(self._state)
 
     def _state(self) -> dict:
-        page = self.window.tests_page
-        report = getattr(self.window, "last_report_path", None)
+        w = self.window
+        page, panel = w.tests_page, w.automation_panel
+        report = getattr(w, "last_report_path", None)
+        report = Path(report) if report and Path(report).is_file() else None
         out = {"running": False, "text": page.progress_label.text() if not page.progress_box.isHidden() else "",
-               "percent": None, "report": bool(report and Path(report).is_file())}
+               "percent": None, "report": bool(report), "report_name": report.name if report else "",
+               "step": "", "elapsed": "", "left": "", "tests": []}
+        running = False
         if page.busy:
             s = page.get_state()
-            runs = f"Run {min(s.done + 1, s.total)} of {s.total}: " if s.running and s.total else ""
-            out.update(running=s.running, text=runs + s.text, percent=progress_percent(s))
+            running = s.running
+            percent = progress_percent(s)
+            out.update(running=s.running, text=s.text, percent=percent)
+            if s.running and s.total:
+                out["step"] = f"Run {min(s.done + 1, s.total)} of {s.total}"
+        started = getattr(panel, "plan_started_at", None)
+        if started is not None and (running or panel.is_running() or getattr(panel, "plan_ended_at", None)):
+            ended = None if running else getattr(panel, "plan_ended_at", None)
+            gone = (ended or time.monotonic()) - started
+            out["elapsed"] = elapsed_text(gone)
+            p = out["percent"]
+            if running and p and 0 < p < 100 and gone > 5:
+                out["left"] = "about " + elapsed_text(gone * (100 - p) / p)
+        out["tests"] = plan_tests(panel, w.db, running)
         return out
 
     def start(self, ids, repetitions, warmup_runs, cooldown_seconds) -> Tuple[bool, str]:
@@ -184,11 +271,39 @@ class RemoteApi:
             return "Stopping: the current run is being cut off."
         return self.main.run(stop)
 
-    def report(self) -> Optional[str]:
-        path = self.main.run(lambda: getattr(self.window, "last_report_path", None))
-        if not path or not Path(path).is_file():
-            return None
-        return Path(path).read_text(encoding="utf-8", errors="replace")
+    def _folder(self) -> Optional[Path]:
+        from app.ui import reports_folder
+        return self.main.run(lambda: reports_folder.folder(self.window))
+
+    def reports(self) -> List[dict]:
+        """The newest reports in the reports folder (name and time), newest first."""
+        folder = self._folder()
+        if folder is None or not folder.is_dir():
+            return []
+        found = []
+        for p in folder.glob("*.html"):
+            try:
+                if p.is_file() and REPORT_NAME.match(p.name):
+                    found.append((p.stat().st_mtime, p.name))
+            except OSError:
+                continue
+        found.sort(reverse=True)
+        return [{"name": n, "time": time.strftime("%Y-%m-%d %H:%M", time.localtime(t))} for t, n in found[:MAX_REPORTS]]
+
+    def report(self, name: Optional[str] = None) -> Optional[str]:
+        """The last report written (no name), or one of reports() by its name; None when there is none."""
+        if name is None:
+            last = self.main.run(lambda: getattr(self.window, "last_report_path", None))
+            if last and Path(last).is_file():
+                return Path(last).read_text(encoding="utf-8", errors="replace")
+            listed = self.reports()
+            if not listed:
+                return None
+            name = listed[0]["name"]
+        if not REPORT_NAME.match(name) or name not in {r["name"] for r in self.reports()}:
+            return None                         # only a report the folder listing offers, never another file
+        path = self._folder() / name
+        return path.read_text(encoding="utf-8", errors="replace") if path.is_file() else None
 
 
 class RemoteControl:
@@ -221,7 +336,7 @@ class RemoteControl:
         try:
             server.start()
         except OSError as e:
-            return False, f"Remote start could not open port {port}: {e}"
+            return False, f"Remote mode could not open port {port}: {e}"
         self.server = server
         try:
             from app.paths import save_setting
@@ -236,78 +351,179 @@ class RemoteControl:
             server.stop()
 
 
+def _muted(text: str) -> QLabel:
+    label = QLabel(text)
+    label.setWordWrap(True)
+    label.setStyleSheet("color: #667085;")
+    return label
+
+
 class RemoteDialog(QDialog):
+    """The remote mode window: one big switch, then the address and the code to type on the phone."""
+
     def __init__(self, control: RemoteControl, parent=None):
         super().__init__(parent)
         self.control = control
-        self.setWindowTitle("Remote start")
+        self.setWindowTitle("Remote mode")
+        self.setMinimumWidth(520)
+        self.setStyleSheet(CARD)
         layout = QVBoxLayout(self)
-        intro = QLabel("Start tests from a phone or another computer on the same local network: open the address "
-                       "below in its browser and type the code. Off until you switch it on here; off again when the "
-                       "app closes. No internet is used. Windows may ask to allow the app through the firewall: "
-                       "that answer is yours; the app never changes firewall rules.")
-        intro.setWordWrap(True)
-        layout.addWidget(intro)
-        form = QFormLayout()
+        layout.setSpacing(12)
+
+        top = QHBoxLayout()
+        title = QLabel("Remote mode")
+        font = QFont(title.font())
+        font.setPointSize(font.pointSize() + 6)
+        font.setBold(True)
+        title.setFont(font)
+        self.pill = QLabel()
+        top.addWidget(title)
+        top.addStretch(1)
+        top.addWidget(self.pill)
+        layout.addLayout(top)
+        layout.addWidget(_muted("Start and follow tests from a phone or another computer on the same Wi-Fi or "
+                                "network. No internet is used. Off when the app starts and when it closes."))
+
+        self.switch = QPushButton()                  # the on/off switch of remote mode
+        self.switch.setCheckable(True)
+        self.switch.setMinimumHeight(52)
+        self.switch.setCursor(Qt.PointingHandCursor)
+        self.switch.clicked.connect(self.toggle)
+        layout.addWidget(self.switch)
+
+        self.card = QFrame()
+        self.card.setObjectName("card")
+        grid = QGridLayout(self.card)
+        grid.setColumnStretch(1, 1)
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(10)
+        grid.addWidget(QLabel("1. On the phone open:"), 0, 0, 1, 3)
+        self.address = QLabel()
+        self.address.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        big = QFont(self.address.font())
+        big.setPointSize(big.pointSize() + 4)
+        big.setBold(True)
+        self.address.setFont(big)
+        self.copy_address = QPushButton("Copy")
+        self.open_here = QPushButton("Open here")
+        self.open_here.setToolTip("Open the page in this PC's browser")
+        grid.addWidget(self.address, 1, 0, 1, 2)
+        buttons = QHBoxLayout()
+        buttons.addWidget(self.copy_address)
+        buttons.addWidget(self.open_here)
+        grid.addLayout(buttons, 1, 2)
+        grid.addWidget(QLabel("2. Type this code:"), 2, 0, 1, 3)
+        self.code = QLabel()
+        code_font = QFont("Consolas")
+        code_font.setStyleHint(QFont.Monospace)
+        code_font.setPointSize(big.pointSize() + 8)
+        code_font.setBold(True)
+        code_font.setLetterSpacing(QFont.AbsoluteSpacing, 6)
+        self.code.setFont(code_font)
+        self.code.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.copy_code = QPushButton("Copy")
+        grid.addWidget(self.code, 3, 0, 1, 2)
+        grid.addWidget(self.copy_code, 3, 2, Qt.AlignLeft)
+        grid.addWidget(_muted("The code is new every time remote mode is switched on. Windows may ask to allow the "
+                              "app through the firewall: that answer is yours (the app never changes firewall "
+                              "rules)."), 4, 0, 1, 3)
+        self.copy_address.clicked.connect(lambda: self._copy(self.first_address()))
+        self.copy_code.clicked.connect(lambda: self._copy(self.control.server.code if self.control.running() else ""))
+        self.open_here.clicked.connect(self._open_here)
+        layout.addWidget(self.card)
+
+        box = QGroupBox("Settings")
+        form = QGridLayout(box)
+        form.setColumnStretch(1, 1)
         saved = control.settings()
-        self.local_only = QCheckBox("This PC only (127.0.0.1, not reachable from other devices)")
+        self.local_only = QCheckBox("This PC only (127.0.0.1: other devices cannot open it)")
         self.local_only.setChecked(saved["local_only"])
         self.port = QSpinBox()
         self.port.setRange(1024, 65535)
         self.port.setValue(saved["port"])
-        form.addRow("", self.local_only)
-        form.addRow("Port:", self.port)
-        layout.addLayout(form)
-        self.switch = QPushButton()                  # the on/off switch of remote mode
-        self.switch.setCheckable(True)
-        self.switch.setMinimumHeight(44)
-        self.switch.clicked.connect(self.toggle)
-        layout.addWidget(self.switch)
-        self.address = QLabel()
-        self.address.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.address.setWordWrap(True)
-        layout.addWidget(self.address)
-        self.code = QLabel()
-        font = QFont(self.code.font())
-        font.setPointSize(font.pointSize() + 12)
-        font.setBold(True)
-        font.setLetterSpacing(QFont.AbsoluteSpacing, 4)
-        self.code.setFont(font)
-        self.code.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        layout.addWidget(self.code)
+        self.port.setMaximumWidth(110)
+        form.addWidget(self.local_only, 0, 0, 1, 3)
+        form.addWidget(QLabel("Port:"), 1, 0)
+        form.addWidget(self.port, 1, 1, Qt.AlignLeft)
+        form.addWidget(QLabel("Reports:"), 2, 0)
+        self.reports = QLabel()
+        self.reports.setWordWrap(True)
+        self.reports.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.change_reports = QPushButton("Change...")
+        self.change_reports.clicked.connect(self._change_reports)
+        form.addWidget(self.reports, 2, 1)
+        form.addWidget(self.change_reports, 2, 2)
+        layout.addWidget(box)
+
         self.message = QLabel()
         self.message.setWordWrap(True)
         layout.addWidget(self.message)
-        buttons = QDialogButtonBox(QDialogButtonBox.Close)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        bottom = QHBoxLayout()
+        bottom.addStretch(1)
+        close = QPushButton("Close")
+        close.setMinimumWidth(100)
+        close.clicked.connect(self.reject)
+        bottom.addWidget(close)
+        layout.addLayout(bottom)
+        for b in (self.copy_address, self.open_here, self.copy_code, self.change_reports, close):
+            b.setStyleSheet(BUTTON)
+            b.setAutoDefault(False)
+        self.switch.setAutoDefault(False)
+        self.refresh()
+
+    def first_address(self) -> str:
+        if not self.control.running():
+            return ""
+        addresses = self.control.server.addresses()
+        return addresses[0] if addresses else f"http://127.0.0.1:{self.control.server.port}/"
+
+    def _copy(self, text: str):
+        if text:
+            QGuiApplication.clipboard().setText(text)
+            self.message.setText(f"Copied: {text}")
+
+    def _open_here(self):
+        if self.control.running():
+            QDesktopServices.openUrl(QUrl(f"http://127.0.0.1:{self.control.server.port}/"))
+
+    def _change_reports(self):
+        from app.ui import reports_folder
+        window = self.control.window
+        reports_folder.choose(window, always=True)
         self.refresh()
 
     def toggle(self) -> bool:
         if self.control.running():
             self.control.stop()
-            self.message.setText("Remote start is off.")
+            self.message.setText("Remote mode is off: the page no longer answers.")
         else:
+            from app.ui import reports_folder
+            reports_folder.choose(self.control.window)     # the first time: where all reports go
             ok, why = self.control.start(self.local_only.isChecked(), self.port.value())
-            self.message.setText(why if not ok else "Remote start is on. The code is new every time it is "
-                                                     "switched on.")
+            self.message.setText(why if not ok else "")
         self.refresh()
         return self.control.running()
 
     def refresh(self):
+        from app.ui import reports_folder
         on = self.control.running()
         self.switch.setChecked(on)
-        self.switch.setText("Remote mode: ON  (click to switch off)" if on else
-                            "Remote mode: OFF  (click to switch on)")
+        self.switch.setText("ON  ·  click to switch off" if on else "OFF  ·  click to switch on")
         self.switch.setStyleSheet(SWITCH_ON if on else SWITCH_OFF)
+        self.pill.setText("ON" if on else "OFF")
+        self.pill.setStyleSheet(PILL.format(GREEN if on else GREY))
         self.local_only.setEnabled(not on)
         self.port.setEnabled(not on)
+        folder = reports_folder.folder(self.control.window)
+        self.reports.setText(str(folder) if folder else "(no data folder)")
+        self.card.setVisible(on)
         if not on:
             self.address.setText("")
             self.code.setText("")
+            self.adjustSize()
             return
         addresses = self.control.server.addresses()
-        self.address.setText("Open in the browser:\n" + "\n".join(addresses) if addresses else
-                             "No local network address found on this PC; only this PC can open "
-                             f"http://127.0.0.1:{self.control.server.port}/")
-        self.code.setText(f"Code: {self.control.server.code}")
+        self.address.setText("\n".join(a.rstrip("/") for a in addresses) if addresses else
+                             f"http://127.0.0.1:{self.control.server.port} (no network address: this PC only)")
+        self.code.setText(self.control.server.code)
+        self.adjustSize()

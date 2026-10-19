@@ -7,18 +7,22 @@ network can start tests and follow them.
   link-local) or loopback is refused. "This PC only" binds to 127.0.0.1. No internet is needed or used, and the app
   never changes firewall rules (Windows may ask the owner to allow the app; the owner answers that prompt).
 - One-time code: a new random code every time the server is switched on; every API call needs it (header X-Code).
-  After MAX_WRONG wrong codes within a minute every call is refused for LOCK_SECONDS.
-- What the page can do: read the PC's specs and the tests that can start remotely, start some of them with
-  repetitions, warm-ups and the pause, follow the progress, press stop, open the last report. Nothing else: no file
-  is read or written from a request, no command or program name comes from the page (a test is picked by its id,
-  and only ids the app offers are accepted).
+  After MAX_WRONG wrong codes within a minute every call is refused for LOCK_SECONDS. A call with the right code
+  also gets a cookie (HttpOnly, SameSite=Strict, random, new with every switch-on), so the reports open as normal
+  pages (/report, /report/<name>) on the phone and inside the page.
+- What the page can do: read the PC's specs and its tests (the ones that can start remotely can be ticked), start
+  some of them with repetitions, warm-ups and the pause, follow the progress, press stop, read the reports of the
+  reports folder. Nothing else: no file is written from a request, a report is picked only by a name the app lists,
+  no command or program name comes from the page (a test is picked by its id, and only ids the app offers are
+  accepted).
 
 `api` is any object with info(), state(), start(ids, repetitions, warmup_runs, cooldown_seconds) -> (ok, text),
-stop() -> text and report() -> Optional[str] (HTML). The app's one (app/ui/remote_control.py) runs them on the Qt
-thread.
+stop() -> text, reports() -> [{"name", "time"}] and report(name=None) -> Optional[str] (HTML). The app's one
+(app/ui/remote_control.py) runs them on the Qt thread.
 """
 
 import hmac
+import http.cookies
 import ipaddress
 import json
 import logging
@@ -26,6 +30,7 @@ import secrets
 import socket
 import threading
 import time
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import List, Optional, Tuple
 
@@ -40,6 +45,11 @@ MAX_WRONG, LOCK_SECONDS = 5, 60
 MAX_BODY = 16 * 1024
 LIMITS = {"repetitions": (1, 50), "warmup_runs": (0, 10), "cooldown_seconds": (0, 3600)}
 MAX_TESTS = 100
+COOKIE = "pcbm"
+PAGE_POLICY = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; "
+               "img-src data:; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+REPORT_POLICY = ("default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'; "
+                 "base-uri 'none'; form-action 'none'")      # a report has no script; the page may show it inside
 
 
 def new_code() -> str:
@@ -129,18 +139,18 @@ def _handler(server: "RemoteServer"):
         def log_message(self, fmt, *args):      # requests go to the app's log, never to a console
             logger.info("remote %s: " + fmt, self.client_address[0], *args)
 
-        def _send(self, code: int, body: bytes, kind: str = "application/json; charset=utf-8"):
+        def _send(self, code: int, body: bytes, kind: str = "application/json; charset=utf-8",
+                  policy: str = PAGE_POLICY):
             self.send_response(code)
             self.send_header("Content-Type", kind)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("X-Frame-Options", "SAMEORIGIN" if policy is REPORT_POLICY else "DENY")
             self.send_header("Referrer-Policy", "no-referrer")
-            self.send_header("Content-Security-Policy",
-                             "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
-                             "connect-src 'self'; img-src data:; frame-ancestors 'none'; base-uri 'none'; "
-                             "form-action 'none'")
+            self.send_header("Content-Security-Policy", policy)
+            if getattr(self, "set_cookie", False):
+                self.send_header("Set-Cookie", f"{COOKIE}={server.token}; HttpOnly; SameSite=Strict; Path=/")
             self.end_headers()
             self.wfile.write(body)
 
@@ -157,7 +167,34 @@ def _handler(server: "RemoteServer"):
             ok, why = server.guard.check(self.headers.get("X-Code"))
             if not ok:
                 self._json(401, {"error": why})
+            self.set_cookie = ok
             return ok
+
+        def _has_cookie(self) -> bool:
+            try:
+                jar = http.cookies.SimpleCookie(self.headers.get("Cookie") or "")
+            except http.cookies.CookieError:
+                return False
+            given = jar[COOKIE].value if COOKIE in jar else ""
+            return bool(given) and hmac.compare_digest(given.encode(), server.token.encode())
+
+        def _report(self, path: str):
+            """/report (the last one) or /report/<name> (one the app lists), as a normal page."""
+            if not self._has_cookie():
+                self._send(401, b"<!doctype html><meta charset=utf-8><p>Open the remote page and type the code "
+                                b"first.</p>", "text/html; charset=utf-8", REPORT_POLICY)
+                return
+            name = urllib.parse.unquote(path[len("/report/"):]) if path.startswith("/report/") else None
+            try:
+                html = server.api.report(name)
+            except Exception as e:
+                logger.exception("Remote report failed")
+                html, name = None, f"the app could not answer ({e})"
+            if html is None:
+                self._send(404, b"<!doctype html><meta charset=utf-8><p>No report yet.</p>",
+                           "text/html; charset=utf-8", REPORT_POLICY)
+            else:
+                self._send(200, html.encode("utf-8"), "text/html; charset=utf-8", REPORT_POLICY)
 
         def do_GET(self):
             if not self._allowed():
@@ -165,6 +202,9 @@ def _handler(server: "RemoteServer"):
             path = self.path.split("?")[0]
             if path in ("/", "/index.html"):
                 self._send(200, PAGE.encode("utf-8"), "text/html; charset=utf-8")
+                return
+            if path == "/report" or path.startswith("/report/"):
+                self._report(path)
                 return
             if not path.startswith("/api/"):
                 self._json(404, {"error": "not found"})
@@ -176,6 +216,8 @@ def _handler(server: "RemoteServer"):
                     self._json(200, server.api.info())
                 elif path == "/api/state":
                     self._json(200, server.api.state())
+                elif path == "/api/reports":
+                    self._json(200, {"reports": server.api.reports()})
                 elif path == "/api/report":
                     html = server.api.report()
                     if html is None:
@@ -202,6 +244,9 @@ def _handler(server: "RemoteServer"):
             except ValueError:
                 length = -1
             if not 0 <= length <= MAX_BODY:
+                if MAX_BODY < length <= 64 * MAX_BODY:
+                    self.rfile.read(length)     # read (and drop) it, else the client may see a reset, not the answer
+                self.close_connection = True
                 self._json(413, {"error": "request too large"})
                 return
             raw = self.rfile.read(length) if length else b""
@@ -214,7 +259,8 @@ def _handler(server: "RemoteServer"):
                 except (ValueError, UnicodeDecodeError):
                     self._json(400, {"error": "not JSON"})
                     return
-                request, why = check_start(body, [t["id"] for t in server.api.info().get("tests", [])])
+                request, why = check_start(body, [t["id"] for t in server.api.info().get("tests", [])
+                                                  if t.get("can_start", True)])
                 if request is None:
                     self._json(400, {"error": why})
                     return
@@ -236,6 +282,7 @@ class RemoteServer:
     def __init__(self, api, local_only: bool = False, port: int = DEFAULT_PORT, code: Optional[str] = None):
         self.api, self.local_only, self.port = api, local_only, port
         self.code = code or new_code()
+        self.token = secrets.token_urlsafe(32)          # the cookie for the report pages
         self.guard = Guard(self.code)
         self.httpd: Optional[ThreadingHTTPServer] = None
         self.thread: Optional[threading.Thread] = None

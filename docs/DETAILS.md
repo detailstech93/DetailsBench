@@ -591,14 +591,30 @@ one-time code shown under it.
 - Off by default and off again when the app closes; a new code every time it is switched on. After 5 wrong codes in a
   minute every request waits 60 s. Clients outside the local network are refused; "This PC only" binds to 127.0.0.1.
   The app never changes firewall rules (Windows may ask; that answer is the owner's).
-- The page shows the PC's specs and only the tests that need nobody at the PC (no typed score, no license still to
-  accept, no llama-benchy settings window, no Steam frame capture, and on Windows nothing that needs the
-  UAC prompt: PassMark and the game benchmarks). It starts them with measured runs, warm-ups and
-  the pause, shows the progress, has an emergency stop and opens the last report.
+- The page lists every test for this PC. The ones that need someone at the PC are greyed with the reason (a typed
+  score, a license still to accept, the llama-benchy settings window, a game played by hand, not installed). Tests
+  that ask Windows for administrator rights can be started with an orange note: PassMark asks once at the start,
+  a game benchmark at each run (PresentMon), and someone must press Yes on the PC. It starts the ticked tests with
+  measured runs, warm-ups and the pause and has an emergency stop.
+- While a run goes on the page shows the test and run going on now (Run 5 of 9), a bar with the percent, the time
+  gone and an estimate of the time left, and each test of the plan: waiting / running now / done / failed, runs
+  done of planned and the scores so far with their average. When the run ends its report shows inside the page
+  (with "Open full screen" and a list of the earlier reports in the reports folder). The right code also gives the
+  browser a cookie (HttpOnly, SameSite=Strict, new each switch-on) so the reports open as normal pages; a report
+  is picked only by a name the app lists, never by a path.
+- The window: one big switch (green ON / grey OFF), then the address and the code in large letters with Copy and
+  Open here buttons, the settings (This PC only, port, reports folder) below.
 - A remote start opens no window on the PC: the page's Start answers the start question, games use the preset chosen
   last on the PC, a stress test its last length, and LibreHardwareMonitor is used only if it already runs.
 - A test is picked by its id; only ids the app offers are accepted, and nothing else can be sent (no commands, no
-  files). Tests: `tests/test_remote_start.py`. Not tried from a real phone yet.
+  files). Tests: `tests/test_remote_start.py`. Tried from a real phone: 7-Zip with 3 runs (2026-10-19).
+
+### Reports folder
+
+The first time a test is run from the Tests screen (or a typed score saved, or remote mode switched on) the app asks
+for the folder all reports go to (`app/ui/reports_folder.py`, kept in settings.json as `reports_folder`). Cancel
+keeps the default (`reports` next to the database) and asks again next time. **Reports folder...** on the Tests
+screen (or Change... in the remote window) picks another one.
 
 ### Telemetry
 

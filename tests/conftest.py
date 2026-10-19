@@ -45,6 +45,14 @@ def _no_real_plan_files(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def _no_reports_folder_window(monkeypatch):
+    """The first run asks where the reports go (a folder window). In tests nothing may wait for a click: the window
+    is answered with Cancel (the reports stay in the default folder); tests of the question pass their own answer."""
+    from app.ui import reports_folder
+    monkeypatch.setattr(reports_folder, "pick", lambda *a, **k: "")
+
+
+@pytest.fixture(autouse=True)
 def _no_real_telemetry(monkeypatch):
     """Runs started from the panels record telemetry by default (nvidia-smi, psutil, a local
     LibreHardwareMonitor server). Tests must not depend on this computer, so no source is used

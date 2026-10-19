@@ -69,6 +69,7 @@ class TestsPage(QWidget):
     run_plan_requested = Signal()     # "Run a saved plan..." (app/experiment.py)
     ai_models_requested = Signal()    # "AI models..." (app/ui/ai_models_dialog.py)
     remote_requested = Signal()       # "Remote: ON/OFF..." (app/ui/remote_control.py)
+    reports_folder_requested = Signal()   # "Reports folder..." (app/ui/reports_folder.py)
     rescan_requested = Signal()
     install_requested = Signal(object)      # TestEntry: missing, with a one-click install (app/install)
 
@@ -144,7 +145,12 @@ class TestsPage(QWidget):
         self.remote_btn.setToolTip("Start tests from a phone or another computer on the local network (off until "
                                    "you switch it on).")
         self.remote_btn.clicked.connect(self.remote_requested.emit)
+        self.reports_btn = QPushButton("Reports folder...")
+        self.reports_btn.setMinimumHeight(40)
+        self.reports_btn.setToolTip("The folder every report is saved in (asked the first time a test runs).")
+        self.reports_btn.clicked.connect(self.reports_folder_requested.emit)
         row.addWidget(self.hint, 1)
+        row.addWidget(self.reports_btn)
         row.addWidget(self.remote_btn)
         row.addWidget(self.ai_models_btn)
         row.addWidget(self.run_plan_btn)
