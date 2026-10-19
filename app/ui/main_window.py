@@ -441,6 +441,14 @@ class MainWindow(QMainWindow):
         self.remote = RemoteControl(self)
         self.tests_page.remote_requested.connect(self.edit_remote_start)
         self.tests_page.reports_folder_requested.connect(self.choose_reports_folder)
+        from app import elevation
+        import sys
+        self.tests_page.show_admin(sys.platform, elevation.is_elevated())
+        self.tests_page.admin_requested.connect(self.restart_as_admin)
+        if elevation.remote_on_requested():
+            from PySide6.QtCore import QTimer
+            from app.ui import admin_restart
+            QTimer.singleShot(1500, lambda: admin_restart.remote_on_after_restart(self))
         from app.ui.install_flow import InstallFlow
         self.install_flow = InstallFlow(self)
         self.tests_page.install_requested.connect(self.install_flow.start)
@@ -494,6 +502,11 @@ class MainWindow(QMainWindow):
         """Pick the folder every report goes to (app/ui/reports_folder.py)."""
         from app.ui import reports_folder
         reports_folder.choose(self, always=True)
+
+    def restart_as_admin(self) -> bool:
+        """Start the app again through Windows' administrator prompt (app/ui/admin_restart.py)."""
+        from app.ui import admin_restart
+        return admin_restart.restart(self)
 
     def edit_remote_start(self):
         """Switch remote start on or off (app/ui/remote_control.py)."""

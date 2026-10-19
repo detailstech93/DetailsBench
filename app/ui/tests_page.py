@@ -70,6 +70,7 @@ class TestsPage(QWidget):
     ai_models_requested = Signal()    # "AI models..." (app/ui/ai_models_dialog.py)
     remote_requested = Signal()       # "Remote: ON/OFF..." (app/ui/remote_control.py)
     reports_folder_requested = Signal()   # "Reports folder..." (app/ui/reports_folder.py)
+    admin_requested = Signal()        # "Restart as administrator" (app/ui/admin_restart.py)
     rescan_requested = Signal()
     install_requested = Signal(object)      # TestEntry: missing, with a one-click install (app/install)
 
@@ -149,7 +150,14 @@ class TestsPage(QWidget):
         self.reports_btn.setMinimumHeight(40)
         self.reports_btn.setToolTip("The folder every report is saved in (asked the first time a test runs).")
         self.reports_btn.clicked.connect(self.reports_folder_requested.emit)
+        self.admin_btn = QPushButton("Restart as administrator")
+        self.admin_btn.setMinimumHeight(40)
+        self.admin_btn.setToolTip("Windows asks once, here at the PC; then PassMark and game benchmarks start "
+                                  "without a prompt, also from the phone (until the app closes).")
+        self.admin_btn.clicked.connect(self.admin_requested.emit)
+        self.admin_btn.setVisible(False)
         row.addWidget(self.hint, 1)
+        row.addWidget(self.admin_btn)
         row.addWidget(self.reports_btn)
         row.addWidget(self.remote_btn)
         row.addWidget(self.ai_models_btn)
@@ -330,6 +338,15 @@ class TestsPage(QWidget):
         self.set_busy(True)
         self.refresh_progress()
         self.timer.start()
+
+    def show_admin(self, platform: str, elevated: bool):
+        """Windows only: the restart button, or a plain "Administrator" when the app already runs so."""
+        self.admin_btn.setVisible(platform == "win32")
+        self.admin_btn.setEnabled(not elevated)
+        self.admin_btn.setText("Administrator" if elevated else "Restart as administrator")
+        if elevated:
+            self.admin_btn.setToolTip("The app runs as administrator: PassMark and game benchmarks start without "
+                                      "a prompt (until the app closes).")
 
     def show_remote(self, on: bool):
         """The Remote button says whether remote mode is on (green) or off."""

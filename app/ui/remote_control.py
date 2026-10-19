@@ -92,10 +92,13 @@ class MainThread(QObject):
         return box["value"]
 
 
-def remote_listing(entries: List[TestEntry], platform: str = sys.platform) -> List[Tuple[TestEntry, str, str]]:
+def remote_listing(entries: List[TestEntry], platform: str = sys.platform,
+                   elevated: Optional[bool] = None) -> List[Tuple[TestEntry, str, str]]:
     """Every test for this PC as (entry, why it cannot start from the page or "", a warning or ""), in the order of
-    the Tests screen's groups."""
+    the Tests screen's groups. No administrator warning while the app runs as administrator (nothing asks then)."""
+    from app import elevation
     from app.ui.run_tests import game_of
+    asks = platform == "win32" and not (elevation.is_elevated(platform) if elevated is None else elevated)
     out = []
     for e in entries:
         if not e.compatible:
@@ -111,9 +114,9 @@ def remote_listing(entries: List[TestEntry], platform: str = sys.platform) -> Li
             why = "Its license agreement is not accepted yet: read it with Accept license."
         elif hasattr(ref, "configure") and getattr(ref, "asks_settings", True):
             why = "Its settings are chosen in a window on the PC: start it there."
-        elif platform == "win32" and game_of(e) is not None:
+        elif asks and game_of(e) is not None:
             warning = GAME_WARNING
-        elif platform == "win32" and getattr(ref, "needs_admin", False):
+        elif asks and getattr(ref, "needs_admin", False):
             warning = ADMIN_WARNING
         out.append((e, why, warning))
     order = {g: i for i, (g, _) in enumerate(GROUPS)}
@@ -520,6 +523,17 @@ class RemoteDialog(QDialog):
         self.change_reports.clicked.connect(self._change_reports)
         form.addWidget(self.reports, 2, 1)
         form.addWidget(self.change_reports, 2, 2)
+        from app import elevation
+        elevated = elevation.is_elevated()
+        self.admin = QPushButton("Restart as administrator")
+        self.admin.clicked.connect(self._restart_as_admin)
+        self.admin.setVisible(sys.platform == "win32" and not elevated)
+        if sys.platform == "win32":
+            form.addWidget(QLabel("Prompts:"), 3, 0)
+            form.addWidget(_muted("The app runs as administrator: PassMark and games ask nothing on the PC."
+                                  if elevated else "PassMark and games make Windows ask for administrator rights on "
+                                  "the PC. Restart as administrator once here, and they ask nothing."), 3, 1)
+            form.addWidget(self.admin, 3, 2)
         layout.addWidget(box)
 
         self.message = QLabel()
@@ -532,7 +546,7 @@ class RemoteDialog(QDialog):
         close.clicked.connect(self.reject)
         bottom.addWidget(close)
         layout.addLayout(bottom)
-        for b in (self.copy_address, self.open_here, self.copy_code, self.change_reports, close):
+        for b in (self.copy_address, self.open_here, self.copy_code, self.change_reports, self.admin, close):
             b.setStyleSheet(BUTTON)
             b.setAutoDefault(False)
         self.switch.setAutoDefault(False)
@@ -558,6 +572,10 @@ class RemoteDialog(QDialog):
         window = self.control.window
         reports_folder.choose(window, always=True)
         self.refresh()
+
+    def _restart_as_admin(self):
+        if self.control.window.restart_as_admin():
+            self.accept()
 
     def toggle(self) -> bool:
         on = self.control.running()

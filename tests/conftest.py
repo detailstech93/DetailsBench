@@ -53,6 +53,14 @@ def _no_reports_folder_window(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _not_elevated(monkeypatch):
+    """Whether pytest runs as administrator must not change any answer: the app is taken as not elevated;
+    tests of the elevated case say so themselves."""
+    from app import elevation
+    monkeypatch.setattr(elevation, "is_elevated", lambda platform=None: False)
+
+
+@pytest.fixture(autouse=True)
 def _no_real_telemetry(monkeypatch):
     """Runs started from the panels record telemetry by default (nvidia-smi, psutil, a local
     LibreHardwareMonitor server). Tests must not depend on this computer, so no source is used

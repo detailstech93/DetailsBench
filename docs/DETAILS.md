@@ -612,6 +612,14 @@ one-time code shown under it.
   Steam installs and Linux packages (password prompt) stay at the PC. A license not accepted yet has an
   **Accept license** button that shows the license text with I accept / I do not accept (`POST /api/question` and
   `/api/act`, only for tests whose info offers that action).
+- **Restart as administrator** (Tests screen, and Prompts in the remote window; Windows only, `app/elevation.py`,
+  `app/ui/admin_restart.py`): Windows' administrator prompt shows on its secure desktop and nothing remote can answer
+  it, so the owner answers it once at the PC. The app starts again through the normal UAC prompt (ShellExecute
+  `runas`, nothing bypassed) and the old window closes; refused while tests, an install or a frame capture run.
+  While it runs as administrator, PassMark (its helper) and PresentMon start without a prompt and the page shows no
+  orange notes. Remote mode, if it was on, switches on again with a new code shown at the PC (`--remote-on`).
+  Programs the app starts run as administrator too, so open Steam yourself first. Only until the app closes; the
+  button then reads "Administrator". Answered No: the app keeps running as it was.
 - The window: one big switch (green ON / grey OFF; it flashes and says "Switching on..." when pressed), then the address and the code in large letters with Copy and
   Open here buttons, the settings (This PC only, port, reports folder) below.
 - A remote start opens no window on the PC: the page's Start answers the start question, games use the preset chosen
