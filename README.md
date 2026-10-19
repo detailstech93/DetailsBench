@@ -446,8 +446,9 @@ Architectures:
 - **ARM64 Windows**: Intel publishes no ARM64 build (GameTechDev/PresentMon#667 closed "not planned"). The x64 file
   is used under Windows x64 emulation and the app says so; this is NOT verified on ARM hardware. A native arm64 file
   is preferred automatically if one is ever published.
-- **Linux**: PresentMon is Windows-only. The alternative is MangoHud. Capturing frames with MangoHud is not implemented
-  yet, so pressing Capture frames... on Linux says so and downloads nothing. The installer code is ready for it: it builds
+- **Linux**: PresentMon is Windows-only; game benchmarks use MangoHud (the app starts Steam with it; menu steps, keys
+  and routes through X11 / XWayland). Not run on a real Linux PC yet: [docs/LINUX_TEST_GUIDE.md](docs/LINUX_TEST_GUIDE.md)
+  is the walk-through for the first real run. The MangoHud installer builds
   the command for the distribution's package manager (apt-get, dnf, pacman, zypper), shows it, and runs it through
   `pkexec` (the system password prompt) after you confirm. A MangoHud package was checked to exist for Debian on x64 and ARM64 only; other
   combinations are marked as not verified.
