@@ -68,6 +68,7 @@ class TestsPage(QWidget):
     run_all_requested = Signal(list)  # every entry shown (app/ui/run_all.py offers the installs first)
     run_plan_requested = Signal()     # "Run a saved plan..." (app/experiment.py)
     ai_models_requested = Signal()    # "AI models..." (app/ui/ai_models_dialog.py)
+    remote_requested = Signal()       # "Remote: ON/OFF..." (app/ui/remote_control.py)
     rescan_requested = Signal()
     install_requested = Signal(object)      # TestEntry: missing, with a one-click install (app/install)
 
@@ -138,7 +139,13 @@ class TestsPage(QWidget):
         self.ai_models_btn.setToolTip("The LM Studio models measured with fixed settings (llama-benchy): add your "
                                       "own model or remove it again.")
         self.ai_models_btn.clicked.connect(lambda: self.busy or self.ai_models_requested.emit())
+        self.remote_btn = QPushButton("Remote: OFF...")
+        self.remote_btn.setMinimumHeight(40)
+        self.remote_btn.setToolTip("Start tests from a phone or another computer on the local network (off until "
+                                   "you switch it on).")
+        self.remote_btn.clicked.connect(self.remote_requested.emit)
         row.addWidget(self.hint, 1)
+        row.addWidget(self.remote_btn)
         row.addWidget(self.ai_models_btn)
         row.addWidget(self.run_plan_btn)
         row.addWidget(self.run_all_btn)
@@ -317,6 +324,12 @@ class TestsPage(QWidget):
         self.set_busy(True)
         self.refresh_progress()
         self.timer.start()
+
+    def show_remote(self, on: bool):
+        """The Remote button says whether remote mode is on (green) or off."""
+        self.remote_btn.setText("Remote: ON..." if on else "Remote: OFF...")
+        self.remote_btn.setStyleSheet("QPushButton { background: #2e7d32; color: white; font-weight: bold; }"
+                                      if on else "")
 
     def offer_record(self, text: str, record: Callable[[], object]):
         """A manual test was started: the bar waits, the score is typed in when it ends."""

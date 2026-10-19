@@ -436,6 +436,10 @@ class MainWindow(QMainWindow):
         self.tests_page.run_requested.connect(self.run_tests)
         self.tests_page.run_plan_requested.connect(self.run_saved_plan)
         self.tests_page.ai_models_requested.connect(self.edit_ai_models)
+        from app.ui.remote_control import RemoteControl
+        self.last_report_path = None           # the last report written from the Tests screen (remote page)
+        self.remote = RemoteControl(self)
+        self.tests_page.remote_requested.connect(self.edit_remote_start)
         from app.ui.install_flow import InstallFlow
         self.install_flow = InstallFlow(self)
         self.tests_page.install_requested.connect(self.install_flow.start)
@@ -484,6 +488,12 @@ class MainWindow(QMainWindow):
         dialog.exec()
         if dialog.changed:
             self.start_scan()
+
+    def edit_remote_start(self):
+        """Switch remote start on or off (app/ui/remote_control.py)."""
+        from app.ui.remote_control import RemoteDialog
+        RemoteDialog(self.remote, self).exec()
+        self.tests_page.show_remote(self.remote.running())
 
     def run_saved_plan(self, path=None):
         """Run the same tests with the same numbers as a saved plan (app/experiment.py)."""
@@ -1176,6 +1186,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         """Clean shutdown: wait for or cancel workers before closing."""
+        if hasattr(self, "remote"):
+            self.remote.stop()                 # remote start is never left open
         self.automation_panel.shutdown()   # emergency stop; only our own child processes end
         self.frame_panel.shutdown()        # same for a running PresentMon capture
         if self._scan_worker is not None and self._scan_worker.isRunning():

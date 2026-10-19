@@ -582,6 +582,23 @@ database, is killed by force during run 2, and a new process resumes. Raw output
 run 2 failed ("the app ended during this run ..."), run 3 completed 171,550 MIPS, mean 172,572 MIPS over 2 runs,
 CV 0.8 %, journal removed. Frame capture benchmarks (PresentMon, Frame capture tab) are not journaled yet.
 
+### Remote mode (Phase D)
+
+**Remote: OFF...** on the Tests screen opens the switch (`app/ui/remote_control.py`). Switched on, a small web server
+inside the app (`app/remote/server.py`, port 8737 by default) serves one page (`app/remote/page.py`, nothing loaded
+from the internet). A phone or another computer on the same local network opens the address shown and types the
+one-time code shown under it.
+- Off by default and off again when the app closes; a new code every time it is switched on. After 5 wrong codes in a
+  minute every request waits 60 s. Clients outside the local network are refused; "This PC only" binds to 127.0.0.1.
+  The app never changes firewall rules (Windows may ask; that answer is the owner's).
+- The page shows the PC's specs and only the tests that need nobody at the PC (no typed score, no license still to
+  accept, no llama-benchy settings window, no Steam frame capture). It starts them with measured runs, warm-ups and
+  the pause, shows the progress, has an emergency stop and opens the last report.
+- A remote start opens no window on the PC: the page's Start answers the start question, games use the preset chosen
+  last on the PC, a stress test its last length, and LibreHardwareMonitor is used only if it already runs.
+- A test is picked by its id; only ids the app offers are accepted, and nothing else can be sent (no commands, no
+  files). Tests: `tests/test_remote_start.py`. Not tried from a real phone yet.
+
 ### Telemetry
 
 **Record telemetry** (on by default, in both the Automated runs and Frame capture sections) samples once per second

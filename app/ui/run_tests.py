@@ -394,6 +394,13 @@ def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_re
             return False
     if lone_game:
         return start_other(window, others[0], choice)
+    return launch(window, automatic, choice, opener)
+
+
+def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_report,
+           confirm=None, tools_ready: bool = False) -> bool:
+    """Start the plan of automatic tests; the report is written (and opened) when it ends."""
+    panel = window.automation_panel
     folder = Path(panel.output_root).parent / "reports" if panel.output_root else None
     result: dict = {}
 
@@ -412,14 +419,15 @@ def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_re
             window.status_label.setText(f"Session #{session_id} done; the report could not be written: {e}")
             return
         result["final"] = (done, total, f"{first} Report opened: {path.name}")
+        window.last_report_path = path
         window.status_label.setText(f"Session #{session_id} done. Report: {path}")
         window.tests_page.offer_report(lambda: opener(path))
         opener(path)
 
     panel.on_plan_finished = finished
-    started = panel.start_plan(workloads=[e.ref for e in automatic], profile=plan_profile(window.selected_profile(),
-                                                                                         choice),
-                               extra_runs=choice.extra_runs)
+    started = panel.start_plan(tools_ready=tools_ready, workloads=[e.ref for e in automatic],
+                               profile=plan_profile(window.selected_profile(), choice), extra_runs=choice.extra_runs,
+                               confirm=confirm)
     if started or panel.lhm.active():
         # stay on the Tests screen: green bar, percent and Stop there (Ctrl+Shift+X still works)
         window.tests_page.watch(lambda: plan_state(panel, result), panel.emergency_stop)
