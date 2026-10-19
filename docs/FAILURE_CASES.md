@@ -57,5 +57,5 @@ and reason, never with a score, and never as 0.**
   plan ends as "plan aborted", the journal stays, Resume stores the run whose result could not be written as
   failed with the crash message, which is not the exact reason). A real full disk was not tried.
 - Frame-capture benchmarks are not in the plan journal: a crash during one is not resumed.
-- The Cyberpunk 2077 script is not verified on a real run (see README, Simulation scripts).
+- The Cyberpunk 2077 script is not verified on a real run (see docs/DETAILS.md, Simulation scripts).
 - No test on a second computer or on ARM.

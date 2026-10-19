@@ -32,7 +32,7 @@
 | **cyberpunk2077_builtin_benchmark** | Game | simulation script: Steam launch, user starts the benchmark, result file read | **yes** (2026-10-18, owner present) | 76.43 FPS avg at 2560x1440 (game 2.31); started directly without the Steam dialog, closed by the app; the user presses a key at 'press to continue' and starts the benchmark |
 | **selftest_python** | test | Python one-liner | yes (tests) | unavailable in the packaged app (needs Python) |
 
-Game frame capture (PresentMon, Frame capture tab) and forced settings are described in README.md.
+Game frame capture (PresentMon, Frame capture tab) and forced settings are described in docs/DETAILS.md.
 
 ---
 
