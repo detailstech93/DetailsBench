@@ -819,11 +819,7 @@ class FrameCapturePanel(QGroupBox):
                 spec.route = route
                 # nothing before the route starts is measured
                 spec.settle_seconds = max(spec.settle_seconds, int(route["loop_from"]))
-        if linux and spec.route:
-            self.status_label.setText(f"{spec.game_name}'s benchmark needs a route, which works on Windows only so "
-                                      "far; nothing was started.")
-            return False
-        if linux and (spec.steps or spec.start_keys) and not self.linux_steps_ready(spec):
+        if linux and (spec.steps or spec.start_keys or spec.route) and not self.linux_steps_ready(spec):
             return False
         fitted = None
         if spec.steps and spec.benchmark_seconds:
@@ -985,6 +981,18 @@ class FrameCapturePanel(QGroupBox):
         return is_wayland(self.session_env)
 
     @staticmethod
+    def _linux_route_text(route) -> str:
+        from app.frames.route import describe_route
+        return ("   Route (the app plays the game while it measures): " + describe_route(route) + ". Before that: "
+                + route.get("start", "load your save") + ". Keys go through XTEST and the mouse turns the camera "
+                "with relative moves, only while the game's window is the active one; held keys are released when "
+                "another window comes to the front. Do not touch the mouse or keyboard while it runs. Not yet "
+                "checked on a real Linux PC (whether the game turns its camera with these mouse moves too).\n"
+                + ("" if route.get("verified") else
+                   "   This route is a draft not yet watched on a real run: watch it and stop the run if the "
+                   "character does something unexpected.\n"))
+
+    @staticmethod
     def _wayland_note() -> str:
         return ("   Wayland session: the app reads the game's own window through XWayland and sends keys only while "
                 "that window is in front and has the keyboard. The game must run through XWayland (Proton's "
@@ -1012,7 +1020,9 @@ class FrameCapturePanel(QGroupBox):
                    f"The app presses {', '.join(c for _, c in spec.start_keys)} in the game (only while it is the "
                    "active window). Keep the game in front.\n" if spec.start_keys else
                    f"Get to the scene you want to measure during the first {spec.settle_seconds} s.\n")
-                + (self._wayland_note() if (spec.steps or spec.start_keys) and self._wayland() else "")
+                + (self._linux_route_text(spec.route) if getattr(spec, "route", None) else "")
+                + (self._wayland_note() if (spec.steps or spec.start_keys or getattr(spec, "route", None))
+                   and self._wayland() else "")
                 + f"3. Then the app closes the game: only processes started from the game's folder (for Proton: the "
                 f"ones whose command line names it), politely first, by force after 30 s. Unsaved progress is "
                 f"lost. Steam stays open for the next game.\n\n"

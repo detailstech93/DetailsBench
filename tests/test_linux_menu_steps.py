@@ -226,3 +226,6 @@ def test_linux_text_mentions_xwayland_on_wayland(tmp_path):
     assert "XWayland" in p.linux_text(spec, SimpleNamespace(name="p"), 180, {})
     p.session_env = {"XDG_SESSION_TYPE": "x11", "DISPLAY": ":0"}
     assert "XWayland" not in p.linux_text(spec, SimpleNamespace(name="p"), 180, {})
+    spec.steps, spec.route = [], {"loop_from": 5, "loop_seconds": 10, "loop": [[0, "hold", "w", 4]]}
+    text = p.linux_text(spec, SimpleNamespace(name="p"), 180, {})
+    assert "Route (the app plays the game" in text and "hold w 4 s" in text and "draft" in text

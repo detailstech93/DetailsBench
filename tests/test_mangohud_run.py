@@ -129,9 +129,6 @@ def test_linux_runs_that_cannot_start_start_nothing(tmp_path):
                          (Fakes(tmp_path, mangohud=False), "MangoHud is not installed")):
         _, cap = run(tmp_path, fakes)
         assert cap.status == "failed" and words in cap.message and fakes.started is None
-    fakes = Fakes(tmp_path)
-    _, cap = run(tmp_path, fakes, route={"loop_from": 0})
-    assert cap.status == "failed" and "Windows only" in cap.message and fakes.started is None
 
 
 def test_no_log_says_vulkan_and_short_logs_leave_windows_invalid(tmp_path):
@@ -240,3 +237,52 @@ def test_linux_menu_steps_that_fail_or_cannot_run(tmp_path, monkeypatch):
                           clock=fakes.clock, sleep=fakes.sleep, folder_procs=fakes.folder_procs, closer=fakes.closer)
     cap = bench.run()
     assert cap.status == "failed" and "Wayland" in cap.message and fakes.started is None
+
+
+class FakeDesk:
+    """The game's window is in front (pid 7); keys and mouse moves are recorded."""
+
+    def __init__(self):
+        self.events = []
+
+    def foreground_pid(self):
+        return 7
+
+    def key_down(self, codes):
+        self.events.append(("down", tuple(codes)))
+
+    def key_up(self, codes):
+        self.events.append(("up", tuple(codes)))
+
+    def press(self, codes):
+        self.events.append(("press", tuple(codes)))
+
+    def mouse_move(self, dx, dy):
+        self.events.append(("move", dx, dy))
+
+
+def test_linux_route_is_played_and_its_keys_released(tmp_path, monkeypatch):
+    from app.simulation.desktop import parse_chord
+    route = {"loop_from": 5, "loop_seconds": 10, "loop": [[0, "hold", "w", 4], [5, "mouse", 300, 0, 1]]}
+    fakes = Fakes(tmp_path)
+    desk = FakeDesk()
+    s = GameBenchmarkSpec(game_name="Game", app_id="123", install_path=str(fakes.install), discovered_appids=["123"],
+                          presentmon_path="/usr/bin/mangohud", seconds=20, warmup_runs=1, repetitions=2,
+                          settle_seconds=10, route=route)
+    bench = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=True, mangohud_hooks=fakes,
+                          clock=fakes.clock, sleep=fakes.sleep, folder_procs=fakes.folder_procs,
+                          closer=fakes.closer, remote_session=lambda: False, desktop=desk)
+    cap = bench.run()
+    assert cap.status == "recorded", cap.message
+    w = tuple(parse_chord("w"))
+    downs = [e for e in desk.events if e == ("down", w)]
+    ups = [e for e in desk.events if e == ("up", w)]
+    assert downs and len(ups) >= len(downs)            # every held key let go (also at the end)
+    assert sum(e[1] for e in desk.events if e[0] == "move") % 300 == 0 and "route: " in cap.message
+    import app.simulation.desktop as desktop
+    from app.simulation.x11_desktop import X11Desktop
+    monkeypatch.setattr(desktop, "default_desktop", lambda: None)
+    monkeypatch.setattr(X11Desktop, "why", "no X11 display (DISPLAY is not set)")
+    fakes = Fakes(tmp_path / "b")
+    _, cap = run(tmp_path / "b", fakes, route=route)
+    assert cap.status == "failed" and "DISPLAY" in cap.message and fakes.started is None

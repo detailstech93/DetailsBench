@@ -528,13 +528,10 @@ class GameBenchmark:
         spec = self.spec
         hooks = self.mangohud_hooks or mh.Hooks()
         self.run_dir.mkdir(parents=True, exist_ok=True)
-        if spec.route:
-            return GameCapture("failed", "this game's benchmark needs a route, which works on Windows only so far; "
-                               "nothing was started")
-        if spec.steps or spec.start_keys:          # menu steps / keys: an X11 session (app/simulation/x11_desktop.py)
+        if spec.steps or spec.start_keys or spec.route:     # an X11 / XWayland desktop (app/simulation/x11_desktop.py)
             if self._desk() is None:
                 from app.simulation.x11_desktop import X11Desktop
-                return GameCapture("failed", "menu steps and keys cannot run here: "
+                return GameCapture("failed", "menu steps, keys and routes cannot run here: "
                                    + (X11Desktop.why or "no desktop") + "; nothing was started")
         if not hooks.mangohud_installed():
             return GameCapture("failed", "MangoHud is not installed (Frame capture screen: Install MangoHud); "
@@ -592,7 +589,11 @@ class GameBenchmark:
         limit = duration + mh.LAUNCH_TIMEOUT_SECONDS     # MangoHud starts logging only when the game draws
         stopped, shown = False, None
         pending = sorted(spec.start_keys)
-        t_front = t0 if not pending and not spec.steps else None
+        player = None
+        if spec.route:                  # timed from the game's first time in front, like keys (as on Windows)
+            from app.frames.route import RoutePlayer
+            player = RoutePlayer(spec.route, self._desk, self._game_in_front, spec.wait_seconds())
+        t_front = t0 if not pending and not spec.steps and player is None else None
         steps = None                    # menu step player, started when the game is in front (as on Windows)
         t_mark = None                   # clock() when the steps saw the benchmark start
         try:
@@ -641,19 +642,28 @@ class GameBenchmark:
                     except Exception as e:          # keys only help; the capture goes on without them
                         self.key_notes.append(f"keys stopped: {e}")
                         pending.clear()
+                if player is not None:
+                    player.tick(self.clock() - t_front)
                 if int(elapsed) != shown:
                     shown = int(elapsed)
                     self.on_progress(f"{spec.game_name}: {elapsed:.0f} s (MangoHud logs {duration} s from the "
                                      f"game's first frames). The first {spec.settle_seconds} s are not measured. It "
                                      "is closed at the end.")
-                self.sleep(self.poll_seconds)
+                self.sleep(min(self.poll_seconds, ROUTE_POLL_SECONDS) if player is not None else self.poll_seconds)
         finally:
             if steps is not None:
                 steps.stop.set()
                 steps.join(5)
+            if player is not None:
+                try:
+                    player.release_all()
+                except Exception as e:
+                    player.problem = player.problem or f"keys could not be released: {e}"
         closed = self._close_game()
         if self.key_notes:
             closed += "; start keys: " + ", ".join(self.key_notes)
+        if player is not None:
+            closed += "; " + player.summary()
         if steps is not None:
             closed += "; " + steps.summary()
         tel = sampler.stop() if sampler is not None else None
