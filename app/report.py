@@ -944,6 +944,38 @@ def _conditions_section(export: Mapping) -> str:
             "<tbody>" + rows + "</tbody></table></div></section>")
 
 
+def _earlier_section(export: Mapping) -> str:
+    """This session's score next to the same test on the same PC before (newest earlier session first)."""
+    rows = [m for m in (_mapping(r) for r in export.get("earlier") or []) if m]
+    if not rows:
+        return ""
+    body = []
+    for r in rows:
+        unit = esc(r.get("unit") or "")
+        earlier = [m for m in (_mapping(e) for e in r.get("earlier") or []) if m]
+        cmp = _mapping(r.get("compare")) or {}
+        issues = [i for i in (_mapping(x) for x in cmp.get("issues") or []) if i]
+        blocked = cmp.get("status") == "not_comparable"
+        delta = cmp.get("delta_percent")
+        change = "-" if blocked or not isinstance(delta, (int, float)) else f"{delta:+.1f}%"
+        why = "; ".join(str(i.get("message")) for i in issues if i.get("code") not in ("few_runs", "test_data"))
+        history = ", ".join(f"{_format_number(e.get('mean'))} ({esc(str(e.get('created_at') or '')[:10])})"
+                            for e in earlier)
+        body.append(
+            f"<tr><td>{esc(r.get('benchmark'))}</td><td>{_format_number(r.get('now'))} {unit}</td>"
+            f"<td>{_format_number(earlier[0].get('mean'))} {unit}<br><span class=\"muted\">"
+            f"{esc(earlier[0].get('name'))}</span></td>"
+            f"<td>{'not comparable' if blocked else change}</td>"
+            f'<td class="note">{esc(why) if why else "-"}</td><td>{history}</td></tr>')
+    return ("<section><h2>Compared with earlier runs on this PC</h2>"
+            '<p class="muted">The same test on the same PC (same CPU, GPU, RAM and OS family) in earlier sessions. '
+            "Change is this run against the newest earlier one. For scores, higher is faster; for times (ms, s) "
+            "lower is faster. A different major version, architecture or runtime is not comparable.</p>"
+            '<div class="table-wrap"><table><thead><tr><th>Test</th><th>Now</th><th>Before</th><th>Change</th>'
+            "<th>Notes</th><th>Earlier sessions (newest first)</th></tr></thead><tbody>"
+            + "".join(body) + "</tbody></table></div></section>")
+
+
 def _reproducibility_section(export: Mapping) -> str:
     manifest = _mapping(export.get("manifest")) or {}
     run_settings = _mapping(manifest.get("run_settings")) or {}
@@ -1145,6 +1177,7 @@ def render_session_report(export: Mapping) -> str:
         + _cinebench_section(export_mapping)
         + _passmark_section(export_mapping)
         + _pugetbench_section(export_mapping)
+        + _earlier_section(export_mapping)
         + _summary_section(export_mapping)
         + _charts_section(export_mapping)
         + _metrics_section(export_mapping)

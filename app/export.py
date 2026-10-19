@@ -36,6 +36,13 @@ def build_session_export(db, session_id: int, now: Optional[str] = None) -> dict
     run_metrics = {r["id"]: db.get_result_metrics(r["id"]) for r in runs}
     run_series = {r["id"]: db.get_result_series(r["id"]) for r in runs} if hasattr(db, "get_result_series") else {}
     metric_summaries = summarize_metrics(runs, lambda r: run_metrics.get(r["id"]), include_test=bool(session["is_test"]))
+    try:
+        from app.history import earlier_comparisons
+        earlier = earlier_comparisons(db, session, manifest, runs)
+    except Exception:               # the comparison never stops a report
+        import logging
+        logging.getLogger(__name__).exception("Could not compare with earlier runs")
+        earlier = []
     from app import __version__
     return {
         "format": EXPORT_FORMAT,
@@ -51,6 +58,7 @@ def build_session_export(db, session_id: int, now: Optional[str] = None) -> dict
                       series=run_series.get(r["id"], {})) for r in runs],
         "summaries": summaries,
         "metric_summaries": metric_summaries,
+        "earlier": earlier,         # the same tests on the same PC in earlier sessions (app/history.py)
     }
 
 
