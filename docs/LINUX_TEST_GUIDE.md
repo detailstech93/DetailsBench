@@ -59,6 +59,9 @@ python3 -m venv .venv
 - [ ] 3.6 **Fixed AI models** (LM Studio for Linux installed and started once): Tests screen -> llama-benchy:
       Qwen3.5 4B -> Install (lms get), Run. The app loads its own copy and unloads it after. Send if it fails:
       lms_load.txt and stderr.txt. (MLPerf Client is Windows only.)
+- [ ] 3.7 **Remote mode**: Tests screen -> Remote: OFF... -> switch on; from a phone on the same network open the
+      address shown, type the code, start 7-Zip, watch it, open the report. If the page does not open, check the
+      distribution's firewall (ufw/firewalld) for port 8737; the app changes nothing there.
 - Not on Linux: Cinebench (no Linux build), PassMark 2D/3D, PugetBench, 7-Zip's window test.
 
 ## 4. Games with MangoHud (Steam, Proton)
