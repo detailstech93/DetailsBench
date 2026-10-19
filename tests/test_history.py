@@ -60,14 +60,27 @@ def test_a_new_major_version_is_not_comparable(tmp_path):
 
 
 def test_game_scores_are_compared_only_with_the_same_settings():
-    from app.history import game_settings_issue
+    from app.history import effective_game_settings, game_settings_issue
 
-    def game(requested, seconds=60):
-        return {"run_settings": {"steam_app_id": "1091500", "capture_seconds": seconds,
-                                 "game_settings": {"requested": requested}}}
-    high = game({"preset": "high"})
-    assert game_settings_issue("game_x", high, game({"preset": "high"})) is None
-    assert game_settings_issue("game_x", high, game({"preset": "low"}))["level"] == "block"
-    assert game_settings_issue("game_x", high, game({"preset": "high"}, 90))["level"] == "block"
-    assert game_settings_issue("cyberpunk2077_builtin_benchmark", {}, high)["code"] == "game_settings_unknown"
+    def game(before, requested=None, seconds=60, refused=None):
+        return {"run_settings": {"steam_app_id": "1091500", "capture_seconds": seconds, "game_settings": {
+            "before": before, "requested": requested or {}, "refused": refused or {}}}}
+    base = {"preset": "High", "dlss_mode": "Quality", "ray_tracing": False}
+    forced = game(base, {"preset": "Ultra"})
+    assert effective_game_settings(forced) == {"preset": "Ultra", "dlss_mode": "Quality", "ray_tracing": False}
+    assert effective_game_settings(game(base, {"preset": "Ultra"}, refused={"preset": "no"}))["preset"] == "High"
+    assert game_settings_issue("game_x", forced, game(base, {"preset": "Ultra"})) is None
+    # DLSS and ray tracing changed by the owner (the app forced only the preset): still caught and named
+    other = game(dict(base, dlss_mode="Off", ray_tracing=True), {"preset": "Ultra"})
+    issue = game_settings_issue("game_x", forced, other)
+    assert issue["level"] == "block"
+    assert issue["message"] == "Different game settings: dlss_mode Quality -> Off, ray_tracing False -> True."
+    assert "measured time 60 s -> 90 s" in game_settings_issue("game_x", forced, game(base, {"preset": "Ultra"},
+                                                                                       90))["message"]
+    partly = game_settings_issue("game_x", forced, game({"preset": "High", "dlss_mode": "Quality"},
+                                                        {"preset": "Ultra"}))
+    assert partly["level"] == "warn" and partly["message"] == "Known for one run only: ray_tracing."
+    declared = {"run_settings": {"steam_app_id": "1", "game_settings": {"declared": {"preset": "High"}}}}
+    assert effective_game_settings(declared) == {"preset": "High"}
+    assert game_settings_issue("cyberpunk2077_builtin_benchmark", {}, forced)["code"] == "game_settings_unknown"
     assert game_settings_issue("tool_a", {}, {}) is None                              # not a game

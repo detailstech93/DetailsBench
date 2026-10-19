@@ -50,14 +50,27 @@ def _unit(runs: List[Mapping]) -> str:
     return units[-1] if units else ""
 
 
-def _game_settings(manifest: Optional[Mapping]):
-    """(the game's settings asked for or entered, capture seconds) of a game session, or None when unknown."""
+def effective_game_settings(manifest: Optional[Mapping]) -> Optional[Dict[str, object]]:
+    """Every setting the game ran with, as far as the app knows: what its settings file held before the run
+    ("before": all settings the app reads, also those it does not change, like DLSS, frame generation, ray tracing)
+    with the values the app forced on top (minus refused ones), or the values the owner entered. None: unknown."""
     rs = (manifest or {}).get("run_settings") if isinstance(manifest, Mapping) else None
     record = (rs or {}).get("game_settings") if isinstance(rs, Mapping) else None
     if not isinstance(record, Mapping):
         return None
-    values = record.get("requested") or record.get("declared")
-    return (dict(values) if isinstance(values, Mapping) else None), rs.get("capture_seconds")
+    if isinstance(record.get("declared"), Mapping):
+        return dict(record["declared"])
+    before = record.get("before") if isinstance(record.get("before"), Mapping) else {}
+    requested = record.get("requested") if isinstance(record.get("requested"), Mapping) else {}
+    refused = record.get("refused") if isinstance(record.get("refused"), Mapping) else {}
+    values = dict(before)
+    values.update({k: v for k, v in requested.items() if k not in refused})
+    return values or None
+
+
+def _capture_seconds(manifest: Optional[Mapping]):
+    rs = (manifest or {}).get("run_settings") if isinstance(manifest, Mapping) else None
+    return rs.get("capture_seconds") if isinstance(rs, Mapping) else None
 
 
 def _is_game(name: str, *manifests) -> bool:
@@ -67,18 +80,32 @@ def _is_game(name: str, *manifests) -> bool:
                    for m in manifests if isinstance(m, Mapping)))
 
 
+def _show(value) -> str:
+    return "-" if value is None else str(value)
+
+
 def game_settings_issue(name: str, before: Optional[Mapping], now: Optional[Mapping]) -> Optional[dict]:
-    """A game's FPS depends on its settings: different settings are not comparable, unknown ones are a warning."""
+    """A game's FPS depends on every setting (DLSS / FSR, frame generation, ray or path tracing, preset,
+    resolution...): any difference makes the scores not comparable and is named; unknown settings are a warning.
+    A setting known on one side only is named as unknown (owner, 2026-10-19)."""
     if not _is_game(name, before, now):
         return None
-    a, b = _game_settings(before), _game_settings(now)
-    if a is None or b is None or a[0] is None or b[0] is None:
+    a, b = effective_game_settings(before), effective_game_settings(now)
+    if a is None or b is None:
         return {"level": "warn", "code": "game_settings_unknown",
-                "message": "The game's settings are not known for both runs: the scores may come from different "
-                           "settings."}
-    if a != b:
+                "message": "The game's settings are not known for both runs (DLSS, ray tracing, preset...): the "
+                           "scores may come from different settings."}
+    differ = [f"{k} {_show(a[k])} -> {_show(b[k])}" for k in sorted(set(a) & set(b)) if a[k] != b[k]]
+    one_side = sorted(set(a) ^ set(b))
+    seconds = _capture_seconds(before), _capture_seconds(now)
+    if seconds[0] is not None and seconds[1] is not None and seconds[0] != seconds[1]:
+        differ.append(f"measured time {seconds[0]} s -> {seconds[1]} s")
+    if differ:
         return {"level": "block", "code": "game_settings",
-                "message": "The game's settings (or the measured time) differ."}
+                "message": "Different game settings: " + ", ".join(differ) + "."}
+    if one_side:
+        return {"level": "warn", "code": "game_settings_partly_unknown",
+                "message": "Known for one run only: " + ", ".join(one_side) + "."}
     return None
 
 
