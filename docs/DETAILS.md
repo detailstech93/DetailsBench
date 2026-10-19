@@ -541,8 +541,13 @@ publishes and they are kept outside the project, in `%USERPROFILE%\Tools` (nothi
 - **Cinebench 2026** (Maxon, `app/pro/cinebench.py`; Multiple Threads and Single Thread): always one measured run
   and no warm-up, whatever the run settings or the profile say (`fixed_counts = (0, 1)`; owner, 2026-10-19).
   Cinebench renders for its own minimum duration (about 10 minutes) and averages its passes, so a second run adds
-  time, not accuracy. It runs in a hidden console of its own: with no console at all (the app's default) its
-  `"parentconsole"` output was empty after 11 minutes (session 13). Not yet checked on a real run.
+  time, not accuracy. Maxon's `"parentconsole"` command prints the score into the console it was started from,
+  never into a file: with no console (session 13) and with a hidden one (session 15, 12.7 min, exit code 0) the
+  app's file stayed empty. A helper (`app/automation/console_capture.py`, `scripts/main.py --console-capture`)
+  owns a hidden console, runs the command in it, then copies the console's text into `stdout_cinebench.txt`;
+  checked here with a windowless program that writes into its console the same way (the old way: empty). Not yet
+  checked with Cinebench itself. The progress bar moves with an expected 12 minutes per test (Cinebench reports
+  no progress) and stops at 97% until it ends.
 
 Blender's benchmark is not added: its launcher downloads Blender and the scenes itself, and its JSON output is a
 list that the spec parser does not read yet.

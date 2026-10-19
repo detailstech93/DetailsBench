@@ -78,9 +78,35 @@ def test_a_run_reads_the_points(tmp_path, monkeypatch):
     w = cinebench.CinebenchWorkload("cinebench_2026_single", exe=exe)
     r = w.run(_ctx(tmp_path))
     assert r.status == "completed" and r.score == 2101.53 and r.unit == "pts" and not w.verified
-    assert seen["command"].endswith("g_CinebenchCpu1Test=true") and seen["cwd"] == str(tmp_path)
+    assert seen["command"][-2] == "--console-capture" and seen["cwd"] == str(tmp_path)
+    assert seen["command"][-1] == cinebench.build_command(str(exe), "g_CinebenchCpu1Test=true")
+    assert r.command == [seen["command"][-1]]          # the report shows Maxon's command, not the helper
     assert "Single Thread" in r.note
     assert seen["console"] is True          # Cinebench prints only into a console (none: nothing, 2026-10-19)
+
+
+def test_the_bar_moves_while_it_runs(tmp_path, monkeypatch):
+    """Owner, 2026-10-19: the green bar stood still for the whole 12 minutes."""
+    exe = tmp_path / "Cinebench.exe"
+    exe.write_bytes(b"")
+    w = cinebench.CinebenchWorkload("cinebench_2026_single", exe=exe)
+    seen = []
+
+    def fake_run(command, out, err, timeout, stop, cwd=None, **k):
+        clock[0] = 360.0
+        seen.append(w.progress)
+        clock[0] = 5000.0
+        seen.append(w.progress)
+        Path(out).write_text("CB 120 (0.00)\n", encoding="utf-8")
+        Path(err).write_text("", encoding="utf-8")
+        return SimpleNamespace(exit_code=0, timed_out=False, cancelled=False, duration_seconds=1.0, start_error=None)
+    clock = [0.0]
+    monkeypatch.setattr(cinebench.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(cinebench, "run_process", fake_run)
+    monkeypatch.setattr(cinebench.sys, "platform", "win32")
+    assert w.progress is None
+    assert w.run(_ctx(tmp_path)).status == "completed"
+    assert seen == [(0.5, 360.0), (0.97, 0.0)] and w.progress is None
 
 
 def test_no_score_is_never_stored(tmp_path, monkeypatch):

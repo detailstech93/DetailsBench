@@ -11,6 +11,11 @@ if len(sys.argv) > 1 and sys.argv[1] == "--admin-helper":
     from app.frames.admin_helper import helper_main
     sys.exit(helper_main(sys.argv[2:]))
 
+# a command whose text goes only into its console (app/automation/console_capture.py): no window, no database
+if len(sys.argv) > 1 and sys.argv[1] == "--console-capture":
+    from app.automation.console_capture import helper_main
+    sys.exit(helper_main(sys.argv[2:]))
+
 
 def main():
     """Main entry point."""

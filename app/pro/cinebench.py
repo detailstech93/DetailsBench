@@ -18,9 +18,11 @@ Nothing is uploaded.
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Optional, Tuple
 
+from app.automation.console_capture import capture_command
 from app.automation.process import run_process
 from app.automation.workload import RunContext, Workload, WorkloadResult
 
@@ -30,6 +32,9 @@ MODES = {
     "cinebench_2026_single": ("Single Thread", "g_CinebenchCpu1Test=true"),
 }
 UNIT = "pts"
+# how long one test takes, for the progress bar only (an estimate: Maxon's minimum duration of 10 min plus loading
+# and the last pass; on the owner's PC 11.3 min Multiple Threads and 12.7 min Single Thread, 2026-10-19)
+EXPECTED_SECONDS = 720
 SCORE = re.compile(r"\bCB\s+(\d+(?:\.\d+)?)")
 
 
@@ -77,6 +82,16 @@ class CinebenchWorkload(Workload):
     # one run, no warm-up, whatever the run settings say (owner, 2026-10-19): Cinebench renders for its minimum
     # duration (about 10 min) and averages its own passes, so a second run adds time, not accuracy
     fixed_counts = (0, 1)
+    _started = None                 # monotonic time the run began, while it runs
+
+    @property
+    def progress(self):
+        """(fraction, seconds left) while running, from the expected duration (Cinebench reports no progress).
+        Never 100% before it ends."""
+        if self._started is None:
+            return None
+        gone = time.monotonic() - self._started
+        return min(0.97, gone / EXPECTED_SECONDS), max(0.0, EXPECTED_SECONDS - gone)
 
     def __init__(self, test_id: str = "cinebench_2026", exe: Optional[Path] = None):
         self.id = test_id
@@ -110,10 +125,16 @@ class CinebenchWorkload(Workload):
         folder.mkdir(parents=True, exist_ok=True)
         command = build_command(str(self.exe), self.option)
         out, err = folder / "stdout_cinebench.txt", folder / "stderr_cinebench.txt"
-        # a hidden console of its own: with none (the app's default) Cinebench printed nothing in 11 minutes on the
-        # owner's PC (2026-10-19, session 13); Maxon's "parentconsole" prints into the console it was started from
-        outcome = run_process(command, out, err, ctx.timeout_seconds, ctx.stop_event, cwd=str(self.exe.parent),
-                              hidden_console=True)
+        # Maxon's "parentconsole" prints into the console it was started from, not into a file: with no console
+        # (session 13) and with a hidden one (session 15, 12.7 min, exit code 0) the file stayed empty. A helper
+        # owns a hidden console, runs the command in it and copies the console's text into the file
+        # (app/automation/console_capture.py).
+        self._started = time.monotonic()
+        try:
+            outcome = run_process(capture_command(command), out, err, ctx.timeout_seconds, ctx.stop_event,
+                                  cwd=str(self.exe.parent), hidden_console=True)
+        finally:
+            self._started = None
         common = {"command": [command], "exit_code": outcome.exit_code,
                   "duration_seconds": round(outcome.duration_seconds, 3), "stdout_path": str(out),
                   "stderr_path": str(err)}

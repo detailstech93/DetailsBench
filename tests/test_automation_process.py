@@ -75,3 +75,15 @@ def test_a_hidden_console_still_writes_to_the_files(tmp_path):
     out, err = tmp_path / "out.txt", tmp_path / "err.txt"
     r = run_process([sys.executable, "-c", "print('CB 123.4')"], out, err, 30, threading.Event(), hidden_console=True)
     assert r.exit_code == 0 and "CB 123.4" in out.read_text()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows consoles only")
+def test_text_written_only_into_the_console_is_caught(tmp_path):
+    """Cinebench 2026 writes its score into its console, not into a file (session 15: an empty file)."""
+    from app.automation.console_capture import capture_command
+    out, err = tmp_path / "out.txt", tmp_path / "err.txt"
+    command = 'cmd.exe /d /c "echo CB 2101.53 (0.00)> CON & echo plain line"'
+    run_process(command, out, err, 30, threading.Event(), hidden_console=True)
+    assert "CB" not in out.read_text()                      # the old way: lost
+    r = run_process(capture_command(command), out, err, 60, threading.Event(), hidden_console=True)
+    assert r.exit_code == 0 and out.read_text().splitlines() == ["plain line", "CB 2101.53 (0.00)"]
