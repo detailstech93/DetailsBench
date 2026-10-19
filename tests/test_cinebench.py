@@ -24,6 +24,16 @@ def test_maxons_command_and_the_score_line():
     assert cinebench.parse_score("")[1].endswith("(it printed nothing)")
 
 
+def test_the_end_of_a_real_run():
+    """The last lines of Single Thread on the owner's PC (2026-10-19, session 16), copied from its console."""
+    tail = ("InitSceneSettings CPU1 (720.000,405.000) 1 128\nRendering...\n"
+            "DURINGRENDERING Preparation time 10519.2 ms\nRENDERPROGRESSTYPE::AFTERRENDERING 733600.4 ms\n"
+            "renderTime 733600.4 ms\nValues: {517.567} -> Avg/Deviation: 517.567/0.000\nCB 517.57 (0.00)\n")
+    assert cinebench.parse_score(tail) == (517.57, None)
+    assert cinebench.CinebenchWorkload("cinebench_2026_single").verified
+    assert not cinebench.CinebenchWorkload("cinebench_2026").verified       # Multiple Threads not seen yet
+
+
 def test_one_zip_per_architecture_and_no_linux():
     x64 = plans.plan_for("cinebench_2026", host=plans.Host("windows", "x64"))
     arm = plans.plan_for("cinebench_2026_single", host=plans.Host("windows", "arm64"))
@@ -77,7 +87,7 @@ def test_a_run_reads_the_points(tmp_path, monkeypatch):
     monkeypatch.setattr(cinebench.sys, "platform", "win32")
     w = cinebench.CinebenchWorkload("cinebench_2026_single", exe=exe)
     r = w.run(_ctx(tmp_path))
-    assert r.status == "completed" and r.score == 2101.53 and r.unit == "pts" and not w.verified
+    assert r.status == "completed" and r.score == 2101.53 and r.unit == "pts"
     assert seen["command"][-2] == "--console-capture" and seen["cwd"] == str(tmp_path)
     assert seen["command"][-1] == cinebench.build_command(str(exe), "g_CinebenchCpu1Test=true")
     assert r.command == [seen["command"][-1]]          # the report shows Maxon's command, not the helper

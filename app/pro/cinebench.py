@@ -10,8 +10,9 @@ is the one on Maxon's page "Tech Info Cinebench" (maxon.net/tech-info-cinebench,
 Maxon: on Windows the `start /b /wait "parentconsole"` part is needed for a console log; Cinebench runs the test,
 quits and prints the result in the console (no result file). A minimum test duration is active by default
 (g_CinebenchMinimumTestDuration changes it; the app keeps Maxon's default so scores match other people's).
-The score line is read as "CB <points>" (LTT Labs' MarkBench reads it so, 2026-10-18); not checked on a real
-run here yet, so the tests are not marked verified. Scores of Cinebench 2026 can't be compared with 2024 or R23.
+The score line is read as "CB <points>". Seen on a real run on the owner's PC (2026-10-19, session 16, Single Thread):
+"Values: {517.567} -> Avg/Deviation: 517.567/0.000" then "CB 517.57 (0.00)", read as 517.57 pts; Single Thread is
+marked verified, Multiple Threads (same output, not seen yet) not yet. Scores of Cinebench 2026 can't be compared with 2024 or R23.
 Nothing is uploaded.
 """
 
@@ -95,7 +96,7 @@ class CinebenchWorkload(Workload):
 
     def __init__(self, test_id: str = "cinebench_2026", exe: Optional[Path] = None):
         self.id = test_id
-        self.verified = False       # the score line has not been seen on a real run here yet
+        self.verified = test_id == "cinebench_2026_single"     # seen on a real run (session 16, 2026-10-19)
         self.title, self.option = MODES[test_id]
         self.exe = exe if exe is not None else program_path()
         self.display_name = f"Cinebench 2026 ({self.title})"

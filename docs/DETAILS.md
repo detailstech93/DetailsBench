@@ -545,8 +545,9 @@ publishes and they are kept outside the project, in `%USERPROFILE%\Tools` (nothi
   never into a file: with no console (session 13) and with a hidden one (session 15, 12.7 min, exit code 0) the
   app's file stayed empty. A helper (`app/automation/console_capture.py`, `scripts/main.py --console-capture`)
   owns a hidden console, runs the command in it, then copies the console's text into `stdout_cinebench.txt`;
-  checked here with a windowless program that writes into its console the same way (the old way: empty). Not yet
-  checked with Cinebench itself. The progress bar moves with an expected 12 minutes per test (Cinebench reports
+  checked here with a windowless program that writes into its console the same way (the old way: empty), then on
+  the owner's PC (session 16, Single Thread): "CB 517.57 (0.00)" read as 517.57 pts, the bar moving. Single
+  Thread is marked verified; Multiple Threads (same output) once it has been seen. The progress bar moves with an expected 12 minutes per test (Cinebench reports
   no progress) and stops at 97% until it ends.
 
 Blender's benchmark is not added: its launcher downloads Blender and the scenes itself, and its JSON output is a
