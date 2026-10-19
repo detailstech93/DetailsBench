@@ -499,6 +499,18 @@ def _cinebench_section(export: Mapping) -> str:
         "Maxon's default minimum time. Nothing was uploaded.")
 
 
+PASSMARK_TESTS = (("passmark_cpu", "CPU Mark", "points"), ("passmark_2d", "2D Graphics Mark", "points"),
+                  ("passmark_3d", "3D Graphics Mark", "points"), ("passmark_memory", "Memory Mark", "points"))
+
+
+def _passmark_section(export: Mapping) -> str:
+    return _tiles_section(
+        export, "PassMark PerformanceTest", PASSMARK_TESTS,
+        "PassMark PerformanceTest's own marks. Higher is faster. Each mark is PassMark's summary of its group of "
+        "tests (CPU, 2D graphics, 3D graphics, memory) and can be compared only with the same mark of the same "
+        "PerformanceTest version on passmark.com. PassMark's free version may send the results to PassMark.")
+
+
 def _tiles_section(export: Mapping, heading: str, tests, explanation: str) -> str:
     """A tool with several tests, each with its own unit: one tile per test, what ran, how the PC behaved and
     charts over time."""
@@ -1092,6 +1104,7 @@ def render_session_report(export: Mapping) -> str:
         + _blender_section(export_mapping)
         + _vray_section(export_mapping)
         + _cinebench_section(export_mapping)
+        + _passmark_section(export_mapping)
         + _summary_section(export_mapping)
         + _charts_section(export_mapping)
         + _metrics_section(export_mapping)

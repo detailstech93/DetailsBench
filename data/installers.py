@@ -132,3 +132,6 @@ INSTALLERS["blender_benchmark_gpu"] = INSTALLERS["blender_benchmark"]
 INSTALLERS["vray_benchmark_gpu"] = INSTALLERS["vray_benchmark_rtx"] = INSTALLERS["vray_benchmark"]
 # the single-thread run of Cinebench 2026 uses the same program
 INSTALLERS["cinebench_2026_single"] = INSTALLERS["cinebench_2026"]
+# PassMark's automatic tests (app/pro/passmark.py) use the same program
+for _id in ("passmark_cpu", "passmark_2d", "passmark_3d", "passmark_memory"):
+    INSTALLERS[_id] = INSTALLERS["passmark_performancetest"]

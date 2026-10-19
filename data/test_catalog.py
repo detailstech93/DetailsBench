@@ -72,6 +72,26 @@ TEST_INFO: Dict[str, dict] = {
         "supported_os": ["windows", "linux"], "supported_architectures": {"x64": "native", "arm64": "unsupported"},
         "expected_minutes": 3,
     },
+    "passmark_cpu": {
+        "group": "cpu", "official_url": "https://www.passmark.com/products/performancetest/",
+        "supported_os": ["windows"], "supported_architectures": {"x64": "native", "arm64": "unverified"},
+        "expected_minutes": 3,
+    },
+    "passmark_2d": {
+        "group": "gpu", "official_url": "https://www.passmark.com/products/performancetest/",
+        "supported_os": ["windows"], "supported_architectures": {"x64": "native", "arm64": "unverified"},
+        "expected_minutes": 3,
+    },
+    "passmark_3d": {
+        "group": "gpu", "official_url": "https://www.passmark.com/products/performancetest/",
+        "supported_os": ["windows"], "supported_architectures": {"x64": "native", "arm64": "unverified"},
+        "expected_minutes": 6,
+    },
+    "passmark_memory": {
+        "group": "cpu", "official_url": "https://www.passmark.com/products/performancetest/",
+        "supported_os": ["windows"], "supported_architectures": {"x64": "native", "arm64": "unverified"},
+        "expected_minutes": 3,
+    },
     "cinebench_2026": {
         "group": "cpu", "official_url": "https://www.maxon.net/en/cinebench",
         "supported_os": ["windows"], "supported_architectures": {"x64": "native", "arm64": "native"},
