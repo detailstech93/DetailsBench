@@ -42,7 +42,8 @@ class PlanJournal:
             "session_id": session_id, "stamp": stamp, "cooldown_seconds": cooldown_seconds,
             "created": datetime.now().isoformat(timespec="seconds"),
             "items": [{"workload_id": p.workload.id, "repetitions": p.repetitions, "warmup_runs": p.warmup_runs,
-                       "timeout_seconds": p.timeout_seconds, "settings": p.settings} for p in plan],
+                       "timeout_seconds": p.timeout_seconds, "settings": p.settings,
+                       "retries": p.retries, "max_extra_runs": p.max_extra_runs} for p in plan],
             "done": [list(k) for k in done], "current": None,
         }
         self._write()
@@ -97,6 +98,7 @@ def plan_from_journal(data: dict, workloads) -> Tuple[list, Set[RunKey], Optiona
         if item.get("settings") and hasattr(wl, "configure"):
             wl.configure(item["settings"])
         plan.append(PlanItem(wl, repetitions=int(item["repetitions"]), warmup_runs=int(item["warmup_runs"]),
-                             timeout_seconds=item.get("timeout_seconds"), settings=item.get("settings")))
+                             timeout_seconds=item.get("timeout_seconds"), settings=item.get("settings"),
+                             retries=int(item.get("retries") or 0), max_extra_runs=int(item.get("max_extra_runs") or 0)))
     current = _key(data["current"]) if data.get("current") is not None else None
     return plan, {_key(k) for k in data["done"]}, current, missing

@@ -115,3 +115,72 @@ def test_python_spec_is_unavailable_in_the_packaged_app():
     packaged = CliWorkload(spec, python_executable=None)
     assert packaged.availability() == (False, "needs Python, which the packaged app does not include")
     assert CliWorkload(spec, python_executable="py.exe").availability()[0]
+
+
+def bad(error="exit code 1", status="failed"):
+    return WorkloadResult(status=status, error=error)
+
+
+def test_a_failed_run_is_kept_and_run_once_more(db, tmp_path):
+    database, sid = db
+    wl = Scripted("tool_a", [ok(1.0), bad(), ok(10.0), ok(11.0)])
+    summary = AutomationRunner(database, sid, [PlanItem(wl, repetitions=2, warmup_runs=1, retries=1)],
+                               tmp_path / "out").run()
+    runs = database.get_runs(sid, include_test=True)
+    assert [(r["run_index"], r["status"], r["score"]) for r in runs] == \
+        [(0, "completed", 1.0), (1, "failed", None), (1, "completed", 10.0), (2, "completed", 11.0)]
+    assert runs[2]["note"] == "Retry after a failed try (failed: exit code 1)"
+    assert summary.records[2].run_dir.name == "tool_a_r1_retry1" and len(wl.contexts) == 4
+
+
+def test_retries_are_limited_and_skip_what_a_retry_cannot_fix(db, tmp_path):
+    database, sid = db
+    twice = Scripted("tool_a", [bad(), bad("timeout", "timed_out"), ok(5.0)])
+    AutomationRunner(database, sid, [PlanItem(twice, repetitions=2, warmup_runs=0, retries=1)], tmp_path / "a").run()
+    assert [r["status"] for r in database.get_runs(sid, "tool_a", include_test=True)] == \
+        ["failed", "timed_out", "completed"]                 # one retry only, then the next run
+    for result in (bad("could not start: not found"), bad("x", "invalid"), bad("x", "skipped")):
+        wl = Scripted("tool_b", [result, ok(1.0)])
+        AutomationRunner(database, sid, [PlanItem(wl, repetitions=1, warmup_runs=0, retries=1)], tmp_path / "b").run()
+        assert len(wl.contexts) == 1
+    warm = Scripted("tool_c", [bad(), ok(2.0)])              # warmups are not retried
+    AutomationRunner(database, sid, [PlanItem(warm, repetitions=1, warmup_runs=1, retries=1)], tmp_path / "c").run()
+    assert len(warm.contexts) == 2
+    off = Scripted("tool_d", [bad()])                        # retries=0 (game plans): as before
+    AutomationRunner(database, sid, [PlanItem(off, repetitions=1, warmup_runs=0)], tmp_path / "d").run()
+    assert len(off.contexts) == 1
+
+
+def test_uneven_scores_get_extra_runs_until_even_or_used_up(db, tmp_path):
+    database, sid = db
+    wl = Scripted("tool_a", [ok(100.0), ok(100.0), ok(130.0), ok(100.0), ok(101.0), ok(99.0)])
+    other = Scripted("tool_b", [ok(7.0)])
+    progress = []
+    AutomationRunner(database, sid, [PlanItem(wl, repetitions=3, warmup_runs=0, max_extra_runs=2),
+                                     PlanItem(other, repetitions=1, warmup_runs=0, max_extra_runs=2)],
+                     tmp_path / "out", on_progress=progress.append).run()
+    runs = database.get_runs(sid, "tool_a", include_test=True)
+    assert [r["run_index"] for r in runs] == [1, 2, 3, 4, 5]        # 2 extra runs, the 6th score is never asked
+    assert runs[3]["note"].startswith("Extra run: the scores varied 15.7% (above 5%), extra run 1 of 2")
+    assert runs[4]["note"].startswith("Extra run: the scores varied 14.0%")
+    assert len(wl.results) == 1 and len(other.contexts) == 1         # then the next test as planned
+    even = Scripted("tool_c", [ok(100.0), ok(101.0), ok(100.0)])
+    AutomationRunner(database, sid, [PlanItem(even, repetitions=3, warmup_runs=0, max_extra_runs=2)],
+                     tmp_path / "e").run()
+    assert len(even.contexts) == 3
+    two = Scripted("tool_d", [ok(1.0), ok(9.0), ok(5.0)])            # 2 scores: too few to judge
+    AutomationRunner(database, sid, [PlanItem(two, repetitions=2, warmup_runs=0, max_extra_runs=2)],
+                     tmp_path / "t").run()
+    assert len(two.contexts) == 2
+
+
+def test_the_report_tile_counts_retries_and_extra_runs():
+    from app.report import _passmark_section
+    run = {"benchmark_name": "passmark_cpu", "is_warmup": False, "unit": "points"}
+    export = {"session": {}, "summaries": {"passmark_cpu": {"stats": {"mean": 100.0}}}, "runs": [
+        {**run, "status": "failed", "note": "exit code 1"},
+        {**run, "status": "completed", "note": "Retry after a failed try (failed: exit code 1)"},
+        {**run, "status": "completed", "note": "x"}, {**run, "status": "completed", "note": "y"},
+        {**run, "status": "completed", "note": "Extra run: the scores varied 9.0% (above 5%), extra run 1 of 2"}]}
+    html = _passmark_section(export)
+    assert "Run again after a failure</th><td>1 (" in html and "Extra runs</th><td>1 (" in html

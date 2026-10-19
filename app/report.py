@@ -559,6 +559,12 @@ def _tiles_section(export: Mapping, heading: str, tests, explanation: str, readi
             if sep:
                 details[key] = value
         details["Measured runs"] = str(len(done)) + (" (the score is their average)" if len(done) > 1 else "")
+        retried = sum(1 for r in runs if str(r.get("note") or "").startswith("Retry after a failed try"))
+        extra = sum(1 for r in runs if str(r.get("note") or "").startswith("Extra run:"))
+        if retried:
+            details["Run again after a failure"] = f"{retried} (the failed tries are in the runs table, not in the score)"
+        if extra:
+            details["Extra runs"] = f"{extra} (the scores varied a lot, so more runs were added)"
         kv = "".join(f"<tr><th>{esc(k)}</th><td>{esc(v)}</td></tr>" for k, v in details.items())
         if not readings:            # typed in by the owner: no readings were taken during the test
             blocks.append(f"<h3>{esc(engine)}</h3>" + f'<table class="kv">{kv}</table>')

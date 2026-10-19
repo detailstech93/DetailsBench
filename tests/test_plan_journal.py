@@ -43,7 +43,8 @@ def test_journal_is_kept_current_and_removed_at_the_end(db, tmp_path):
     assert seen[0]["current"] == ["tool_a", 0, True] and seen[0]["done"] == []
     assert seen[1]["current"] == ["tool_a", 1, False] and seen[1]["done"] == [["tool_a", 0, True]]
     assert seen[0]["items"] == [{"workload_id": "tool_a", "repetitions": 1, "warmup_runs": 1,
-                                 "timeout_seconds": 9, "settings": {"model": "m"}}]
+                                 "timeout_seconds": 9, "settings": {"model": "m"}, "retries": 0,
+                                 "max_extra_runs": 0}]
     assert not path.exists()
 
 

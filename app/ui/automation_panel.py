@@ -30,10 +30,13 @@ from PySide6.QtWidgets import (
 from app.all_workloads import load_workloads
 from app.automation.plan_text import plan_overview
 from app.automation import journal as plan_journal
-from app.automation.runner import AutomationRunner, PlanItem, RunSummary, averages_text, plan_averages
+from app.automation.runner import (CV_LIMIT_PERCENT, AutomationRunner, PlanItem, RunSummary, averages_text,
+                                   plan_averages)
 from app.telemetry import sources as telemetry_sources
 
 logger = logging.getLogger(__name__)
+RETRIES = 1                 # a failed measured run is run once more (Tests screen and Automated runs plans)
+EXTRA_RUNS = 2              # at most this many extra runs when the scores vary a lot
 
 STOP_SHORTCUT = "Ctrl+Shift+X"
 
@@ -327,13 +330,16 @@ class AutomationPanel(QGroupBox):
                 and self.table.item(r, 0).checkState() == Qt.Checked]
 
     # ---- plan --------------------------------------------------------------
-    def build_plan(self, workloads, profile) -> List[PlanItem]:
+    def build_plan(self, workloads, profile, extra_runs: int = 0) -> List[PlanItem]:
         # a workload with fixed_counts (warmups, runs) ignores the profile: a stress test runs once for its minutes
+        # (no retry and no extra runs for it: a stress run is long and has no score to compare)
         plan = []
         for wl in workloads:
-            warmups, runs = getattr(wl, "fixed_counts", None) or (profile.warmup_runs, profile.repetitions)
+            fixed = getattr(wl, "fixed_counts", None)
+            warmups, runs = fixed or (profile.warmup_runs, profile.repetitions)
             plan.append(PlanItem(wl, repetitions=runs, warmup_runs=warmups,
-                                 timeout_seconds=_spec_value(wl, "timeout_seconds")))
+                                 timeout_seconds=_spec_value(wl, "timeout_seconds"),
+                                 retries=0 if fixed else RETRIES, max_extra_runs=0 if fixed else extra_runs))
         return plan
 
     def overview(self, plan: List[PlanItem], cooldown: int) -> dict:
@@ -389,7 +395,8 @@ class AutomationPanel(QGroupBox):
             logger.exception("Could not save session manifest")
         return sid
 
-    def start_plan(self, tools_ready: bool = False, workloads: Optional[list] = None, profile=None) -> bool:
+    def start_plan(self, tools_ready: bool = False, workloads: Optional[list] = None, profile=None,
+                   extra_runs: int = 0) -> bool:
         """Run the ticked tools, or `workloads` with `profile` (the Tests screen passes both)."""
         if self.is_running() or self.lhm.busy():
             return False
@@ -406,7 +413,7 @@ class AutomationPanel(QGroupBox):
         if self.telemetry_box.isChecked() and not tools_ready:
             # LibreHardwareMonitor for CPU sensors: asks to download/start it only when it is not running.
             started = []
-            self.lhm.ensure(lambda: started.append(self.start_plan(True, workloads, profile)))
+            self.lhm.ensure(lambda: started.append(self.start_plan(True, workloads, profile, extra_runs)))
             return bool(started and started[0])      # empty: it asks or downloads first, the run starts later
         chosen = {}
         for wl in workloads:
@@ -418,12 +425,15 @@ class AutomationPanel(QGroupBox):
                 wl.configure(settings)
                 chosen[wl.id] = settings
         profile = profile or self.get_profile()
-        plan = self.build_plan(workloads, profile)
+        plan = self.build_plan(workloads, profile, extra_runs)
         for item in plan:
             item.settings = chosen.get(item.workload.id)      # kept in the journal to resume after a crash
         info = self.overview(plan, int(profile.cooldown_seconds))
         text = (info["text"] + f"\n\nRun settings from profile {profile.name!r}. A new session is created. "
                 f"Emergency stop: the red button or {STOP_SHORTCUT}.")
+        text += ("\n\nA run that fails is stored as failed and run once more."
+                 + (f" When the scores of a test vary more than {CV_LIMIT_PERCENT:g}%, up to {extra_runs} extra "
+                    "run(s) are added." if extra_runs and any(p.max_extra_runs for p in plan) else ""))
         warnings = [wl.warning for wl in workloads if getattr(wl, "warning", None)]
         if warnings:
             text += "\n\nWARNING: " + "\n".join(warnings)

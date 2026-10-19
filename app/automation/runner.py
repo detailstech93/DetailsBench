@@ -7,6 +7,14 @@ further run; runs that never started are reported, not stored. A run that
 does not complete gets a diagnostic snapshot in its run folder. With a journal
 (app/automation/journal.py) the plan can be resumed after a crash: runs already
 done are skipped and the interrupted one is stored as failed.
+
+Reliability (ReBench's ideas, owner 2026-10-19), both only when the plan item asks for them (Tests screen plans):
+- retries: a measured run that ends "failed" or "timed_out" is stored as it is (never hidden) and then run once
+  more with the same run number, its note starting "Retry after a failed try". Not for warmups, "could not start"
+  (the program is missing: a second try ends the same), "invalid", "skipped" or "cancelled".
+- max_extra_runs: when an item's measured runs are done and their scores vary more than CV_LIMIT_PERCENT (at least
+  3 scores), one more measured run is added, again until the spread is below the limit or the extra runs are used
+  up. Each one's note says why.
 """
 
 import json
@@ -29,6 +37,24 @@ class PlanItem:
     warmup_runs: int = 1
     timeout_seconds: Optional[float] = None    # None: the workload's own default
     settings: Optional[dict] = None            # chosen before the plan (llama-benchy), kept to resume it
+    retries: int = 0                           # a failed measured run is run again this many times
+    max_extra_runs: int = 0                    # extra measured runs when the scores vary a lot
+
+
+CV_LIMIT_PERCENT = 5.0          # coefficient of variation above which the scores are called uneven
+RETRY_STATUSES = ("failed", "timed_out")
+NO_RETRY_ERRORS = ("could not start",)
+
+
+def should_retry(result: WorkloadResult) -> bool:
+    return (result.status in RETRY_STATUSES
+            and not any(str(result.error or "").startswith(e) for e in NO_RETRY_ERRORS))
+
+
+def spread_percent(scores: List[float]) -> Optional[float]:
+    """Coefficient of variation in percent (sample standard deviation / mean), or None below 3 scores."""
+    from app.stats import compute_stats
+    return compute_stats(scores)["cv_percent"] if len(scores) >= 3 else None
 
 
 @dataclass
@@ -163,9 +189,19 @@ class AutomationRunner:
             self.journal.finish()           # ended normally or stopped by the user: nothing to resume
         return summary
 
+    def _scores(self, summary: RunSummary, wid: str) -> List[float]:
+        return [r.result.score for r in summary.records if r.workload_id == wid and not r.is_warmup
+                and r.result.status == "completed" and r.result.score is not None]
+
     def _run_schedule(self, summary: RunSummary, schedule: list, stamp: str) -> RunSummary:
-        total = len(schedule)
-        for position, (item, run_index, is_warmup) in enumerate(schedule):
+        schedule = [(item, run_index, is_warmup, "") for item, run_index, is_warmup in schedule]
+        retried: Dict[Tuple[str, int], int] = {}
+        extra: Dict[str, int] = {}
+        position = -1
+        while position + 1 < len(schedule):
+            position += 1
+            total = len(schedule)
+            item, run_index, is_warmup, why = schedule[position]
             if self.stop_event.is_set():
                 summary.stopped = True
                 summary.not_started = len(schedule) - position
@@ -178,9 +214,11 @@ class AutomationRunner:
                     summary.not_started = len(schedule) - position
                     break
             wl = item.workload
-            label = f"{'warmup' if is_warmup else 'run'} {run_index}"
+            label = f"{'warmup' if is_warmup else 'run'} {run_index}" + (" (retry)" if why.startswith("Retry") else
+                                                                       " (extra)" if why else "")
+            tries = retried.get((wl.id, run_index), 0)
             run_dir = (self.output_root / f"session_{self.session_id}_{stamp}"
-                       / f"{wl.id}_{'w' if is_warmup else 'r'}{run_index}")
+                       / (f"{wl.id}_{'w' if is_warmup else 'r'}{run_index}" + (f"_retry{tries}" if tries else "")))
             run_dir.mkdir(parents=True, exist_ok=True)
             self.on_progress(f"{wl.display_name}: {label} started")
             self.on_step(position, total, f"{wl.display_name}: {label}")
@@ -205,7 +243,7 @@ class AutomationRunner:
                 self.session_id, wl.id, wl.benchmark_type, result.score, unit=result.unit or "points",
                 benchmark_version=wl.version(), is_test=wl.is_test, is_manual=False,
                 status=result.status, is_warmup=is_warmup, run_index=run_index,
-                note=result.error or result.note)
+                note="; ".join(p for p in (why, result.error or result.note) if p) or None)
             if result.status == "completed" and (result.metrics or telemetry_metrics):
                 self._store_metrics(record.result_id, {**telemetry_metrics, **(result.metrics or {})})
             if result.status == "completed" and (result.series or getattr(self, "_telemetry_series", None)):
@@ -224,6 +262,25 @@ class AutomationRunner:
                 summary.stopped = True
                 summary.not_started = len(schedule) - position - 1
                 break
+            if is_warmup or self.stop_event.is_set():
+                continue
+            if should_retry(result) and tries < item.retries:
+                retried[(wl.id, run_index)] = tries + 1
+                schedule.insert(position + 1, (item, run_index, False,
+                                               f"Retry after a failed try ({result.status}: {result.error or '-'})"))
+                self.on_progress(f"{wl.display_name}: {label} {result.status}; it is run once more")
+                continue
+            later = any(s[0] is item for s in schedule[position + 1:])
+            if not later and extra.get(wl.id, 0) < item.max_extra_runs:
+                cv = spread_percent(self._scores(summary, wl.id))
+                if cv is not None and cv > CV_LIMIT_PERCENT:
+                    extra[wl.id] = extra.get(wl.id, 0) + 1
+                    nxt = max(r.run_index for r in summary.records if r.workload_id == wl.id and not r.is_warmup) + 1
+                    schedule.insert(position + 1, (item, nxt, False,
+                                                   f"Extra run: the scores varied {cv:.1f}% (above "
+                                                   f"{CV_LIMIT_PERCENT:g}%), extra run {extra[wl.id]} of "
+                                                   f"{item.max_extra_runs}"))
+                    self.on_progress(f"{wl.display_name}: scores vary {cv:.1f}%; one more run")
         return summary
 
 

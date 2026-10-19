@@ -15,7 +15,7 @@ import webbrowser
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QGroupBox, QLabel,
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QGroupBox, QLabel,
                                QMessageBox, QScrollArea, QSpinBox, QVBoxLayout, QWidget)
 
 from app.catalog import TestEntry
@@ -32,6 +32,7 @@ class RunChoice:
     cooldown_seconds: int
     preset: Optional[presets.GamePreset] = None      # None: no game selected (or the dialog had no preset)
     stress_minutes: Optional[int] = None             # None: no stress test selected
+    extra_runs: int = 0                              # extra runs allowed when the scores vary a lot
 
 
 PRESET_KEY = "game_preset"          # settings.json: the last preset chosen on the Tests screen
@@ -176,6 +177,14 @@ class RunTestsDialog(QDialog):
         form.addRow("How many times (measured runs):", self.repetitions)
         form.addRow("Warm-up runs before them (not counted):", self.warmup)
         form.addRow("Pause between runs:", self.cooldown)
+        from app.automation.runner import CV_LIMIT_PERCENT
+        from app.ui.automation_panel import EXTRA_RUNS
+        self.extra_runs = QCheckBox(f"Up to {EXTRA_RUNS} more runs when the scores vary more than "
+                                    f"{CV_LIMIT_PERCENT:g}% (needs 3 runs or more)")
+        self.extra_runs.setChecked(True)
+        self.extra_runs_count = EXTRA_RUNS
+        form.addRow("Uneven scores:", self.extra_runs)
+        form.addRow("", QLabel("A run that fails is stored as failed and run once more by itself."))
         self.stress_minutes = None
         if any(e.id.startswith("stress_") for e in entries):
             from app.stress.workload import MINUTE_CHOICES, stress_minutes
@@ -215,7 +224,8 @@ class RunTestsDialog(QDialog):
     def choice(self) -> RunChoice:
         return RunChoice(self.repetitions.value(), self.warmup.value(), self.cooldown.value(),
                          self.preset_box.preset() if self.preset_box is not None else None,
-                         self.stress_minutes.currentData() if self.stress_minutes is not None else None)
+                         self.stress_minutes.currentData() if self.stress_minutes is not None else None,
+                         self.extra_runs_count if self.extra_runs.isChecked() else 0)
 
 
 def ask_choice(window, entries, profile, others, games=None, offered=None, initial=None) -> Optional[RunChoice]:
@@ -384,7 +394,8 @@ def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_re
 
     panel.on_plan_finished = finished
     started = panel.start_plan(workloads=[e.ref for e in automatic], profile=plan_profile(window.selected_profile(),
-                                                                                         choice))
+                                                                                         choice),
+                               extra_runs=choice.extra_runs)
     if started or panel.lhm.active():
         # stay on the Tests screen: green bar, percent and Stop there (Ctrl+Shift+X still works)
         window.tests_page.watch(lambda: plan_state(panel, result), panel.emergency_stop)

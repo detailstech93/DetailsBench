@@ -116,8 +116,10 @@ def test_failure_gets_screenshot_when_enabled(qapp, tmp_path):
     while panel.worker.isRunning():        # the screenshot request needs the GUI thread
         qapp.processEvents()
     qapp.processEvents()
-    assert [r["status"] for r in db.get_runs(panel.last_session_id, include_test=True)] == ["failed"]
-    assert len(calls) == 1 and calls[0].endswith("screenshot.png")
+    runs = db.get_runs(panel.last_session_id, include_test=True)
+    assert [r["status"] for r in runs] == ["failed", "failed"]           # the failed run is run once more
+    assert runs[1]["note"].startswith("Retry after a failed try (failed:")
+    assert len(calls) == 2 and calls[0].endswith("screenshot.png") and "retry1" in calls[1]
 
 
 def test_main_window_has_panel_and_shuts_it_down(qapp, tmp_path):
