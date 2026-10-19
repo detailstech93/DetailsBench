@@ -890,6 +890,14 @@ class FrameCapturePanel(QGroupBox):
             text = self.linux_text(spec, profile, total, declared)
         if self.remote_check():
             text += "\n\n" + REMOTE_WARNING
+        from app.environment import conditions as pc_now
+        try:
+            now = pc_now.timed_check()
+        except Exception:                 # a check that fails must never stop a run
+            logger.exception("Could not read the PC's conditions")
+            now = None
+        if now and now["items"]:
+            text += "\n\n" + pc_now.text(now["items"])
         if not self.confirm(text):
             self.status_label.setText("Cancelled; nothing was started.")
             return False
@@ -903,7 +911,7 @@ class FrameCapturePanel(QGroupBox):
             forced = (self.forced_factory or ForcedSettings)(spec.app_id, forced_values, run_dir, self.data_dir)
 
         def create_session(capture) -> int:
-            return self._create_game_session(spec, profile, environment, capture, forced, declared)
+            return self._create_game_session(spec, profile, environment, capture, forced, declared, now)
         self.worker = GameBenchmarkWorker(spec, run_dir, create_session, self.db, self.output_root,
                                           telemetry_sources.new_sampler if self.telemetry_box.isChecked() else None,
                                           self.benchmark_factory, forced)
@@ -958,7 +966,8 @@ class FrameCapturePanel(QGroupBox):
                 + ("Game settings declared by you (not checked): " + describe(declared) + "." if declared else
                    "Game settings are not forced on Linux yet; the game's own are used."))
 
-    def _create_game_session(self, spec, profile, environment, capture, forced=None, declared=None) -> int:
+    def _create_game_session(self, spec, profile, environment, capture, forced=None, declared=None,
+                             conditions=None) -> int:
         from app.games.settings_file import declared_record
         from app.manifest import build_manifest, git_commit
         name = f"{spec.game_name} {datetime.now().strftime('%Y-%m-%d %H:%M')}"
@@ -982,7 +991,7 @@ class FrameCapturePanel(QGroupBox):
             run_settings=settings, environment=environment,
             benchmarks_used=[{"name": tool.lower(), "display_name": tool, "version": version,
                               "executable_path": spec.presentmon_path, "detection_method": "found or downloaded"}],
-            commit=git_commit())
+            commit=git_commit(), conditions=conditions)
         try:
             self.db.save_session_manifest(sid, manifest)
         except Exception:

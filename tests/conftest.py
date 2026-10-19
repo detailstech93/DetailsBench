@@ -29,6 +29,14 @@ def _no_real_presentmon_search(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_conditions_check(monkeypatch):
+    """A plan reads the PC's power and background load before it asks to start. Tests must not depend on this
+    computer: nothing is read here; app/environment/conditions.py is tested with fakes."""
+    from app.environment import conditions
+    monkeypatch.setattr(conditions, "timed_check", lambda **kw: {"read_at": "test", "items": []})
+
+
+@pytest.fixture(autouse=True)
 def _no_real_telemetry(monkeypatch):
     """Runs started from the panels record telemetry by default (nvidia-smi, psutil, a local
     LibreHardwareMonitor server). Tests must not depend on this computer, so no source is used

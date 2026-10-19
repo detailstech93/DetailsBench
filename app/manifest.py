@@ -60,7 +60,8 @@ def build_manifest(session: Mapping, run_settings: Optional[Mapping] = None,
                    benchmarks_used: Iterable[Mapping] = (),
                    games_used: Iterable[Mapping] = (),
                    commit: Optional[str] = None,
-                   now: Optional[str] = None) -> dict:
+                   now: Optional[str] = None,
+                   conditions: Optional[Mapping] = None) -> dict:
     """Pure builder. `benchmarks_used` are BenchmarkInfo dicts (dataclasses.asdict);
     `games_used` are GameEntry dicts of the games actually run in the session."""
     benchmarks = [_benchmark_entry(b) for b in benchmarks_used]   # iterate once
@@ -87,6 +88,8 @@ def build_manifest(session: Mapping, run_settings: Optional[Mapping] = None,
             "runtimes": sorted({g["runtime"] for g in games if g.get("runtime")}),
             "any_emulated": any(not b["comparable_to_native"] for b in benchmarks),
         },
+        # what the PC was doing right before the run (app/environment/conditions.py); None when not read
+        "conditions": dict(conditions) if conditions else None,
     }
 
 

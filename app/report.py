@@ -919,6 +919,25 @@ def _environment_section(export: Mapping) -> str:
     )
 
 
+def _conditions_section(export: Mapping) -> str:
+    """What the PC was doing right before the run (power, power plan, background load), read by the app."""
+    manifest = _mapping(export.get("manifest")) or {}
+    conditions = _mapping(manifest.get("conditions")) or {}
+    items = [m for m in (_mapping(i) for i in conditions.get("items") or []) if m]
+    if not items:
+        return ""
+    rows = "".join(
+        f'<tr><td>{esc(i.get("name"))}</td><td>{esc(i.get("value"))}</td>'
+        f'<td>{"OK" if _truthy(i.get("ok")) else "Check: " + esc(i.get("advice") or "may lower the scores")}</td></tr>'
+        for i in items)
+    bad = not all(_truthy(i.get("ok")) for i in items)
+    return ("<section><h2>PC before the run</h2>"
+            + (f'<p class="muted">Read at {esc(conditions.get("read_at"))}.'
+               + (" Something here may have made the scores lower or uneven." if bad else "") + "</p>")
+            + '<div class="table-wrap"><table><thead><tr><th>Check</th><th>Value</th><th>Result</th></tr></thead>'
+            "<tbody>" + rows + "</tbody></table></div></section>")
+
+
 def _reproducibility_section(export: Mapping) -> str:
     manifest = _mapping(export.get("manifest")) or {}
     run_settings = _mapping(manifest.get("run_settings")) or {}
@@ -1112,6 +1131,7 @@ def render_session_report(export: Mapping) -> str:
         "<body>"
         "<main>"
         + _header_section(export_mapping)
+        + _conditions_section(export_mapping)
         + _game_section(export_mapping)
         + _stress_section(export_mapping)
         + _blender_section(export_mapping)

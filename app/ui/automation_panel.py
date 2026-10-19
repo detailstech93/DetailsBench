@@ -369,7 +369,7 @@ class AutomationPanel(QGroupBox):
         from app.ui.long_question import ask_yes_no
         return ask_yes_no(self, "Run automated benchmarks?", text)
 
-    def _create_session(self, workloads, profile) -> int:
+    def _create_session(self, workloads, profile, conditions: Optional[dict] = None) -> int:
         from app.manifest import build_manifest, git_commit
         name = f"Automated {datetime.now().strftime('%Y-%m-%d %H:%M')}"
         is_test = all(wl.is_test for wl in workloads)
@@ -382,7 +382,7 @@ class AutomationPanel(QGroupBox):
                               "detection_method": "tool spec " + wl.executable()[1],
                               **({"model": wl.model} if getattr(wl, "model", None) else {})}
                              for wl in workloads],
-            commit=git_commit())
+            commit=git_commit(), conditions=conditions)
         try:
             self.db.save_session_manifest(sid, manifest)
         except Exception:
@@ -427,6 +427,14 @@ class AutomationPanel(QGroupBox):
         warnings = [wl.warning for wl in workloads if getattr(wl, "warning", None)]
         if warnings:
             text += "\n\nWARNING: " + "\n".join(warnings)
+        from app.environment import conditions as pc_now
+        try:
+            now = pc_now.timed_check()
+        except Exception:                 # a check that fails must never stop a run
+            logger.exception("Could not read the PC's conditions")
+            now = None
+        if now and now["items"]:
+            text += "\n\n" + pc_now.text(now["items"])
         self.asking = True
         try:
             confirmed = self.confirm(text)
@@ -435,7 +443,7 @@ class AutomationPanel(QGroupBox):
         if not confirmed:
             self.status_label.setText("Cancelled; nothing was run.")
             return False
-        sid = self._create_session(workloads, profile)
+        sid = self._create_session(workloads, profile, now)
         self.last_session_id, self.last_summary = sid, None
         self._start_worker(sid, plan, profile.cooldown_seconds)
         self.status_label.setText(f"Running in session #{sid} ({info['total_runs']} runs)...")
