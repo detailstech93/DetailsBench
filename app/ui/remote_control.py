@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QFrame, QGridLa
 
 from app.catalog import GROUPS, TYPED_GROUP, TestEntry
 from app.remote import server as remote
-from app.ui.tests_page import elapsed_text, progress_percent
+from app.ui.tests_page import SCANNING_TEXT, elapsed_text, progress_percent
 
 logger = logging.getLogger(__name__)
 
@@ -205,6 +205,8 @@ def remote_start(window, ids: List[str], repetitions: int, warmup_runs: int, coo
     panel, page = window.automation_panel, window.tests_page
     if panel.is_running() or window.frame_panel.is_running() or page.busy or panel.lhm.busy():
         return False, "A run is already going on; wait for it or stop it first."
+    if getattr(page, "scanning", False):
+        return False, "The app is scanning this PC for tests; start when the scan ends."
     offered = {e.id: e for e in remote_entries(page.entries)}
     missing = [i for i in ids if i not in offered]
     if missing:
@@ -413,6 +415,9 @@ class RemoteApi:
         listed = self.reports()
         out["newest_report"] = listed[0]["name"] if listed else ""     # also after the app started again
         out["tests_key"] = tests_key(page.entries)
+        out["scanning"] = bool(getattr(page, "scanning", False)) and not running
+        if out["scanning"]:
+            out["text"] = SCANNING_TEXT
         return out
 
     def start(self, ids, repetitions, warmup_runs, cooldown_seconds, stress_minutes=None,

@@ -529,3 +529,14 @@ def test_games_and_tests_are_not_started_together(monkeypatch):
     monkeypatch.setattr(rc, "remote_entries", lambda entries, platform=None: entries)
     ok, text = rc.remote_start(window, ["steam_1", "sevenzip_benchmark"], 1, 0, 0)
     assert not ok and "do not run together" in text
+
+
+def test_nothing_starts_from_the_phone_while_the_pc_scans(tmp_path):
+    """Owner, 2026-10-20: no test starts while the app scans the PC for tests."""
+    from app.ui.remote_control import remote_start
+    w = _window(tmp_path, [_entry("sevenzip_benchmark")])
+    w.tests_page.scanning = True
+    ok, text = remote_start(w, ["sevenzip_benchmark"], 1, 0, 0, launch=lambda *a, **k: True)
+    assert not ok and "scanning" in text
+    from app.remote.page import PAGE as html
+    assert "s.running || !!s.scanning" in html

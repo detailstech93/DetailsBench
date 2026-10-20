@@ -455,7 +455,8 @@ function showState(s) {
   showPlan(s.tests);
   $("stop").disabled = !s.running;
   $("skip").classList.toggle("hidden", !s.can_skip);
-  $("start").disabled = s.running;
+  $("start").disabled = s.running || !!s.scanning;   // nothing starts while the PC scans for tests
+  $("pill").textContent = s.running ? "running" : (s.scanning ? "scanning" : "idle");
   const finished = wasRunning && !s.running;
   if (finished) {                                   // a run or an install ended: say how, read the tests again
     $("message").textContent = s.text || "Finished.";

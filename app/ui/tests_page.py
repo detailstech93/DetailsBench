@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (QCheckBox, QFrame, QHBoxLayout, QHeaderView, QLab
 
 from app.catalog import ASSISTED, AUTOMATIC, GROUPS, INSTALLED, MISSING, TYPED_GROUP, TestEntry, counts
 
+SCANNING_TEXT = "Scanning this PC for tests and programs... Tests can start when the scan ends."
 COLUMNS = ["Test", "Installed", "How it runs", "Verified", "Time", ""]
 MODE_TEXT = {AUTOMATIC: "Automatic", ASSISTED: "Assisted (you start it)", "manual": "Manual (you type the score)"}
 STATE_TEXT = {INSTALLED: "✔ installed", MISSING: "⬇ not installed", "unusable": "⚠ cannot run"}
@@ -112,6 +113,14 @@ class TestsPage(QWidget):
         bar.addWidget(self.show_all)
         layout.addLayout(bar)
 
+        # owner, 2026-10-20: while the app scans the PC for tests nothing starts, and the screen says so
+        self.scan_banner = QLabel(SCANNING_TEXT)
+        self.scan_banner.setWordWrap(True)
+        self.scan_banner.setStyleSheet("QLabel { background: #fef3c7; color: #92400e; border: 1px solid #f59e0b; "
+                                       "border-radius: 4px; padding: 8px; font-weight: bold; }")
+        self.scan_banner.setVisible(False)
+        layout.addWidget(self.scan_banner)
+
         self.tree = QTreeWidget()
         self.tree.setColumnCount(len(COLUMNS))
         self.tree.setHeaderLabels(COLUMNS)
@@ -135,12 +144,12 @@ class TestsPage(QWidget):
         self.run_all_btn.setMinimumHeight(40)
         self.run_all_btn.setToolTip("Every test for this PC. Tests that are not installed are listed first: install "
                                     "them, then everything runs, or run only what is installed.")
-        self.run_all_btn.clicked.connect(lambda: self.busy or self.run_all_requested.emit(self.section_entries()))
+        self.run_all_btn.clicked.connect(lambda: self.blocked() or self.run_all_requested.emit(self.section_entries()))
         self.run_plan_btn = QPushButton("Run a saved plan...")
         self.run_plan_btn.setMinimumHeight(40)
         self.run_plan_btn.setToolTip("Every run from this screen is saved as a plan (tests, runs, warm-ups, pause, "
                                      "game settings). Pick one to run the same again.")
-        self.run_plan_btn.clicked.connect(lambda: self.busy or self.run_plan_requested.emit())
+        self.run_plan_btn.clicked.connect(lambda: self.blocked() or self.run_plan_requested.emit())
         self.ai_models_btn = QPushButton("AI models...")
         self.ai_models_btn.setMinimumHeight(40)
         self.ai_models_btn.setToolTip("The LM Studio models measured with fixed settings (llama-benchy): add your "
@@ -215,6 +224,7 @@ class TestsPage(QWidget):
         self.record_fn: Optional[Callable[[], object]] = None
         self.report_fn: Optional[Callable[[], object]] = None
         self.busy = False
+        self.scanning = False
         self.started_at: Optional[float] = None
         self.timer = QTimer(self)
         self.timer.setInterval(300)
@@ -304,7 +314,7 @@ class TestsPage(QWidget):
         if e.can_run():
             b = QPushButton("Run alone..." if e.waits_for_typed_score() else "Run...")
             b.clicked.connect(lambda checked=False, x=e: self.request_run([x]))
-            b.setEnabled(not self.busy)
+            b.setEnabled(not self.blocked())
             return b
         if e.compatible and e.state == MISSING and installable(e, self.host):
             b = QPushButton("Install")
@@ -347,9 +357,9 @@ class TestsPage(QWidget):
 
     def update_run_button(self):
         n = len(self.selected_ids())
-        self.run_btn.setEnabled(n > 0 and not self.busy)
-        self.run_all_btn.setEnabled(bool(self.section_entries()) and not self.busy)
-        self.run_plan_btn.setEnabled(bool(self.entries) and not self.busy)
+        self.run_btn.setEnabled(n > 0 and not self.blocked())
+        self.run_all_btn.setEnabled(bool(self.section_entries()) and not self.blocked())
+        self.run_plan_btn.setEnabled(bool(self.entries) and not self.blocked())
         self.run_btn.setText(f"Run selected ({n})..." if n else "Run selected...")
 
     def run_selected(self):
@@ -362,8 +372,18 @@ class TestsPage(QWidget):
             self.install_requested.emit(entry)
 
     def request_run(self, entries: List[TestEntry]):
-        if not self.busy:           # one test (or plan) at a time
+        if not self.blocked():      # one test (or plan) at a time, never while the scan goes on
             self.run_requested.emit(entries)
+
+    def blocked(self) -> bool:
+        """A run is going on, or the app is scanning the PC for tests (nothing starts then)."""
+        return self.busy or self.scanning
+
+    def set_scanning(self, scanning: bool):
+        self.scanning = scanning
+        self.scan_banner.setVisible(scanning)
+        self.rescan_btn.setEnabled(not scanning and not self.busy)
+        self._sync_run_buttons()
 
     # ---- progress ------------------------------------------------------------------
     def watch(self, get_state: Callable[[], RunState], stop: Callable[[], object],
@@ -439,11 +459,19 @@ class TestsPage(QWidget):
         self.busy = busy
         for widget in (self.all_btn, self.clear_btn, self.rescan_btn):
             widget.setEnabled(not busy)
+        self.rescan_btn.setEnabled(not busy and not self.scanning)
         for item in self.items.values():
             button = self.tree.itemWidget(item, 5)
-            if isinstance(button, QPushButton) and button.text() in ("Run...", "Install"):
+            if isinstance(button, QPushButton) and button.text() == "Install":
                 button.setEnabled(not busy)
         self.tree.setEnabled(not busy)
+        self._sync_run_buttons()
+
+    def _sync_run_buttons(self):
+        for item in self.items.values():
+            button = self.tree.itemWidget(item, 5)
+            if isinstance(button, QPushButton) and button.text().startswith("Run"):
+                button.setEnabled(not self.blocked())
         self.update_run_button()
 
     def refresh_progress(self):

@@ -1197,6 +1197,7 @@ class MainWindow(QMainWindow):
         # Update "Scanning..." UI state
         self.rescan_btn.setEnabled(False)
         self.rescan_btn.setText("Scanning...")
+        self.tests_page.set_scanning(True)          # no test starts until the scan ends (owner, 2026-10-20)
         self.status_label.setText("Scanning benchmarks and system capabilities...")
         
         # Instantiate worker and keep referenced on self._scan_worker
@@ -1271,6 +1272,7 @@ class MainWindow(QMainWindow):
         # Restore UI controls
         self.rescan_btn.setEnabled(True)
         self.rescan_btn.setText("Rescan Benchmarks")
+        self.tests_page.set_scanning(False)
         self.status_label.setText(f"Scan complete: {len(benchmarks)} benchmarks evaluated")
         
         # Refresh Library and Run screens
@@ -1296,6 +1298,7 @@ class MainWindow(QMainWindow):
         """Handle worker scan error."""
         self.rescan_btn.setEnabled(True)
         self.rescan_btn.setText("Rescan Benchmarks")
+        self.tests_page.set_scanning(False)
         self.status_label.setText(f"Scan error: {err_msg}")
         QMessageBox.warning(self, "Scan Error", f"An error occurred during benchmark scan:\n{err_msg}")
         self._run_after_scan()

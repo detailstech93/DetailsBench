@@ -345,3 +345,23 @@ def test_tests_with_a_typed_score_are_apart_and_cannot_be_ticked(qapp):
     assert page.tree.itemWidget(item, 5).text() == "Run alone..."
     page.set_all(True)
     assert page.selected_ids() == ["a"]
+
+
+def test_nothing_starts_while_the_app_scans_and_it_says_so(qapp):
+    """Owner, 2026-10-20: while the app scans for tests nothing starts, and it is clear it is scanning."""
+    page = TestsPage()
+    page.set_entries([entry("a"), entry("b")])
+    asked = []
+    page.run_requested.connect(asked.append)
+    page.set_checked("a")
+    page.set_scanning(True)
+    assert not page.scan_banner.isHidden() and "Scanning" in page.scan_banner.text()
+    assert not page.run_btn.isEnabled() and not page.run_all_btn.isEnabled() and not page.rescan_btn.isEnabled()
+    assert not page.tree.itemWidget(page.items["b"], 5).isEnabled()
+    page.request_run([page.entry("b")])
+    assert asked == []
+    page.set_scanning(False)
+    assert page.scan_banner.isHidden() and page.run_btn.isEnabled()
+    assert page.tree.itemWidget(page.items["b"], 5).isEnabled()
+    page.request_run([page.entry("b")])
+    assert len(asked) == 1
