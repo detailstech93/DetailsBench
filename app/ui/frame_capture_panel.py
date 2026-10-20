@@ -83,7 +83,9 @@ def read_os_release(path: str = "/etc/os-release") -> dict:
 
 
 def run_commands(commands: List[List[str]], runner: Callable = subprocess.run) -> str:
-    """Run each argv in order (no shell); stop at the first failure. pkexec 126/127 = prompt declined."""
+    """Run each argv in order (no shell); stop at the first failure. pkexec 126/127 = prompt declined; sudo -A
+    (app/install/linux_admin.py) says so on its error output."""
+    from app.install.linux_admin import is_sudo
     for argv in commands:
         try:
             res = runner(argv, capture_output=True, text=True, timeout=900)
@@ -91,6 +93,12 @@ def run_commands(commands: List[List[str]], runner: Callable = subprocess.run) -
             return f"failed: {e}"
         if res.returncode in (126, 127) and argv and argv[0].endswith("pkexec"):
             return "cancelled (password prompt declined)"
+        said = (res.stderr or "").lower()
+        if res.returncode != 0 and is_sudo(argv) and ("no password was provided" in said
+                                                         or "a password is required" in said):
+            return "cancelled (password window closed)"
+        if res.returncode != 0 and is_sudo(argv) and ("incorrect password" in said or "password attempts" in said):
+            return "the password was not accepted"
         if res.returncode != 0:
             tail = (res.stderr or res.stdout or "").strip().splitlines()[-1:] or [""]
             return f"failed (exit code {res.returncode}): {tail[0]}"

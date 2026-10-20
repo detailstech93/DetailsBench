@@ -16,6 +16,11 @@ if len(sys.argv) > 1 and sys.argv[1] == "--console-capture":
     from app.automation.console_capture import helper_main
     sys.exit(helper_main(sys.argv[2:]))
 
+# the password window sudo starts for an install on Linux without pkexec (app/install/linux_admin.py)
+if len(sys.argv) > 1 and sys.argv[1] == "--askpass":
+    from app.install.linux_admin import askpass_main
+    sys.exit(askpass_main(sys.argv[2:]))
+
 
 def main():
     """Main entry point."""

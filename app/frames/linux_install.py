@@ -141,7 +141,8 @@ def tesseract_install_plan(os_release: dict, which: Callable[[str], Optional[str
 
 
 def package_install_plan(tool: str, binary: str, install_args: dict, verified_arch: set, os_release: dict,
-                         which: Callable[[str], Optional[str]], native_arch: str) -> InstallPlan:
+                         which: Callable[[str], Optional[str]], native_arch: str,
+                         askpass: Optional[Callable[[], Optional[str]]] = None) -> InstallPlan:
     arch = _clean_arch(native_arch)
 
     existing = _safe_which(which, binary)
@@ -179,15 +180,16 @@ def package_install_plan(tool: str, binary: str, install_args: dict, verified_ar
             error=f"package manager {package_manager} not found",
         )
 
-    pkexec_path = _safe_which(which, "pkexec")
-    if not pkexec_path:
+    from app.install.linux_admin import admin_prefix       # pkexec, else sudo with the app's password window
+    root, why = admin_prefix(lambda name: _safe_which(which, name), askpass)
+    if why:
         return InstallPlan(
             family=family,
             package_manager=package_manager,
-            error=f"pkexec not found; install {tool} with your package manager",
+            error=f"{why}; install {tool} with your package manager",
         )
 
-    command = [pkexec_path, package_manager_path] + list(install_args.get(package_manager, []))
+    command = root + [package_manager_path] + list(install_args.get(package_manager, []))
     plan = InstallPlan(
         family=family,
         package_manager=package_manager,
@@ -196,7 +198,7 @@ def package_install_plan(tool: str, binary: str, install_args: dict, verified_ar
 
     if package_manager == "apt-get":
         plan.needs_update_first = True
-        plan.update_command = [pkexec_path, package_manager_path, "update"]
+        plan.update_command = root + [package_manager_path, "update"]
 
     verified = (family, arch) in verified_arch
     plan.verified = verified

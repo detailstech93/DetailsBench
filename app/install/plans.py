@@ -83,17 +83,19 @@ LINUX_INSTALL_ARGS = {
 }
 
 
-def linux_commands(family: str, package: str, which: Callable[[str], Optional[str]] = shutil.which
-                   ) -> Tuple[List[List[str]], Optional[str]]:
+def linux_commands(family: str, package: str, which: Callable[[str], Optional[str]] = shutil.which,
+                   askpass: Optional[Callable[[], Optional[str]]] = None) -> Tuple[List[List[str]], Optional[str]]:
     """(argv list to run in order, None) or ([], why not). apt-get refreshes its package list first."""
     from app.frames.linux_install import PACKAGE_MANAGERS
     manager = next((m for m, f in PACKAGE_MANAGERS if f == family), None)
     if manager is None:
         return [], f"no package manager known for {family}"
-    manager_path, pkexec = which(manager), which("pkexec")
+    manager_path = which(manager)
     if not manager_path:
         return [], f"{manager} not found"
-    if not pkexec:
-        return [], f"pkexec not found; install {package} with {manager} yourself"
-    commands = [[pkexec, manager_path, "update"]] if manager == "apt-get" else []
-    return commands + [[pkexec, manager_path] + LINUX_INSTALL_ARGS[manager](package)], None
+    from app.install.linux_admin import admin_prefix       # pkexec, else sudo with the app's password window
+    root, why = admin_prefix(which, askpass)
+    if why:
+        return [], f"{why}; install {package} with {manager} yourself"
+    commands = [root + [manager_path, "update"]] if manager == "apt-get" else []
+    return commands + [root + [manager_path] + LINUX_INSTALL_ARGS[manager](package)], None

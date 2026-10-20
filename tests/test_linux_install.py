@@ -203,7 +203,19 @@ def test_unknown_distro_reports_error():
     assert plan.error == "unsupported distribution: unknown"
 
 
-def test_missing_pkexec_reports_error():
+def test_without_pkexec_sudo_asks_in_the_apps_own_password_window():
+    """WSL has no pkexec (owner, 2026-10-20): sudo -A with the app's password window instead."""
+    which = make_which({"apt-get": "/usr/bin/apt-get", "sudo": "/usr/bin/sudo", "env": "/usr/bin/env",
+                        "mangohud": None})
+    from app.frames.linux_install import package_install_plan, INSTALL_ARGS, VERIFIED_ARCH
+    plan = package_install_plan("MangoHud", "mangohud", INSTALL_ARGS, VERIFIED_ARCH, {"ID": "ubuntu"}, which, "x64",
+                                askpass=lambda: "/home/u/.local/share/PCBenchmarkManager/askpass.sh")
+    root = ["/usr/bin/env", "SUDO_ASKPASS=/home/u/.local/share/PCBenchmarkManager/askpass.sh", "/usr/bin/sudo", "-A"]
+    assert plan.error is None and plan.command[:5] == root + ["/usr/bin/apt-get"]
+    assert plan.update_command == root + ["/usr/bin/apt-get", "update"]
+
+
+def test_missing_pkexec_and_sudo_reports_error():
     which = make_which(
         {
             "apt-get": "/usr/bin/apt-get",
@@ -219,7 +231,7 @@ def test_missing_pkexec_reports_error():
     assert plan.needs_update_first is False
     assert plan.verified is False
     assert plan.note is None
-    assert plan.error == "pkexec not found; install MangoHud with your package manager"
+    assert plan.error == "neither pkexec nor sudo was found; install MangoHud with your package manager"
 
 
 def test_missing_package_manager_reports_error():
