@@ -17,9 +17,9 @@ from typing import Dict, List, Optional, Tuple, Any, Set
 from dataclasses import dataclass
 from enum import Enum
 import tempfile
-import types
 try:
     import winreg
+    HAS_REGISTRY = True
 except ImportError:                     # Linux: no registry; every registry read finds nothing
     class _NoRegistry:
         HKEY_LOCAL_MACHINE = HKEY_CURRENT_USER = KEY_READ = KEY_WOW64_64KEY = KEY_WOW64_32KEY = 0
@@ -29,6 +29,7 @@ except ImportError:                     # Linux: no registry; every registry rea
             raise OSError("no Windows registry on this system")
 
     winreg = _NoRegistry()
+    HAS_REGISTRY = False
 import time
 from datetime import datetime
 import pefile
@@ -954,7 +955,7 @@ $res | ConvertTo-Json -Depth 3
                 channel_errors.append(f"channel start_menu failed: {exc}")
 
         # 4. App Paths
-        if 'app_paths' in definition.discovery_channels and isinstance(winreg, types.ModuleType):
+        if 'app_paths' in definition.discovery_channels and HAS_REGISTRY:
             try:
                 term_lower = definition.id.lower()
                 for hkey, flag in [

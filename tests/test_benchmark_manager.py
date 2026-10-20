@@ -15,7 +15,6 @@ import os
 import tempfile
 import struct
 from unittest.mock import Mock, patch, MagicMock, PropertyMock
-import winreg
 
 from app.benchmark_manager import (
     BenchmarkManager, BenchmarkExecutor,
