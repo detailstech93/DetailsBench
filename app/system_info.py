@@ -296,8 +296,77 @@ def get_operating_system() -> str:
         return "Unknown"
 
 
+def _read(path: str) -> str:
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+def parse_cpuinfo_model(text: str) -> Optional[str]:
+    """The processor's name from /proc/cpuinfo ("model name" on x86, "Model" on many ARM boards)."""
+    for key in ("model name", "Model", "Hardware"):
+        for line in text.splitlines():
+            name, sep, value = line.partition(":")
+            if sep and name.strip() == key and value.strip():
+                return " ".join(value.split())
+    return None
+
+
+def parse_lspci_gpus(text: str) -> List[str]:
+    """Display adapters from `lspci` lines ("... VGA compatible controller: NVIDIA Corporation ...")."""
+    out = []
+    for line in text.splitlines():
+        for kind in ("VGA compatible controller:", "3D controller:", "Display controller:"):
+            if kind in line:
+                name = line.split(kind, 1)[1].strip()
+                if name and name not in out:
+                    out.append(name)
+    return out
+
+
+def _linux_gpus(run=subprocess.run) -> List[str]:
+    """nvidia-smi names first (exact model), then lspci; WSL has no PCI list, only the NVIDIA tool."""
+    names: List[str] = []
+    for command, parse in ((["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                            lambda t: [l.strip() for l in t.splitlines() if l.strip()]),
+                           (["lspci"], parse_lspci_gpus)):
+        try:
+            res = run(command, capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if res.returncode == 0:
+            for name in parse(res.stdout or ""):
+                if name not in names and not any(name in n or n in name for n in names):
+                    names.append(name)
+    return names
+
+
+def linux_summary(read=_read, run=subprocess.run) -> dict:
+    """The same summary on Linux (no PowerShell there): /proc/cpuinfo, psutil, nvidia-smi / lspci, os-release."""
+    from app.environment.linux_parsers import is_wsl, parse_os_release
+    import os
+    try:
+        import psutil
+        cores, threads = psutil.cpu_count(logical=False), psutil.cpu_count()
+    except Exception:
+        cores = threads = os.cpu_count()
+    ram = get_ram_size()
+    cpu = parse_cpuinfo_model(read("/proc/cpuinfo")) or platform.processor() or None
+    release = parse_os_release(read("/etc/os-release"))
+    system = release.get("PRETTY_NAME") or f"Linux {platform.release()}"
+    if is_wsl(read("/proc/version"), os.environ):
+        system += " (WSL)"
+    return {'cpu_brand': cpu, 'cpu_model': cpu, 'core_count': cores, 'thread_count': threads,
+            'ram_size_gb': ram[0] if ram else None, 'gpu_name': ", ".join(_linux_gpus(run)) or None,
+            'operating_system': system}
+
+
 def get_system_summary() -> dict:
     """Get a summary of all system information."""
+    if sys.platform.startswith("linux"):
+        return linux_summary()
     ram_info = get_ram_size()
     return {
         'cpu_brand': get_cpu_brand(),
