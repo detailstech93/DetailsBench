@@ -86,8 +86,8 @@ class _Label:
 
 
 class _Page:
-    def watch(self, *a):
-        pass
+    def watch(self, *a, skip=None):
+        self.skip = skip
 
     def offer_report(self, fn):
         self.offered = fn
@@ -105,6 +105,9 @@ class _Panel:
     def emergency_stop(self):
         pass
 
+    def skip_test(self):
+        pass
+
 
 def test_a_plan_of_several_tests_saves_each_report_and_opens_only_the_summary(tmp_path, monkeypatch):
     from types import SimpleNamespace
@@ -120,6 +123,7 @@ def test_a_plan_of_several_tests_saves_each_report_and_opens_only_the_summary(tm
     entries = [SimpleNamespace(ref="a"), SimpleNamespace(ref="b")]
     choice = SimpleNamespace(extra_runs=0)
     assert run_tests.launch(window, entries, choice, opener=opened.append)
+    assert window.tests_page.skip == panel.skip_test        # several tests: the Skip button
     db.create_result(sid, "a", "cpu", 5.0, unit="pts", run_index=1, duration_seconds=3)
     panel.on_step_report(1, 2, "b: run 1")                      # a is over, b starts
     stamp = rs.stamp(build_session_export(db, sid)["session"]["created_at"])
@@ -175,3 +179,30 @@ def test_the_summary_shows_each_tests_main_numbers_in_run_order(tmp_path):
     assert rs.key_numbers(export, "sevenzip_benchmark") == ""
     path = rs.write_report_set(export, tmp_path / "reports")
     assert "Single-Core 2,033 points" in path.read_text(encoding="utf-8")
+
+
+def test_a_skipped_test_says_how_far_it_got(tmp_path):
+    """Owner, 2026-10-20: the Skip button; the final report and the test's own report say "skipped after N runs"
+    or "before any result"."""
+    db = Database(str(tmp_path / "r.db"))
+    sid = db.create_session("Automated")
+    for i, score in ((1, 100.0), (2, 110.0)):
+        db.create_result(sid, "tool_a", "cpu", score, unit="pts", run_index=i, duration_seconds=10)
+    db.create_result(sid, "tool_a", "cpu", None, status="skipped", run_index=3,
+                     note="Skipped by the user after 2 of 3 runs")
+    db.create_result(sid, "tool_b", "cpu", None, status="skipped", run_index=1,
+                     note="Skipped by the user before any result")
+    db.create_result(sid, "tool_c", "cpu", 5.0, unit="pts", run_index=1, duration_seconds=10)
+    export = build_session_export(db, sid)
+    export["session"]["created_at"] = "2026-10-20T09:15:30"
+    a, b, c = (rs.test_outcome(export, n) for n in ("tool_a", "tool_b", "tool_c"))
+    assert a["skipped"] == "Skipped by the user after 2 of 3 runs" and not a["passed"]
+    assert a["result"].startswith("105") and a["result"].endswith("; skipped by the user after 2 of 3 runs")
+    assert a["runs"] == "2 of 2 measured run(s) completed"
+    assert b["result"] == "Skipped by the user before any result" and not b["passed"] and not b["details"]
+    assert c["passed"] and not c["skipped"]
+    summary = rs.write_report_set(export, tmp_path / "out").read_text(encoding="utf-8")
+    assert summary.count('class="warn-text">Skipped<') == 2 and "FAILED" not in summary
+    assert "1 <span>of 3 (2 skipped)</span>" in summary and 'class="tile good"' in summary
+    own = next((tmp_path / "out").rglob("tool_b_*.html")).read_text(encoding="utf-8")
+    assert "Skipped by the user before any result" in own

@@ -184,3 +184,58 @@ def test_the_report_tile_counts_retries_and_extra_runs():
         {**run, "status": "completed", "note": "Extra run: the scores varied 9.0% (above 5%), extra run 1 of 2"}]}
     html = _passmark_section(export)
     assert "Run again after a failure</th><td>1 (" in html and "Extra runs</th><td>1 (" in html
+
+
+def test_skip_mid_run_ends_only_that_test(db, tmp_path):
+    database, sid = db
+    holder = {}
+
+    def skip_on_second(ctx):
+        if ctx.run_index == 2:
+            holder["runner"].skip_test()
+            assert ctx.stop_event.is_set()          # the run in progress sees the skip as its stop
+
+    x = Scripted("x", [ok(1.0), WorkloadResult(status="cancelled", error="stopped by user"), ok(9.0)],
+                 on_run=skip_on_second)
+    runner = AutomationRunner(database, sid, [PlanItem(x, 3, 0), PlanItem(Scripted("y", [ok(3.0)]), 1, 0)],
+                              tmp_path / "o")
+    holder["runner"] = runner
+    summary = runner.run()
+    assert not summary.stopped
+    assert [(r["status"], r["note"]) for r in database.get_runs(sid)] ==         [("completed", None), ("skipped", "Skipped by the user after 1 of 3 runs"), ("completed", None)]
+    assert len(x.contexts) == 2 and not x.contexts[1].stop_event.is_set()
+
+
+def test_skip_during_a_pause_skips_the_test_about_to_run(db, tmp_path):
+    database, sid = db
+    holder = {}
+    x = Scripted("x", [ok(1.0)], on_run=lambda ctx: threading.Timer(0.2, holder["runner"].skip_test).start())
+    y = Scripted("y", [ok(3.0), ok(4.0)])
+    runner = AutomationRunner(database, sid, [PlanItem(x, 1, 0), PlanItem(y, 2, 0)], tmp_path / "o",
+                              cooldown_seconds=30)
+    holder["runner"] = runner
+    summary = runner.run()
+    assert not summary.stopped and y.contexts == []
+    assert [(r["status"], r["note"]) for r in database.get_runs(sid)] == \
+        [("completed", None), ("skipped", "Skipped by the user before any result")]
+
+
+def test_skip_as_a_run_ends_well_skips_its_other_runs(db, tmp_path):
+    database, sid = db
+    holder = {}
+    x = Scripted("x", [ok(1.0), ok(2.0), ok(3.0)],
+                 on_run=lambda ctx: holder["runner"].skip_test() if ctx.run_index == 2 else None)
+    runner = AutomationRunner(database, sid, [PlanItem(x, 3, 0)], tmp_path / "o")
+    holder["runner"] = runner
+    runner.run()
+    assert [(r["run_index"], r["status"], r["score"], r["note"]) for r in database.get_runs(sid)] == \
+        [(1, "completed", 1.0, None), (2, "completed", 2.0, None),
+         (3, "skipped", None, "Skipped by the user after 2 of 3 runs")]
+
+
+def test_skip_with_nothing_going_on_does_nothing(db, tmp_path):
+    database, sid = db
+    runner = AutomationRunner(database, sid, [PlanItem(Scripted("x", [ok(1.0)]), 1, 0)], tmp_path / "o")
+    assert runner.skip_test() is None
+    runner.run()
+    assert [r["status"] for r in database.get_runs(sid)] == ["completed"]

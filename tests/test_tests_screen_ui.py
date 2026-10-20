@@ -163,6 +163,20 @@ def test_progress_helpers_and_stop(qapp):
     page.refresh_progress()
     assert not page.busy and page.progress_label.text() == "Session #3 done: 1 cancelled."
     assert page.tree.itemWidget(page.items["a"], 5).isEnabled() and not page.timer.isActive()
+    assert page.skip_btn.isHidden() and not page.skip()             # one test: no Skip button
+
+
+def test_skip_button_only_for_a_plan_of_several_tests(qapp):
+    from app.ui.tests_page import RunState
+    page = TestsPage()
+    page.set_entries([entry("a"), entry("b")])
+    skips, stops = [], []
+    page.watch(lambda: RunState(True, 1, 4, "a: run 2"), lambda: stops.append(1), skip=lambda: skips.append(1))
+    assert not page.skip_btn.isHidden() and page.can_skip()
+    page.skip_btn.click()
+    assert skips == [1] and stops == [] and page.busy           # only the test going on ends; the plan goes on
+    page.stop_btn.click()
+    assert stops == [1] and not page.skip()                     # stopping: nothing left to skip
 
 
 def test_manual_test_waits_for_the_score(qapp):

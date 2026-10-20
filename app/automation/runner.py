@@ -19,11 +19,16 @@ Reliability (ReBench's ideas, owner 2026-10-19), both only when the plan item as
 Screen (overnight run, 2026-10-20): the whole run holds keep_awake() (app/automation/awake.py) so the screen does
 not go off and lock; a workload with needs_desktop (it draws on the screen or needs its window in front) is not
 started while the screen is locked: it is stored as "skipped" with the reason instead of waiting for its timeout.
+
+Skip (owner, 2026-10-20): skip_test() ends only the test going on (or, during a pause, the one about to run) and
+the plan goes on with the next test. Its run in progress is ended like a stopped one; one row "skipped" says how
+far the test got ("Skipped by the user after 2 of 3 runs" / "... before any result"); its other runs are dropped.
 """
 
 import json
 import math
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -80,6 +85,31 @@ class RunSummary:
     stopped: bool = False
 
 
+SKIPPED_BY_USER = "Skipped by the user"
+
+
+class _RunStop:
+    """A run's stop: the emergency stop or a skip of its test (workloads only call is_set() and wait())."""
+
+    def __init__(self, stop: threading.Event, skip: threading.Event):
+        self.stop, self.skip = stop, skip
+
+    def is_set(self) -> bool:
+        return self.stop.is_set() or self.skip.is_set()
+
+    def wait(self, timeout: Optional[float] = None) -> bool:
+        end = None if timeout is None else time.monotonic() + max(0.0, timeout)
+        while not self.is_set():
+            left = 0.2 if end is None else min(0.2, end - time.monotonic())
+            if left <= 0:
+                return False
+            self.stop.wait(left)
+        return True
+
+    def set(self):
+        self.stop.set()
+
+
 class AutomationRunner:
     def __init__(self, db, session_id: int, plan: List[PlanItem], output_root: Path,
                  cooldown_seconds: float = 0.0, stop_event: Optional[threading.Event] = None,
@@ -107,9 +137,46 @@ class AutomationRunner:
         self.done = set(done)               # resumed plan: runs stored before the crash
         self.interrupted = interrupted      # resumed plan: the run the crash ended
         self.stamp = stamp                  # resumed plan: the same run folder
+        self.skip_event = threading.Event()
+        self.current_id: Optional[str] = None       # the test going on (or next, during a pause)
+        self.skip_target: Optional[str] = None
 
     def stop(self):
         self.stop_event.set()
+
+    def skip_test(self) -> Optional[str]:
+        """Skip the test going on; the plan goes on with the next one. Its id, or None (nothing going on)."""
+        target = self.current_id
+        if target is not None and not self.stop_event.is_set():
+            self.skip_target = target
+            self.skip_event.set()
+        return target
+
+    def _skip_note(self, summary: "RunSummary", item: "PlanItem") -> str:
+        done = len(self._scores(summary, item.workload.id))
+        return (f"{SKIPPED_BY_USER} after {done} of {item.repetitions} runs" if done
+                else f"{SKIPPED_BY_USER} before any result")
+
+    def _drop_rest(self, schedule: list, position: int, item) -> None:
+        """The skipped test's runs still to come are not run (and not run again by a resumed plan)."""
+        rest = [s for s in schedule[position + 1:] if s[0] is item]
+        schedule[position + 1:] = [s for s in schedule[position + 1:] if s[0] is not item]
+        if self.journal is not None:
+            for s in rest:
+                self.journal.run_done((item.workload.id, s[1], s[2]))
+        self.skip_target = None
+        self.skip_event.clear()
+
+    def _store_skip(self, summary: "RunSummary", item, run_index: int) -> str:
+        result = WorkloadResult(status="skipped", error=self._skip_note(summary, item))
+        record = RunRecord(item.workload.id, run_index, False, result, None, None)
+        record.result_id = self.db.create_result(
+            self.session_id, item.workload.id, item.workload.benchmark_type, None, unit="points",
+            benchmark_version=item.workload.version(), is_test=item.workload.is_test, is_manual=False,
+            status="skipped", is_warmup=False, run_index=run_index, note=result.error)
+        summary.records.append(record)
+        self.on_progress(f"{item.workload.display_name}: {result.error}")
+        return result.error
 
     def _store_metrics(self, result_id: int, metrics: dict):
         """Numbers become rows ({name: value} or {name: (value, unit)}); text metrics are skipped.
@@ -221,13 +288,24 @@ class AutomationRunner:
                 summary.stopped = True
                 summary.not_started = len(schedule) - position
                 break
-            if position and self.cooldown_seconds > 0:
+            self.current_id = item.workload.id
+            either = _RunStop(self.stop_event, self.skip_event)
+            if position and self.cooldown_seconds > 0 and self.skip_target != item.workload.id:
                 self.on_progress(f"Cooling down {self.cooldown_seconds:g} s")
                 self.on_step(position, total, f"Pause {self.cooldown_seconds:g} s before the next run")
-                if self.stop_event.wait(self.cooldown_seconds):
+                if either.wait(self.cooldown_seconds) and self.stop_event.is_set():
                     summary.stopped = True
                     summary.not_started = len(schedule) - position
                     break
+            if self.skip_target is not None and not any(s[0].workload.id == self.skip_target
+                                                        for s in schedule[position:]):
+                self.skip_target = None             # that test was over already: nothing to skip
+                self.skip_event.clear()
+            if self.skip_target == item.workload.id:
+                note = self._store_skip(summary, item, run_index)
+                self.on_step(position + 1, total, f"{item.workload.display_name}: run {run_index} skipped ({note})")
+                self._drop_rest(schedule, position, item)
+                continue
             wl = item.workload
             label = f"{'warmup' if is_warmup else 'run'} {run_index}" + (" (retry)" if why.startswith("Retry") else
                                                                        " (extra)" if why else "")
@@ -238,7 +316,7 @@ class AutomationRunner:
             self.on_progress(f"{wl.display_name}: {label} started")
             self.on_step(position, total, f"{wl.display_name}: {label}")
             ctx = RunContext(output_dir=run_dir, timeout_seconds=item.timeout_seconds,
-                             stop_event=self.stop_event, run_index=run_index, is_warmup=is_warmup)
+                             stop_event=either, run_index=run_index, is_warmup=is_warmup)
             key = (wl.id, run_index, is_warmup)
             if self.journal is not None:
                 self.journal.run_started(key)
@@ -251,8 +329,14 @@ class AutomationRunner:
             except Exception as e:      # a broken workload must not end the whole plan
                 result = WorkloadResult(status="failed", error=f"workload raised: {e}")
             telemetry_metrics = self._finish_telemetry(sampler, run_dir, result.measured_window)
+            skipping = self.skip_target == wl.id and not self.stop_event.is_set()
+            if skipping and result.status != "completed":     # ended by the skip: one "skipped" row says so
+                result = WorkloadResult(status="skipped", error=self._skip_note(summary, item),
+                                        duration_seconds=result.duration_seconds, command=result.command,
+                                        exit_code=result.exit_code, stdout_path=result.stdout_path,
+                                        stderr_path=result.stderr_path)
             record = RunRecord(wl.id, run_index, is_warmup, result, None, run_dir)
-            if result.status != "completed":
+            if result.status != "completed" and not skipping:
                 record.diagnostics = write_snapshot(
                     run_dir, wl.id, result,
                     {"run_index": run_index, "is_warmup": is_warmup, "timeout": item.timeout_seconds},
@@ -277,6 +361,13 @@ class AutomationRunner:
             shown = f"{result.score:g} {result.unit or ''}".strip() if result.score is not None else result.error
             self.on_progress(f"{wl.display_name}: {label} {result.status} ({shown})")
             self.on_step(position + 1, total, f"{wl.display_name}: {label} {result.status} ({shown})")
+            if skipping:
+                if result.status == "completed" and any(s[0] is item for s in schedule[position + 1:]):
+                    nxt = max([r.run_index for r in summary.records if r.workload_id == wl.id
+                               and not r.is_warmup] + [0]) + 1
+                    self._store_skip(summary, item, nxt)        # it finished just before: the rest is skipped
+                self._drop_rest(schedule, position, item)
+                continue
             if result.status == "cancelled":
                 summary.stopped = True
                 summary.not_started = len(schedule) - position - 1

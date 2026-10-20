@@ -68,6 +68,10 @@ class AutomationWorker(QThread):
     def stop(self):
         self.stop_event.set()
 
+    def skip(self):
+        """End only the test going on; the plan goes on with the next one."""
+        return self.runner.skip_test()
+
     def _screenshot(self, path: Path) -> bool:
         done = threading.Event()
         self.screenshot_requested.emit(str(path), done)
@@ -481,6 +485,11 @@ class AutomationPanel(QGroupBox):
         if self.is_running():
             self.worker.stop()
             self.status_label.setText("Stopping: the current run is being terminated...")
+
+    def skip_test(self):
+        """Skip button: only the test going on ends (stored as skipped); the rest of the plan goes on."""
+        if self.is_running():
+            self.worker.skip()
 
     def shutdown(self, wait_ms: int = 15000):
         """Called from closeEvent: stop and wait (the child tree is terminated within ~5 s)."""

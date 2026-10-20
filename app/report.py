@@ -770,6 +770,13 @@ def _header_section(export: Mapping) -> str:
     if _truthy(session.get("is_test")):
         parts.append('<p class="badge test">TEST DATA - not real results</p>')
 
+    from app.report_set import skipped_note
+    for name in _tested_names(export):        # the Skip button: how far the test got (owner, 2026-10-20)
+        note = skipped_note([_mapping(r) or {} for r in export.get("runs") or []
+                             if (_mapping(r) or {}).get("benchmark_name") == name])
+        if note:
+            parts.append(f'<p class="badge manual">{esc(note)}</p>')
+
     if _truthy(session.get("is_manual")):
         parts.append('<p class="badge manual">Contains manually entered results</p>')
 
@@ -1327,16 +1334,19 @@ def render_summary_report(export: Mapping, outcomes: list) -> str:
     export_mapping = _mapping(export) or {}
     rows = []
     for o in outcomes:
-        state = '<span class="good-text">Passed</span>' if o.get("passed") else '<span class="bad-text">FAILED</span>'
+        state = ('<span class="warn-text">Skipped</span>' if o.get("skipped") else
+                 '<span class="good-text">Passed</span>' if o.get("passed") else '<span class="bad-text">FAILED</span>')
         link = f'<a href="{esc(o.get("file"))}">{esc(o.get("title"))}</a>' if o.get("file") else esc(o.get("title"))
         details = f'<div class="muted">{esc(o.get("details"))}</div>' if o.get("details") else ""
         rows.append(f"<tr><td>{link}</td><td>{state}</td><td>{esc(o.get('result'))}{details}</td>"
                     f"<td>{esc(o.get('runs'))}</td><td>{esc(o.get('time'))}</td></tr>")
     passed = sum(1 for o in outcomes if o.get("passed"))
+    skipped = sum(1 for o in outcomes if o.get("skipped"))
     seconds = sum(o["seconds"] for o in outcomes if isinstance(o.get("seconds"), (int, float)))
     from app.report_set import duration_text
-    tiles = (f'<div class="tiles"><div class="tile {"good" if passed == len(outcomes) else "bad"}">'
-             f'<div class="label">Tests passed</div><div class="value">{passed} <span>of {len(outcomes)}</span></div>'
+    tiles = (f'<div class="tiles"><div class="tile {"good" if passed + skipped == len(outcomes) else "bad"}">'
+             f'<div class="label">Tests passed</div><div class="value">{passed} <span>of {len(outcomes)}'
+             f'{f" ({skipped} skipped)" if skipped else ""}</span></div>'
              f'</div><div class="tile"><div class="label">Time of all tests</div><div class="value">'
              f"{esc(duration_text(seconds))}</div></div></div>")
     return (
@@ -1347,7 +1357,7 @@ def render_summary_report(export: Mapping, outcomes: list) -> str:
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         f"<title>Benchmark report: Summary - {_session_name(export_mapping.get('session'))}</title>"
         + _style_block()
-        + "<style>.good-text{color:#1a7f37;font-weight:600}.bad-text{color:#cf222e;font-weight:600}</style>"
+        + "<style>.good-text{color:#1a7f37;font-weight:600}.bad-text{color:#cf222e;font-weight:600}.warn-text{color:#9a6700;font-weight:600}</style>"
         + "</head><body><main>"
         + '<section class="header"><h1 dir="auto" class="tested">Summary of the run: '
           f"{len(outcomes)} tests</h1><p class=\"session\" dir=\"auto\">"

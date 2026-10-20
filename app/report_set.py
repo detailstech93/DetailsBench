@@ -112,12 +112,20 @@ def duration_text(seconds: Optional[float]) -> str:
     return (f"{h} h {m} min" if h else f"{m} min {s} s" if m else f"{s} s")
 
 
+def skipped_note(runs) -> str:
+    """The Skip button's note ("Skipped by the user after 2 of 3 runs"), or "" when the test was not skipped."""
+    from app.automation.runner import SKIPPED_BY_USER
+    return next((str(r.get("note")) for r in runs if r.get("status") == "skipped"
+                 and str(r.get("note") or "").startswith(SKIPPED_BY_USER)), "")
+
+
 def test_outcome(export: Mapping, name: str) -> dict:
-    """How one test went: runs, a short result, passed or not and the time it took."""
+    """How one test went: runs, a short result, passed, skipped (Skip button) or not, and the time it took."""
     runs = [r for r in export.get("runs") or [] if r.get("benchmark_name") == name]
-    measured = [r for r in runs if not r.get("is_warmup")]
+    skipped = skipped_note(runs)
+    measured = [r for r in runs if not r.get("is_warmup") and not (skipped and r.get("note") == skipped)]
     done = [r for r in measured if r.get("status") == "completed"]
-    warmups = len(runs) - len(measured)
+    warmups = sum(1 for r in runs if r.get("is_warmup"))
     times = [r.get("duration_seconds") for r in runs if isinstance(r.get("duration_seconds"), (int, float))]
     stats = ((export.get("summaries") or {}).get(name) or {}).get("stats") or {}
     mean = stats.get("mean")
@@ -128,13 +136,17 @@ def test_outcome(export: Mapping, name: str) -> dict:
             result += f" (average of {len(done)} runs)"
     elif done:
         result = f"{done[-1].get('score')} {unit}".strip()
+    elif skipped:
+        result = skipped
     else:
         last = measured[-1] if measured else (runs[-1] if runs else {})
         why = str(last.get("note") or last.get("status") or "no result").split("; ")[0]
         result = f"FAILED ({last.get('status') or 'no run'}): {why}"
+    if skipped and done:
+        result += f"; {skipped[0].lower()}{skipped[1:]}"
     count = f"{len(done)} of {len(measured)} measured run(s) completed" + (
         f", {warmups} warm-up" if warmups else "")
-    return {"name": name, "passed": bool(done), "result": result, "runs": count,
+    return {"name": name, "passed": bool(done) and not skipped, "skipped": skipped, "result": result, "runs": count,
             "details": key_numbers(export, name) if done else "",
             "seconds": sum(times) if times else None, "time": duration_text(sum(times) if times else None)}
 

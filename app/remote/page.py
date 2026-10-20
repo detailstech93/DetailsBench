@@ -113,6 +113,7 @@ a { color:var(--accent); }
     <div class="times muted"><span id="elapsed"></span><span id="left"></span></div>
     <div id="plan" class="plan hidden"></div>
     <div class="row" style="margin-top:12px">
+      <button id="skip" class="hidden">Skip this test</button>
       <button id="stop" class="stop" disabled>Emergency stop</button>
     </div>
     <p id="message" class="muted"></p>
@@ -363,6 +364,7 @@ function showState(s) {
   $("left").textContent = s.left ? "Left: " + s.left : "";
   showPlan(s.tests);
   $("stop").disabled = !s.running;
+  $("skip").classList.toggle("hidden", !s.can_skip);
   $("start").disabled = s.running;
   const finished = wasRunning && !s.running;
   if (finished) {                                   // a run or an install ended: say how, read the tests again
@@ -436,6 +438,11 @@ $("start").onclick = async () => {
     refresh();
     window.scrollTo({ top: 0, behavior: "smooth" });
   } catch (e) { if (e.message !== "code") $("message").textContent = "The PC does not answer."; }
+};
+$("skip").onclick = async () => {
+  if (!confirm("Skip the test going on? Only this test ends; the report says how far it got. The other tests go on.")) return;
+  try { $("message").textContent = (await (await call("/api/skip", {})).json()).text || ""; refresh(); }
+  catch (e) {}
 };
 $("stop").onclick = async () => {
   if (!confirm("Stop the run now? The current run is cut off and stored as stopped.")) return;

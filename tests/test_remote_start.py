@@ -82,6 +82,10 @@ class FakeApi:
         self.stopped += 1
         return "Stopping"
 
+    def skip(self):
+        self.skipped = getattr(self, "skipped", 0) + 1
+        return "Skipping"
+
     def reports(self):
         return [{"name": "session_1_x.html", "time": "2026-10-19 20:07"}] if self.html else []
 
@@ -142,6 +146,8 @@ def test_start_and_stop_through_the_server(served):
     assert call(base + "/api/start", "ABCD2345", b"x" * (rs.MAX_BODY + 1))[0] == 413
     status, _, body = call(base + "/api/start", "ABCD2345", req)
     assert status == 200 and json.loads(body)["ok"] and api.started == [req]
+    assert call(base + "/api/skip", "ABCD2345", {})[0] == 200 and api.skipped == 1 and api.stopped == 0
+    assert call(base + "/api/skip", None, {})[0] == 401 and api.skipped == 1
     assert call(base + "/api/stop", "ABCD2345", {})[0] == 200 and api.stopped == 1
 
 

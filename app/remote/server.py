@@ -274,7 +274,7 @@ def _handler(server: "RemoteServer"):
             if not self._allowed():
                 return
             path = self.path.split("?")[0]
-            if path not in ("/api/start", "/api/stop", "/api/question", "/api/act"):
+            if path not in ("/api/start", "/api/stop", "/api/skip", "/api/question", "/api/act"):
                 self._json(404, {"error": "not found"})
                 return
             if not self._authorised():
@@ -293,6 +293,9 @@ def _handler(server: "RemoteServer"):
             try:
                 if path == "/api/stop":
                     self._json(200, {"ok": True, "text": server.api.stop()})
+                    return
+                if path == "/api/skip":
+                    self._json(200, {"ok": True, "text": server.api.skip()})
                     return
                 try:
                     body = json.loads(raw.decode("utf-8"))

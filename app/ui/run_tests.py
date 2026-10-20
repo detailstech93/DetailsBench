@@ -455,7 +455,8 @@ def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_re
                                confirm=confirm)
     if started or panel.lhm.active():
         # stay on the Tests screen: green bar, percent and Stop there (Ctrl+Shift+X still works)
-        window.tests_page.watch(lambda: plan_state(panel, result), panel.emergency_stop)
+        window.tests_page.watch(lambda: plan_state(panel, result), panel.emergency_stop,
+                                skip=panel.skip_test if len(automatic) > 1 else None)
     else:
         panel.on_plan_finished = None          # cancelled; a later plan must not open this report
         panel.on_step_report = None

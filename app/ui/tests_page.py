@@ -193,9 +193,15 @@ class TestsPage(QWidget):
         self.stop_btn = QPushButton("Stop")
         self.stop_btn.setStyleSheet("QPushButton:enabled { color: white; background: #b91c1c; padding: 4px 18px; }")
         self.stop_btn.clicked.connect(self._stop)
+        self.skip_btn = QPushButton("Skip this test")
+        self.skip_btn.setToolTip("Ends only the test going on (the report says how far it got); "
+                                 "the other tests go on.")
+        self.skip_btn.setVisible(False)
+        self.skip_btn.clicked.connect(self.skip)
         bar_row.addWidget(self.progress_bar, 1)
         bar_row.addWidget(self.record_btn)
         bar_row.addWidget(self.report_btn)
+        bar_row.addWidget(self.skip_btn)
         bar_row.addWidget(self.stop_btn)
         box.addLayout(bar_row)
         self.progress_box.setVisible(False)
@@ -203,6 +209,7 @@ class TestsPage(QWidget):
 
         self.get_state: Callable[[], RunState] = RunState
         self.stop_fn: Callable[[], object] = lambda: None
+        self.skip_fn: Optional[Callable[[], object]] = None     # a plan of several tests: skip the one going on
         self.record_fn: Optional[Callable[[], object]] = None
         self.report_fn: Optional[Callable[[], object]] = None
         self.busy = False
@@ -329,9 +336,12 @@ class TestsPage(QWidget):
             self.run_requested.emit(entries)
 
     # ---- progress ------------------------------------------------------------------
-    def watch(self, get_state: Callable[[], RunState], stop: Callable[[], object]):
-        """Follow a run started from this screen until it ends."""
-        self.get_state, self.stop_fn = get_state, stop
+    def watch(self, get_state: Callable[[], RunState], stop: Callable[[], object],
+              skip: Optional[Callable[[], object]] = None):
+        """Follow a run started from this screen until it ends (skip: the Skip button of a plan of several tests)."""
+        self.get_state, self.stop_fn, self.skip_fn = get_state, stop, skip
+        self.skip_btn.setVisible(skip is not None)
+        self.skip_btn.setEnabled(True)
         self.report_fn = None
         self.report_btn.setVisible(False)
         self.started_at = time.monotonic()
@@ -381,8 +391,19 @@ class TestsPage(QWidget):
 
     def _stop(self):
         self.stop_btn.setEnabled(False)
+        self.skip_btn.setEnabled(False)
         self.stop_btn.setText("Stopping...")
         self.stop_fn()
+
+    def can_skip(self) -> bool:
+        return self.busy and self.skip_fn is not None and self.skip_btn.isEnabled()
+
+    def skip(self) -> bool:
+        """Skip the test going on (the Skip button or the remote page). False: nothing to skip."""
+        if not self.can_skip():
+            return False
+        self.skip_fn()
+        return True
 
     def set_busy(self, busy: bool):
         self.busy = busy
@@ -415,6 +436,8 @@ class TestsPage(QWidget):
         self.progress_label.setText(state.text or "Finished.")
         self.stop_btn.setEnabled(False)
         self.stop_btn.setText("Stop")
+        self.skip_btn.setVisible(False)
+        self.skip_fn = None
         self.set_busy(False)
 
     def _on_double_click(self, item: QTreeWidgetItem, column: int):
