@@ -494,3 +494,38 @@ def test_stress_length_from_the_page_or_ten_minutes_in_a_run_of_several(tmp_path
     remote_start(_window(tmp_path, both), ["stress_cpu", "sevenzip_benchmark"], 1, 0, 0, launch=launch,
                  stress_minutes=30)
     assert seen == [DEFAULT_MINUTES, 30] and DEFAULT_MINUTES == 10
+
+
+def test_the_games_section_sends_a_preset_per_game():
+    """Owner, 2026-10-20: games have their own section on the page with the preset chosen there."""
+    from app.games import presets
+    req = {"ids": ["cp", "rdr2"], "repetitions": 3, "warmup_runs": 0, "cooldown_seconds": 30,
+           "game_presets": {"cp": {"mode": "upscaling_fg", "upscaler": "dlss", "frame_gen": "x2", "quality": "high",
+                                   "resolution": "2560x1440", "ray_tracing": "on"},
+                            "rdr2": {"mode": "raw", "upscaler": "dlss", "frame_gen": "x2", "quality": "ultra",
+                                     "resolution": "1920x1080", "ray_tracing": "off"}}}
+    out, why = rs.check_start(req, ["cp", "rdr2"])
+    assert why == "" and out["game_presets"]["cp"] == presets.GamePreset(
+        "2560x1440", "dlss", "on", "high", "x2").to_dict()
+    assert out["game_presets"]["rdr2"]["upscaler"] == "off" and out["game_presets"]["rdr2"]["frame_gen"] == "off"
+    assert rs.check_start(dict(req, game_presets={"other": {}}), ["cp", "rdr2"])[0] is None
+    bad = dict(req, game_presets={"cp": {"mode": "upscaling", "upscaler": "nope"}})
+    assert rs.check_start(bad, ["cp", "rdr2"]) == (None, "a game preset is not valid")
+    choices = presets.page_choices("AMD Radeon RX 7900 XTX")
+    assert [u[0] for u in choices["upscalers"]] == ["fsr", "xess"] and choices["frame_gens"]["xess"] == []
+    from app.remote.page import PAGE
+    assert 'id="secGames"' in PAGE and "game_presets" in PAGE and 'id="gMode"' in PAGE
+
+
+def test_games_and_tests_are_not_started_together(monkeypatch):
+    from types import SimpleNamespace
+    from app.ui import remote_control as rc
+    game = _entry("steam_1", group="game")
+    test = _entry("sevenzip_benchmark")
+    page = SimpleNamespace(entries=[game, test], busy=False)
+    panel = SimpleNamespace(is_running=lambda: False, lhm=SimpleNamespace(busy=lambda: False))
+    window = SimpleNamespace(automation_panel=panel, tests_page=page,
+                             frame_panel=SimpleNamespace(is_running=lambda: False, data_dir=None))
+    monkeypatch.setattr(rc, "remote_entries", lambda entries, platform=None: entries)
+    ok, text = rc.remote_start(window, ["steam_1", "sevenzip_benchmark"], 1, 0, 0)
+    assert not ok and "do not run together" in text

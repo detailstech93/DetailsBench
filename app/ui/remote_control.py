@@ -194,8 +194,10 @@ def remote_entries(entries: List[TestEntry], platform: str = sys.platform) -> Li
 
 
 def remote_start(window, ids: List[str], repetitions: int, warmup_runs: int, cooldown_seconds: int,
-                 launch: Optional[Callable] = None, stress_minutes: Optional[int] = None) -> Tuple[bool, str]:
-    """Start the tests the page picked, like Run selected on the Tests screen but without its windows."""
+                 launch: Optional[Callable] = None, stress_minutes: Optional[int] = None,
+                 game_presets: Optional[dict] = None) -> Tuple[bool, str]:
+    """Start the tests the page picked, like Run selected on the Tests screen but without its windows.
+    game_presets: {test id: preset dict} chosen on the page's Games section (none: the last preset)."""
     from app.ui import run_tests
     from app.ui.automation_panel import EXTRA_RUNS
     panel, page = window.automation_panel, window.tests_page
@@ -206,18 +208,24 @@ def remote_start(window, ids: List[str], repetitions: int, warmup_runs: int, coo
     if missing:
         return False, "These tests cannot start from here now: " + ", ".join(missing)
     entries = [offered[i] for i in ids]
+    if any(e.group == "game" for e in entries) and any(e.group != "game" for e in entries):
+        return False, "Games and tests do not run together: start the games from the Games section."
     data_dir = window.frame_panel.data_dir
     games = [g for g in (run_tests.game_of(e) for e in entries) if g]
-    preset = None
+    preset, per_game = None, None
     if games:
-        preset = run_tests.last_preset(data_dir)
-        run_tests.save_preset(data_dir, games, preset, run_tests.read_offered(games, data_dir))
+        from app.games import presets
+        chosen = {run_tests.game_of(e)[0]: presets.GamePreset.from_dict((game_presets or {}).get(e.id))
+                  for e in entries if run_tests.game_of(e) and e.id in (game_presets or {})}
+        preset = next(iter(chosen.values()), None) or run_tests.last_preset(data_dir)
+        per_game = chosen or None
+        run_tests.save_preset(data_dir, games, preset, run_tests.read_offered(games, data_dir), per_game)
     minutes = None
     if any(e.id.startswith("stress_") for e in entries):
         from app.stress.workload import DEFAULT_MINUTES, stress_minutes as last_minutes
         # the page's choice; none: 10 minutes in a run of several tests (owner, 2026-10-20), else the last length
         minutes = stress_minutes or (DEFAULT_MINUTES if len(entries) > 1 else last_minutes())
-    choice = run_tests.RunChoice(repetitions, warmup_runs, cooldown_seconds, preset, minutes, EXTRA_RUNS)
+    choice = run_tests.RunChoice(repetitions, warmup_runs, cooldown_seconds, preset, minutes, EXTRA_RUNS, per_game)
     run_tests._save_plan(data_dir, entries, choice)
     lhm = panel.lhm
     try:
@@ -294,12 +302,19 @@ class RemoteApi:
                                                      ("Memory (GB)", "ram_size_gb"), ("Graphics", "gpu_name"),
                                                      ("System", "operating_system")) if si.get(key) is not None]
         tests = [{"id": e.id, "name": e.name, "group": GROUP_TITLES.get(e.group, e.group.title()),
+                  "section": "games" if e.group == "game" else "tests",
                   "minutes": e.expected_minutes, "verified": bool(e.verified), "can_start": not why,
                   "why": why, "warning": warning, "install": self._can_install(e),
                   "license": bool(e.can_run() and getattr(e.ref, "license", None) and not e.ref.license_ok())}
                  for e, why, warning in remote_listing(w.tests_page.entries)]
         profile = w.selected_profile()
-        return {"specs": specs, "tests": tests,
+        from app.games import presets
+        from app.ui.run_tests import last_preset
+        games = presets.page_choices(presets.main_gpu(str(si.get("gpu_name") or "").split(", ")))
+        last = last_preset(w.frame_panel.data_dir)
+        games["last"] = dict(last.to_dict(), mode=presets.KEEP if last.upscaler == presets.KEEP
+                             and last.frame_gen == presets.KEEP else presets.mode_of(last))
+        return {"specs": specs, "tests": tests, "games": games,
                 "defaults": {"repetitions": max(1, int(profile.repetitions)), "warmup_runs": int(profile.warmup_runs),
                              "cooldown_seconds": int(profile.cooldown_seconds)},
                 "note": "A failed run is stored as failed and run once more; uneven scores get up to a few extra "
@@ -397,9 +412,10 @@ class RemoteApi:
         out["tests_key"] = tests_key(page.entries)
         return out
 
-    def start(self, ids, repetitions, warmup_runs, cooldown_seconds, stress_minutes=None) -> Tuple[bool, str]:
+    def start(self, ids, repetitions, warmup_runs, cooldown_seconds, stress_minutes=None,
+              game_presets=None) -> Tuple[bool, str]:
         return self.main.run(lambda: remote_start(self.window, ids, repetitions, warmup_runs, cooldown_seconds,
-                                                  stress_minutes=stress_minutes))
+                                                  stress_minutes=stress_minutes, game_presets=game_presets))
 
     def stop(self) -> str:
         def stop():

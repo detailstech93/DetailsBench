@@ -231,13 +231,47 @@ def test_preset_box_shows_what_each_game_gets(qapp):
                     GamePreset(ray_tracing="on"))
     assert box.preset() == GamePreset(ray_tracing="on")
     box.combos["quality"].setCurrentIndex(box.combos["quality"].findData("high"))
+    box.combos["mode"].setCurrentIndex(box.combos["mode"].findData("upscaling"))
     box.combos["upscaler"].setCurrentIndex(box.combos["upscaler"].findData("dlss"))
+    assert box.preset() == GamePreset(upscaler="dlss", frame_gen="off", ray_tracing="on", quality="high")
     text = box.summary.text()
-    assert "Cyberpunk 2077: Upscaler DLSS, Ray tracing On." in text
+    assert "Cyberpunk 2077: Upscaler DLSS" in text and "Ray tracing On" in text
     assert "not set: Quality High (the game was never seen" in text
     assert "Shadow of the Tomb Raider: settings cannot be set (the app cannot set this game's settings)" in text
-    assert [box.combos["resolution"].itemData(i) for i in range(box.combos["resolution"].count())][:3] == \
-        ["keep", "1280x720", "1920x1080"]
+    res = box.combos["resolution"]
+    assert [res.itemData(i) for i in range(res.count())][:3] == ["1280x720", "1920x1080", "2560x1440"]
+
+
+def test_preset_box_offers_what_the_card_runs_and_a_preset_per_game(qapp):
+    """Owner, 2026-10-20: the owner chooses; the best is marked recommended; what the card cannot run is hidden."""
+    from app.games.presets import GamePreset
+    from app.ui.run_tests import PresetBox
+
+    def items(box, key):
+        c = box.combos[key]
+        return [(c.itemData(i), c.itemText(i)) for i in range(c.count())]
+    amd = PresetBox([("1091500", "Cyberpunk 2077")], OFFERED, GamePreset(), "AMD Radeon RX 7900 XTX")
+    amd.combos["mode"].setCurrentIndex(amd.combos["mode"].findData("upscaling"))
+    assert items(amd, "upscaler") == [("fsr", "FSR (recommended)"), ("xess", "XeSS")]       # no DLSS on AMD
+    assert amd.combos["frame_gen"].isHidden()
+    amd.combos["mode"].setCurrentIndex(amd.combos["mode"].findData("upscaling_fg"))
+    assert items(amd, "upscaler") == [("fsr", "FSR (recommended)")]                   # XeSS frame gen: Arc only
+    assert items(amd, "frame_gen") == [("x2", "On, 2x (recommended)")]
+    assert amd.preset() == GamePreset(upscaler="fsr", frame_gen="x2")
+    games = [("1091500", "Cyberpunk 2077"), ("1174180", "Red Dead Redemption 2")]
+    box = PresetBox(games, OFFERED, GamePreset(quality="high"), "NVIDIA GeForce RTX 5080")
+    box.combos["mode"].setCurrentIndex(box.combos["mode"].findData("upscaling_fg"))
+    assert items(box, "frame_gen")[0] == ("x2", "On, 2x (recommended)") and len(items(box, "frame_gen")) == 3
+    assert box.combos["upscaler"].currentData() == "dlss"
+    box.same.setChecked(False)
+    box.which.setCurrentIndex(1)
+    box.combos["mode"].setCurrentIndex(box.combos["mode"].findData("raw"))
+    box.combos["resolution"].setCurrentIndex(box.combos["resolution"].findData("1920x1080"))
+    got = box.presets()
+    assert got["1091500"] == GamePreset(upscaler="dlss", frame_gen="x2", quality="high")
+    assert got["1174180"] == GamePreset(resolution="1920x1080", upscaler="off", frame_gen="off", quality="high")
+    box.which.setCurrentIndex(0)
+    assert box.combos["mode"].currentData() == "upscaling_fg"        # each game shows its own preset
 
 
 def test_one_game_from_the_tests_screen_asks_counts_and_preset_then_starts_without_the_settings_window(
@@ -282,3 +316,19 @@ def test_game_of_finds_steam_games_and_game_scripts():
     assert game_of(entry("cyberpunk", ref=script)) == ("1091500", "cyberpunk")
     assert game_of(entry("7zip", ref=SimpleNamespace(script={}))) is None
     assert game_of(entry("lib", source="library", ref=object())) is None
+
+
+def test_games_have_their_own_section(qapp):
+    """Owner, 2026-10-20: Tests and Games are apart; a selection never mixes them."""
+    page = TestsPage()
+    page.set_entries([entry("a"), entry("g", group="game")])
+    assert list(page.items) == ["a"] and page.head.text() == "Tests"
+    page.set_checked("a")
+    page.set_section("games")
+    assert list(page.items) == ["g"] and page.head.text() == "Games" and page.selected_ids() == []
+    assert page.run_all_btn.text() == "Run all games..." and page.ai_models_btn.isHidden()
+    assert [e.id for e in page.section_entries()] == ["g"] and "games can run" in page.summary.text()
+    page.select_all_installed()
+    assert page.selected_ids() == ["g"]
+    page.set_section("tests")
+    assert list(page.items) == ["a"] and page.selected_ids() == []

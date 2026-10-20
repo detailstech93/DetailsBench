@@ -33,6 +33,7 @@ class RunChoice:
     preset: Optional[presets.GamePreset] = None      # None: no game selected (or the dialog had no preset)
     stress_minutes: Optional[int] = None             # None: no stress test selected
     extra_runs: int = 0                              # extra runs allowed when the scores vary a lot
+    game_presets: Optional[Dict[str, presets.GamePreset]] = None     # {app id: preset}; None: `preset` for all
 
 
 PRESET_KEY = "game_preset"          # settings.json: the last preset chosen on the Tests screen
@@ -65,9 +66,10 @@ def read_offered(games: List[Tuple[str, str]], data_dir) -> Offered:
     return out
 
 
-def save_preset(data_dir, games: List[Tuple[str, str]], preset: "presets.GamePreset", offered: Offered) -> List[str]:
+def save_preset(data_dir, games: List[Tuple[str, str]], preset: "presets.GamePreset", offered: Offered,
+                per_game: Optional[Dict[str, "presets.GamePreset"]] = None) -> List[str]:
     """Store the preset and, per game, the settings it becomes (what every game benchmark then forces).
-    Returns the lines that describe it."""
+    per_game: a preset of its own for some games. Returns the lines that describe it."""
     from app.games.settings_file import SAVED_KEY
     from app.paths import load_settings, save_setting
     settings, _ = load_settings(data_dir)
@@ -76,9 +78,10 @@ def save_preset(data_dir, games: List[Tuple[str, str]], preset: "presets.GamePre
     lines = []
     for app_id, name in games:
         choices, problem = offered.get(app_id, (None, None))
-        lines += presets.summary_lines(app_id, name, preset, choices, problem)
+        mine = (per_game or {}).get(app_id, preset)
+        lines += presets.summary_lines(app_id, name, mine, choices, problem)
         if choices is not None:
-            every[app_id] = presets.plan_preset(app_id, preset, choices)[0]
+            every[app_id] = presets.plan_preset(app_id, mine, choices)[0]
     save_setting(data_dir, SAVED_KEY, every)
     save_setting(data_dir, PRESET_KEY, preset.to_dict())
     return lines
@@ -90,43 +93,147 @@ def last_preset(data_dir) -> "presets.GamePreset":
 
 
 class PresetBox(QGroupBox):
-    """Resolution, upscaler, ray tracing and quality for the selected games, with what each game will get."""
+    """The games' preset (owner, 2026-10-20): mode (raw / upscaling / upscaling + frame generation), the upscaler
+    and frame generation this PC's card runs (the best one marked "recommended", the others not offered), quality,
+    resolution and ray tracing; one preset for every game or one per game, with what each game will get."""
 
-    def __init__(self, games: List[Tuple[str, str]], offered: Offered, initial: "presets.GamePreset", parent=None):
-        super().__init__("Game settings (one preset for every selected game)", parent)
-        self.games, self.offered = games, offered
+    KEYS = ("mode", "upscaler", "frame_gen", "quality", "resolution", "ray_tracing")
+    NAMES = {"mode": "Mode", "upscaler": "Upscaler", "frame_gen": "Frame generation", "quality": "Quality",
+             "resolution": "Resolution", "ray_tracing": "Ray tracing"}
+
+    def __init__(self, games: List[Tuple[str, str]], offered: Offered, initial: "presets.GamePreset",
+                 gpu: str = "", parent=None):
+        super().__init__("Game settings", parent)
+        self.games, self.offered, self.gpu = games, offered, gpu
+        self.per_game: Dict[str, presets.GamePreset] = {app_id: initial for app_id, _ in games}
+        self.all_preset = initial
         form = QFormLayout(self)
+        self.same = QCheckBox("One preset for every game")
+        self.same.setChecked(True)
+        self.which = QComboBox()
+        for app_id, name in games:
+            self.which.addItem(name, app_id)
+        if len(games) > 1:
+            form.addRow(self.same)
+            form.addRow("Preset of:", self.which)
+        self.same.toggled.connect(self._target_changed)
+        self.which.currentIndexChanged.connect(self._target_changed)
         self.combos: Dict[str, QComboBox] = {}
-        values = {"resolution": presets.resolutions_offered([o for o, _ in offered.values() if o]),
-                  "upscaler": presets.UPSCALERS, "ray_tracing": presets.RAY_TRACING,
-                  "frame_gen": presets.FRAME_GEN, "quality": presets.QUALITIES}
-        for key, options in values.items():
+        self.rows: Dict[str, QLabel] = {}
+        for key in self.KEYS:
             combo = QComboBox()
-            for value in options:
-                combo.addItem(presets.LABELS.get(value, value), value)
-            combo.setCurrentIndex(max(0, combo.findData(getattr(initial, key))))
-            combo.currentIndexChanged.connect(self.update_summary)
-            form.addRow(presets.CHOICE_NAMES[key] + ":", combo)
-            self.combos[key] = combo
+            combo.currentIndexChanged.connect(lambda _=0, k=key: self._changed(k))
+            label = QLabel(self.NAMES[key] + ":")
+            form.addRow(label, combo)
+            self.combos[key], self.rows[key] = combo, label
+        if gpu:
+            card = QLabel(f"Graphics card: {gpu}. Only what it can run is offered.")
+            card.setStyleSheet("color: gray;")
+            form.addRow(card)
         self.summary = QLabel()
         self.summary.setWordWrap(True)
         form.addRow(self.summary)
         note = QLabel("Before each game starts, the app copies its settings, writes these values and checks them; "
-                      "after the run it puts your own settings back.")
+                      "after the run it puts your own settings back. A value a game does not have is not set "
+                      "(listed above), never guessed.")
         note.setWordWrap(True)
         note.setStyleSheet("color: gray;")
         form.addRow(note)
+        self._load(initial)
+        self._target_changed()
+
+    # ---- what the card runs ------------------------------------------------------------------------------
+    def _upscalers(self, with_frame_gen: bool) -> List[str]:
+        out = presets.upscalers_for(self.gpu) if self.gpu else ["dlss", "fsr", "xess"]
+        return [u for u in out if not with_frame_gen or self._frame_gens(u)]
+
+    def _frame_gens(self, upscaler: str) -> List[str]:
+        if not self.gpu:
+            return ["x2", "x3", "x4"] if upscaler == "dlss" else ["x2"]
+        return presets.frame_gens_for(self.gpu, upscaler)
+
+    def _fill(self, key: str, pairs: List[Tuple[str, str]], value: str):
+        combo = self.combos[key]
+        combo.blockSignals(True)
+        combo.clear()
+        for data, text in pairs:
+            combo.addItem(text, data)
+        index = combo.findData(value)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+        combo.blockSignals(False)
+
+    def _load(self, p: "presets.GamePreset"):
+        """Show a preset in the boxes (the lists follow the mode and the upscaler)."""
+        mode = presets.KEEP if p.upscaler == presets.KEEP and p.frame_gen == presets.KEEP else presets.mode_of(p)
+        modes = [m for m in presets.MODES if m != "upscaling_fg" or self._upscalers(True)]
+        self._fill("mode", [(presets.KEEP, "Keep the game's own")] +
+                   [(m, presets.MODE_LABELS[m]) for m in modes], mode)
+        mode = self.combos["mode"].currentData()
+        ups = self._upscalers(mode == "upscaling_fg")
+        best = presets.recommended_upscaler(self.gpu) if self.gpu else None
+        best = best if best in ups else (ups[0] if ups else None)
+        self._fill("upscaler", presets.choice_labels(ups, best), p.upscaler if p.upscaler in ups else best)
+        gens = self._frame_gens(self.combos["upscaler"].currentData() or "")
+        self._fill("frame_gen", presets.choice_labels(gens, "x2" if "x2" in gens else None),
+                   p.frame_gen if p.frame_gen in gens else "x2")
+        self._fill("quality", [(q, presets.LABELS[q]) for q in presets.QUALITIES[1:]] +
+                   [(presets.KEEP, "Keep the game's own")], p.quality)
+        res = presets.resolutions_offered([o for o, _ in self.offered.values() if o])
+        self._fill("resolution", [(r, presets.LABELS.get(r, r)) for r in res[1:]] +
+                   [(presets.KEEP, "Keep the game's own")], p.resolution)
+        self._fill("ray_tracing", [("off", "Off"), ("on", "On"), (presets.KEEP, "Keep the game's own")],
+                   p.ray_tracing)
+        for key, shown in (("upscaler", mode in ("upscaling", "upscaling_fg")), ("frame_gen", mode == "upscaling_fg")):
+            self.combos[key].setVisible(shown)
+            self.rows[key].setVisible(shown)
+
+    def _read(self) -> "presets.GamePreset":
+        c = {k: self.combos[k].currentData() for k in self.KEYS}
+        if c["mode"] == presets.KEEP:
+            return presets.GamePreset(resolution=c["resolution"], quality=c["quality"], ray_tracing=c["ray_tracing"])
+        return presets.game_preset(c["mode"], c["upscaler"] or "off", c["frame_gen"] or "off", c["quality"],
+                                   c["resolution"], c["ray_tracing"])
+
+    # ---- one preset for all, or one per game --------------------------------------------------------------
+    def _target_changed(self, *_):
+        one = self.same.isChecked() or len(self.games) <= 1
+        self.which.setEnabled(not one)
+        if one:
+            self._load(self.all_preset)
+        elif self.which.currentData() is not None:
+            self._load(self.per_game[self.which.currentData()])
+        self.update_summary()
+
+    def _changed(self, key: str):
+        p = self._read()
+        if key in ("mode", "upscaler"):
+            self._load(p)                       # the upscaler / frame generation lists follow
+            p = self._read()
+        if self.same.isChecked() or len(self.games) <= 1:
+            self.all_preset = p
+            self.per_game = {app_id: p for app_id, _ in self.games}
+        elif self.which.currentData() is not None:
+            self.per_game[self.which.currentData()] = p
         self.update_summary()
 
     def preset(self) -> "presets.GamePreset":
-        return presets.GamePreset(**{k: c.currentData() for k, c in self.combos.items()})
+        """One preset for every game (or the first game's when each has its own)."""
+        if self.same.isChecked() or len(self.games) <= 1:
+            return self.all_preset
+        return self.per_game[self.games[0][0]]
+
+    def presets(self) -> Dict[str, "presets.GamePreset"]:
+        """{app id: its preset}."""
+        if self.same.isChecked() or len(self.games) <= 1:
+            return {app_id: self.all_preset for app_id, _ in self.games}
+        return dict(self.per_game)
 
     def lines(self) -> List[str]:
-        p = self.preset()
         out = []
+        chosen = self.presets()
         for app_id, name in self.games:
             choices, problem = self.offered.get(app_id, (None, None))
-            out += presets.summary_lines(app_id, name, p, choices, problem)
+            out += presets.summary_lines(app_id, name, chosen[app_id], choices, problem)
         return out
 
     def update_summary(self, *_):
@@ -202,7 +309,9 @@ class RunTestsDialog(QDialog):
         layout.addLayout(form)
         self.preset_box = None
         if games:
-            self.preset_box = PresetBox(games, offered or {}, initial or presets.GamePreset())
+            info = getattr(parent, "system_info", None) or {}
+            gpu = presets.main_gpu(str(info.get("gpu_name") or "").split(", "))
+            self.preset_box = PresetBox(games, offered or {}, initial or presets.GamePreset(), gpu)
             layout.addWidget(self.preset_box)
         if others:
             note = QLabel("Not in this plan (they need you, start them after it from the Tests screen):\n"
@@ -230,7 +339,8 @@ class RunTestsDialog(QDialog):
         return RunChoice(self.repetitions.value(), self.warmup.value(), self.cooldown.value(),
                          self.preset_box.preset() if self.preset_box is not None else None,
                          self.stress_minutes.currentData() if self.stress_minutes is not None else None,
-                         self.extra_runs_count if self.extra_runs.isChecked() else 0)
+                         self.extra_runs_count if self.extra_runs.isChecked() else 0,
+                         self.preset_box.presets() if self.preset_box is not None else None)
 
 
 def ask_choice(window, entries, profile, others, games=None, offered=None, initial=None,
@@ -346,6 +456,11 @@ def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_re
             return False
         window.status_label.setText("Tests whose license agreement was not accepted are left out.")
     entries = asked
+    if any(e.group == "game" for e in entries) and any(e.group != "game" for e in entries):
+        # owner, 2026-10-20: games and tests never run together (a saved plan from before could mix them)
+        QMessageBox.information(window, "Run tests", "Games and tests do not run together: run the tests from "
+                                "Tests and the games from Games.")
+        return False
     entries, typed = leave_out_typed(entries)
     if typed:
         names = ", ".join(e.name for e in typed)
@@ -384,7 +499,7 @@ def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_re
     _save_plan(data_dir, automatic + others, choice)
     if games and choice.preset is not None:
         try:
-            lines = save_preset(data_dir, games, choice.preset, offered)
+            lines = save_preset(data_dir, games, choice.preset, offered, choice.game_presets)
             window.status_label.setText(" ".join(line.strip() for line in lines)[:300])
         except (OSError, ValueError) as e:
             QMessageBox.warning(window, "Run tests", f"The game settings could not be saved: {e}")

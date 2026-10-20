@@ -207,3 +207,128 @@ def resolutions_offered(all_offered: Sequence[Dict[str, list]]) -> List[str]:
         w, _, h = text.partition("x")
         return int(w) * int(h), int(w)
     return [KEEP] + sorted(seen, key=pixels)
+
+
+# ---- what this PC's graphics card can use (owner, 2026-10-20: the owner chooses; the best choice is marked
+# "recommended"; what the card cannot run is not offered at all) -----------------------------------------------
+MODES = ("raw", "upscaling", "upscaling_fg")
+MODE_LABELS = {"raw": "Raw (no upscaling, no frame generation)", "upscaling": "Upscaling, no frame generation",
+               "upscaling_fg": "Upscaling + frame generation"}
+RECOMMENDED = " (recommended)"
+
+
+def main_gpu(names: Sequence[str]) -> str:
+    """The card games run on: a discrete NVIDIA / AMD / Intel Arc card before a built-in one ("" when unknown)."""
+    names = [n for n in names or [] if isinstance(n, str) and n.strip()]
+    for test in (lambda n: "nvidia" in n.lower() or "geforce" in n.lower(),
+                 lambda n: ("amd" in n.lower() or "radeon" in n.lower()) and not _built_in_amd(n),
+                 lambda n: "arc" in n.lower().split() or "intel(r) arc" in n.lower()):
+        found = [n for n in names if test(n)]
+        if found:
+            return found[0]
+    return names[0] if names else ""
+
+
+def _built_in_amd(name: str) -> bool:
+    low = name.lower()
+    return low.strip() in ("amd radeon(tm) graphics", "amd radeon graphics") or "vega" in low and "rx" not in low
+
+
+def _vendor(name: str) -> str:
+    low = name.lower()
+    if "nvidia" in low or "geforce" in low:
+        return "nvidia"
+    if "amd" in low or "radeon" in low:
+        return "amd"
+    if "intel" in low or "arc" in low.split():
+        return "intel"
+    return ""
+
+
+def _rtx_series(name: str) -> int:
+    """GeForce RTX 4070 -> 40, RTX 5090 -> 50, RTX 2060 -> 20; 0: not an RTX card (no DLSS)."""
+    import re
+    m = re.search(r"rtx\s*(\d{2})\d{2}", name.lower())
+    if m:
+        return int(m.group(1))
+    return 20 if "rtx" in name.lower() else 0      # RTX A4000 / RTX 6000 Ada...: DLSS upscaling at least
+
+
+def upscalers_for(gpu: str) -> List[str]:
+    """The upscalers this card runs: DLSS only on NVIDIA RTX; FSR and XeSS run on every vendor."""
+    out = ["dlss"] if _vendor(gpu) == "nvidia" and _rtx_series(gpu) else []
+    return out + ["fsr", "xess"]
+
+
+def recommended_upscaler(gpu: str) -> str:
+    return {"nvidia": "dlss" if _rtx_series(gpu) else "fsr", "intel": "xess"}.get(_vendor(gpu), "fsr")
+
+
+def frame_gens_for(gpu: str, upscaler: str) -> List[str]:
+    """Frame generation this card runs with that upscaler: DLSS 2x on RTX 40+, 3x / 4x on RTX 50+; FSR 2x on every
+    card; XeSS 2x on Intel Arc only. [] : none."""
+    if upscaler == "dlss":
+        series = _rtx_series(gpu) if _vendor(gpu) == "nvidia" else 0
+        return ["x2", "x3", "x4"] if series >= 50 else ["x2"] if series >= 40 else []
+    if upscaler == "fsr":
+        return ["x2"]
+    if upscaler == "xess":
+        return ["x2"] if _vendor(gpu) == "intel" and "arc" in gpu.lower() else []
+    return []
+
+
+def choice_labels(values: Sequence[str], recommended: Optional[str]) -> List[Tuple[str, str]]:
+    """[(value, shown text)] with "(recommended)" after the recommended one."""
+    return [(v, LABELS.get(v, v) + (RECOMMENDED if v == recommended else "")) for v in values]
+
+
+def game_preset(mode: str, upscaler: str, frame_gen: str, quality: str, resolution: str, ray_tracing: str
+                ) -> GamePreset:
+    """The page's choices as a preset: raw = upscaler off and no frame generation; upscaling = that upscaler, frame
+    generation off; upscaling + frame generation = both."""
+    return GamePreset(resolution=resolution, quality=quality, ray_tracing=ray_tracing,
+                      upscaler="off" if mode == "raw" else upscaler,
+                      frame_gen=frame_gen if mode == "upscaling_fg" else "off")
+
+
+def mode_of(preset: GamePreset) -> str:
+    if preset.upscaler in ("off", KEEP):
+        return "raw"
+    return "upscaling" if preset.frame_gen in ("off", KEEP) else "upscaling_fg"
+
+
+def page_choices(gpu: str) -> dict:
+    """The remote page's game choices for this PC's card (the same rules as the run dialog on the PC):
+    [value, text] lists, "(recommended)" after the best ones; frame generation per upscaler."""
+    ups = upscalers_for(gpu) if gpu else ["dlss", "fsr", "xess"]
+    best = recommended_upscaler(gpu) if gpu else None
+
+    def gens(u):
+        return frame_gens_for(gpu, u) if gpu else (["x2", "x3", "x4"] if u == "dlss" else ["x2"])
+    modes = [m for m in MODES if m != "upscaling_fg" or any(gens(u) for u in ups)]
+    return {"gpu": gpu,
+            "modes": [[m, MODE_LABELS[m]] for m in modes] + [[KEEP, "Keep the game's own"]],
+            "upscalers": [list(p) for p in choice_labels(ups, best if best in ups else None)],
+            "frame_gens": {u: [list(p) for p in choice_labels(gens(u), "x2" if "x2" in gens(u) else None)]
+                           for u in ups},
+            "qualities": [[q, LABELS[q]] for q in QUALITIES[1:]] + [[KEEP, "Keep the game's own"]],
+            "resolutions": [[r, r] for r in RESOLUTIONS[1:]] + [[KEEP, "Keep the game's own"]],
+            "ray_tracing": [["off", "Off"], ["on", "On"], [KEEP, "Keep the game's own"]]}
+
+
+def from_page(data) -> Optional[GamePreset]:
+    """A preset sent by the remote page ({mode, upscaler, frame_gen, quality, resolution, ray_tracing}), checked
+    like a saved one; None when it is not a preset at all."""
+    if not isinstance(data, dict):
+        return None
+    mode = data.get("mode")
+    if mode in MODES:
+        upscaler = data.get("upscaler") if data.get("upscaler") in UPSCALERS[2:] else "off"
+        frame_gen = data.get("frame_gen") if data.get("frame_gen") in FRAME_GEN[2:] else "off"
+        if mode != "raw" and upscaler == "off":
+            return None
+        data = dict(data, upscaler="off" if mode == "raw" else upscaler,
+                    frame_gen=frame_gen if mode == "upscaling_fg" else "off")
+    else:
+        data = dict(data, upscaler=KEEP, frame_gen=KEEP)
+    return GamePreset.from_dict(data)

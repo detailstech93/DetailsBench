@@ -52,6 +52,9 @@ button:disabled { opacity:.45; cursor:default; }
 .dot.failed { background:var(--stop); }
 .ptest .scores { grid-column:2 / 4; font-size:13px; color:var(--muted); overflow-wrap:anywhere; }
 .ptest .count { font-size:13px; color:var(--muted); white-space:nowrap; }
+.tabs button.on { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+.tabs button { flex:1; }
+#gameBox .grid { grid-template-columns:repeat(2, 1fr); }
 .group { margin-top:12px; font-weight:700; font-size:13px; text-transform:uppercase; letter-spacing:.04em;
   color:var(--muted); }
 .item { padding:8px 0; border-bottom:1px solid var(--line); }
@@ -136,9 +139,10 @@ a { color:var(--accent); }
   </section>
 
   <section>
-    <h2>Tests</h2>
-    <p class="muted">Every test for this PC. Greyed ones need someone at the PC and start there, unless they have an
-    Install or Accept license button; an orange note means someone must answer a Windows prompt on the PC.</p>
+    <div class="row tabs"><button id="secTests" class="on">Tests</button><button id="secGames">Games</button></div>
+    <p class="muted">Tests and games never run together. Greyed ones need someone at the PC and start there, unless
+    they have an Install or Accept license button; an orange note means someone must answer a Windows prompt on the
+    PC.</p>
     <div class="row"><button id="all">Select all</button><button id="none">Select none</button>
       <span id="picked" class="muted"></span></div>
     <div id="tests"></div>
@@ -147,8 +151,22 @@ a { color:var(--accent); }
         <div><label for="rep">Measured runs</label><input id="rep" type="number" min="1" max="50"></div>
         <div><label for="warm">Warm-up runs</label><input id="warm" type="number" min="0" max="10"></div>
         <div><label for="cool">Pause (s)</label><input id="cool" type="number" min="0" max="3600"></div>
-        <div><label for="stressMin">Stress test (min)</label><select id="stressMin">
+        <div id="stressBox"><label for="stressMin">Stress test (min)</label><select id="stressMin">
           <option>1</option><option>5</option><option selected>10</option><option>20</option><option>30</option><option>60</option></select></div>
+      </div>
+      <div id="gameBox" class="hidden">
+        <h2 style="margin-top:12px">Game preset</h2>
+        <label class="test"><input id="gSame" type="checkbox" checked><span>One preset for every game</span></label>
+        <div id="gWhichBox" class="hidden"><label for="gWhich" class="muted">Preset of</label><select id="gWhich"></select></div>
+        <div class="grid">
+          <div><label for="gMode">Mode</label><select id="gMode"></select></div>
+          <div id="gUpBox"><label for="gUp">Upscaler</label><select id="gUp"></select></div>
+          <div id="gFgBox"><label for="gFg">Frame generation</label><select id="gFg"></select></div>
+          <div><label for="gQual">Quality</label><select id="gQual"></select></div>
+          <div><label for="gRes">Resolution</label><select id="gRes"></select></div>
+          <div><label for="gRt">Ray tracing</label><select id="gRt"></select></div>
+        </div>
+        <p id="gCard" class="muted"></p>
       </div>
       <p id="note" class="muted"></p>
       <button id="start" class="go" style="width:100%">Start</button>
@@ -201,6 +219,67 @@ function el(tag, text, cls) {
 function countPicked() {
   const n = document.querySelectorAll("#tests input:checked").length;
   $("picked").textContent = n ? n + " selected" : "";
+  gameTargets();
+}
+
+// ---- Tests / Games (owner, 2026-10-20): two sections that never run together; games get a preset ----------
+let section = "tests", G = null, gAll = null, gEach = {};
+function showSection(s) {
+  section = s;
+  $("secTests").classList.toggle("on", s === "tests");
+  $("secGames").classList.toggle("on", s === "games");
+  document.querySelectorAll("#tests [data-section]").forEach((e) => {
+    const mine = e.dataset.section === s;
+    e.classList.toggle("hidden", !mine);
+    if (!mine) e.querySelectorAll("input:checked").forEach((c) => { c.checked = false; });
+  });
+  $("gameBox").classList.toggle("hidden", s !== "games");
+  $("stressBox").classList.toggle("hidden", s === "games");
+  countPicked();
+}
+function fillSelect(sel, pairs, value) {
+  sel.replaceChildren();
+  for (const [v, t] of pairs) { const o = el("option", t); o.value = v; sel.append(o); }
+  sel.value = pairs.some((p) => p[0] === value) ? value : (pairs.length ? pairs[0][0] : "");
+}
+function showPreset(p) {
+  fillSelect($("gMode"), G.modes, p.mode);
+  const mode = $("gMode").value;
+  const ups = G.upscalers.filter((u) => mode !== "upscaling_fg" || (G.frame_gens[u[0]] || []).length);
+  const best = (ups.find((u) => u[1].endsWith("(recommended)")) || ups[0] || [""])[0];
+  fillSelect($("gUp"), ups, ups.some((u) => u[0] === p.upscaler) ? p.upscaler : best);
+  fillSelect($("gFg"), G.frame_gens[$("gUp").value] || [], p.frame_gen);
+  fillSelect($("gQual"), G.qualities, p.quality);
+  fillSelect($("gRes"), G.resolutions, p.resolution);
+  fillSelect($("gRt"), G.ray_tracing, p.ray_tracing);
+  $("gUpBox").classList.toggle("hidden", mode !== "upscaling" && mode !== "upscaling_fg");
+  $("gFgBox").classList.toggle("hidden", mode !== "upscaling_fg");
+}
+function readPreset() {
+  return { mode: $("gMode").value, upscaler: $("gUp").value, frame_gen: $("gFg").value, quality: $("gQual").value,
+           resolution: $("gRes").value, ray_tracing: $("gRt").value };
+}
+function pickedGames() {
+  return [...document.querySelectorAll('#tests [data-section="games"] input:checked')]
+    .map((c) => [c.value, c.dataset.name]);
+}
+function gameTargets() {
+  if (!G) return;
+  const games = pickedGames(), sel = $("gWhich"), was = sel.value;
+  fillSelect(sel, games, was);
+  $("gWhichBox").classList.toggle("hidden", $("gSame").checked || games.length < 2);
+  $("gSame").parentElement.classList.toggle("hidden", games.length < 2);
+}
+function presetChanged() {
+  const p = readPreset();
+  showPreset(p);                                    // the upscaler / frame generation lists follow the mode
+  const now = readPreset();
+  if ($("gSame").checked || pickedGames().length < 2) gAll = now; else if ($("gWhich").value) gEach[$("gWhich").value] = now;
+}
+function gamePresets(ids) {
+  const out = {};
+  for (const id of ids) out[id] = (!$("gSame").checked && gEach[id]) || gAll;
+  return out;
 }
 
 function showInfo(info) {
@@ -211,10 +290,13 @@ function showInfo(info) {
   box.replaceChildren();
   let group = null;
   for (const t of info.tests) {
-    if (t.group !== group) { group = t.group; box.append(el("div", group, "group")); }
+    const sec = t.section || "tests";
+    if (t.group !== group) { group = t.group; const g = el("div", group, "group"); g.dataset.section = sec; box.append(g); }
     const item = el("div", undefined, "item");
+    item.dataset.section = sec;
     const row = el("label", undefined, "test" + (t.can_start ? "" : " off"));
     const cb = el("input"); cb.type = "checkbox"; cb.value = t.id; cb.disabled = !t.can_start;
+    cb.dataset.name = t.name;
     cb.addEventListener("change", countPicked);
     const txt = el("span", t.name);
     const meta = [];
@@ -230,6 +312,14 @@ function showInfo(info) {
     box.append(item);
   }
   if (!info.tests.length) box.append(el("p", "No test for this PC was found.", "muted"));
+  if (info.games) {
+    const first = !G;
+    G = info.games;
+    if (first) { gAll = G.last; showPreset(gAll); }
+    $("gCard").textContent = G.gpu ? "Graphics card: " + G.gpu + ". Only what it can run is offered; "
+      + "\"(recommended)\" marks the best choice." : "";
+  }
+  showSection(section);
   $("rep").value = info.defaults.repetitions;
   $("warm").value = info.defaults.warmup_runs;
   $("cool").value = info.defaults.cooldown_seconds;
@@ -426,11 +516,18 @@ $("reportPick").onchange = () => { picked = $("reportPick").selectedIndex > 0; o
 $("reportToggle").onclick = () => showReportBody(!reportShown());
 showReportBody(reportShown());
 $("reportReload").onclick = () => { picked = false; showReports(knownReport || ""); };
+$("secTests").onclick = () => showSection("tests");
+$("secGames").onclick = () => showSection("games");
+for (const id of ["gMode", "gUp", "gFg", "gQual", "gRes", "gRt"]) $(id).addEventListener("change", presetChanged);
+$("gSame").addEventListener("change", () => { gameTargets(); showPreset(gAll); });
+$("gWhich").addEventListener("change", () => showPreset(gEach[$("gWhich").value] || gAll));
 $("start").onclick = async () => {
   const ids = [...document.querySelectorAll("#tests input:checked")].map((c) => c.value);
-  if (!ids.length) { $("message").textContent = "Tick at least one test."; return; }
+  if (!ids.length) { $("message").textContent = section === "games" ? "Tick at least one game." : "Tick at least one test."; return; }
   const body = { ids, repetitions: parseInt($("rep").value, 10), warmup_runs: parseInt($("warm").value, 10),
-                 cooldown_seconds: parseInt($("cool").value, 10), stress_minutes: parseInt($("stressMin").value, 10) };
+                 cooldown_seconds: parseInt($("cool").value, 10) };
+  if (section === "games") body.game_presets = gamePresets(ids);
+  else body.stress_minutes = parseInt($("stressMin").value, 10);
   $("message").textContent = "Starting...";
   try {
     const d = await (await call("/api/start", body)).json();

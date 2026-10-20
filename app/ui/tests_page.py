@@ -83,9 +83,11 @@ class TestsPage(QWidget):
         self.items: Dict[str, QTreeWidgetItem] = {}
         self.open_url = open_url or (lambda url: QDesktopServices.openUrl(QUrl(url)))
         self.host = None            # app/install/plans.Host; None: this computer (tests set one)
+        # owner, 2026-10-20: games have their own section (Games) and never run together with the tests
+        self.section = "tests"
 
         layout = QVBoxLayout(self)
-        head = QLabel("Tests")
+        self.head = head = QLabel("Tests")
         font = QFont()
         font.setPointSize(16)
         font.setBold(True)
@@ -133,7 +135,7 @@ class TestsPage(QWidget):
         self.run_all_btn.setMinimumHeight(40)
         self.run_all_btn.setToolTip("Every test for this PC. Tests that are not installed are listed first: install "
                                     "them, then everything runs, or run only what is installed.")
-        self.run_all_btn.clicked.connect(lambda: self.busy or self.run_all_requested.emit(list(self.entries)))
+        self.run_all_btn.clicked.connect(lambda: self.busy or self.run_all_requested.emit(self.section_entries()))
         self.run_plan_btn = QPushButton("Run a saved plan...")
         self.run_plan_btn.setMinimumHeight(40)
         self.run_plan_btn.setToolTip("Every run from this screen is saved as a plan (tests, runs, warm-ups, pause, "
@@ -224,12 +226,36 @@ class TestsPage(QWidget):
         keep = set(self.selected_ids())
         self.entries = list(entries)
         self.fill(keep)
-        c = counts(self.entries)
-        self.summary.setText(f"{c['compatible']} tests can run on this PC; {c['installed']} of them are installed."
+        self._summary()
+
+    def _summary(self):
+        c = counts(self.section_entries())
+        what = "games" if self.section == "games" else "tests"
+        self.summary.setText(f"{c['compatible']} {what} can run on this PC; {c['installed']} of them are installed."
                              + (f" {c['incompatible']} more are for other systems." if c["incompatible"] else ""))
 
+    def set_section(self, section: str):
+        """Tests (everything but games) or Games: what the list shows; a selection never mixes the two."""
+        section = "games" if section == "games" else "tests"
+        if section == self.section:
+            return
+        self.set_all(False)
+        self.section = section
+        games = section == "games"
+        self.head.setText("Games" if games else "Tests")
+        self.run_all_btn.setText("Run all games..." if games else "Run all tests...")
+        self.ai_models_btn.setVisible(not games)
+        self.hint.setText("Tick games, or double-click one, then choose the preset and how many times to run them."
+                          if games else "Tick tests, or double-click one, then choose how many times to run them.")
+        self.fill(set())
+        self._summary()
+
+    def section_entries(self) -> List[TestEntry]:
+        games = self.section == "games"
+        return [e for e in self.entries if (e.group == "game") == games]
+
     def visible_entries(self) -> List[TestEntry]:
-        return [e for e in self.entries if e.compatible or self.show_all.isChecked()]
+        return [e for e in self.section_entries() if e.compatible or self.show_all.isChecked()]
 
     def fill(self, keep=None):
         keep = set(self.selected_ids()) if keep is None else keep
@@ -311,14 +337,14 @@ class TestsPage(QWidget):
             self.set_checked(tid, checked)
 
     def select_all_installed(self):
-        for e in self.entries:
+        for e in self.section_entries():
             if e.can_run() and not e.waits_for_typed_score():     # those only run alone
                 self.set_checked(e.id, True)
 
     def update_run_button(self):
         n = len(self.selected_ids())
         self.run_btn.setEnabled(n > 0 and not self.busy)
-        self.run_all_btn.setEnabled(bool(self.entries) and not self.busy)
+        self.run_all_btn.setEnabled(bool(self.section_entries()) and not self.busy)
         self.run_plan_btn.setEnabled(bool(self.entries) and not self.busy)
         self.run_btn.setText(f"Run selected ({n})..." if n else "Run selected...")
 

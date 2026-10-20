@@ -130,6 +130,15 @@ def check_start(body: object, offered: List[str]) -> Tuple[Optional[dict], str]:
         if isinstance(minutes, bool) or not isinstance(minutes, int) or not 1 <= minutes <= 240:
             return None, "stress_minutes must be a whole number from 1 to 240"
         out["stress_minutes"] = minutes
+    chosen = body.get("game_presets")           # optional: {test id: preset} for the games (Games section)
+    if chosen is not None:
+        from app.games.presets import from_page
+        if not isinstance(chosen, dict) or not set(chosen) <= set(out["ids"]):
+            return None, "game_presets must name the games picked"
+        presets = {test_id: from_page(p) for test_id, p in chosen.items()}
+        if any(p is None for p in presets.values()):
+            return None, "a game preset is not valid"
+        out["game_presets"] = {test_id: p.to_dict() for test_id, p in presets.items()}
     return out, ""
 
 

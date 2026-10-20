@@ -388,7 +388,7 @@ class MainWindow(QMainWindow):
         header_layout.addSpacing(20)
         # Navigation: This PC (start) -> Tests -> Advanced (every earlier tab)
         self.nav_buttons: Dict[str, QPushButton] = {}
-        for key, text in (("this_pc", "This PC"), ("tests", "Tests"), ("advanced", "Advanced")):
+        for key, text in (("this_pc", "This PC"), ("tests", "Tests"), ("games", "Games"), ("advanced", "Advanced")):
             b = QPushButton(text)
             b.setCheckable(True)
             b.clicked.connect(lambda checked=False, k=key: self.show_page(k))
@@ -457,13 +457,17 @@ class MainWindow(QMainWindow):
         self.run_all_flow = RunAllFlow(self)
         self.tests_page.run_all_requested.connect(self.run_all_flow.start)
         self.pages = QStackedWidget()
-        self.page_widgets = {"this_pc": self.this_pc_page, "tests": self.tests_page, "advanced": self.tabs}
-        for widget in self.page_widgets.values():
+        # Tests and Games are one screen showing one section each (shared progress bar, Stop and Skip)
+        self.page_widgets = {"this_pc": self.this_pc_page, "tests": self.tests_page, "games": self.tests_page,
+                             "advanced": self.tabs}
+        for widget in (self.this_pc_page, self.tests_page, self.tabs):
             self.pages.addWidget(widget)
         main_layout.addWidget(self.pages, 1)
         self.show_page("this_pc")
 
     def show_page(self, key: str):
+        if key in ("tests", "games"):
+            self.tests_page.set_section(key)
         self.pages.setCurrentWidget(self.page_widgets[key])
         for k, b in self.nav_buttons.items():
             b.setChecked(k == key)
