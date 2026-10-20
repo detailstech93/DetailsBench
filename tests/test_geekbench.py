@@ -170,7 +170,7 @@ def test_the_warning_says_it_uploads():
 
 def test_the_report_has_its_own_sections():
     from app import report
-    assert [t[0] for t in report.GEEKBENCH_TESTS] == list(gb.MODES)
+    assert [t[0] for t in report.GEEKBENCH_TESTS + report.GEEKBENCH6_TESTS] == list(gb.MODES)
     assert [t[0] for t in report.WEB_TESTS] == ["speedometer", "jetstream"]
 
 
@@ -197,3 +197,20 @@ def test_the_report_shows_single_core_next_to_multi_core(tmp_path):
     html = render_session_report(build_session_export(db, sid))
     assert "CPU, Multi-Core</div><div class=\"value\">20,232 <span>points" in html
     assert "CPU, Single-Core</div><div class=\"value\">2,042 <span>points" in html
+
+
+def test_geekbench_6_runs_the_same_way(tmp_path, monkeypatch):
+    """Owner, 2026-10-20: "yes, I allow it" (Geekbench 6 automated, its uploads too). Not verified before a real run."""
+    exe = r"C:\PF\Geekbench 6\geekbench6.exe"
+    assert gb.program_path("win32", {"ProgramFiles": r"C:\PF"}, isfile=lambda p: p == exe, major=6) == exe
+    assert gb.program_path("linux", which=lambda n: n == "geekbench6" and "/usr/bin/geekbench6" or None,
+                           major=6) == "/usr/bin/geekbench6"
+    wl, seen = _workload("geekbench6_cpu", CPU_OUT.replace("7.1.0", "6.4.0"), monkeypatch)
+    r = wl.run(RunContext(output_dir=tmp_path, timeout_seconds=1800, stop_event=threading.Event()))
+    assert seen["command"][1:] == ["--cpu"] and r.status == "completed" and r.score == 22129
+    assert r.note.startswith("Geekbench 6; test: CPU") and "single_core_score" in r.metrics
+    assert wl.display_name == "Geekbench 6 (CPU)" and not wl.verified and "Geekbench 6's free version" in wl.warning
+    assert gb.GeekbenchWorkload("geekbench6_cpu", finder=lambda: None).availability()[1].startswith("Geekbench 6 is")
+    assert "geekbench6_gpu_cuda" not in gb.MODES      # Geekbench 6 has no CUDA test
+    from data.installers import INSTALLERS
+    assert INSTALLERS["geekbench6_cpu"] is INSTALLERS["geekbench_6"]

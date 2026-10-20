@@ -31,7 +31,7 @@ _GROUP_IDS = {g for g, _ in GROUPS}
 TYPED_GROUP = "Score typed by you (each runs alone)"
 # a scanned program the app already runs by itself (owner, 2026-10-20): its typed-score copy is left out.
 # library id: (the workload that runs it, the version it must start with, or None for any)
-AUTOMATED_COPY = {"geekbench_7": ("geekbench7_cpu", None), "cinebench": ("cinebench_2026", "2026"),
+AUTOMATED_COPY = {"geekbench_7": ("geekbench7_cpu", None), "geekbench_6": ("geekbench6_cpu", None), "cinebench": ("cinebench_2026", "2026"),
                   "passmark_performancetest": ("passmark_cpu", None), "pugetbench_creators": ("pugetbench_photoshop", None)}
 
 

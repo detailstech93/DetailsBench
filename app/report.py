@@ -540,6 +540,8 @@ def _cinebench_section(export: Mapping) -> str:
 
 GEEKBENCH_TESTS = (("geekbench7_cpu", "CPU, Multi-Core", "points"), ("geekbench7_gpu_opencl", "GPU, OpenCL", "points"),
                    ("geekbench7_gpu_vulkan", "GPU, Vulkan", "points"), ("geekbench7_gpu_cuda", "GPU, CUDA", "points"))
+GEEKBENCH6_TESTS = (("geekbench6_cpu", "CPU, Multi-Core", "points"), ("geekbench6_gpu_opencl", "GPU, OpenCL", "points"),
+                    ("geekbench6_gpu_vulkan", "GPU, Vulkan", "points"))
 WEB_TESTS = (("speedometer", "Speedometer 3.1", "score"), ("jetstream", "JetStream 3.0", "points"))
 
 
@@ -550,7 +552,13 @@ def _geekbench_section(export: Mapping) -> str:
         "the average of the measured runs. GPU scores compare only with the same API "
         "(OpenCL, Vulkan, CUDA). Scores compare only with Geekbench 7. Geekbench 7's free version UPLOADED every "
         "result to the Geekbench Browser (allowed by the owner); each run's link is shown.",
-        metric_tiles={"geekbench7_cpu": [("single_core_score", "CPU, Single-Core")]})
+        metric_tiles={"geekbench7_cpu": [("single_core_score", "CPU, Single-Core")]}) + _tiles_section(
+        export, "Geekbench 6", GEEKBENCH6_TESTS,
+        "Geekbench 6's own scores (Primate Labs). Higher is faster. CPU: a Multi-Core and a Single-Core tile, each "
+        "the average of the measured runs. GPU scores compare only with the same API (OpenCL, Vulkan). Scores "
+        "compare only with Geekbench 6, never with Geekbench 7. Geekbench 6's free version UPLOADED every result to "
+        "the Geekbench Browser (allowed by the owner); each run's link is shown.",
+        metric_tiles={"geekbench6_cpu": [("single_core_score", "CPU, Single-Core")]})
 
 
 def _web_section(export: Mapping) -> str:

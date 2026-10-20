@@ -18,6 +18,10 @@ invalid, never a number.
 --gpu-list prints one table per API ("| Platform ID | Device ID | Description |"). The app picks the GPU with the most
 dedicated memory (app/telemetry/gpu_memory.py, any vendor) when it is in the API's table, else Geekbench's default
 (0, 0), and names the device in the note. Scores compare only with the same Geekbench major version, test and API.
+
+Geekbench 6 (owner, 2026-10-20: "yes, I allow it", its uploads too) runs the same way: geekbench6(.exe) from Program
+Files/Geekbench 6 with --cpu / --gpu OpenCL|Vulkan (Geekbench 6 has no CUDA test). Not run here yet: not verified
+until the owner's first real run.
 """
 
 import os
@@ -34,12 +38,17 @@ from app.automation.workload import RunContext, Workload, WorkloadResult
 
 MAJOR = 7
 UNIT = "points"
+# test id: Geekbench major version (every id not here is Geekbench 7)
+MAJORS = {"geekbench6_cpu": 6, "geekbench6_gpu_opencl": 6, "geekbench6_gpu_vulkan": 6}
 # test id: (title, command-line options without the device, expected seconds for the progress bar)
 MODES = {
     "geekbench7_cpu": ("CPU", ["--cpu"], 360),
     "geekbench7_gpu_opencl": ("GPU, OpenCL", ["--gpu", "OpenCL"], 150),
     "geekbench7_gpu_vulkan": ("GPU, Vulkan", ["--gpu", "Vulkan"], 150),
     "geekbench7_gpu_cuda": ("GPU, CUDA", ["--gpu", "CUDA"], 150),
+    "geekbench6_cpu": ("CPU", ["--cpu"], 360),
+    "geekbench6_gpu_opencl": ("GPU, OpenCL", ["--gpu", "OpenCL"], 150),
+    "geekbench6_gpu_vulkan": ("GPU, Vulkan", ["--gpu", "Vulkan"], 150),
 }
 SINGLE = re.compile(r"^\s*Single-Core Score\s+(\d+)\s*$", re.M)
 MULTI = re.compile(r"^\s*Multi-Core Score\s+(\d+)\s*$", re.M)
@@ -51,20 +60,25 @@ WARNING = ("Geekbench 7's free version uploads every result to the Geekbench Bro
            "the internet; you allowed this on 2026-10-20.")
 
 
+def warning_for(major: int) -> str:
+    return WARNING.replace("Geekbench 7", f"Geekbench {major}")
+
+
 def program_path(platform: Optional[str] = None, env=None, isfile=os.path.isfile, which=shutil.which,
-                 home: Optional[str] = None) -> Optional[str]:
+                 home: Optional[str] = None, major: int = MAJOR) -> Optional[str]:
     """geekbench7(.exe): Primate Labs' Windows installer puts it in Program Files\\Geekbench 7; the Linux download is
-    a folder Geekbench-7.x.y-Linux(Arm) unpacked anywhere (the PATH, the home folder or /opt)."""
+    a folder Geekbench-7.x.y-Linux(Arm) unpacked anywhere (the PATH, the home folder or /opt). Geekbench 6 the same
+    with 6."""
     platform = platform or sys.platform
     env = os.environ if env is None else env
     if platform == "win32":
         for base in (env.get("ProgramFiles"), env.get("ProgramW6432"), env.get("ProgramFiles(x86)")):
             if base:
-                exe = os.path.join(base, "Geekbench 7", "geekbench7.exe")
+                exe = os.path.join(base, f"Geekbench {major}", f"geekbench{major}.exe")
                 if isfile(exe):
                     return exe
         return None
-    found = which("geekbench7")
+    found = which(f"geekbench{major}")
     if found:
         return found
     for root in (home or os.path.expanduser("~"), "/opt"):
@@ -73,8 +87,8 @@ def program_path(platform: Optional[str] = None, env=None, isfile=os.path.isfile
         except OSError:
             continue
         for name in names:
-            if name.startswith("Geekbench-7"):
-                exe = os.path.join(root, name, "geekbench7")
+            if name.startswith(f"Geekbench-{major}"):
+                exe = os.path.join(root, name, f"geekbench{major}")
                 if isfile(exe):
                     return exe
     return None
@@ -147,22 +161,26 @@ def _why(text: str, wanted: str) -> str:
 
 class GeekbenchWorkload(Workload):
     benchmark_type = "cpu"
-    warning = WARNING
     # the runs chosen for the plan, no warm-up (owner, 2026-10-20): one run is not enough, the same PC gave 22129 then
     # 19963 (CPU) and 200121 then 235746 (Vulkan) on one day; every run is one more upload (allowed)
     no_warmup = True
 
     def __init__(self, test_id: str = "geekbench7_cpu", exe: Optional[str] = None,
-                 finder: Callable[[], Optional[str]] = program_path,
+                 finder: Optional[Callable[[], Optional[str]]] = None,
                  gpu_name: Callable[[], Optional[str]] = biggest_gpu_name, runner: Callable = subprocess.run):
         self.id = test_id
+        self.major = MAJORS.get(test_id, MAJOR)
         self.title, self.options, self.expected = MODES[test_id]
         self.gpu = self.options[0] == "--gpu"
         self.benchmark_type = "gpu" if self.gpu else "cpu"
         self.timeout_seconds = 1200 if self.gpu else 1800
-        self.display_name = f"Geekbench {MAJOR} ({self.title})"
-        self.verified = True            # real runs of all four here, 2026-10-20 (CUDA: 350115 points, RTX 5090)
-        self.exe = exe if exe is not None else finder()
+        self.display_name = f"Geekbench {self.major} ({self.title})"
+        self.warning = warning_for(self.major)
+        # Geekbench 7: real runs of all four here, 2026-10-20 (CUDA: 350115 points, RTX 5090); Geekbench 6: not yet
+        self.verified = self.major == MAJOR
+        if exe is None:
+            exe = finder() if finder is not None else program_path(major=self.major)
+        self.exe = exe
         self._gpu_name, self._run = gpu_name, runner
         self._started: Optional[float] = None
 
@@ -175,14 +193,14 @@ class GeekbenchWorkload(Workload):
 
     def availability(self) -> Tuple[bool, str]:
         if not self.exe:
-            return False, "Geekbench 7 is not installed (geekbench7 not found)"
+            return False, f"Geekbench {self.major} is not installed (geekbench{self.major} not found)"
         return True, self.exe
 
     def executable(self) -> Tuple[Optional[str], str]:
-        return self.exe, "Geekbench 7's folder"
+        return self.exe, f"Geekbench {self.major}'s folder"
 
     def version(self) -> Optional[str]:
-        return str(MAJOR)
+        return str(self.major)
 
     def describe_command(self) -> Optional[str]:
         return " ".join([f'"{self.exe}"', *self.options]) if self.exe else None
@@ -233,7 +251,7 @@ class GeekbenchWorkload(Workload):
                                                                  if outcome.exit_code else ""), **common)
         if outcome.exit_code != 0:
             return WorkloadResult(status="failed", error=f"exit code {outcome.exit_code}", **common)
-        parts = [f"Geekbench {MAJOR}; test: {self.title}"]
+        parts = [f"Geekbench {self.major}; test: {self.title}"]
         if self.gpu:
             names = DEVICE.findall(text)
             parts.append(f"Device: {names[-1] if names else device[2]}")

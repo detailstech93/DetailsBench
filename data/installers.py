@@ -179,6 +179,9 @@ INSTALLERS["blender_benchmark_gpu"] = INSTALLERS["blender_benchmark"]
 INSTALLERS["vray_benchmark_gpu"] = INSTALLERS["vray_benchmark_rtx"] = INSTALLERS["vray_benchmark"]
 # the single-thread run of Cinebench 2026 uses the same program
 INSTALLERS["cinebench_2026_single"] = INSTALLERS["cinebench_2026"]
+# the automated Geekbench 6 tests use the same program
+for _id in ("geekbench6_cpu", "geekbench6_gpu_opencl", "geekbench6_gpu_vulkan"):
+    INSTALLERS[_id] = INSTALLERS["geekbench_6"]
 INSTALLERS["ycruncher_pi_2_5b"] = INSTALLERS["ycruncher_pi_1b"]
 INSTALLERS["handbrake_x265_1080p"] = INSTALLERS["handbrake_x264_1080p"]
 
