@@ -153,6 +153,7 @@ class AutomationPanel(QGroupBox):
         self.last_summary = None
         self.reports: list = []
         self.on_plan_finished: Optional[Callable[[int, str], None]] = None    # set by the Tests screen
+        self.on_step_report: Optional[Callable[[int, int, str], None]] = None  # each step (a test's report)
         self.asking = False          # the "start these runs?" question is open (after the sensors were prepared)
         self.step: Tuple[int, int, str] = (0, 0, "")                          # progress of the running plan
 
@@ -502,6 +503,11 @@ class AutomationPanel(QGroupBox):
     @Slot(int, int, str)
     def _on_step(self, done: int, total: int, text: str):
         self.step = (done, total, text)
+        if self.on_step_report is not None:
+            try:
+                self.on_step_report(done, total, text)
+            except Exception:                   # a report never stops the run
+                logger.exception("Could not write a test's report")
 
     @Slot(str, object)
     def _on_screenshot_requested(self, path: str, done: threading.Event):

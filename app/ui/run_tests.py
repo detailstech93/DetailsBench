@@ -408,7 +408,25 @@ def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_re
     folder = reports_folder.folder(window)
     result: dict = {}
 
+    written, seen = set(), {"now": None}
+
+    def step_report(done: int, total: int, text: str):
+        """Several tests: each test's report is saved in the run's folder once it is over (not opened; only the
+        final report opens at the end)."""
+        from app.export import build_session_export
+        from app.report_set import finished_tests, write_test_report
+        now = text.split(":")[0].strip()
+        if folder is None or panel.last_session_id is None or now == seen["now"] or text.startswith("Pause"):
+            return                              # the same test still going on: nothing new is over
+        seen["now"] = now
+        export = build_session_export(window.db, panel.last_session_id)
+        for name in finished_tests(export, text):
+            if name not in written:
+                write_test_report(export, folder, name)
+                written.add(name)
+
     def finished(session_id: int, text: str):
+        panel.on_step_report = None
         done, total, _ = panel.step
         first = text.splitlines()[0]
         result["final"] = (done, total, first)
@@ -429,6 +447,7 @@ def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_re
         opener(path)
 
     panel.on_plan_finished = finished
+    panel.on_step_report = step_report if len(automatic) > 1 else None
     started = panel.start_plan(tools_ready=tools_ready, workloads=[e.ref for e in automatic],
                                profile=plan_profile(window.selected_profile(), choice), extra_runs=choice.extra_runs,
                                confirm=confirm)
@@ -437,6 +456,7 @@ def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_re
         window.tests_page.watch(lambda: plan_state(panel, result), panel.emergency_stop)
     else:
         panel.on_plan_finished = None          # cancelled; a later plan must not open this report
+        panel.on_step_report = None
     return started
 
 

@@ -61,11 +61,16 @@ def test_outcome_counts_runs_and_warmups(tmp_path):
     assert o["runs"] == "2 of 2 measured run(s) completed, 1 warm-up" and o["time"] == "18 s"
 
 
-def test_the_same_second_twice_does_not_overwrite(tmp_path):
+def test_each_test_is_saved_when_it_is_over_and_the_end_uses_the_same_folder(tmp_path):
     _, _, export = _session(tmp_path, [("a", 1.0, "completed", 1), ("b", 2.0, "completed", 1)])
-    first = rs.write_report_set(export, tmp_path / "reports")
-    second = rs.write_report_set(export, tmp_path / "reports")
-    assert first.parent.name == "2026-10-20_09-15-30" and second.parent.name == "2026-10-20_09-15-30_2"
+    assert rs.finished_tests(export, "b: run 1") == ["a"]          # b is still going on
+    assert rs.finished_tests(export, "c: run 1") == ["a", "b"]
+    early = rs.write_test_report(export, tmp_path / "reports", "a")
+    assert early == tmp_path / "reports" / "2026-10-20_09-15-30" / "a_2026-10-20_09-15-30.html"
+    summary = rs.write_report_set(export, tmp_path / "reports")
+    assert summary.parent == early.parent                          # no second folder
+    assert sorted(p.name for p in early.parent.iterdir()) == [
+        "Summary_2026-10-20_09-15-30.html", "a_2026-10-20_09-15-30.html", "b_2026-10-20_09-15-30.html"]
 
 
 def test_the_phone_lists_reports_inside_run_folders():
@@ -73,3 +78,55 @@ def test_the_phone_lists_reports_inside_run_folders():
     assert REPORT_NAME.match("2026-10-20_09-15-30/Summary_2026-10-20_09-15-30.html")
     assert REPORT_NAME.match("Cinebench 2026 Single Thread_2026-10-20_09-15-30.html")
     assert not REPORT_NAME.match("a/b/c.html") and not REPORT_NAME.match("../x.txt")
+
+
+class _Label:
+    def setText(self, text):
+        self.text = text
+
+
+class _Page:
+    def watch(self, *a):
+        pass
+
+    def offer_report(self, fn):
+        self.offered = fn
+
+
+class _Panel:
+    def __init__(self, db, sid):
+        self.step, self.last_session_id, self.db, self.sid = (0, 4, ""), sid, db, sid
+        self.on_plan_finished = self.on_step_report = None
+        self.lhm = type("L", (), {"active": lambda self: False})()
+
+    def start_plan(self, **kw):
+        return True
+
+    def emergency_stop(self):
+        pass
+
+
+def test_a_plan_of_several_tests_saves_each_report_and_opens_only_the_summary(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from app.ui import reports_folder, run_tests
+    db = Database(str(tmp_path / "r.db"))
+    sid = db.create_session("Automated")
+    panel = _Panel(db, sid)
+    window = SimpleNamespace(db=db, automation_panel=panel, status_label=_Label(), tests_page=_Page(),
+                             selected_profile=lambda: None)
+    monkeypatch.setattr(reports_folder, "folder", lambda w: tmp_path / "reports")
+    monkeypatch.setattr(run_tests, "plan_profile", lambda profile, choice: None)
+    opened = []
+    entries = [SimpleNamespace(ref="a"), SimpleNamespace(ref="b")]
+    choice = SimpleNamespace(extra_runs=0)
+    assert run_tests.launch(window, entries, choice, opener=opened.append)
+    db.create_result(sid, "a", "cpu", 5.0, unit="pts", run_index=1, duration_seconds=3)
+    panel.on_step_report(1, 2, "b: run 1")                      # a is over, b starts
+    stamp = rs.stamp(build_session_export(db, sid)["session"]["created_at"])
+    folder = tmp_path / "reports" / stamp
+    assert [p.name for p in folder.iterdir()] == [f"a_{stamp}.html"] and opened == []    # saved, not opened
+    db.create_result(sid, "b", "cpu", None, unit="pts", status="failed", run_index=1, note="exit code 2",
+                     duration_seconds=4)
+    panel.on_plan_finished(sid, "Session done: 1 completed, 1 failed.")
+    assert opened == [folder / f"Summary_{stamp}.html"]          # only the final report opens
+    assert sorted(p.name for p in folder.iterdir()) == [f"Summary_{stamp}.html", f"a_{stamp}.html", f"b_{stamp}.html"]

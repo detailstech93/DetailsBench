@@ -108,13 +108,9 @@ def write_report_set(export: Mapping, root: Path, only: Optional[str] = None, at
         root.mkdir(parents=True, exist_ok=True)
         return write_export(one_test(export, names[0]), _free(root / f"{safe_name(titles.get(names[0], names[0]))}_"
                                                                      f"{when}.html"), "html")
-    folder = _free(root / when)
+    folder = run_folder(export, root)           # the same folder the reports of the finished tests went to
     folder.mkdir(parents=True, exist_ok=True)
-    files = {}
-    for name in names:
-        path = write_export(one_test(export, name),
-                            _free(folder / f"{safe_name(titles.get(name, name))}_{when}.html"), "html")
-        files[name] = path.name
+    files = {name: write_test_report(export, root, name).name for name in names}
     outcomes = [dict(test_outcome(export, n), title=titles.get(n, n), file=files[n]) for n in names]
     summary = folder / f"Summary_{when}.html"
     text = render_summary_report(export, outcomes)
@@ -122,6 +118,29 @@ def write_report_set(export: Mapping, root: Path, only: Optional[str] = None, at
     partial.write_text(text, encoding="utf-8")
     partial.replace(summary)
     return summary
+
+
+def run_folder(export: Mapping, root: Path) -> Path:
+    return Path(root) / stamp((export.get("session") or {}).get("created_at"))
+
+
+def write_test_report(export: Mapping, root: Path, name: str) -> Path:
+    """One test's report in the run's folder, written as soon as that test has finished (owner, 2026-10-20: saved
+    after each test, only the final report is opened); written again (the same file) at the end."""
+    from app.export import write_export
+    folder = run_folder(export, root)
+    folder.mkdir(parents=True, exist_ok=True)
+    when = stamp((export.get("session") or {}).get("created_at"))
+    title = display_names(export).get(name, name)
+    return write_export(one_test(export, name), folder / f"{safe_name(title)}_{when}.html", "html")
+
+
+def finished_tests(export: Mapping, current: str) -> List[str]:
+    """The tests of a running plan that are over: every test with a stored run except the one going on now
+    (current: the step's text, "<display name>: run 2"); tests run one after the other."""
+    titles = display_names(export)
+    now = str(current or "").split(":")[0].strip()
+    return [n for n in tested_names(export) if titles.get(n, n) != now and n != now]
 
 
 def _free(path: Path) -> Path:
