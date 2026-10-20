@@ -48,6 +48,12 @@ MODELS = {
 CONTEXT, PP, TG, RUNS = 4096, 512, 128, 3
 LOAD_SECONDS, GET_SECONDS = 600, 6 * 3600
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
+# a dropped download: lms keeps the part it has and resumes when `lms get` runs again (owner, 2026-10-20: Qwen3.8 27B
+# stopped at 57% with "Download failed: Timed-out. Please try to resume.")
+GET_ATTEMPTS = 4
+RESUMABLE = re.compile(r"timed?[- ]?out|try to resume|ECONNRESET|socket hang up|network", re.I)
+TERMINAL = re.compile(r"\x1b(\[[0-9;?]*[A-Za-z]|[()][A-Za-z0-9])")
+PROGRESS = re.compile(r"\d+(\.\d+)?%\s*\|")
 _LS: List[Tuple[float, object]] = []          # (time, `lms ls --json` result): the Tests screen asks once per model
 CUSTOM_KEY = "ai_fixed_models"
 KEY = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
@@ -199,15 +205,28 @@ def install(test_id: str, progress=lambda text: None, lms: Optional[Path] = None
     lms = lms or lmstudio.lms_path()
     if lms is None:
         return winget.Outcome(False, "LM Studio is not installed (its CLI lms was not found in ~/.lmstudio/bin).")
-    progress(f"Downloading {title} {quant} with LM Studio (several GB, this can take a while)...")
-    code, text = run(get_command(str(lms), key, quant), GET_SECONDS)
-    _LS.clear()
-    ok, why = installed(list_models(lms, run), key, quant)
-    if ok:
-        return winget.Outcome(True, f"{title} {quant} is ready.")
-    last = text.splitlines()[-1] if text else ""
+    for attempt in range(1, GET_ATTEMPTS + 1):
+        progress(f"Downloading {title} {quant} with LM Studio (several GB, this can take a while)..."
+                 + (f" Resuming after a dropped download (try {attempt} of {GET_ATTEMPTS})." if attempt > 1 else ""))
+        code, text = run(get_command(str(lms), key, quant), GET_SECONDS)
+        _LS.clear()
+        ok, why = installed(list_models(lms, run), key, quant)
+        if ok:
+            return winget.Outcome(True, f"{title} {quant} is ready.")
+        if not RESUMABLE.search(text or ""):
+            break
+    last = lms_error(text)
     return winget.Outcome(False, f"{title} was not installed: {why}" + (f" (lms said: {last[:200]})" if last else
                                                                          f" (exit code {code})"))
+
+
+def lms_error(text: str) -> str:
+    """The line worth showing from lms' output: its error, without the progress bar and terminal codes."""
+    clean = TERMINAL.sub("", text or "").replace("\r", "\n")
+    lines = [l.strip() for l in clean.splitlines() if l.strip() and not PROGRESS.search(l)]
+    errors = [l for l in lines if "error" in l.lower()]
+    line = (errors or lines or [""])[-1]
+    return line[line.lower().find("error"):] if "error" in line.lower() else line
 
 
 class FixedModelWorkload(llama_benchy.LlamaBenchyWorkload):

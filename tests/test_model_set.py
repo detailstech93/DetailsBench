@@ -221,3 +221,35 @@ def test_without_lm_studio_a_model_is_not_offered_for_install():
     other = TestEntry(id="sevenzip_benchmark", name="7-Zip", group="cpu", mode="automatic", state=MISSING,
                       state_reason="", compatible=True, compatibility_reason="", verified=True, source="workload")
     assert not needs_lmstudio(other, host, lms=lambda: None)
+
+
+DROPPED = ("\x1b[?25l⠋ [██████████          ] 57.17% |  10.14 GB / 17.74 GB | 49.82 MB/s | ETA 02:33\r"
+           "\x1b[2K\x1b[1G\x1b[?25hError: Download failed: Timed-out. Please try to resume.\n"
+           " - You can try to resume the download\n")
+
+
+def test_a_dropped_model_download_is_resumed_and_its_error_is_readable(tmp_path):
+    class Dropping(FakeLms):
+        def __init__(self, drops):
+            super().__init__(ls=[])
+            self.drops = drops
+
+        def __call__(self, argv, timeout):
+            if argv[1] == "get":
+                self.calls.append(argv[1:])
+                if self.drops:
+                    self.drops -= 1
+                    return 1, DROPPED
+                self.ls = LS
+                return 0, ""
+            return super().__call__(argv, timeout)
+    fake = Dropping(drops=2)
+    shown = []
+    out = ms.install("llama_benchy_gemma4_12b", shown.append, lms=tmp_path / "lms", run=fake)
+    assert out.ok and [c[0] for c in fake.calls].count("get") == 3 and "Resuming" in shown[-1]
+    ms._LS.clear()
+    fake = Dropping(drops=99)
+    out = ms.install("llama_benchy_gemma4_12b", lms=tmp_path / "lms", run=fake)
+    assert not out.ok and [c[0] for c in fake.calls].count("get") == ms.GET_ATTEMPTS
+    assert "lms said: Error: Download failed: Timed-out. Please try to resume." in out.message
+    assert "█" not in out.message and "\x1b" not in out.message
