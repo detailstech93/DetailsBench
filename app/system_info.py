@@ -363,9 +363,9 @@ def linux_summary(read=_read, run=subprocess.run) -> dict:
             'operating_system': system}
 
 
-def get_system_summary() -> dict:
+def get_system_summary(platform: Optional[str] = None) -> dict:
     """Get a summary of all system information."""
-    if sys.platform.startswith("linux"):
+    if (platform or sys.platform).startswith("linux"):
         return linux_summary()
     ram_info = get_ram_size()
     return {

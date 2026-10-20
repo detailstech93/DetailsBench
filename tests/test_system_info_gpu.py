@@ -30,10 +30,10 @@ def test_missing_pnp_id_is_kept_and_duplicates_collapsed():
 def test_summary_lists_all_gpus():
     with patch.object(system_info, "get_gpu_names", return_value=["Intel(R) Graphics", "NVIDIA RTX"]), \
             patch.object(system_info, "get_gpu_name", return_value="Intel(R) Graphics"):
-        assert system_info.get_system_summary()["gpu_name"] == "Intel(R) Graphics, NVIDIA RTX"
+        assert system_info.get_system_summary("win32")["gpu_name"] == "Intel(R) Graphics, NVIDIA RTX"
 
 
 def test_summary_falls_back_to_single_name():
     with patch.object(system_info, "get_gpu_names", return_value=None), \
             patch.object(system_info, "get_gpu_name", return_value="Some GPU"):
-        assert system_info.get_system_summary()["gpu_name"] == "Some GPU"
+        assert system_info.get_system_summary("win32")["gpu_name"] == "Some GPU"
