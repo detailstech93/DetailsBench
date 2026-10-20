@@ -524,6 +524,11 @@ class TestWebBenchmarkFileExists:
 # 9. Browser detection via App Paths (MOCK)
 # ═══════════════════════════════════════════════════════════════════════════
 
+WINDOWS_FOLDERS = {'ProgramFiles': r'C:\Program Files', 'ProgramFiles(x86)': r'C:\Program Files (x86)',
+                   'LOCALAPPDATA': r'C:\Users\u\AppData\Local'}     # the same on any host (Linux has none)
+
+
+@patch.dict(os.environ, WINDOWS_FOLDERS)
 class TestBrowserDetectionAppPaths:
     """MOCK: browsers detected via App Paths registry, with fallback paths."""
 
@@ -730,7 +735,7 @@ class TestElevationFallbackMocks:
 
         with patch('os.path.isfile', return_value=True):
             with patch('subprocess.Popen', side_effect=fake_popen):
-                with patch('os.startfile') as mock_startfile:
+                with patch('os.startfile', create=True) as mock_startfile:
                     with patch('app.benchmark_manager._get_process_snapshot', return_value=[]):
                         with patch('app.benchmark_manager._has_new_process', return_value=True):
                             result = launch_assisted_benchmark(info, confirm=True)
@@ -762,7 +767,7 @@ class TestElevationFallbackMocks:
 
         with patch('os.path.isfile', return_value=True):
             with patch('subprocess.Popen', side_effect=fake_popen_740):
-                with patch('os.startfile', side_effect=fake_startfile_1223):
+                with patch('os.startfile', create=True, side_effect=fake_startfile_1223):
                     result = launch_assisted_benchmark(info, confirm=True)
 
         assert result['status'] == 'cancelled'
@@ -791,7 +796,7 @@ class TestElevationFallbackMocks:
 
         with patch('os.path.isfile', return_value=True):
             with patch('subprocess.Popen', side_effect=fake_popen_740):
-                with patch('os.startfile', side_effect=fake_startfile_other):
+                with patch('os.startfile', create=True, side_effect=fake_startfile_other):
                     result = launch_assisted_benchmark(info, confirm=True)
 
         assert result['status'] == 'error'
@@ -814,7 +819,7 @@ class TestElevationFallbackMocks:
 
         with patch('os.path.isfile', return_value=True):
             with patch('subprocess.Popen', side_effect=fake_popen_access_denied):
-                with patch('os.startfile') as mock_startfile:
+                with patch('os.startfile', create=True) as mock_startfile:
                     result = launch_assisted_benchmark(info, confirm=True)
 
         assert result['status'] == 'error'
@@ -833,7 +838,7 @@ class TestElevationFallbackMocks:
 
         with patch('os.path.isfile', return_value=True):
             with patch('subprocess.Popen'):
-                with patch('os.startfile') as mock_startfile:
+                with patch('os.startfile', create=True) as mock_startfile:
                     with patch('app.benchmark_manager._get_process_snapshot', return_value=[]):
                         with patch('app.benchmark_manager._has_new_process', return_value=True):
                             result = launch_assisted_benchmark(info, confirm=True)
@@ -893,7 +898,7 @@ class TestElevationFallbackMocks:
 
         with patch('os.path.isfile', return_value=True):
             with patch('subprocess.Popen', side_effect=fake_popen_740):
-                with patch('os.startfile') as mock_startfile:
+                with patch('os.startfile', create=True) as mock_startfile:
                     with patch('app.benchmark_manager._get_process_snapshot', return_value=[]):
                         with patch('app.benchmark_manager._has_new_process', return_value=True):
                             result = launch_assisted_benchmark(info, confirm=True)
@@ -1086,6 +1091,7 @@ class TestBrowserAlreadyRunning:
 # 19. Fallback browser paths use os.environ (no hardcoded paths)
 # ═══════════════════════════════════════════════════════════════════════════
 
+@patch.dict(os.environ, WINDOWS_FOLDERS)
 class TestFallbackBrowserPaths:
     """Verify that _detect_browsers builds fallback paths from os.environ,
     not from literal hardcoded paths."""

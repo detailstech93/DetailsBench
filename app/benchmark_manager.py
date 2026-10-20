@@ -6,6 +6,7 @@ generic discovery routine reads those definitions — no install paths,
 executable names, or version numbers are hardcoded in this module.
 """
 
+import ntpath
 import os
 import re
 import csv
@@ -486,7 +487,7 @@ def launch_assisted_benchmark(
         exe_path = benchmark_info.executable_path
         if not exe_path or not os.path.isfile(exe_path):
             return {'status': 'error', 'message': f"Geekbench executable not found at {exe_path}"}
-        exe_name = os.path.basename(exe_path).lower()
+        exe_name = ntpath.basename(exe_path).lower()     # ntpath: splits on both \ and /
         if not re.match(r'^geekbench\s+\d+\.exe$', exe_name):
             raise RuntimeError(
                 f"Safety check failed: Refusing to launch non-main binary '{exe_name}'. "
@@ -1346,7 +1347,7 @@ $res | ConvertTo-Json -Depth 3
                     for base in (pf86, pf, localappdata):
                         if not base:
                             continue
-                        exe_path = os.path.join(base, sub)
+                        exe_path = ntpath.join(base, sub)
                         if os.path.exists(exe_path):
                             version = get_pe_version(exe_path) or "Unknown"
                             arch = get_pe_architecture(exe_path)

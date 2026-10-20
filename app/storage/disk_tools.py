@@ -169,7 +169,7 @@ def find_tool(tool: DiskTool, env: Optional[Mapping[str, str]] = None,
 def _expand(text: str, env: Mapping[str, str]) -> str:
     for key, value in env.items():
         text = text.replace(f"%{key}%", value)
-    return text
+    return text.replace("\\", os.sep)          # the candidates are written with \ (no change on Windows)
 
 
 def report_markdown(tool: DiskTool, rows: List[Tuple[DiskTest, Dict[str, float], Optional[str]]],

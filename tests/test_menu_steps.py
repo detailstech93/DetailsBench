@@ -142,7 +142,7 @@ def test_ocr_command_passes_the_path_inside_the_encoded_script(tmp_path):
 
 
 def test_read_image_lines_and_errors(tmp_path, monkeypatch):
-    monkeypatch.setattr(screen_text.os, "name", "nt")
+    monkeypatch.setattr(screen_text, "_on_windows", lambda: True)     # not os.name: pathlib reads it too
     monkeypatch.setattr(subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
     ok = lambda *a, **k: SimpleNamespace(returncode=0, stdout="Story Mode\r\n\r\n Settings \r\n".encode(), stderr=b"")
     boxes = lambda *a, **k: SimpleNamespace(returncode=0, stderr=b"",
@@ -158,7 +158,7 @@ def test_read_image_lines_and_errors(tmp_path, monkeypatch):
     def slow(*a, **k):
         raise subprocess.TimeoutExpired("powershell.exe", 30)
     assert "did not answer" in screen_text.read_image(tmp_path / "a.png", run=slow)[1]
-    monkeypatch.setattr(screen_text.os, "name", "posix")                 # Linux: Tesseract
+    monkeypatch.setattr(screen_text, "_on_windows", lambda: False)       # Linux: Tesseract
     monkeypatch.setattr(screen_text.shutil, "which", lambda name: None)
     assert "Tesseract (the OCR program for Linux) is not installed" in screen_text.read_image(tmp_path / "a.png",
                                                                                               run=ok)[1]

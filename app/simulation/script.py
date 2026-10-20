@@ -378,6 +378,8 @@ class ScriptRun:
             pattern, problem = expand_vars(s["glob"], self.env)
             if problem:
                 raise StepError("failed", f"result file location unknown: {problem}")
+            if os.sep == "/":       # Linux (Proton prefix): the scripts write Windows \, which glob reads as escapes
+                pattern = pattern.replace("\\", "/")
 
             def newest():
                 found = [f for f in glob.glob(pattern) if os.path.getmtime(f) >= self.wall_start - 1]

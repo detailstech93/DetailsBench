@@ -12,7 +12,9 @@ ping/pong, close), so the app needs no extra library.
 
 import base64
 import json
+import ntpath
 import os
+import posixpath
 import shutil
 import socket
 import struct
@@ -35,10 +37,10 @@ def browser_candidates(platform: Optional[str] = None, env=None) -> List[str]:
         out = []
         for base in (env.get("ProgramFiles"), env.get("ProgramFiles(x86)"), env.get("LOCALAPPDATA")):
             if base:
-                out.append(os.path.join(base, "Google", "Chrome", "Application", "chrome.exe"))
+                out.append(ntpath.join(base, "Google", "Chrome", "Application", "chrome.exe"))
         for base in (env.get("ProgramFiles(x86)"), env.get("ProgramFiles")):
             if base:
-                out.append(os.path.join(base, "Microsoft", "Edge", "Application", "msedge.exe"))
+                out.append(ntpath.join(base, "Microsoft", "Edge", "Application", "msedge.exe"))
         return out
     if platform.startswith("linux"):
         return ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "microsoft-edge"]
@@ -48,7 +50,7 @@ def browser_candidates(platform: Optional[str] = None, env=None) -> List[str]:
 def find_browser(platform: Optional[str] = None, env=None, isfile=os.path.isfile,
                  which=shutil.which) -> Optional[str]:
     for c in browser_candidates(platform, env):
-        if os.path.isabs(c):
+        if ntpath.isabs(c) or posixpath.isabs(c):     # a full path (Windows ones too), else a name on the PATH
             if isfile(c):
                 return c
         else:

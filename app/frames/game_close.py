@@ -9,6 +9,7 @@ non-elevated app; that is reported, not retried.
 """
 
 import logging
+import ntpath
 import os
 import sys
 import time
@@ -134,7 +135,7 @@ def close_game(started: Dict[int, ProcInfo], grace_seconds: float = GRACE_SECOND
     running = [i for i in started.values() if alive(i)]
     if not running:
         return "the game was already closed"
-    names = ", ".join(sorted({os.path.basename(i.exe) for i in running}))
+    names = ", ".join(sorted({ntpath.basename(i.exe) for i in running}))    # ntpath: \ and / both
     polite([i.pid for i in running])
     deadline = clock() + grace_seconds
     while clock() < deadline:
@@ -146,7 +147,7 @@ def close_game(started: Dict[int, ProcInfo], grace_seconds: float = GRACE_SECOND
     for info in running:
         problem = force(info)
         if problem:
-            problems.append(f"{os.path.basename(info.exe)}: {problem}")
+            problems.append(f"{ntpath.basename(info.exe)}: {problem}")
     if problems:
         return f"the game could not be closed ({'; '.join(problems)}); close it yourself"
     return f"game closed by force after {grace_seconds:g} s ({names})"

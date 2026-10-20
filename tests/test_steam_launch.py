@@ -9,6 +9,8 @@ import pytest
 
 from app.steam.launch import build_launch_url, launch_and_confirm, new_processes_in_folder
 
+WINDOWS_ONLY = pytest.mark.skipif(os.name != "nt", reason="Windows file names: case-blind, \\ and drive letters")
+
 GAME = os.path.join("Z:" + os.sep, "SteamLibrary", "steamapps", "common", "Cyberpunk 2077")
 EXE = os.path.join(GAME, "bin", "x64", "Cyberpunk2077.exe")
 
@@ -32,6 +34,7 @@ class TestNewProcess:
     def test_new_exe_inside_folder(self):
         assert new_processes_in_folder([], [("Cyberpunk2077.exe", EXE)], GAME) == [os.path.normpath(EXE)]
 
+    @WINDOWS_ONLY
     def test_case_differences_still_match(self):
         before = [("Cyberpunk2077.exe", EXE.upper())]
         assert new_processes_in_folder(before, [("Cyberpunk2077.exe", EXE)], GAME) == []
@@ -128,6 +131,7 @@ def test_missing_exe_falls_back_to_steam(tmp_path):
     assert opened == ["steam://run/1091500//--launcher-skip/"] and res["status"] == "unconfirmed"
 
 
+@WINDOWS_ONLY
 def test_mapped_drive_share_spelling_counts_as_inside(monkeypatch):
     import app.steam.launch as launch
     real = {r"Z:\Lib\Game": r"\server\share\Lib\Game"}
@@ -140,6 +144,7 @@ def test_mapped_drive_share_spelling_counts_as_inside(monkeypatch):
     assert _inside(r"\server\share\Lib\Game\game.exe", r"Z:\Lib\Game") and not _inside(r"C:\x.exe", r"Z:\Lib\Game")
 
 
+@WINDOWS_ONLY      # Linux: a Windows game runs through Proton, so Steam starts it
 def test_a_game_with_a_launcher_is_started_directly_without_args(tmp_path):
     from app.steam.launch import direct_exe
     from data.steam_benchmarks import SKIP_LAUNCHER

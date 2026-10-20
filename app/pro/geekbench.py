@@ -24,6 +24,7 @@ Files/Geekbench 6 with --cpu / --gpu OpenCL|Vulkan (Geekbench 6 has no CUDA test
 until the owner's first real run.
 """
 
+import ntpath
 import os
 import re
 import shutil
@@ -74,7 +75,7 @@ def program_path(platform: Optional[str] = None, env=None, isfile=os.path.isfile
     if platform == "win32":
         for base in (env.get("ProgramFiles"), env.get("ProgramW6432"), env.get("ProgramFiles(x86)")):
             if base:
-                exe = os.path.join(base, f"Geekbench {major}", f"geekbench{major}.exe")
+                exe = ntpath.join(base, f"Geekbench {major}", f"geekbench{major}.exe")
                 if isfile(exe):
                     return exe
         return None

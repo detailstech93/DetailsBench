@@ -129,9 +129,13 @@ def read_image_tesseract(image_path, run=subprocess.run, which=shutil.which) -> 
     return [line for line in parse_tsv(done.stdout.decode("utf-8", "replace")) if line], None
 
 
+def _on_windows() -> bool:
+    return os.name == "nt"
+
+
 def read_image(image_path, run=subprocess.run) -> Tuple[List[str], Optional[str]]:
     """(text lines, error) of one image."""
-    if os.name != "nt":
+    if not _on_windows():
         return read_image_tesseract(image_path, run=run)
     try:
         done = run(ocr_command(image_path), capture_output=True, timeout=OCR_TIMEOUT_SECONDS, shell=False,
