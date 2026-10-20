@@ -581,6 +581,21 @@ def _ycruncher_section(export: Mapping) -> str:
         decimals=3)
 
 
+GPU_TESTS = (("gravitymark_vulkan", "GravityMark, Vulkan", "fps"), ("gravitymark_opengl", "GravityMark, OpenGL", "fps"),
+             ("gravitymark_d3d12", "GravityMark, Direct3D 12", "fps"), ("vkmark", "vkmark (Vulkan)", "points"),
+             ("glmark2", "glmark2 (OpenGL)", "points"))
+
+
+def _gpu_bench_section(export: Mapping) -> str:
+    return _tiles_section(
+        export, "GPU benchmarks", GPU_TESTS,
+        "GravityMark 1.89's average frames per second, full screen with vsync off: the same API compares between "
+        "Windows and Linux on the same card. vkmark and glmark2 (Linux) give their own score for their default "
+        "scenes in an 800x600 window. Higher is faster. Under WSL the GPU goes through a translation layer, so only "
+        "a real Linux install measures the card. Nothing was uploaded.",
+        decimals=1)
+
+
 HANDBRAKE_TESTS = (("handbrake_x264_1080p", "H.264 (x264), 1080p", "fps"),
                    ("handbrake_x265_1080p", "H.265 (x265), 1080p", "fps"))
 
@@ -1435,6 +1450,7 @@ def render_session_report(export: Mapping) -> str:
         + _geekbench_section(export_mapping)
         + _passmark_section(export_mapping)
         + _ycruncher_section(export_mapping)
+        + _gpu_bench_section(export_mapping)
         + _handbrake_section(export_mapping)
         + _sevenzip_section(export_mapping)
         + _web_section(export_mapping)

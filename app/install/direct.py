@@ -5,11 +5,21 @@ server and checked by hand when they were added. The app downloads it into its o
 (%LOCALAPPDATA%\\PCBenchmarkManager\\tools), refuses it if size or SHA-256 differ, and extracts it into a
 folder named after the tool and version. Nothing runs and no administrator rights are needed; the scan then
 finds the program there (app/benchmark_manager.py looks in the tools folder too).
+
+Two more vendor formats, still unpacked by the app and never run:
+- a "makeself" .run file (GravityMark for Linux): a shell header of N lines ("head -n N" in it), then a tar.gz of
+  "filesizes" bytes. Read here as data, as `--noexec --target` would unpack it (Phoronix Test Suite does that).
+- a Windows .msi (GravityMark for Windows): Windows' own msiexec makes an administrative image of it (`msiexec /a
+  ... TARGETDIR=`): the files only, no administrator rights, nothing registered, and the package's
+  AdminExecuteSequence runs no custom action (its Visual C++ installer and browser start only in a normal install;
+  read from the MSI's tables, 2026-10-20).
 """
 
 import os
+import re
 import shutil
 import stat
+import subprocess
 import tarfile
 import urllib.request
 import zipfile
@@ -68,7 +78,41 @@ def checksum_text(plan: dict) -> str:
 
 def archive_suffix(url: str) -> str:
     path = urlparse(url).path
-    return ".tar.gz" if path.endswith((".tar.gz", ".tgz")) else ".tar.xz" if path.endswith(".tar.xz") else ".zip"
+    for suffix in (".tar.xz", ".run", ".msi"):
+        if path.endswith(suffix):
+            return suffix
+    return ".tar.gz" if path.endswith((".tar.gz", ".tgz")) else ".zip"
+
+
+MAKESELF_LINES = re.compile(rb'head -n (\d+) "\$1"')
+MAKESELF_SIZES = re.compile(rb'filesizes="(\d+)"')
+
+
+def makeself_payload(path: Path, header_bytes: int = 65536):
+    """(offset, size) of the tar.gz inside a makeself .run file, read from its header (never run)."""
+    with open(path, "rb") as f:
+        head = f.read(header_bytes)
+    lines, sizes = MAKESELF_LINES.search(head), MAKESELF_SIZES.search(head)
+    if not lines or not sizes:
+        raise ValueError("not a makeself archive (no header line count or file size)")
+    offset = 0
+    for _ in range(int(lines.group(1))):
+        offset = head.index(b"\n", offset) + 1
+    size = int(sizes.group(1).split()[0])
+    if offset + size != path.stat().st_size:
+        raise ValueError("the makeself header does not match the file's size")
+    return offset, size
+
+
+def msi_image(msi: Path, partial: Path, run=subprocess.run, timeout: int = 600) -> None:
+    """Windows' msiexec makes an administrative image of the .msi in partial (files only, no administrator)."""
+    msiexec = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "msiexec.exe"
+    result = run([str(msiexec), "/a", str(msi.resolve()), "/qn", f"TARGETDIR={partial.resolve()}"],
+                 capture_output=True, text=True, timeout=timeout)
+    if result.returncode != 0:
+        raise ValueError(f"msiexec /a ended with code {result.returncode}")
+    for leftover in partial.glob("*.msi"):          # the image keeps a copy of the package itself
+        leftover.unlink()
 
 
 def place_single(download: Path, dest: Path, exe: str) -> Optional[str]:
@@ -108,7 +152,20 @@ def extract(archive: Path, dest: Path, exe: str, max_files: int = MAX_EXTRACTED_
     if partial.exists():
         shutil.rmtree(partial)                     # our own leftover from an interrupted extraction
     try:
-        if zipfile.is_zipfile(archive):
+        if archive.suffix == ".msi":
+            partial.mkdir(parents=True)
+            msi_image(archive, partial)
+        elif archive.suffix == ".run":              # its tar.gz copied out, then unpacked like any other
+            offset, size = makeself_payload(archive)
+            payload = archive.with_name(archive.name + ".tar.gz")
+            try:
+                with open(archive, "rb") as src, open(payload, "wb") as dst:
+                    src.seek(offset)
+                    shutil.copyfileobj(src, dst)
+                return extract(payload, dest, exe, max_files, max_bytes)
+            finally:
+                payload.unlink(missing_ok=True)
+        elif zipfile.is_zipfile(archive):
             with zipfile.ZipFile(archive) as z:
                 infos = z.infolist()
                 partial.mkdir(parents=True)

@@ -148,6 +148,31 @@ TEST_INFO: Dict[str, dict] = {
         "supported_os": ["windows", "linux"], "supported_architectures": {"x64": "native", "arm64": "unsupported"},
         "expected_minutes": 8,
     },
+    "gravitymark_vulkan": {
+        "group": "gpu", "official_url": "https://gravitymark.tellusim.com/",
+        "supported_os": ["windows", "linux"], "supported_architectures": {"x64": "native", "arm64": "unsupported"},
+        "expected_minutes": 4,
+    },
+    "gravitymark_opengl": {
+        "group": "gpu", "official_url": "https://gravitymark.tellusim.com/",
+        "supported_os": ["windows", "linux"], "supported_architectures": {"x64": "native", "arm64": "unsupported"},
+        "expected_minutes": 4,
+    },
+    "gravitymark_d3d12": {
+        "group": "gpu", "official_url": "https://gravitymark.tellusim.com/",
+        "supported_os": ["windows"], "supported_architectures": {"x64": "native", "arm64": "unsupported"},
+        "expected_minutes": 4,
+    },
+    "vkmark": {
+        "group": "gpu", "official_url": "https://github.com/vkmark/vkmark",
+        "supported_os": ["linux"], "supported_architectures": {"x64": "native", "arm64": "native"},
+        "expected_minutes": 2,
+    },
+    "glmark2": {
+        "group": "gpu", "official_url": "https://github.com/glmark2/glmark2",
+        "supported_os": ["linux"], "supported_architectures": {"x64": "native", "arm64": "native"},
+        "expected_minutes": 3,
+    },
     "handbrake_x264_1080p": {
         "group": "cpu", "official_url": "https://handbrake.fr/downloads2.php",
         "supported_os": ["windows", "linux"], "supported_architectures": {"x64": "native", "arm64": "native"},

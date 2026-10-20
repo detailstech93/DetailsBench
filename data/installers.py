@@ -202,6 +202,31 @@ INSTALLERS["geekbench_6"]["linux"] = {"zip": _GEEKBENCH_LINUX[6], "arch": ["x64"
 INSTALLERS["geekbench_7"] = {"linux": {"zip": _GEEKBENCH_LINUX[7], "arch": ["x64"]}}
 for _id in ("geekbench7_cpu", "geekbench7_gpu_opencl", "geekbench7_gpu_vulkan", "geekbench7_gpu_cuda"):
     INSTALLERS[_id] = INSTALLERS["geekbench_7"]
+# GravityMark 1.89 (Tellusim), x64, from tellusim.com/download as linked on gravitymark.tellusim.com, read on
+# 2026-10-20. No checksum is published: size and SHA-256 pinned from the downloads here (owner asked for it). Its
+# server refuses curl's default User-Agent. Windows: the .msi, unpacked as an administrative image (no
+# administrator, nothing registered; app/install/direct.py), GravityMark\bin\GravityMark.exe from its Directory
+# table. Linux: the makeself .run, its tar.gz unpacked without running the script (bin/GravityMark.x64). The ARM
+# builds are not pinned. Its license is evaluation only (app/pro/gravitymark.py asks before the first run).
+_GRAVITYMARK = {
+    "windows": {"arch": ["x64"], "zip": {
+        "product": "GravityMark (Windows x64)", "version": "1.89",
+        "url": "https://tellusim.com/download/GravityMark_1.89.msi", "hosts": ["tellusim.com"], "size": 220901376,
+        "sha256": "38e32b475cf93eca2085334f7421fc738fb605c5b37f35e90e06d73a54169c8f",
+        "folder": "gravitymark-1.89", "exe": "GravityMark/bin/GravityMark.exe"}},
+    "linux": {"arch": ["x64"], "zip": {
+        "product": "GravityMark (Linux x64)", "version": "1.89",
+        "url": "https://tellusim.com/download/GravityMark_1.89.run", "hosts": ["tellusim.com"], "size": 193327384,
+        "sha256": "de090c7b9e40f10f225d9393f2cf73a660ad4edc21f6b333eea3190a8722e005",
+        "folder": "gravitymark-1.89", "exe": "bin/GravityMark.x64"}},
+}
+for _id in ("gravitymark_vulkan", "gravitymark_opengl", "gravitymark_d3d12"):
+    INSTALLERS[_id] = _GRAVITYMARK
+# vkmark and glmark2 (Linux): the distribution's packages. Debian/Ubuntu names read with apt-cache on Ubuntu 24.04
+# (2026-10-20): vkmark 2017.08+git20220909; glmark2 2023.01 is split by window system there, glmark2-x11 gives the
+# "glmark2" program (it also runs on Wayland desktops through XWayland). Other families are not offered.
+INSTALLERS["vkmark"] = {"linux": {"packages": {"debian": "vkmark"}}}
+INSTALLERS["glmark2"] = {"linux": {"packages": {"debian": "glmark2-x11"}}}
 INSTALLERS["ycruncher_pi_2_5b"] = INSTALLERS["ycruncher_pi_1b"]
 INSTALLERS["handbrake_x265_1080p"] = INSTALLERS["handbrake_x264_1080p"]
 
