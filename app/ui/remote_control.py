@@ -39,7 +39,8 @@ logger = logging.getLogger(__name__)
 
 SETTINGS_KEY = "remote_start"          # settings.json: {"port": ..., "local_only": ...}; never "on"
 GROUP_TITLES = dict(GROUPS)
-REPORT_NAME = re.compile(r"^[\w\-. ]{1,200}\.html$")
+# a report in the reports folder, or in one run's folder there (app/report_set.py): "<run folder>/<name>.html"
+REPORT_NAME = re.compile(r"^(?:[\w\-. ]{1,100}/)?[\w\-. ]{1,200}\.html$")
 MAX_REPORTS = 15
 TITLE = re.compile(r"<title>(?:Benchmark report: )?(.*?)</title>", re.S)
 
@@ -377,10 +378,11 @@ class RemoteApi:
         if folder is None or not folder.is_dir():
             return []
         found = []
-        for p in folder.glob("*.html"):
+        for p in list(folder.glob("*.html")) + list(folder.glob("*/*.html")):
+            name = p.relative_to(folder).as_posix()
             try:
-                if p.is_file() and REPORT_NAME.match(p.name):
-                    found.append((p.stat().st_mtime, p.name))
+                if p.is_file() and REPORT_NAME.match(name) and ".." not in name.split("/"):
+                    found.append((p.stat().st_mtime, name))
             except OSError:
                 continue
         found.sort(reverse=True)

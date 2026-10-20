@@ -65,7 +65,9 @@ def test_typed_scores_go_into_the_report_with_their_own_section(qapp, tmp_path):
         assert opened == [path] and path.parent == tmp_path / "reports"
         html = path.read_text(encoding="utf-8")
         assert "<h2>PugetBench for Creators</h2>" in html and "TYPED IN BY YOU" in html
-        assert "9,876" in html and "1,234" in html and "PugetBench version" in html
+        # each typed score gets its own report, named after the test and the time (owner, 2026-10-20)
+        assert "1,234" in html and "9,876" not in html and "PugetBench version" in html
+        assert path.name.startswith("pugetbench_premiere_pro_") or path.name.startswith("PugetBench")
         assert "During the test" not in html.split("<h2>PugetBench for Creators</h2>")[1].split("</section>")[0]
         with patch.object(MainWindow, "_ask_result", return_value=None):         # cancelled: nothing, no report
             assert run_tests.record_and_report(w, library(), opener=opened.append) is None

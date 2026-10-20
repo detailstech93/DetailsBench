@@ -244,11 +244,12 @@ def plan_profile(profile, choice: RunChoice):
                                name=f"{profile.name} (Tests screen: {choice.repetitions}x)", builtin=False)
 
 
-def write_report(db, session_id: int, folder: Path) -> Path:
-    from app.export import build_session_export, default_filename, write_export
-    export = build_session_export(db, session_id)
-    folder.mkdir(parents=True, exist_ok=True)
-    return write_export(export, folder / default_filename(export, "html"), "html")
+def write_report(db, session_id: int, folder: Path, only: Optional[str] = None, at: Optional[str] = None) -> Path:
+    """One report per test, named after the test and the run's start time; several tests go into a folder named by
+    that time with a final report (app/report_set.py). Returns the report to open."""
+    from app.export import build_session_export
+    from app.report_set import write_report_set
+    return write_report_set(build_session_export(db, session_id), folder, only, at)
 
 
 def open_report(path: Path) -> bool:
@@ -449,7 +450,10 @@ def record_and_report(window, entry: TestEntry, opener=None) -> Optional[Path]:
     if sid is None or folder is None:
         return None
     try:
-        path = write_report(window.db, sid, folder)
+        from datetime import datetime
+        runs = window.db.get_runs(sid, include_test=True)
+        latest = max(runs, key=lambda r: r["id"])["benchmark_name"] if runs else None
+        path = write_report(window.db, sid, folder, only=latest, at=datetime.now().isoformat(timespec="seconds"))
     except Exception as e:
         logger.exception("Could not write the report")
         window.status_label.setText(f"The score was saved; the report could not be written: {e}")

@@ -171,7 +171,9 @@ class Database:
             # Phase 4A: run status, warmup flag, run order, free-text note.
             # status stays NULL on old rows; readers derive it from `passed`.
             for column, ddl in (("status", "TEXT"), ("is_warmup", "BOOLEAN DEFAULT 0"),
-                                ("run_index", "INTEGER"), ("note", "TEXT")):
+                                ("run_index", "INTEGER"), ("note", "TEXT"),
+                                # how long the run took (owner, 2026-10-20: the summary report shows each test's time)
+                                ("duration_seconds", "REAL")):
                 if column not in results_cols:
                     cursor.execute(f"ALTER TABLE results ADD COLUMN {column} {ddl}")
                     logger.info("Migrated results table: added %s column", column)
@@ -208,7 +210,8 @@ class Database:
                       benchmark_version: Optional[str] = None,
                       is_test: bool = False, is_manual: bool = False,
                       status: Optional[str] = None, is_warmup: bool = False,
-                      run_index: Optional[int] = None, note: Optional[str] = None) -> int:
+                      run_index: Optional[int] = None, note: Optional[str] = None,
+                      duration_seconds: Optional[float] = None) -> int:
         """Add one run result to the specified session.
 
         status defaults to "completed" when passed else "failed". A run that
@@ -226,11 +229,11 @@ class Database:
         cursor.execute(
             """INSERT INTO results (session_id, benchmark_name, benchmark_type, score, unit,
                                    passed, benchmark_version, is_test, is_manual,
-                                   status, is_warmup, run_index, note)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                   status, is_warmup, run_index, note, duration_seconds)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (session_id, benchmark_name, benchmark_type, score, unit,
              status == "completed", benchmark_version or None, is_test, is_manual,
-             status, is_warmup, run_index, note)
+             status, is_warmup, run_index, note, duration_seconds)
         )
         result_id = cursor.lastrowid
         conn.commit()
@@ -262,7 +265,7 @@ class Database:
                    COALESCE(r.status, CASE WHEN r.passed THEN 'completed' ELSE 'failed' END) AS status,
                    COALESCE(r.is_warmup, 0) AS is_warmup,
                    CASE WHEN COALESCE(r.is_test, 0) OR COALESCE(s.is_test, 0) THEN 1 ELSE 0 END AS is_test,
-                   COALESCE(r.is_manual, 0) AS is_manual
+                   COALESCE(r.is_manual, 0) AS is_manual, r.duration_seconds
             FROM results r JOIN sessions s ON r.session_id = s.id
             {clause}
             ORDER BY r.session_id, r.benchmark_name, COALESCE(r.run_index, r.id)

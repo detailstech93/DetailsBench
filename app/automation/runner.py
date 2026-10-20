@@ -261,7 +261,8 @@ class AutomationRunner:
                 self.session_id, wl.id, wl.benchmark_type, result.score, unit=result.unit or "points",
                 benchmark_version=wl.version(), is_test=wl.is_test, is_manual=False,
                 status=result.status, is_warmup=is_warmup, run_index=run_index,
-                note="; ".join(p for p in (why, result.error or result.note) if p) or None)
+                note="; ".join(p for p in (why, result.error or result.note) if p) or None,
+                duration_seconds=result.duration_seconds)
             if result.status == "completed" and (result.metrics or telemetry_metrics):
                 self._store_metrics(record.result_id, {**telemetry_metrics, **(result.metrics or {})})
             if result.status == "completed" and (result.series or getattr(self, "_telemetry_series", None)):
