@@ -1,2 +1,4 @@
 # Windows batch files need CRLF line endings on every checkout
 *.bat text eol=crlf
+# shell scripts need LF line endings (install.sh runs on Linux)
+*.sh text eol=lf

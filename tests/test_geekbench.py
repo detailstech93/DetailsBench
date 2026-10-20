@@ -25,7 +25,7 @@ Upload succeeded. Visit the following link and view your results online:
 
 Visit the following link and add this result to your profile:
 
-  https://browser.geekbench.com/v7/cpu/675555/claim?key=161012
+  https://browser.geekbench.com/v7/cpu/675555/claim?key=000000
 
 Benchmark Summary
   Single-Core Score             2545
@@ -41,7 +41,7 @@ Upload succeeded. Visit the following link and view your results online:
 
 Visit the following link and add this result to your profile:
 
-  https://browser.geekbench.com/v7/gpu/307520/claim?key=111076
+  https://browser.geekbench.com/v7/gpu/307520/claim?key=000000
 
 Benchmark Summary
   GPU Score                   248425
