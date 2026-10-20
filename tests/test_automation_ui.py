@@ -165,8 +165,17 @@ def test_llama_settings_dialog_and_no_server(qapp):
     from app.ui.llama_benchy_dialog import LlamaBenchyDialog, ReportDialog
     with patch.object(automation_panel.QMessageBox, "warning") as warn:
         assert automation_panel.choose_llama_settings(
-            None, read_models=lambda: (_ for _ in ()).throw(OSError("refused"))) is None
-        assert "not reachable" in warn.call_args[0][2]
+            None, read_models=lambda: (_ for _ in ()).throw(OSError("refused")),
+            start_server=lambda: "no lms") is None
+        assert "not reachable" in warn.call_args[0][2] and "lms server start: no lms" in warn.call_args[0][2]
+    # not running yet (Linux llmster has no window): the app starts it, then reads the models (owner, 2026-10-20)
+    up = []
+
+    def read():
+        if not up:
+            raise OSError("Connection refused")
+        return [{"id": "a", "type": "llm", "state": "not-loaded"}]
+    assert automation_panel.language_models(None, read, start_server=lambda: up.append(1)) == read()
     models = [{"id": "a", "type": "llm", "state": "not-loaded"}, {"id": "emb", "type": "embeddings"},
               {"id": "b", "type": "vlm", "quantization": "Q4_K_M", "state": "loaded"}]
     assert [m["id"] for m in automation_panel.language_models(None, lambda: models)] == ["b", "a"]

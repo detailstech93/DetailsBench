@@ -167,3 +167,11 @@ def test_the_models_offer_install_lmstudio_on_linux_and_it_installs_libatomic_fi
     assert flow.start_lmstudio(missing=lambda: True, install=lambda: winget.Outcome(True, "LM Studio installed."))
     assert "libatomic1" in asked[0] and ran == [[["sudo", "-A", "apt-get", "install", "-y", "libatomic1"]]]
     assert flow.window.scans == 1 and flow.state.text.startswith("LM Studio installed.")
+
+
+def test_lms_server_start_is_lmstudios_own_command(tmp_path):
+    seen = []
+    ok = lambda c, **kw: seen.append(c) or subprocess.CompletedProcess(c, 0, b"", b"")
+    assert lmstudio.start_server(tmp_path / "lms", run=ok) is None and seen[0][1:] == ["server", "start"]
+    bad = lambda c, **kw: subprocess.CompletedProcess(c, 1, b"", b"Error: port 1234 in use\n")
+    assert lmstudio.start_server(tmp_path / "lms", run=bad) == "Error: port 1234 in use"

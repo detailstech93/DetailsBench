@@ -66,6 +66,23 @@ def read_models(base_url: str = DEFAULT_URL, fetch: Optional[Callable[[str], str
     return parse_models((fetch or get)(base_url.rstrip("/") + "/api/v0/models"))
 
 
+def start_server(lms: Optional[Path] = None, run: Callable = subprocess.run) -> Optional[str]:
+    """`lms server start` (LM Studio's own command; on Linux llmster has no window to start it from). None when
+    it ended well, else why not."""
+    lms = lms or lms_path()
+    if lms is None:
+        return "LM Studio's lms tool was not found"
+    try:
+        done = run([str(lms), "server", "start"], capture_output=True, timeout=60, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError) as e:
+        return str(e)
+    if done.returncode == 0:
+        return None
+    text = (done.stdout or b"") + (done.stderr or b"")
+    text = text.decode("utf-8", "replace") if isinstance(text, bytes) else text
+    return (text.strip().splitlines() or [f"exit code {done.returncode}"])[-1][:200]
+
+
 def read_runtimes(lms: Optional[Path], run: Callable = subprocess.run) -> Dict[str, str]:
     if lms is None:
         return {}

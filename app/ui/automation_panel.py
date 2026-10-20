@@ -91,16 +91,24 @@ def _spec_value(wl, name: str):
     return getattr(spec, name) if spec is not None else getattr(wl, name)
 
 
-def language_models(parent, read_models=None) -> Optional[list]:
+def language_models(parent, read_models=None, start_server=None) -> Optional[list]:
     """LM Studio's language models (loaded ones first); None (with a message) when there are none to measure.
     Reads LM Studio's local server once (5 s limit)."""
     from app.ai import lmstudio
+    read = read_models or lmstudio.read_models
     try:
-        models = (read_models or lmstudio.read_models)()
+        models = read()
     except (OSError, ValueError) as e:
-        QMessageBox.warning(parent, "llama-benchy", f"LM Studio's server is not reachable: {e}\n"
-                            "Start the server in LM Studio (Developer tab) and try again.")
-        return None
+        started = (start_server or lmstudio.start_server)()     # not running yet: started like the fixed models'
+        try:
+            models = read() if started is None else None
+        except (OSError, ValueError) as again:
+            e, started = again, None
+        if models is None:
+            QMessageBox.warning(parent, "llama-benchy", f"LM Studio's server is not reachable: {e}\n"
+                                + (f"lms server start: {started}\n" if started else "")
+                                + "Start it in LM Studio (Developer tab), or with: lms server start")
+            return None
     models = [m for m in models if m.get("type") in (None, "llm", "vlm")]
     models.sort(key=lambda m: m.get("state") != "loaded")
     if not models:
@@ -109,10 +117,10 @@ def language_models(parent, read_models=None) -> Optional[list]:
     return models
 
 
-def choose_llama_settings(parent, current=None, read_models=None, dialog=None) -> Optional[dict]:
+def choose_llama_settings(parent, current=None, read_models=None, dialog=None, start_server=None) -> Optional[dict]:
     """Model, pp, tg, depths, concurrency and prefix caching for llama-benchy; None when cancelled."""
     from app.ui.llama_benchy_dialog import LlamaBenchyDialog
-    models = language_models(parent, read_models)
+    models = language_models(parent, read_models, start_server)
     if models is None:
         return None
     box = (dialog or LlamaBenchyDialog)(models, current, parent)
