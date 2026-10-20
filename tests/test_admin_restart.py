@@ -125,6 +125,63 @@ def test_nothing_happens_while_busy_or_when_already_administrator(monkeypatch):
     assert "already" in said[-1]
 
 
+def test_the_tests_to_install_go_through_the_restart():
+    params = elevation.restart_command(install_ids=["fio", "sevenzip_benchmark", "bad id;rm"])[1]
+    assert params.endswith(f"{elevation.INSTALL_FLAG} fio,sevenzip_benchmark")
+    assert elevation.install_requested(["main.py", elevation.INSTALL_FLAG, "fio,sevenzip_benchmark,x y"]) == [
+        "fio", "sevenzip_benchmark"]
+    assert elevation.install_requested(["main.py"]) == [] and elevation.install_requested(
+        ["main.py", elevation.INSTALL_FLAG]) == []
+    got = []
+    assert elevation.relaunch_elevated(startfile=lambda *a: got.append(a), install_ids=["fio"]) is None
+    assert got[0][1] == "runas" and got[0][2].endswith(f"{elevation.INSTALL_FLAG} fio")
+    w, got = _window(), []
+    assert admin_restart.restart(w, ask=lambda win, text: True, install_ids=["fio"],
+                                 relaunch=lambda remote_on, install_ids=(): got.append(install_ids))
+    assert got == [["fio"]] and w.closed
+
+
+class FakeFlow:
+    def __init__(self):
+        self.started = []
+
+    def start(self, entries, install_only=False):
+        self.started.append(([e.id for e in entries], install_only))
+        return True
+
+
+def test_install_selected_offers_the_administrator_restart_on_windows():
+    entries = [SimpleNamespace(id="fio"), SimpleNamespace(id="sevenzip_benchmark")]
+    w, restarted = _window(), []
+    w.run_all_flow = FakeFlow()
+    restart = lambda win, ask, install_ids: restarted.append((ask(win, "q"), install_ids)) or True
+    assert admin_restart.install_selected(w, entries, "win32", False, choose=lambda win, n: "restart",
+                                          restart_fn=restart)
+    assert restarted == [(True, ["fio", "sevenzip_benchmark"])] and w.run_all_flow.started == []
+    assert admin_restart.install_selected(w, entries, "win32", False, choose=lambda win, n: "now",
+                                          restart_fn=lambda *a, **k: pytest.fail("no restart"))
+    assert not admin_restart.install_selected(w, entries, "win32", False, choose=lambda win, n: None)
+    never = lambda *a, **k: pytest.fail("no question")
+    admin_restart.install_selected(w, entries, "win32", True, choose=never)          # already administrator
+    admin_restart.install_selected(w, entries[:1], "win32", False, choose=never)     # one: Windows asks once anyway
+    admin_restart.install_selected(w, entries, "linux", False, choose=never)         # Linux: pkexec asks
+    both = (["fio", "sevenzip_benchmark"], True)
+    assert w.run_all_flow.started == [both, both, (["fio"], True), both]     # "now", administrator, one, Linux
+
+
+def test_after_the_restart_the_tests_are_ticked_and_installed():
+    ticked, shown = [], []
+    known = {"fio": SimpleNamespace(id="fio", ok=True), "diskspd": SimpleNamespace(id="diskspd", ok=False)}
+    w = _window()
+    w.run_all_flow = FakeFlow()
+    w.show_page = shown.append
+    w.tests_page = SimpleNamespace(entry=known.get, can_install=lambda e: e.ok,
+                                   set_checked=lambda i, on=True: ticked.append(i))
+    assert admin_restart.install_after_restart(w, ["fio", "diskspd", "gone"])
+    assert ticked == ["fio"] and shown == ["tests"] and w.run_all_flow.started == [(["fio"], True)]
+    assert not admin_restart.install_after_restart(w, ["diskspd"])                  # installed meanwhile
+
+
 def test_remote_mode_comes_back_after_the_restart():
     w = _window()
     admin_restart.remote_on_after_restart(w)

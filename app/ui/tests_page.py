@@ -77,6 +77,7 @@ class TestsPage(QWidget):
     admin_requested = Signal()        # "Restart as administrator" (app/ui/admin_restart.py)
     rescan_requested = Signal()
     install_requested = Signal(object)      # TestEntry: missing, with a one-click install (app/install)
+    install_many_requested = Signal(list)   # the ticked missing tests: installed one after the other (app/ui/run_all)
 
     def __init__(self, open_url: Optional[Callable[[str], object]] = None, parent=None):
         super().__init__(parent)
@@ -100,14 +101,27 @@ class TestsPage(QWidget):
         bar = QHBoxLayout()
         self.all_btn = QPushButton("Select all installed")
         self.all_btn.clicked.connect(self.select_all_installed)
+        self.missing_btn = QPushButton("Select all not installed")
+        self.missing_btn.setToolTip("Ticks every test that is not installed and that the app can install.")
+        self.missing_btn.clicked.connect(self.select_all_missing)
         self.clear_btn = QPushButton("Clear")
         self.clear_btn.clicked.connect(lambda: self.set_all(False))
+        # owner, 2026-10-20: tick several tests that are not installed and install them all with one button
+        self.install_btn = QPushButton("Install selected...")
+        self.install_btn.setToolTip("Installs the ticked tests that are not installed, one after the other, each "
+                                    "from its official source (you are asked first). Windows: the app can start "
+                                    "again as administrator first, so Windows asks only once.")
+        self.install_btn.setStyleSheet("QPushButton:enabled { color: white; background: #1d4ed8; padding: 4px 14px; "
+                                       "font-weight: bold; }")
+        self.install_btn.clicked.connect(self.install_selected)
         self.rescan_btn = QPushButton("I installed something: check again")
         self.rescan_btn.clicked.connect(self.rescan_requested.emit)
         self.show_all = QCheckBox("Show tests this PC cannot run")
         self.show_all.toggled.connect(lambda _: self.fill())
         bar.addWidget(self.all_btn)
+        bar.addWidget(self.missing_btn)
         bar.addWidget(self.clear_btn)
+        bar.addWidget(self.install_btn)
         bar.addWidget(self.rescan_btn)
         bar.addStretch(1)
         bar.addWidget(self.show_all)
@@ -296,7 +310,7 @@ class TestsPage(QWidget):
                 item.setToolTip(1, e.compatibility_reason or e.state_reason or "")
                 item.setForeground(1, self.palette().text() if not e.compatible else
                                    _brush(STATE_COLOR.get(e.state, "#757575")))
-                if e.can_run() and not e.waits_for_typed_score():
+                if (e.can_run() and not e.waits_for_typed_score()) or self.can_install(e):
                     item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable)
                     item.setCheckState(0, Qt.Checked if e.id in keep else Qt.Unchecked)
                 else:
@@ -341,6 +355,23 @@ class TestsPage(QWidget):
     def selected(self) -> List[TestEntry]:
         return [e for e in (self.entry(t) for t in self.selected_ids()) if e is not None and e.can_run()]
 
+    def can_install(self, e: TestEntry) -> bool:
+        """Missing and installable with one click here; Steam games are not (Steam's own dialog, often tens of GB)."""
+        return e.compatible and e.state == MISSING and e.source != "steam" and installable(e, self.host)
+
+    def selected_to_install(self) -> List[TestEntry]:
+        return [e for e in (self.entry(t) for t in self.selected_ids()) if e is not None and self.can_install(e)]
+
+    def select_all_missing(self):
+        for e in self.section_entries():
+            if self.can_install(e):
+                self.set_checked(e.id, True)
+
+    def install_selected(self):
+        chosen = self.selected_to_install()
+        if chosen and not self.blocked():
+            self.install_many_requested.emit(chosen)
+
     def set_checked(self, test_id: str, checked: bool = True):
         item = self.items.get(test_id)
         if item is not None and item.flags() & Qt.ItemIsUserCheckable:
@@ -356,7 +387,10 @@ class TestsPage(QWidget):
                 self.set_checked(e.id, True)
 
     def update_run_button(self):
-        n = len(self.selected_ids())
+        n = len(self.selected())
+        k = len(self.selected_to_install())
+        self.install_btn.setEnabled(k > 0 and not self.blocked())
+        self.install_btn.setText(f"Install selected ({k})..." if k else "Install selected...")
         self.run_btn.setEnabled(n > 0 and not self.blocked())
         self.run_all_btn.setEnabled(bool(self.section_entries()) and not self.blocked())
         self.run_plan_btn.setEnabled(bool(self.entries) and not self.blocked())
@@ -457,7 +491,7 @@ class TestsPage(QWidget):
 
     def set_busy(self, busy: bool):
         self.busy = busy
-        for widget in (self.all_btn, self.clear_btn, self.rescan_btn):
+        for widget in (self.all_btn, self.missing_btn, self.clear_btn, self.rescan_btn):
             widget.setEnabled(not busy)
         self.rescan_btn.setEnabled(not busy and not self.scanning)
         for item in self.items.values():

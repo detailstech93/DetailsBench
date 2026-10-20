@@ -456,6 +456,11 @@ class MainWindow(QMainWindow):
         from app.ui.run_all import RunAllFlow
         self.run_all_flow = RunAllFlow(self)
         self.tests_page.run_all_requested.connect(self.run_all_flow.start)
+        from app.ui import admin_restart as _admin
+        self.tests_page.install_many_requested.connect(lambda entries: _admin.install_selected(self, entries))
+        install_ids = elevation.install_requested()
+        if install_ids:                     # started again as administrator for Install selected
+            self.after_scan.append(lambda: _admin.install_after_restart(self, install_ids))
         self.pages = QStackedWidget()
         # Tests and Games are one screen showing one section each (shared progress bar, Stop and Skip)
         self.page_widgets = {"this_pc": self.this_pc_page, "tests": self.tests_page, "games": self.tests_page,

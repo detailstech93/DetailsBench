@@ -1,6 +1,7 @@
 """One-click install of a missing test: winget output parsed and checked, the flow on the Tests screen
 (fake winget and fake dialogs; nothing is ever downloaded or installed)."""
 
+import os
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -146,9 +147,32 @@ def test_linux_commands_go_through_pkexec():
     assert linux_commands("arch", "7zip", which=found)[0] == [["/usr/bin/pkexec", "/usr/bin/pacman", "-S",
                                                                "--noconfirm", "--needed", "7zip"]]
     assert linux_commands("fedora", "fio", which=found) == ([], "dnf not found")
-    assert "pkexec not found" in linux_commands("debian", "fio", which=lambda n: None if n == "pkexec"
-                                                else "/usr/bin/" + n)[1]
+    # WSL (owner, 2026-10-20): no pkexec -> sudo -A with the app's own password window
+    cmds, problem = linux_commands("debian", "fio", which=lambda n: None if n == "pkexec" else "/usr/bin/" + n,
+                                   askpass=lambda: "/data/askpass.sh")
+    root = ["/usr/bin/env", "SUDO_ASKPASS=/data/askpass.sh", "/usr/bin/sudo", "-A"]
+    assert problem is None and cmds[-1] == root + ["/usr/bin/apt-get", "install", "-y", "fio"]
+    assert "neither pkexec nor sudo" in linux_commands("debian", "fio", which=lambda n: "/usr/bin/apt-get"
+                                                       if n == "apt-get" else None)[1]
+    assert "password window could not be prepared" in linux_commands(
+        "debian", "fio", which=lambda n: None if n == "pkexec" else "/usr/bin/" + n, askpass=lambda: None)[1]
     assert linux_commands("gentoo", "fio", which=found) == ([], "no package manager known for gentoo")
+
+
+def test_the_password_window_script_and_sudos_answers(tmp_path):
+    from app.install import linux_admin
+    from app.ui.frame_capture_panel import run_commands
+    path = linux_admin.askpass_program(tmp_path, ["/opt/my app/python", "-I", "/opt/app/scripts/main.py"])
+    text = (tmp_path / "askpass.sh").read_text(encoding="utf-8")
+    assert path == str(tmp_path / "askpass.sh")
+    assert text == "#!/bin/sh\nexec '/opt/my app/python' -I /opt/app/scripts/main.py --askpass \"$@\"\n"
+    if os.name != "nt":
+        assert (tmp_path / "askpass.sh").stat().st_mode & 0o777 == 0o700
+    sudo = ["/usr/bin/env", "SUDO_ASKPASS=/x", "/usr/bin/sudo", "-A", "/usr/bin/apt-get", "update"]
+    answer = lambda code, err: (lambda argv, **k: subprocess.CompletedProcess(argv, code, "", err))
+    assert run_commands([sudo], answer(1, "sudo: no password was provided\n")) == "cancelled (password window closed)"
+    assert run_commands([sudo], answer(1, "sudo: 3 incorrect password attempts\n")) == "the password was not accepted"
+    assert run_commands([sudo], answer(0, "")) == "done"
 
 
 def entry(id, state=MISSING, source="workload", ref=None, url="https://example.org/"):
@@ -323,6 +347,50 @@ def test_run_all_can_run_only_the_installed_tests_or_be_cancelled(qapp):
     flow, win, asked = run_all_for(qapp, "install", [ready("diskspd")])
     flow.start([ready("diskspd")])
     assert asked == [] and win.ran == [["diskspd"]]                 # nothing missing: no question
+
+
+def test_ticked_tests_that_are_not_installed_are_installed_with_one_button(qapp):
+    """Owner, 2026-10-20: tick several tests that are not installed, then Install all."""
+    from PySide6.QtCore import Qt
+    page = TestsPage(open_url=lambda url: None)
+    page.host = WIN_X64
+    page.set_entries([ready("diskspd"), entry("fio"), entry("sevenzip_benchmark"), entry("cinebench"),
+                      entry("steam_397540", source="steam", ref={"app_id": "397540", "name": "BL3"})])
+    tickable = {i for i, item in page.items.items() if item.flags() & Qt.ItemIsUserCheckable}
+    assert tickable == {"diskspd", "fio", "sevenzip_benchmark"}   # no one-click install / Steam: not ticked
+    assert not page.install_btn.isEnabled()
+    page.select_all_missing()
+    page.set_checked("diskspd")
+    assert page.install_btn.text() == "Install selected (2)..." and page.install_btn.isEnabled()
+    assert page.run_btn.text() == "Run selected (1)..."            # only what can run is run
+    asked = []
+    page.install_many_requested.connect(asked.append)
+    page.install_btn.click()
+    assert [[e.id for e in a] for a in asked] == [["fio", "sevenzip_benchmark"]]
+    page.set_scanning(True)
+    assert not page.install_btn.isEnabled()
+
+
+def test_install_selected_installs_then_scans_and_runs_nothing(qapp):
+    pkg = winget.parse_show(SHOW, "sevenzip_benchmark", "7zip.7zip", ["www.7-zip.org"])
+    installed, modes = [], []
+    entries = [entry("sevenzip_benchmark")]
+    flow, win, asked = run_all_for(qapp, "install", entries, describe=lambda tid: pkg,
+                                   install=lambda p: installed.append(p) or winget.Outcome(True, "7-Zip installed."))
+    flow.ask = lambda parent, text, install_only=False: modes.append(install_only) or asked.append(text) or "install"
+    assert flow.start(entries, install_only=True)
+    assert modes == [True] and "selected tests are not installed" in asked[0] and "Then all tests run" not in asked[0]
+    assert installed == [pkg] and win.scans == 1 and win.ran == [] and not flow.busy()
+    assert flow.state.text.startswith("Installs done: 7-Zip installed.")
+    flow, win, asked = run_all_for(qapp, None, entries, describe=lambda tid: pkg)
+    flow.ask = lambda parent, text, install_only=False: None
+    flow.start(entries, install_only=True)
+    assert win.scans == 0 and win.ran == [] and flow.state.text == "Cancelled; nothing was downloaded."
+    refused = winget.Package("fio", "fio.fio", problem="winget did not find the package fio.fio")
+    flow, win, asked = run_all_for(qapp, "install", [entry("fio")], describe=lambda tid: refused)
+    flow.ask = lambda *a, **k: pytest.fail("nothing can be installed: no question")
+    flow.start([entry("fio")], install_only=True)
+    assert win.scans == 0 and win.ran == [] and "winget did not find" in flow.state.text
 
 
 def test_passmark_is_found_by_its_real_names():

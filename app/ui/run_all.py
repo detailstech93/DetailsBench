@@ -8,6 +8,9 @@
    one that fails is reported and the others go on. Then the app scans again and, once the scan is done, starts
    the tests that can run (the usual run dialog: repetitions, game preset, stress minutes).
 Missing Steam games are not downloaded here (Steam's own dialog, often tens of GB): the question names them.
+
+Install selected (owner, 2026-10-20: tick several tests that are not installed, install them all with one button):
+the same flow with install_only, which asks only Install them / Cancel and runs nothing after the scan.
 """
 
 import dataclasses
@@ -27,8 +30,10 @@ logger = logging.getLogger(__name__)
 INSTALL, INSTALLED_ONLY = "install", "installed_only"
 
 
-def ask_choice(parent, text: str) -> Optional[str]:
+def ask_choice(parent, text: str, install_only: bool = False) -> Optional[str]:
     from app.ui.long_question import ask_buttons
+    if install_only:
+        return ask_buttons(parent, "Install selected tests", text, [("Install them", INSTALL), ("Cancel", None)])
     return ask_buttons(parent, "Run all tests", text, [("Install them, then run all", INSTALL),
                                                        ("Run only installed tests", INSTALLED_ONLY),
                                                        ("Cancel", None)])
@@ -84,16 +89,19 @@ class RunAllFlow(QObject):
                                                                          name="run-all").start())
         self.state = RunState()
         self.steam_missing: List[str] = []
+        self.install_only = False
+        self.lines: List[str] = []
         self.checked.connect(self._on_checked)
         self.installed.connect(self._on_installed)
 
     def busy(self) -> bool:
         return self.state.running
 
-    def start(self, entries: List[TestEntry]) -> bool:
+    def start(self, entries: List[TestEntry], install_only: bool = False) -> bool:
         page = self.window.tests_page
         if self.busy() or page.busy:
             return False
+        self.install_only = install_only
         items, self.steam_missing = [], []
         for e in entries:
             if not (e.compatible and e.state == MISSING):
@@ -110,6 +118,10 @@ class RunAllFlow(QObject):
             elif e.source == "steam":
                 self.steam_missing.append(e.name)
         if not items:
+            if install_only:
+                self._show("")
+                self._end("Nothing to install: the selected tests have no one-click install here.")
+                return False
             return self._run_tests()
         self._show(f"Checking the {len(items)} tests that are not installed...")
         self.start_thread(lambda: self.checked.emit(self._check(items)))
@@ -145,15 +157,25 @@ class RunAllFlow(QObject):
 
     def _on_checked(self, items: List[Item]):
         good = [i for i in items if not i.problem]
-        text = (f"{len(items)} tests for this PC are not installed:\n\n" + "\n".join(i.line() for i in items))
+        text = (f"{len(items)} {'selected tests' if self.install_only else 'tests for this PC'} are not "
+                f"installed:\n\n" + "\n".join(i.line() for i in items))
         if self.steam_missing:
             text += ("\n\nNot downloaded here (install them from Steam if you want them): "
                      + ", ".join(self.steam_missing))
         if good:
-            text += ("\n\nInstall them: each comes from the address shown; Windows may ask for administrator rights "
-                     "(UAC) or Linux for your password. By installing you accept each program's license. Then all "
-                     "tests run.\nRun only installed tests: nothing is downloaded.")
-        choice = self.ask(self.window, text)
+            text += ("\n\nInstall them: one after the other; each comes from the address shown; Windows may ask for "
+                     "administrator rights (UAC) or Linux for your password. By installing you accept each "
+                     "program's license.")
+            text += ("" if self.install_only else " Then all tests run.\nRun only installed tests: nothing is "
+                                                  "downloaded.")
+        if self.install_only and not good:
+            self._end("Nothing was installed: " + " ".join(i.line()[2:] for i in items))
+            return
+        choice = (self.ask(self.window, text, install_only=True) if self.install_only
+                  else self.ask(self.window, text))
+        if self.install_only and choice != INSTALL:
+            self._end("Cancelled; nothing was downloaded.")
+            return
         if choice is None:
             self._end("Cancelled; nothing was downloaded or run.")
             return
@@ -201,11 +223,15 @@ class RunAllFlow(QObject):
         return outcome
 
     def _on_installed(self, lines: List[str]):
+        self.lines = list(lines)
         self.state = RunState(True, 0, None, " ".join(lines) + " Checking the installed tests again...")
         self.window.after_scan.append(self._after_scan)
         self.window.start_scan()
 
     def _after_scan(self):
+        if self.install_only:
+            self._end("Installs done: " + " ".join(self.lines) + " Tick the tests and run them when you want.")
+            return
         self._end("Installs done. Starting the tests...")
         self._run_tests()
 

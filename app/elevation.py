@@ -9,13 +9,16 @@ through app/frames/elevated.py) start without a prompt. Only until the app close
 """
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
 REMOTE_ON_FLAG = "--remote-on"         # remote mode was on before the restart: switch it on again (new code)
+INSTALL_FLAG = "--install-tests"       # + "id1,id2": tests ticked for "Install selected" before the restart
 ERROR_CANCELLED = 1223
+_TEST_ID = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
 
 
 def is_elevated(platform: str = sys.platform) -> bool:
@@ -28,19 +31,23 @@ def is_elevated(platform: str = sys.platform) -> bool:
         return False
 
 
-def restart_command(remote_on: bool = False) -> Tuple[str, str, str]:
+def restart_command(remote_on: bool = False, install_ids: Sequence[str] = ()) -> Tuple[str, str, str]:
     """(program, parameters, folder) that start this app again: the packaged app, or Python with scripts/main.py."""
     extra: List[str] = [REMOTE_ON_FLAG] if remote_on else []
+    ids = [i for i in install_ids if _TEST_ID.match(i)]
+    if ids:
+        extra += [INSTALL_FLAG, ",".join(ids)]
     if getattr(sys, "frozen", False):
         return sys.executable, subprocess.list2cmdline(extra), str(Path(sys.executable).parent)
     root = Path(__file__).resolve().parents[1]
     return sys.executable, subprocess.list2cmdline(["-I", str(root / "scripts" / "main.py")] + extra), str(root)
 
 
-def relaunch_elevated(remote_on: bool = False, startfile: Optional[Callable] = None) -> Optional[str]:
+def relaunch_elevated(remote_on: bool = False, startfile: Optional[Callable] = None,
+                      install_ids: Sequence[str] = ()) -> Optional[str]:
     """Start the app again through the UAC prompt; None when it started, else why not ("declined" when the
     owner pressed No)."""
-    program, params, folder = restart_command(remote_on)
+    program, params, folder = restart_command(remote_on, install_ids)
     start = startfile or getattr(os, "startfile", None)
     if start is None:
         return "only on Windows"
@@ -55,3 +62,12 @@ def relaunch_elevated(remote_on: bool = False, startfile: Optional[Callable] = N
 
 def remote_on_requested(argv: Optional[List[str]] = None) -> bool:
     return REMOTE_ON_FLAG in (sys.argv if argv is None else argv)[1:]
+
+
+def install_requested(argv: Optional[List[str]] = None) -> List[str]:
+    """The test ids to install after a restart as administrator (only plain ids; the install still asks first)."""
+    args = (sys.argv if argv is None else argv)[1:]
+    if INSTALL_FLAG not in args:
+        return []
+    at = args.index(INSTALL_FLAG) + 1
+    return [i for i in args[at].split(",") if _TEST_ID.match(i)] if at < len(args) else []
