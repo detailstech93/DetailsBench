@@ -151,7 +151,7 @@ ADMIN_NOTICE = (
     "The app is not running as administrator.\n\n"
     "If you want every test to run remotely, restart the app as administrator first. PassMark and the game "
     "benchmarks need administrator rights: without them Windows asks on this PC (a UAC prompt), and nobody can "
-    "answer it from the phone, so the run waits there.\n\n"
+    "answer it remotely, so the run waits there.\n\n"
     "The other tests run remotely either way.")
 
 
