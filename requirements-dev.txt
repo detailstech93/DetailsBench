@@ -1,4 +1,4 @@
-# Test and development dependencies for PC Benchmark Manager
+# Test and development dependencies for DetailsBench
 # Install with: pip install -r requirements-dev.txt
 # (requires requirements.txt already installed)
 

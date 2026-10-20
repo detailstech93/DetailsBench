@@ -51,7 +51,7 @@ def shared_folder(data_dir: Optional[Path] = None) -> Path:
 
 def config_text(output_folder: Path, log_duration: int) -> str:
     return "\n".join([
-        "# written by PC Benchmark Manager before each game run",
+        "# written by DetailsBench before each game run",
         f"output_folder={output_folder}",
         "log_interval=0",
         "autostart_log=1",

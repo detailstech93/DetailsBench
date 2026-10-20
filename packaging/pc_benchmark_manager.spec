@@ -1,4 +1,4 @@
-# PyInstaller spec for PC Benchmark Manager (one folder, with a console window like run.bat).
+# PyInstaller spec for DetailsBench (one folder, with a console window like run.bat).
 # Build from the project folder with the separate build environment (see packaging/README.md):
 #     .venv-build\Scripts\python.exe -m PyInstaller packaging\pc_benchmark_manager.spec --noconfirm
 # Output: dist\PCBenchmarkManager\PCBenchmarkManager.exe (the build and dist folders are not tracked by Git).

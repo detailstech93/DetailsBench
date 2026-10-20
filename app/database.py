@@ -1,4 +1,4 @@
-"""SQLite database models for PC Benchmark Manager."""
+"""SQLite database models for DetailsBench."""
 
 import json
 import sqlite3

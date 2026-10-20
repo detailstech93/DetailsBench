@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PC Benchmark Manager: install or update on Linux with one command.
+# DetailsBench: install or update on Linux with one command.
 #
 #   curl -fsSL https://raw.githubusercontent.com/detailstech93/pc-benchmark-manager/master/install.sh | bash
 #
@@ -9,19 +9,19 @@
 #   1. installs the system packages the app needs (git, Python, the Qt window libraries) with the distribution's
 #      package manager: apt (Debian/Ubuntu), dnf (Fedora), pacman (Arch), zypper (openSUSE). It asks for your
 #      password once (sudo).
-#   2. downloads the app into ~/pc-benchmark-manager (PCBM_DIR=... for another folder), or updates it there.
+#   2. downloads the app into ~/detailsbench (PCBM_DIR=... for another folder), or updates it there.
 #   3. makes its own Python environment (.venv in that folder) and installs the Python libraries in it.
-#   4. adds "PC Benchmark Manager" to the applications menu and the command pc-benchmark-manager, then starts it
+#   4. adds "DetailsBench" to the applications menu and the command detailsbench, then starts it
 #      (--no-start: do not start it).
-# It changes no system setting. Remove everything: delete the folder, ~/.local/bin/pc-benchmark-manager and
-# ~/.local/share/applications/pc-benchmark-manager.desktop.
+# It changes no system setting. Remove everything: delete the folder, ~/.local/bin/detailsbench and
+# ~/.local/share/applications/detailsbench.desktop.
 #
 # Everything is in main(), so a download cut halfway runs nothing.
 
 main() {
     set -euo pipefail
     local repo="${PCBM_REPO:-https://github.com/detailstech93/pc-benchmark-manager.git}"
-    local dir="${PCBM_DIR:-$HOME/pc-benchmark-manager}"
+    local dir="${PCBM_DIR:-$HOME/detailsbench}"
     local start=1
     for arg in "$@"; do
         case "$arg" in
@@ -102,30 +102,30 @@ main() {
 
     # ---- 4. menu entry and command -------------------------------------------------------------------------------
     mkdir -p "$HOME/.local/bin" "$HOME/.local/share/applications"
-    cat > "$HOME/.local/bin/pc-benchmark-manager" <<EOF
+    cat > "$HOME/.local/bin/detailsbench" <<EOF
 #!/usr/bin/env bash
 exec "$dir/.venv/bin/python" "$dir/scripts/main.py" "\$@"
 EOF
-    chmod +x "$HOME/.local/bin/pc-benchmark-manager"
-    cat > "$HOME/.local/share/applications/pc-benchmark-manager.desktop" <<EOF
+    chmod +x "$HOME/.local/bin/detailsbench"
+    cat > "$HOME/.local/share/applications/detailsbench.desktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=PC Benchmark Manager
+Name=DetailsBench
 Comment=Find, install, run and record PC benchmarks
-Exec=$HOME/.local/bin/pc-benchmark-manager
+Exec=$HOME/.local/bin/detailsbench
 Terminal=false
 Categories=System;Utility;
 EOF
 
-    say "Done. Start it from the applications menu or with: pc-benchmark-manager"
+    say "Done. Start it from the applications menu or with: detailsbench"
     case ":$PATH:" in
         *":$HOME/.local/bin:"*) ;;
-        *) echo "(~/.local/bin is not on your PATH yet: open a new terminal, or run $HOME/.local/bin/pc-benchmark-manager)" ;;
+        *) echo "(~/.local/bin is not on your PATH yet: open a new terminal, or run $HOME/.local/bin/detailsbench)" ;;
     esac
     if [ "$start" -eq 1 ]; then
         if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
-            say "Starting PC Benchmark Manager"
-            nohup "$HOME/.local/bin/pc-benchmark-manager" >/dev/null 2>&1 &
+            say "Starting DetailsBench"
+            nohup "$HOME/.local/bin/detailsbench" >/dev/null 2>&1 &
         else
             echo "No desktop session here (no DISPLAY): start it later from a desktop."
         fi

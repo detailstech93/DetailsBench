@@ -43,7 +43,7 @@ def test_bad_files_are_refused(tmp_path):
         f.write_text(json.dumps({**good, **change}), encoding="utf-8")
         return experiment.load(f)
     assert load()[0] is not None
-    assert "not a PC Benchmark Manager plan" in load(format="other")[1]
+    assert "not a DetailsBench plan" in load(format="other")[1]
     assert "version" in load(version=9)[1]
     assert "no tests" in load(tests=[])[1] and "no tests" in load(tests=[1])[1]
     assert "repetitions" in load(repetitions=0)[1] and "repetitions" in load(repetitions=True)[1]

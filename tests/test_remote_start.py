@@ -120,7 +120,7 @@ def test_the_server_answers_only_with_the_code(served):
     api, server, base = served
     assert server.addresses() == [f"http://127.0.0.1:{server.port}/"]
     status, headers, body = call(base + "/")
-    assert status == 200 and b"PC Benchmark Manager" in body
+    assert status == 200 and b"DetailsBench" in body
     assert "frame-ancestors 'none'" in headers["Content-Security-Policy"] and "Set-Cookie" not in headers
     assert call(base + "/api/info")[0] == 401
     assert call(base + "/api/info", "WRONG123")[0] == 401

@@ -32,7 +32,7 @@ LOCKED_ERROR = ("the screen was locked: this test draws on the screen and cannot
 
 def _helper_command(platform: str) -> Optional[list]:
     if platform.startswith("linux") and shutil.which("systemd-inhibit"):
-        return ["systemd-inhibit", "--what=idle:sleep", "--who=PC Benchmark Manager", "--why=benchmark run",
+        return ["systemd-inhibit", "--what=idle:sleep", "--who=DetailsBench", "--why=benchmark run",
                 "--mode=block", "sleep", "infinity"]
     if platform == "darwin" and shutil.which("caffeinate"):
         return ["caffeinate", "-d", "-i", "-w", str(os.getpid())]

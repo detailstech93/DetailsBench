@@ -57,7 +57,7 @@ def load(path) -> Tuple[Optional[dict], Optional[str]]:
     except (OSError, ValueError) as e:
         return None, f"the plan could not be read: {e}"
     if not isinstance(data, dict) or data.get("format") != FORMAT:
-        return None, "this is not a PC Benchmark Manager plan file"
+        return None, "this is not a DetailsBench plan file"
     if data.get("version") != VERSION:
         return None, f"plan version {data.get('version')!r} is not known by this app"
     tests = data.get("tests")

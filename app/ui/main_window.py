@@ -1,4 +1,4 @@
-"""Main window and background scanning worker for PC Benchmark Manager."""
+"""Main window and background scanning worker for DetailsBench."""
 
 import os
 import platform
@@ -311,7 +311,7 @@ def _game_is_open(app_id) -> bool:
 
 
 class MainWindow(QMainWindow):
-    """Main application window for PC Benchmark Manager."""
+    """Main application window for DetailsBench."""
     
     def __init__(self, db: Any, system_info: dict):
         super().__init__()
@@ -335,7 +335,7 @@ class MainWindow(QMainWindow):
         self._launch_worker: Optional[QThread] = None
         
         # Window properties
-        self.setWindowTitle("PC Benchmark Manager")
+        self.setWindowTitle("DetailsBench")
         self.setMinimumSize(1080, 720)
         
         # Build UI layout
@@ -371,7 +371,7 @@ class MainWindow(QMainWindow):
         header_layout = QHBoxLayout(header_frame)
         header_layout.setContentsMargins(10, 8, 10, 8)
         
-        title_label = QLabel("PC Benchmark Manager")
+        title_label = QLabel("DetailsBench")
         title_font = QFont()
         title_font.setPointSize(14)
         title_font.setBold(True)

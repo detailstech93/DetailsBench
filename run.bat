@@ -1,5 +1,5 @@
 @echo off
-rem Start PC Benchmark Manager (double-click this file).
+rem Start DetailsBench (double-click this file).
 rem The console window shows the database path and any errors; closing it closes the app.
 cd /d "%~dp0"
 if not exist ".venv\Scripts\python.exe" (

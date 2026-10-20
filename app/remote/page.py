@@ -7,7 +7,7 @@ PAGE = r"""<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PC Benchmark Manager: remote</title>
+<title>DetailsBench: remote</title>
 <style>
 :root { --bg:#f3f5f8; --card:#fff; --text:#1d2330; --muted:#667085; --line:#d9dee7; --accent:#2e7d32;
         --accent-soft:#e8f5e9; --stop:#c62828; --warn:#b26a00; --warn-soft:#fff4e0; --run:#1565c0; }
@@ -87,7 +87,7 @@ a { color:var(--accent); }
 </head>
 <body>
 <main>
-<header><h1>PC Benchmark Manager</h1><span id="pill" class="pill">remote</span></header>
+<header><h1>DetailsBench</h1><span id="pill" class="pill">remote</span></header>
 
 <section id="login">
   <h2>Code</h2>

@@ -1,4 +1,4 @@
-"""Entry point for PC Benchmark Manager."""
+"""Entry point for DetailsBench."""
 
 import sys
 import os
@@ -32,7 +32,7 @@ def main():
     db_path, db_notes = resolve_database_path()
     db = Database(str(db_path))
 
-    print("PC Benchmark Manager v0.1.0")
+    print("DetailsBench v0.1.0")
     print("=" * 50)
     print(f"Database: {db_path}")
     for note in db_notes:

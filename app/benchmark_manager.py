@@ -1,4 +1,4 @@
-"""Benchmark management system for PC Benchmark Manager.
+"""Benchmark management system for DetailsBench.
 
 Detection is data-driven: every benchmark suite is described by a
 BenchmarkDefinition record in data/benchmark_definitions.py.  A single

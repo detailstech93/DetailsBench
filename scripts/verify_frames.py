@@ -30,7 +30,7 @@ CAPTURE_SECONDS = 10
 _QML = b"""
 import QtQuick
 Window {
-    width: 480; height: 320; visible: true; title: "PC Benchmark Manager frame source"
+    width: 480; height: 320; visible: true; title: "DetailsBench frame source"
     Rectangle {
         id: box; width: 80; height: 80; color: "steelblue"; y: 120
         NumberAnimation on x { from: 0; to: 400; duration: 1500; loops: Animation.Infinite }

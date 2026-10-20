@@ -1,4 +1,4 @@
-# PC Benchmark Manager: full details
+# DetailsBench: full details
 
 The technical details moved here from the README (the README is now a short Arabic and English overview).
 

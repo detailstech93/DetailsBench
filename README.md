@@ -1,4 +1,4 @@
-# PC Benchmark Manager
+# DetailsBench
 
 **[English](#english) | [العربية](#العربية)**
 
@@ -8,7 +8,7 @@
 
 ## English
 
-PC Benchmark Manager is a desktop app (Python, PySide6, SQLite) that finds, installs, runs and records PC benchmarks:
+DetailsBench is a desktop app (Python, PySide6, SQLite) that finds, installs, runs and records PC benchmarks:
 processor, graphics card, games, storage, AI and web. Every result is stored with the PC's specs, so runs on
 different computers can be compared, and each session ends with an HTML report.
 
@@ -54,7 +54,9 @@ Some tests are Windows only; the Tests screen hides what this PC cannot run and 
 
 ### Requirements
 
-- Windows 10/11 (x64 or ARM64) or Linux (Debian/Ubuntu or Arch; not every test is checked on Linux yet).
+- Windows 10/11 (x64 or ARM64) or Linux (x64 or ARM64: Debian/Ubuntu, Fedora, Arch, openSUSE; not every test is
+  checked on Linux yet). On ARM64 fewer tests run: many benchmark programs have no ARM build (the Tests screen says
+  which).
 - Python 3.10 or newer.
 
 ### Install and run
@@ -78,7 +80,7 @@ curl -fsSL https://raw.githubusercontent.com/detailstech93/pc-benchmark-manager/
 ```
 
 It installs the system packages the app needs (asks for your password once), downloads the app into
-`~/pc-benchmark-manager`, installs its Python libraries in its own `.venv`, adds it to the applications menu and
+`~/detailsbench`, installs its Python libraries in its own `.venv`, adds it to the applications menu and
 starts it. Run the same command again to update. From a copy of the project: `bash install.sh`.
 
 Tests: `pip install -r requirements-dev.txt`, then `python -m pytest -q`.
@@ -112,7 +114,7 @@ must stay under the same license, with its source. The benchmark programs the ap
 
 ## العربية
 
-**PC Benchmark Manager** تطبيق سطح مكتب (Python و PySide6 و SQLite) بيلاقي اختبارات الأداء للكمبيوتر، بيثبّتها،
+**DetailsBench** تطبيق سطح مكتب (Python و PySide6 و SQLite) بيلاقي اختبارات الأداء للكمبيوتر، بيثبّتها،
 بيشغّلها وبيسجّل نتائجها: المعالج، كرت الشاشة، الألعاب، التخزين، الذكاء الاصطناعي والويب. كل نتيجة بتنحفظ مع
 مواصفات الجهاز، لهيك فيك تقارن بين أجهزة مختلفة، وكل جلسة بتخلص بتقرير HTML.
 
@@ -155,7 +157,8 @@ must stay under the same license, with its source. The benchmark programs the ap
 
 ### المتطلبات
 
-- ويندوز 10/11 (x64 أو ARM64) أو لينكس (Debian/Ubuntu أو Arch؛ مش كل الاختبارات انجرّبت عاللينكس لسا).
+- ويندوز 10/11 (x64 أو ARM64) أو لينكس (x64 أو ARM64: Debian/Ubuntu و Fedora و Arch و openSUSE؛ مش كل الاختبارات
+  انجرّبت عاللينكس لسا). عـ ARM64 في اختبارات أقل: كتير برامج اختبار ما إلها نسخة ARM (شاشة الاختبارات بتقلك أيّا).
 - Python 3.10 أو أحدث.
 
 ### التثبيت والتشغيل
@@ -164,7 +167,7 @@ must stay under the same license, with its source. The benchmark programs the ap
 `.venv`، بتثبّت `requirements.txt`، وبتشغّل `scripts/main.py`. عالويندوز فيك بعدها تكبس دبل كليك على `run.bat`.
 
 عاللينكس في أمر واحد بيعمل كل شي (Debian/Ubuntu و Fedora و Arch و openSUSE، وكمان WSL2 عويندوز 11): بيثبّت
-مكتبات النظام (بيطلب الباسورد مرة وحدة)، بينزّل التطبيق عـ `~/pc-benchmark-manager`، بيثبّت مكتباته بـ `.venv` تبعه،
+مكتبات النظام (بيطلب الباسورد مرة وحدة)، بينزّل التطبيق عـ `~/detailsbench`، بيثبّت مكتباته بـ `.venv` تبعه،
 بيضيفه لقائمة البرامج وبيفتحه. نفس الأمر بيحدّثه بعدين:
 
 <div dir="ltr">

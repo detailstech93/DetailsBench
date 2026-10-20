@@ -178,7 +178,7 @@ def program_path() -> Optional[Path]:
 
 def script_text(group: str, csv_path: Path, text_path: Path) -> str:
     return "\r\n".join([
-        "# written by PC Benchmark Manager for one run",
+        "# written by DetailsBench for one run",
         "SUPPRESSWARNINGS",
         "CLEARRESULTS",
         f"RUN {group}",
