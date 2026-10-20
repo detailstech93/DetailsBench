@@ -332,3 +332,16 @@ def test_games_have_their_own_section(qapp):
     assert page.selected_ids() == ["g"]
     page.set_section("tests")
     assert list(page.items) == ["a"] and page.selected_ids() == []
+
+
+def test_tests_with_a_typed_score_are_apart_and_cannot_be_ticked(qapp):
+    from app.catalog import TYPED_GROUP
+    page = TestsPage()
+    page.set_entries([entry("a"), entry("geekbench_6", source="library")])
+    tops = [page.tree.topLevelItem(i).text(0) for i in range(page.tree.topLevelItemCount())]
+    assert tops == ["CPU (1)", f"{TYPED_GROUP} (1)"]
+    item = page.items["geekbench_6"]
+    assert not item.flags() & Qt.ItemIsUserCheckable
+    assert page.tree.itemWidget(item, 5).text() == "Run alone..."
+    page.set_all(True)
+    assert page.selected_ids() == ["a"]

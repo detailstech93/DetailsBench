@@ -10,7 +10,7 @@ from PySide6.QtGui import QDesktopServices, QFont
 from PySide6.QtWidgets import (QCheckBox, QFrame, QHBoxLayout, QHeaderView, QLabel, QProgressBar, QPushButton,
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
-from app.catalog import ASSISTED, AUTOMATIC, GROUPS, INSTALLED, MISSING, TestEntry, counts
+from app.catalog import ASSISTED, AUTOMATIC, GROUPS, INSTALLED, MISSING, TYPED_GROUP, TestEntry, counts
 
 COLUMNS = ["Test", "Installed", "How it runs", "Verified", "Time", ""]
 MODE_TEXT = {AUTOMATIC: "Automatic", ASSISTED: "Assisted (you start it)", "manual": "Manual (you type the score)"}
@@ -263,11 +263,15 @@ class TestsPage(QWidget):
         self.tree.clear()
         self.items.clear()
         names = dict(GROUPS)
-        for group, title in GROUPS:
-            members = [e for e in self.visible_entries() if e.group == group]
+        visible = self.visible_entries()
+        typed = [e for e in visible if e.waits_for_typed_score()]
+        groups = [(names[g], [e for e in visible if e.group == g and not e.waits_for_typed_score()])
+                  for g, _ in GROUPS]
+        # owner, 2026-10-20: tests whose score is typed are kept apart and never ticked into a run of several
+        for title, members in groups + [(TYPED_GROUP, typed)]:
             if not members:
                 continue
-            top = QTreeWidgetItem([f"{names[group]} ({len(members)})"])
+            top = QTreeWidgetItem([f"{title} ({len(members)})"])
             top.setFlags(Qt.ItemIsEnabled)
             f = top.font(0)
             f.setBold(True)
@@ -282,7 +286,7 @@ class TestsPage(QWidget):
                 item.setToolTip(1, e.compatibility_reason or e.state_reason or "")
                 item.setForeground(1, self.palette().text() if not e.compatible else
                                    _brush(STATE_COLOR.get(e.state, "#757575")))
-                if e.can_run():
+                if e.can_run() and not e.waits_for_typed_score():
                     item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable)
                     item.setCheckState(0, Qt.Checked if e.id in keep else Qt.Unchecked)
                 else:
@@ -298,7 +302,7 @@ class TestsPage(QWidget):
 
     def _action_button(self, e: TestEntry) -> Optional[QPushButton]:
         if e.can_run():
-            b = QPushButton("Run...")
+            b = QPushButton("Run alone..." if e.waits_for_typed_score() else "Run...")
             b.clicked.connect(lambda checked=False, x=e: self.request_run([x]))
             b.setEnabled(not self.busy)
             return b

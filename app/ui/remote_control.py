@@ -31,7 +31,7 @@ from PySide6.QtGui import QDesktopServices, QFont, QGuiApplication
 from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
                                QPushButton, QSpinBox, QVBoxLayout)
 
-from app.catalog import GROUPS, TestEntry
+from app.catalog import GROUPS, TYPED_GROUP, TestEntry
 from app.remote import server as remote
 from app.ui.tests_page import elapsed_text, progress_percent
 
@@ -144,7 +144,9 @@ def remote_listing(entries: List[TestEntry], platform: str = sys.platform,
             warning = ADMIN_WARNING
         out.append((e, why, warning))
     order = {g: i for i, (g, _) in enumerate(GROUPS)}
-    return sorted(out, key=lambda x: (order.get(x[0].group, len(order)), x[0].name.lower()))
+    # the tests whose score is typed come last, in their own group (owner, 2026-10-20)
+    return sorted(out, key=lambda x: (x[0].waits_for_typed_score(), order.get(x[0].group, len(order)),
+                                      x[0].name.lower()))
 
 
 ADMIN_NOTICE = (
@@ -301,7 +303,8 @@ class RemoteApi:
         specs = [(k, str(si.get(key))) for k, key in (("Processor", "cpu_brand"), ("Cores", "core_count"),
                                                      ("Memory (GB)", "ram_size_gb"), ("Graphics", "gpu_name"),
                                                      ("System", "operating_system")) if si.get(key) is not None]
-        tests = [{"id": e.id, "name": e.name, "group": GROUP_TITLES.get(e.group, e.group.title()),
+        tests = [{"id": e.id, "name": e.name, "group": TYPED_GROUP if e.waits_for_typed_score() else
+                  GROUP_TITLES.get(e.group, e.group.title()),
                   "section": "games" if e.group == "game" else "tests",
                   "minutes": e.expected_minutes, "verified": bool(e.verified), "can_start": not why,
                   "why": why, "warning": warning, "install": self._can_install(e),

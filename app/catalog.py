@@ -27,6 +27,12 @@ UNUSABLE = "unusable"       # found, but cannot run now (prerequisite, license, 
 GROUPS = (("cpu", "CPU"), ("gpu", "GPU"), ("game", "Games"), ("stress", "Stress tests"), ("storage", "Storage"),
           ("ai", "AI"), ("web", "Web"), ("other", "Other"))
 _GROUP_IDS = {g for g, _ in GROUPS}
+# tests whose score is typed by the owner: their own group on the Tests screen, never ticked into a run of several
+TYPED_GROUP = "Score typed by you (each runs alone)"
+# a scanned program the app already runs by itself (owner, 2026-10-20): its typed-score copy is left out.
+# library id: (the workload that runs it, the version it must start with, or None for any)
+AUTOMATED_COPY = {"geekbench_7": ("geekbench7_cpu", None), "cinebench": ("cinebench_2026", "2026"),
+                  "passmark_performancetest": ("passmark_cpu", None), "pugetbench_creators": ("pugetbench_photoshop", None)}
 
 
 @dataclass
@@ -209,13 +215,23 @@ def build_catalog(workloads, benchmarks, games, environment: Optional[dict]) -> 
     wl = workload_entries(workloads, environment)
     covered = [w.ref.script.get("steam_app") for w in wl
                if isinstance(getattr(w.ref, "script", None), dict) and w.ref.script.get("steam_app")]
+    workload_ids = {w.id for w in wl}
+    library = [e for e in library_entries(benchmarks) if not automated_copy(e, workload_ids)]
     seen, out = set(), []
-    for e in wl + library_entries(benchmarks) + steam_entries(games, environment, covered):
+    for e in wl + library + steam_entries(games, environment, covered):
         if e.id not in seen:
             seen.add(e.id)
             out.append(e)
     order = {g: i for i, (g, _) in enumerate(GROUPS)}
     return sorted(out, key=lambda e: (order.get(e.group, len(order)), e.name.lower()))
+
+
+def automated_copy(entry: TestEntry, workload_ids) -> bool:
+    """A typed-score library entry the app already runs by itself (Geekbench 7, the Store's Cinebench 2026)."""
+    workload, version = AUTOMATED_COPY.get(entry.id, (None, None))
+    if workload not in workload_ids:
+        return False
+    return version is None or str(getattr(entry.ref, "version", "") or "").startswith(version)
 
 
 def counts(entries: List[TestEntry]) -> Dict[str, int]:

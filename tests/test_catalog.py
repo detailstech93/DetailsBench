@@ -143,3 +143,19 @@ def test_order_is_by_group_then_name():
            FakeWorkload("mlperf_client", benchmark_type="ai")]
     ids = [x.id for x in build_catalog(wls, [], [], WIN_X64) if x.source == "workload"]
     assert ids == ["a_cpu", "b_cpu", "fio", "mlperf_client"]
+
+
+def test_a_program_the_app_already_runs_is_not_listed_again_as_typed():
+    bms = [BenchmarkInfo("geekbench_7", "Geekbench 7", BenchmarkType.CPU, BenchmarkStatus.READY_MANUAL,
+                         executable_path="C:/gb7.exe"),
+           BenchmarkInfo("cinebench", "Cinebench", BenchmarkType.CPU, BenchmarkStatus.READY_MANUAL,
+                         executable_path="C:/cb.exe", version="2026.1.3.0"),
+           BenchmarkInfo("geekbench_6", "Geekbench 6", BenchmarkType.CPU, BenchmarkStatus.READY_MANUAL,
+                         executable_path="C:/gb6.exe")]
+    wls = [FakeWorkload("geekbench7_cpu"), FakeWorkload("cinebench_2026", available=False, reason="not installed")]
+    ids = set(by_id(build_catalog(wls, bms, [], WIN_X64)))
+    assert "geekbench_7" not in ids and "cinebench" not in ids and "geekbench_6" in ids
+    # without the automated test, or another Cinebench (R23), the typed one stays
+    bms[1].version = "23.2.0"
+    assert "cinebench" in by_id(build_catalog(wls, bms, [], WIN_X64))
+    assert "geekbench_7" in by_id(build_catalog([], bms, [], WIN_X64))
