@@ -35,14 +35,15 @@ def safe_name(text: str) -> str:
 
 
 def tested_names(export: Mapping) -> List[str]:
-    """The tests of the session in run order (real runs only), each once."""
-    names = []
-    for r in export.get("runs") or []:
+    """The tests of the session in the order they ran (their first stored run; real runs only), each once."""
+    first = {}
+    for i, r in enumerate(export.get("runs") or []):
         name = r.get("benchmark_name")
         if not r.get("is_test") or (export.get("session") or {}).get("is_test"):
-            if isinstance(name, str) and name and name not in names:
-                names.append(name)
-    return names
+            if isinstance(name, str) and name:
+                order = r.get("id") if isinstance(r.get("id"), int) else i
+                first[name] = min(first.get(name, order), order)
+    return sorted(first, key=first.get)
 
 
 def display_names(export: Mapping) -> dict:
@@ -60,6 +61,46 @@ def one_test(export: Mapping, name: str) -> dict:
     out["earlier"] = [e for e in export.get("earlier") or [] if isinstance(e, Mapping)
                       and name in (e.get("name"), e.get("benchmark_name"), e.get("benchmark"))]
     return out
+
+
+# the numbers worth seeing next to a test's score in the final report (owner, 2026-10-20: "so many points multi-core,
+# so many single-core"): (test id pattern, [(metric name pattern, label)]); a {} in the label is the pattern's group
+STORAGE = [(r"seq1m_q8t1_read_mib_s", "seq. read"), (r"seq1m_q8t1_write_mib_s", "seq. write"),
+           (r"rnd4k_q32t1_read_iops", "4K read"), (r"rnd4k_q32t1_write_iops", "4K write")]
+KEY_METRICS = [
+    (r"geekbench\d*_cpu", [(r"multi_core_score", "Multi-Core"), (r"single_core_score", "Single-Core")]),
+    (r"diskspd|fio", STORAGE),
+    (r"llama_benchy.*", [(r"pp_tok_s@d0_c1", "prompt"), (r"tg_tok_s@d0_c1", "generation"),
+                         (r"e2e_ttft_ms@d0_c1", "first token")]),
+    (r"mlperf_client.*", [(r"ttft_s", "first token")]),
+    (r"blender_benchmark.*", [(r"samples_per_minute@(\w+)", "{}")]),
+    (r"sevenzip_fm_benchmark", [(r"compress_rating", "compress"), (r"decompress_rating", "decompress")]),
+    (r"stress_.*", [(r"(cpu|gpu)_stability", "{} stability"), (r"(cpu|gpu)_errors", "{} wrong answers"),
+                    (r"stress_minutes", "length (min)")]),
+]
+
+
+def _number(value: float) -> str:
+    return f"{value:,.0f}" if abs(value) >= 1000 else f"{value:,.2f}".rstrip("0").rstrip(".")
+
+
+def key_numbers(export: Mapping, name: str) -> str:
+    """"Multi-Core 19,963 points · Single-Core 2,033 points": a test's main numbers besides its score (the mean of
+    its measured runs), or ""."""
+    metrics = (export.get("metric_summaries") or {}).get(name) or {}
+    parts = []
+    for test, wanted in KEY_METRICS:
+        if not re.fullmatch(test, name):
+            continue
+        for pattern, label in wanted:
+            for metric, m in sorted(metrics.items()):
+                found = re.fullmatch(pattern, metric)
+                if found and isinstance(m, Mapping) and isinstance(m.get("mean"), (int, float)):
+                    unit = m.get("unit") if m.get("unit") not in (None, "-", "count", "min") else ""
+                    text = label.format(*(g.upper() if len(g) == 3 else g for g in found.groups()))
+                    parts.append(f"{text} {_number(m['mean'])}{' ' + unit if unit else ''}")
+        break
+    return " · ".join(parts)
 
 
 def duration_text(seconds: Optional[float]) -> str:
@@ -94,6 +135,7 @@ def test_outcome(export: Mapping, name: str) -> dict:
     count = f"{len(done)} of {len(measured)} measured run(s) completed" + (
         f", {warmups} warm-up" if warmups else "")
     return {"name": name, "passed": bool(done), "result": result, "runs": count,
+            "details": key_numbers(export, name) if done else "",
             "seconds": sum(times) if times else None, "time": duration_text(sum(times) if times else None)}
 
 

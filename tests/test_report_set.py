@@ -147,3 +147,31 @@ def test_a_name_with_a_colon_is_one_test(tmp_path):
     export["manifest"] = dict(export.get("manifest") or {}, benchmarks=[{"name": "stress_cpu", "display_name": "Stress test: CPU"}])
     assert rs.finished_tests(export, "Stress test: CPU: run 1") == []
     assert rs.finished_tests(export, "Stress test: GPU: run 1") == ["stress_cpu"]
+
+
+def _with(db, sid, name, kind, score, metrics, **kw):
+    db.save_result_metrics(db.create_result(sid, name, kind, score, **kw), metrics)
+
+
+def test_the_summary_shows_each_tests_main_numbers_in_run_order(tmp_path):
+    """Owner, 2026-10-20: not only links: "so many points multi-core, so many single-core" for Geekbench, etc."""
+    db = Database(str(tmp_path / "r.db"))
+    sid = db.create_session("Automated")
+    _with(db, sid, "geekbench7_cpu", "cpu", 19963.0, unit="points", run_index=1, duration_seconds=275,
+                     metrics={"multi_core_score": (19963.0, "points"), "single_core_score": (2033.0, "points")})
+    _with(db, sid, "diskspd", "storage", 6790.6, unit="MiB/s", run_index=1, duration_seconds=30,
+                     metrics={"seq1m_q8t1_read_mib_s": (6790.62, "MiB/s"), "seq1m_q8t1_write_mib_s": (6188.1, "MiB/s"),
+                              "rnd4k_q32t1_read_iops": (165680.9, "IOPS"), "rnd4k_q32t1_write_iops": (153643.8, "IOPS")})
+    _with(db, sid, "stress_cpu_gpu", "stress", 81.25, unit="%", run_index=1, duration_seconds=64,
+                     metrics={"cpu_stability": (97.0, "%"), "gpu_stability": (81.25, "%"), "cpu_errors": (0, "count"),
+                              "gpu_errors": (0, "count"), "stress_minutes": (1.0, "min")})
+    export = build_session_export(db, sid)
+    assert rs.tested_names(export) == ["geekbench7_cpu", "diskspd", "stress_cpu_gpu"]     # as they ran
+    assert rs.key_numbers(export, "geekbench7_cpu") == "Multi-Core 19,963 points · Single-Core 2,033 points"
+    assert rs.key_numbers(export, "diskspd") == ("seq. read 6,791 MiB/s · seq. write 6,188 MiB/s · "
+                                                 "4K read 165,681 IOPS · 4K write 153,644 IOPS")
+    assert rs.key_numbers(export, "stress_cpu_gpu") == ("CPU stability 97 % · GPU stability 81.25 % · "
+                                                        "CPU wrong answers 0 · GPU wrong answers 0 · length (min) 1")
+    assert rs.key_numbers(export, "sevenzip_benchmark") == ""
+    path = rs.write_report_set(export, tmp_path / "reports")
+    assert "Single-Core 2,033 points" in path.read_text(encoding="utf-8")

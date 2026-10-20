@@ -1329,7 +1329,8 @@ def render_summary_report(export: Mapping, outcomes: list) -> str:
     for o in outcomes:
         state = '<span class="good-text">Passed</span>' if o.get("passed") else '<span class="bad-text">FAILED</span>'
         link = f'<a href="{esc(o.get("file"))}">{esc(o.get("title"))}</a>' if o.get("file") else esc(o.get("title"))
-        rows.append(f"<tr><td>{link}</td><td>{state}</td><td>{esc(o.get('result'))}</td>"
+        details = f'<div class="muted">{esc(o.get("details"))}</div>' if o.get("details") else ""
+        rows.append(f"<tr><td>{link}</td><td>{state}</td><td>{esc(o.get('result'))}{details}</td>"
                     f"<td>{esc(o.get('runs'))}</td><td>{esc(o.get('time'))}</td></tr>")
     passed = sum(1 for o in outcomes if o.get("passed"))
     seconds = sum(o["seconds"] for o in outcomes if isinstance(o.get("seconds"), (int, float)))
