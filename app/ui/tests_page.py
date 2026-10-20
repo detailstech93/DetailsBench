@@ -88,6 +88,7 @@ class TestsPage(QWidget):
     ai_models_requested = Signal()    # "AI models..." (app/ui/ai_models_dialog.py)
     remote_requested = Signal()       # "Remote: ON/OFF..." (app/ui/remote_control.py)
     reports_folder_requested = Signal()   # "Reports folder..." (app/ui/reports_folder.py)
+    open_reports_requested = Signal()     # "Open reports": the folder itself, in the file manager
     admin_requested = Signal()        # "Restart as administrator" (app/ui/admin_restart.py)
     rescan_requested = Signal()
     install_requested = Signal(object)      # TestEntry: missing, with a one-click install (app/install)
@@ -192,6 +193,10 @@ class TestsPage(QWidget):
         self.reports_btn.setMinimumHeight(40)
         self.reports_btn.setToolTip("The folder every report is saved in (asked the first time a test runs).")
         self.reports_btn.clicked.connect(self.reports_folder_requested.emit)
+        self.open_reports_btn = QPushButton("Open reports")
+        self.open_reports_btn.setMinimumHeight(40)
+        self.open_reports_btn.setToolTip("Open the folder the reports are saved in.")
+        self.open_reports_btn.clicked.connect(self.open_reports_requested.emit)
         self.admin_btn = QPushButton("Restart as administrator")
         self.admin_btn.setMinimumHeight(40)
         self.admin_btn.setToolTip("Windows asks once, here at the PC; then PassMark and game benchmarks start "
@@ -200,6 +205,7 @@ class TestsPage(QWidget):
         self.admin_btn.setVisible(False)
         row.addWidget(self.hint, 1)
         row.addWidget(self.admin_btn)
+        row.addWidget(self.open_reports_btn)
         row.addWidget(self.reports_btn)
         row.addWidget(self.remote_btn)
         row.addWidget(self.ai_models_btn)

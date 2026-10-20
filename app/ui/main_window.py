@@ -441,6 +441,7 @@ class MainWindow(QMainWindow):
         self.remote = RemoteControl(self)
         self.tests_page.remote_requested.connect(self.edit_remote_start)
         self.tests_page.reports_folder_requested.connect(self.choose_reports_folder)
+        self.tests_page.open_reports_requested.connect(self.open_reports_folder)
         from app import elevation
         import sys
         self.tests_page.show_admin(sys.platform, elevation.is_elevated())
@@ -511,6 +512,11 @@ class MainWindow(QMainWindow):
         """Pick the folder every report goes to (app/ui/reports_folder.py)."""
         from app.ui import reports_folder
         reports_folder.choose(self, always=True)
+
+    def open_reports_folder(self):
+        """Open the folder the reports are saved in (app/ui/reports_folder.py)."""
+        from app.ui import reports_folder
+        reports_folder.open_folder(self)
 
     def restart_as_admin(self) -> bool:
         """Start the app again through Windows' administrator prompt (app/ui/admin_restart.py)."""

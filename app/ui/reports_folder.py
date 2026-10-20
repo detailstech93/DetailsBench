@@ -64,3 +64,40 @@ def choose(window, always: bool = False) -> Optional[Path]:
         return current
     window.status_label.setText(f"Reports are saved in: {path}")
     return path
+
+
+def show(path: Path, platform: Optional[str] = None) -> bool:
+    """The folder in the file manager: Windows' own; on WSL Windows' Explorer (WSL has no file manager of its own,
+    owner 2026-10-20); elsewhere the desktop's."""
+    import os
+    import sys
+    platform = platform or sys.platform
+    if platform == "win32":
+        try:
+            os.startfile(str(path))
+            return True
+        except OSError:
+            logger.exception("Could not open the reports folder")
+            return False
+    from app.ui.run_tests import on_wsl, open_in_windows
+    if platform.startswith("linux") and on_wsl():
+        return open_in_windows(path, platform=platform)
+    from PySide6.QtCore import QUrl
+    from PySide6.QtGui import QDesktopServices
+    return bool(QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))))
+
+
+def open_folder(window, opener=show) -> Optional[Path]:
+    """The "Open reports" button: the folder the next report goes to, made if it is not there yet."""
+    path = folder(window)
+    if path is None:
+        window.status_label.setText("No reports folder yet: choose one with Reports folder...")
+        return None
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        window.status_label.setText(f"The reports folder could not be made: {e}")
+        return None
+    if not opener(path):
+        window.status_label.setText(f"The reports folder could not be opened: {path}")
+    return path
