@@ -510,7 +510,9 @@ class MainWindow(QMainWindow):
 
     def edit_remote_start(self):
         """Switch remote start on or off (app/ui/remote_control.py)."""
-        from app.ui.remote_control import RemoteDialog
+        from app.ui.remote_control import RemoteDialog, admin_first
+        if not self.remote.running() and admin_first(self):
+            return                              # restarting as administrator: this window closes
         RemoteDialog(self.remote, self).exec()
         self.tests_page.show_remote(self.remote.running())
 

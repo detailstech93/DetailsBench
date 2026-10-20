@@ -147,6 +147,47 @@ def remote_listing(entries: List[TestEntry], platform: str = sys.platform,
     return sorted(out, key=lambda x: (order.get(x[0].group, len(order)), x[0].name.lower()))
 
 
+ADMIN_NOTICE = (
+    "The app is not running as administrator.\n\n"
+    "If you want every test to run remotely, restart the app as administrator first. PassMark and the game "
+    "benchmarks need administrator rights: without them Windows asks on this PC (a UAC prompt), and nobody can "
+    "answer it from the phone, so the run waits there.\n\n"
+    "The other tests run remotely either way.")
+
+
+def admin_notice(platform: str = sys.platform, elevated: Optional[bool] = None) -> Optional[str]:
+    """The notice the Remote button shows first (owner, 2026-10-20), or None (not Windows, or already admin)."""
+    if platform != "win32":
+        return None
+    from app import elevation
+    return None if (elevation.is_elevated(platform) if elevated is None else elevated) else ADMIN_NOTICE
+
+
+def admin_first(window, choose: Optional[Callable[[str], bool]] = None, restart: Optional[Callable] = None,
+                notice: Callable[[], Optional[str]] = admin_notice) -> bool:
+    """The Remote button, before its window: the notice, if any, with Restart as administrator or Continue. True
+    when the app is restarting (this window closes; the remote window is not opened)."""
+    text = notice()
+    if not text:
+        return False
+    if choose is None:
+        def choose(message: str) -> bool:
+            from PySide6.QtWidgets import QMessageBox
+            box = QMessageBox(QMessageBox.Information, "Remote: administrator rights", message, parent=window)
+            again = box.addButton("Restart as administrator", QMessageBox.AcceptRole)
+            box.addButton("Continue", QMessageBox.RejectRole)
+            box.exec()
+            return box.clickedButton() is again
+    if not choose(text):
+        return False
+    if restart is None:
+        from app.ui import admin_restart
+
+        def restart():                          # the notice was the question: no second one
+            return admin_restart.restart(window, ask=lambda w, t: True)
+    return bool(restart())
+
+
 def remote_entries(entries: List[TestEntry], platform: str = sys.platform) -> List[TestEntry]:
     """The tests the page may start."""
     return [e for e, why, _ in remote_listing(entries, platform) if not why]

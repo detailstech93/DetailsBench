@@ -455,3 +455,16 @@ def test_a_download_moves_the_bar():
     assert progress_percent(RunState(True, 0, None, "Downloading V-Ray: 300 of 1,200 MB", share=0.25)) == 25
     assert progress_percent(RunState(True, 0, None, "Installing...")) is None          # no known part: moving bar
     assert progress_percent(RunState(True, 1, 4, "", fraction=0.5)) == 38                # runs keep their own count
+
+
+def test_the_remote_button_says_admin_is_needed_for_every_test():
+    from app.ui import remote_control as rc
+    assert rc.admin_notice("linux") is None and rc.admin_notice("win32", elevated=True) is None
+    text = rc.admin_notice("win32", elevated=False)
+    assert "administrator" in text and "every test" in text and "PassMark" in text
+    shown, restarted = [], []
+    assert rc.admin_first(None, choose=lambda t: shown.append(t) or False, restart=lambda: restarted.append(1),
+                          notice=lambda: text) is False                 # Continue: the remote window opens
+    assert shown == [text] and restarted == []
+    assert rc.admin_first(None, choose=lambda t: True, restart=lambda: True, notice=lambda: text) is True
+    assert rc.admin_first(None, choose=lambda t: 1 / 0, notice=lambda: None) is False   # admin: no notice
