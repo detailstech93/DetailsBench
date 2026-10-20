@@ -124,3 +124,12 @@ def _no_real_memory_readings(monkeypatch, request):
     from app.telemetry import sources
     from app.telemetry.sampler import TelemetrySampler
     monkeypatch.setattr(sources, "new_memory_sampler", lambda interval_seconds=1.0: TelemetrySampler([]))
+
+
+@pytest.fixture(autouse=True)
+def _no_real_data_folder(monkeypatch, tmp_path):
+    """The app's data folder (settings.json, reports, tools) comes from LOCALAPPDATA or XDG_DATA_HOME. Tests must not
+    read or write this computer's: a reports folder the owner picked once took two tests' reports into it (WSL,
+    2026-10-20). Here the data folder is the test's own; tests of the folder rules pass their own env."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "localappdata"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))

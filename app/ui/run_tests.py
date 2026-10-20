@@ -10,6 +10,8 @@ import dataclasses
 import logging
 import os
 import re
+import shutil
+import subprocess
 import sys
 import webbrowser
 from pathlib import Path
@@ -372,7 +374,37 @@ def open_report(path: Path) -> bool:
             return True
         except OSError:
             logger.exception("Could not open the report")
-    return bool(webbrowser.open(path.resolve().as_uri()))
+    if webbrowser.open(path.resolve().as_uri()):
+        return True
+    return open_in_windows(path)
+
+
+def on_wsl(version_file: str = "/proc/version") -> bool:
+    """Linux inside Windows (WSL): its kernel name says Microsoft."""
+    try:
+        return "microsoft" in Path(version_file).read_text(encoding="utf-8", errors="replace").lower()
+    except OSError:
+        return False
+
+
+def open_in_windows(path: Path, platform: Optional[str] = None, wsl=on_wsl, run=subprocess.run,
+                    which=shutil.which) -> bool:
+    """WSL with no Linux browser (owner, 2026-10-20): the report opens in Windows' own browser through explorer.exe
+    with the file's Windows path. Anywhere else, or without wslpath and explorer.exe, nothing is opened."""
+    if not (platform or sys.platform).startswith("linux") or not wsl():
+        return False
+    wslpath, explorer = which("wslpath"), which("explorer.exe")
+    if not (wslpath and explorer):
+        return False
+    try:
+        win = run([wslpath, "-w", str(path)], capture_output=True, text=True, timeout=10).stdout.strip()
+        if not win:
+            return False
+        run([explorer, win], capture_output=True, timeout=30)     # explorer.exe answers 1 even when it opened
+        return True
+    except (OSError, subprocess.SubprocessError):
+        logger.exception("Could not open the report in Windows")
+        return False
 
 
 def plan_state(panel, result: dict) -> RunState:
