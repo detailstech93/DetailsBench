@@ -374,9 +374,31 @@ def open_report(path: Path) -> bool:
             return True
         except OSError:
             logger.exception("Could not open the report")
+    # WSL with no Linux browser: Python still "opens" it through gio, which only says it found no application
+    # (owner, 2026-10-20), so Windows' browser is used first there
+    if sys.platform.startswith("linux") and not linux_html_app() and open_in_windows(path):
+        return True
     if webbrowser.open(path.resolve().as_uri()):
         return True
     return open_in_windows(path)
+
+
+LINUX_BROWSERS = ("firefox", "google-chrome", "chromium", "chromium-browser", "brave-browser", "microsoft-edge",
+                  "epiphany", "konqueror", "falkon")
+
+
+def linux_html_app(run=subprocess.run, which=shutil.which) -> bool:
+    """A Linux program opens HTML files here (a default for text/html, or a known browser installed)."""
+    if any(which(b) for b in LINUX_BROWSERS):
+        return True
+    xdg = which("xdg-mime")
+    if not xdg:
+        return False
+    try:
+        out = run([xdg, "query", "default", "text/html"], capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return bool(out.strip())
 
 
 def on_wsl(version_file: str = "/proc/version") -> bool:
