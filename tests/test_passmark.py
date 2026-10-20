@@ -182,3 +182,23 @@ def test_performancetest_11_results_read_this_computer_only():
     assert passmark.parse_mark("Memory Mark", text)[0] is None                 # N/A is not a score
     only_baselines = "\n".join(rows[:3]) + "\n"
     assert passmark.parse_mark("CPU Mark", only_baselines)[0] is None
+
+
+def test_a_linux_release_without_ncurses_5_hides_passmark(tmp_path, monkeypatch):
+    """Ubuntu 24.04 (owner's WSL, 2026-10-20) has no libncurses5: Install cannot help, so the test is hidden."""
+    monkeypatch.setattr(passmark.sys, "platform", "linux")
+    exe = _exe(tmp_path)
+    noble = {"ID": "ubuntu", "VERSION_ID": "24.04"}
+    missing = passmark.PassMarkWorkload("passmark_cpu", exe=exe, ncurses=lambda: False)
+    assert "no longer ships" in missing.system_blocks(noble)
+    assert missing.system_blocks({"ID": "ubuntu", "VERSION_ID": "22.04"}) is None       # Install puts it there
+    assert passmark.PassMarkWorkload("passmark_cpu", exe=exe, ncurses=lambda: True).system_blocks(noble) is None
+    assert "CPU and Memory tests only" in passmark.PassMarkWorkload("passmark_3d", exe=exe).system_blocks(noble)
+    monkeypatch.setattr(passmark.sys, "platform", "win32")
+    assert passmark.PassMarkWorkload("passmark_cpu", exe=exe).system_blocks(noble) is None
+    assert passmark.ncurses5_unavailable({"ID": "debian", "VERSION_ID": "13"})
+    assert not passmark.ncurses5_unavailable({"ID": "debian", "VERSION_ID": "12"})
+    assert passmark.ncurses5_unavailable({"ID": "linuxmint", "ID_LIKE": "ubuntu debian", "UBUNTU_CODENAME": "noble"})
+    assert not passmark.ncurses5_unavailable({"ID": "linuxmint", "ID_LIKE": "ubuntu debian", "UBUNTU_CODENAME": "jammy"})
+    assert not passmark.ncurses5_unavailable({"ID": "fedora", "VERSION_ID": "41"})
+    assert passmark.ncurses5_unavailable({"ID": "arch"})

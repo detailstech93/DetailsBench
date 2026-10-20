@@ -127,6 +127,14 @@ def workload_entries(workloads, environment: Optional[dict]) -> List[TestEntry]:
             available, reason = False, f"availability check failed: {e}"
         state, why = _workload_state(available, str(reason))
         ok, comp = check_platform(info, environment)
+        blocks = getattr(wl, "system_blocks", None)
+        if ok and callable(blocks):         # this system cannot run it, Install or not: hidden like another OS's
+            try:
+                why_not = blocks()
+            except Exception:
+                why_not = None
+            if why_not:
+                ok, comp = False, why_not
         script = getattr(wl, "script", None)
         assisted = isinstance(script, dict) and script_mode(script) == ASSISTED
         entries.append(TestEntry(

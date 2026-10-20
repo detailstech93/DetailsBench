@@ -159,3 +159,16 @@ def test_a_program_the_app_already_runs_is_not_listed_again_as_typed():
     bms[1].version = "23.2.0"
     assert "cinebench" in by_id(build_catalog(wls, bms, [], WIN_X64))
     assert "geekbench_7" in by_id(build_catalog([], bms, [], WIN_X64))
+
+
+def test_a_workload_this_system_cannot_run_is_hidden_like_another_os():
+    """Owner, 2026-10-20: what this system or processor cannot run, Install or not, is not shown."""
+    blocked = FakeWorkload("passmark_cpu", False, "needs ncurses 5")
+    blocked.system_blocks = lambda: "this Linux release no longer ships ncurses 5"
+    fine = FakeWorkload("sevenzip_benchmark")
+    fine.system_blocks = lambda: None
+    broken = FakeWorkload("ycruncher")
+    broken.system_blocks = lambda: 1 / 0
+    e = by_id(build_catalog([blocked, fine, broken], [], [], LINUX))
+    assert e["passmark_cpu"].compatible is False and "no longer ships" in e["passmark_cpu"].compatibility_reason
+    assert e["sevenzip_benchmark"].compatible and e["ycruncher"].compatible

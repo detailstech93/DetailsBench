@@ -92,6 +92,36 @@ def ncurses5_present(dirs=LIB_DIRS) -> bool:
     return False
 
 
+# Ubuntu releases that still ship libncurses5 (24.04 "noble" dropped it, so did Debian 13 "trixie")
+UBUNTU_WITH_NCURSES5 = {"bionic", "focal", "jammy", "kinetic", "lunar", "mantic"}
+
+
+def _version(text: str) -> Tuple[int, ...]:
+    try:
+        return tuple(int(p) for p in text.split("."))
+    except ValueError:
+        return ()
+
+
+def ncurses5_unavailable(release: dict) -> bool:
+    """This distribution has no ncurses 5 package to install (os-release). Unknown releases are not hidden."""
+    os_id, version = release.get("ID", ""), _version(release.get("VERSION_ID", ""))
+    if os_id == "ubuntu":
+        return bool(version) and version >= (24, 4)
+    if os_id == "debian":
+        return not version or version >= (13,)          # testing and sid have no VERSION_ID
+    codename = release.get("UBUNTU_CODENAME")           # Mint, Pop!_OS, Zorin...: the Ubuntu they are built on
+    if codename:
+        return codename not in UBUNTU_WITH_NCURSES5
+    from app.frames.linux_install import distro_family
+    return distro_family(release) not in NCURSES5_PACKAGES
+
+
+def _os_release() -> dict:
+    from app.ui.frame_capture_panel import read_os_release
+    return read_os_release()
+
+
 def linux_plan() -> Optional[dict]:
     from app.install.plans import plan_for
     plan = plan_for("passmark_cpu")
@@ -261,6 +291,17 @@ class PassMarkWorkload(Workload):
         if self._linux:             # no administrator rights and no upload on Linux
             self.needs_admin = False
             self.warning = LINUX_WARNING
+
+    def system_blocks(self, release=None) -> Optional[str]:
+        """Why this system cannot run it at all, Install or not (owner, 2026-10-20: such tests are hidden)."""
+        if not self._linux:
+            return None
+        if self.id not in LINUX_MODES:
+            return "PassMark's Linux program has the CPU and Memory tests only"
+        if not self._ncurses() and ncurses5_unavailable(release if release is not None else _os_release()):
+            return ("PassMark's Linux program needs the ncurses 5 library, which this Linux release no longer "
+                    f"ships (Ubuntu 24.04 and newer, Debian 13): see {FAQ_URL}")
+        return None
 
     def availability(self) -> Tuple[bool, str]:
         if self._linux:
