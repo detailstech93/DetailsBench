@@ -17,7 +17,18 @@ from typing import Dict, List, Optional, Tuple, Any, Set
 from dataclasses import dataclass
 from enum import Enum
 import tempfile
-import winreg
+import types
+try:
+    import winreg
+except ImportError:                     # Linux: no registry; every registry read finds nothing
+    class _NoRegistry:
+        HKEY_LOCAL_MACHINE = HKEY_CURRENT_USER = KEY_READ = KEY_WOW64_64KEY = KEY_WOW64_32KEY = 0
+
+        @staticmethod
+        def OpenKey(*args, **kwargs):
+            raise OSError("no Windows registry on this system")
+
+    winreg = _NoRegistry()
 import time
 from datetime import datetime
 import pefile
@@ -943,7 +954,7 @@ $res | ConvertTo-Json -Depth 3
                 channel_errors.append(f"channel start_menu failed: {exc}")
 
         # 4. App Paths
-        if 'app_paths' in definition.discovery_channels:
+        if 'app_paths' in definition.discovery_channels and isinstance(winreg, types.ModuleType):
             try:
                 term_lower = definition.id.lower()
                 for hkey, flag in [
