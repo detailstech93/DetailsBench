@@ -1452,7 +1452,8 @@ $res | ConvertTo-Json -Depth 3
     def apply_compatibility(self, profile) -> None:
         from app.environment.compatibility import INCOMPATIBLE, check_compatibility
         for bm in self.benchmarks:
-            definition = DEFINITIONS_BY_ID.get(bm.name.split('_')[0])
+            # the full id first: pugetbench_creators, blender_benchmark... were never found by their first word
+            definition = DEFINITIONS_BY_ID.get(bm.name) or DEFINITIONS_BY_ID.get(bm.name.split('_')[0])
             if definition is None:
                 continue
             try:

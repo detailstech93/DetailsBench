@@ -161,6 +161,10 @@ def library_entries(benchmarks) -> List[TestEntry]:
         kind = getattr(bm.type, "value", str(bm.type))
         compatible = status != "unsupported"
         comp = "" if compatible else (bm.reason or "not supported on this PC")
+        checked = getattr(bm, "compatibility", None) or {}
+        if compatible and checked.get("status") == "incompatible":    # not installed, and not for this system
+            compatible = False                                        # either (owner, 2026-10-20: hide those)
+            comp = "Unsupported on this system: " + "; ".join(checked.get("reasons") or [])
         if status == "compatibility_unverified":
             comp = bm.reason or "compatibility not checked"
         found = bool(bm.executable_path) or kind == "web"

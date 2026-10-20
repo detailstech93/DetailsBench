@@ -98,7 +98,8 @@ class TestsPage(QWidget):
         super().__init__(parent)
         self.entries: List[TestEntry] = []
         self.items: Dict[str, QTreeWidgetItem] = {}
-        self.open_url = open_url or (lambda url: QDesktopServices.openUrl(QUrl(url)))
+        from app.ui.links import open_link
+        self.open_url = open_url or open_link
         self.host = None            # app/install/plans.Host; None: this computer (tests set one)
         # owner, 2026-10-20: games have their own section (Games) and never run together with the tests
         self.section = "tests"

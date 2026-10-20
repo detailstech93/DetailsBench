@@ -172,3 +172,30 @@ def test_a_workload_this_system_cannot_run_is_hidden_like_another_os():
     e = by_id(build_catalog([blocked, fine, broken], [], [], LINUX))
     assert e["passmark_cpu"].compatible is False and "no longer ships" in e["passmark_cpu"].compatibility_reason
     assert e["sevenzip_benchmark"].compatible and e["ycruncher"].compatible
+
+
+def test_a_typed_score_test_for_another_system_is_hidden_even_when_not_installed():
+    """Owner's WSL, 2026-10-20: Cinebench, 3DMark and PugetBench (Windows only) were listed as "not installed"."""
+    puget = BenchmarkInfo("pugetbench_creators", "PugetBench", BenchmarkType.CPU, BenchmarkStatus.NOT_INSTALLED,
+                          reason="not found")
+    puget.compatibility = {"status": "incompatible", "reasons": ["supported OS: windows; this system: linux"]}
+    blender = BenchmarkInfo("cinebench", "Cinebench", BenchmarkType.CPU, BenchmarkStatus.NOT_INSTALLED)
+    blender.compatibility = {"status": "compatible", "reasons": []}
+    e = by_id(build_catalog([], [puget, blender], [], LINUX))
+    assert e["pugetbench_creators"].compatible is False and "supported OS: windows" in e["pugetbench_creators"].compatibility_reason
+    assert e["cinebench"].compatible
+
+
+def test_the_scan_finds_the_definition_by_its_full_id():
+    from app.benchmark_manager import BenchmarkManager
+    from app.environment.compatibility import INCOMPATIBLE
+    m = BenchmarkManager.__new__(BenchmarkManager)
+    m.benchmarks = [BenchmarkInfo("pugetbench_creators", "PugetBench", BenchmarkType.CPU, BenchmarkStatus.NOT_INSTALLED)]
+    from unittest.mock import patch
+    with patch("app.environment.compatibility.check_compatibility",
+               return_value=SimpleNamespace(status=INCOMPATIBLE, reasons=["windows only"],
+                                            to_dict=lambda: {"status": "incompatible", "reasons": ["windows only"]})) as check:
+        m.apply_compatibility(object())
+    assert check.call_args[0][0].id == "pugetbench_creators"
+    assert m.benchmarks[0].compatibility["status"] == "incompatible"
+    assert m.benchmarks[0].status == BenchmarkStatus.NOT_INSTALLED        # not installed stays not installed
