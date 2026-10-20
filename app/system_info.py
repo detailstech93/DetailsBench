@@ -33,9 +33,13 @@ def get_cpu_brand() -> Optional[str]:
                 if len(line) > 5 and not line.startswith('@{'):
                     return line
         
+    except FileNotFoundError:               # no PowerShell (Linux): the processor's name is in /proc/cpuinfo
+        name = parse_cpuinfo_model(_read("/proc/cpuinfo"))
+        if name:
+            return name
     except Exception as e:
         logger.warning(f"PowerShell CPU brand detection failed: {e}")
-    
+
     # Fallback to platform module for basic info
     try:
         processor = platform.processor()

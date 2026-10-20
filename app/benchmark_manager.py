@@ -616,6 +616,8 @@ $res | ConvertTo-Json -Depth 3
                 elif not isinstance(start_apps, list):
                     data['start_apps'] = []
                 return data
+        except FileNotFoundError:           # no PowerShell (Linux): no Store apps there, nothing to warn about
+            pass
         except Exception as e:
             logger.warning(f"Combined PowerShell query failed: {e}")
         return {'appx_cinebench': None, 'start_apps': []}

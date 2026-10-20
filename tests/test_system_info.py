@@ -19,3 +19,14 @@ def test_linux_specs_without_powershell():
     assert si.parse_lspci_gpus("01:00.0 VGA compatible controller: NVIDIA Corporation AD103 [GeForce RTX 4080]\n"
                                "00:02.0 Display controller: Intel Corporation Arc\n") == [
         "NVIDIA Corporation AD103 [GeForce RTX 4080]", "Intel Corporation Arc"]
+
+
+def test_processor_name_without_powershell_comes_from_cpuinfo(monkeypatch, caplog):
+    """The owner's WSL log (2026-10-20): "PowerShell CPU brand detection failed" for the environment check."""
+    from app import system_info as si
+
+    def no_powershell(*a, **k):
+        raise FileNotFoundError(2, "No such file or directory", "powershell")
+    monkeypatch.setattr(si.subprocess, "run", no_powershell)
+    monkeypatch.setattr(si, "_read", lambda p: "model name\t: AMD Ryzen 9 9950X\n" if p == "/proc/cpuinfo" else "")
+    assert si.get_cpu_brand() == "AMD Ryzen 9 9950X" and "failed" not in caplog.text
