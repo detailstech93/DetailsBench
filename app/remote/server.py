@@ -4,7 +4,9 @@ network can start tests and follow them.
 - Off by default. The owner switches it on in the app ("Remote: OFF..." on the Tests screen, a switch); it never
   starts by itself and is off again when the app closes.
 - Local network only: a client whose address is not private (10/8, 172.16/12, 192.168/16, 169.254/16, IPv6 ULA or
-  link-local) or loopback is refused. "This PC only" binds to 127.0.0.1. No internet is needed or used, and the app
+  link-local) or loopback is refused. Outside the home network only through Tailscale (owner, 2026-10-20): a client
+  in Tailscale's range (100.64.0.0/10; its IPv6 fd7a:115c:a1e0::/48 is ULA) is let in only when it reached this
+  PC's own Tailscale address, so the same range from an internet provider's shared addresses (CGNAT) is refused. "This PC only" binds to 127.0.0.1. No internet is needed or used, and the app
   never changes firewall rules (Windows may ask the owner to allow the app; the owner answers that prompt).
 - One-time code: a new random code every time the server is switched on; every API call needs it (header X-Code).
   After MAX_WRONG wrong codes within a minute every call is refused for LOCK_SECONDS. A call with the right code
@@ -59,14 +61,30 @@ def new_code() -> str:
     return "".join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LENGTH))
 
 
-def allowed_client(address: str) -> bool:
-    """Only this PC and the local network."""
+TAILSCALE = (ipaddress.ip_network("100.64.0.0/10"), ipaddress.ip_network("fd7a:115c:a1e0::/48"))
+
+
+def _ip(address: Optional[str]):
     try:
-        ip = ipaddress.ip_address(address.split("%")[0])
+        ip = ipaddress.ip_address(str(address).split("%")[0])
     except ValueError:
+        return None
+    return ip.ipv4_mapped if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped else ip
+
+
+def is_tailscale(address: Optional[str]) -> bool:
+    ip = _ip(address)
+    return ip is not None and any(ip.version == n.version and ip in n for n in TAILSCALE)
+
+
+def allowed_client(address: str, local: Optional[str] = None) -> bool:
+    """Only this PC, the local network and, through Tailscale, the owner's own devices. local: the address of this
+    PC the request came to (a Tailscale client must have come to this PC's Tailscale address)."""
+    ip = _ip(address)
+    if ip is None:
         return False
-    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
-        ip = ip.ipv4_mapped
+    if is_tailscale(address) and isinstance(ip, ipaddress.IPv4Address):
+        return is_tailscale(local)
     if ip.is_loopback or ip.is_link_local:
         return True
     if isinstance(ip, ipaddress.IPv4Address):
@@ -75,13 +93,13 @@ def allowed_client(address: str) -> bool:
 
 
 def local_addresses() -> List[str]:
-    """This PC's IPv4 addresses on a local network (for the address the owner types on the phone)."""
+    """This PC's IPv4 addresses on a local network and on Tailscale (for the address the owner types on the phone)."""
     try:
         import psutil
         found = []
         for addrs in psutil.net_if_addrs().values():
             for a in addrs:
-                if a.family == socket.AF_INET and allowed_client(a.address) and \
+                if a.family == socket.AF_INET and allowed_client(a.address, a.address) and \
                         not ipaddress.ip_address(a.address).is_loopback and \
                         not ipaddress.ip_address(a.address).is_link_local:
                     found.append(a.address)
@@ -171,8 +189,12 @@ def _handler(server: "RemoteServer"):
             self._send(code, json.dumps(data).encode("utf-8"))
 
         def _allowed(self) -> bool:
-            if not allowed_client(self.client_address[0]):
-                self._json(403, {"error": "only this PC and the local network"})
+            try:
+                local = self.connection.getsockname()[0]
+            except OSError:
+                local = None
+            if not allowed_client(self.client_address[0], local):
+                self._json(403, {"error": "only this PC, the local network and Tailscale"})
                 return False
             return True
 

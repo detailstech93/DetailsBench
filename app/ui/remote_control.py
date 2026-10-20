@@ -481,7 +481,8 @@ class RemoteDialog(QDialog):
         top.addWidget(self.pill)
         layout.addLayout(top)
         layout.addWidget(_muted("Start and follow tests from a phone or another computer on the same Wi-Fi or "
-                                "network. No internet is used. Off when the app starts and when it closes."))
+                                "network, or from anywhere through Tailscale (use the 100.x address below; nothing "
+                                "else from outside is let in). Off when the app starts and when it closes."))
 
         self.switch = QPushButton()                  # the on/off switch of remote mode
         self.switch.setCheckable(True)

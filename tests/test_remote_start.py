@@ -23,6 +23,17 @@ def test_only_this_pc_and_the_local_network():
         assert not rs.allowed_client(bad), bad
 
 
+def test_tailscale_only_through_this_pcs_tailscale_address():
+    # owner, 2026-10-20: from outside the home network only through Tailscale
+    assert rs.is_tailscale("100.84.145.56") and rs.is_tailscale("fd7a:115c:a1e0::8532:9139")
+    assert not rs.is_tailscale("100.128.0.1") and not rs.is_tailscale(None)
+    assert rs.allowed_client("100.101.7.3", local="100.84.145.56")             # a phone on the tailnet
+    assert not rs.allowed_client("100.101.7.3", local="192.168.1.20")          # the same range from a provider (CGNAT)
+    assert not rs.allowed_client("100.101.7.3")
+    assert rs.allowed_client("fd7a:115c:a1e0::1", local="fd7a:115c:a1e0::2")
+    assert not rs.allowed_client("8.8.8.8", local="100.84.145.56")             # the internet stays out
+    assert rs.allowed_client("192.168.1.30", local="192.168.1.20")
+
 def test_the_code_is_new_each_time_and_locks_after_wrong_tries():
     assert rs.new_code() != rs.new_code() and len(rs.new_code()) == rs.CODE_LENGTH
     now = [100.0]
