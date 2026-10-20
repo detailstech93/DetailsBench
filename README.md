@@ -64,8 +64,8 @@ Some tests are Windows only; the Tests screen hides what this PC cannot run and 
 Windows (PowerShell):
 
 ```powershell
-git clone https://github.com/detailstech93/pc-benchmark-manager.git
-cd pc-benchmark-manager
+git clone https://github.com/detailstech93/DetailsBench.git
+cd DetailsBench
 py -3.10 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe scripts\main.py
@@ -76,7 +76,7 @@ Or double-click `run.bat` after the setup.
 Linux, one command (Debian/Ubuntu, Fedora, Arch, openSUSE; also WSL2 on Windows 11):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/detailstech93/pc-benchmark-manager/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/detailstech93/DetailsBench/master/install.sh | bash
 ```
 
 It installs the system packages the app needs (asks for your password once), downloads the app into
@@ -173,7 +173,7 @@ must stay under the same license, with its source. The benchmark programs the ap
 <div dir="ltr">
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/detailstech93/pc-benchmark-manager/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/detailstech93/DetailsBench/master/install.sh | bash
 ```
 
 </div>

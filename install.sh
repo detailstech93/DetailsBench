@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # DetailsBench: install or update on Linux with one command.
 #
-#   curl -fsSL https://raw.githubusercontent.com/detailstech93/pc-benchmark-manager/master/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/detailstech93/DetailsBench/master/install.sh | bash
 #
 # or, from a copy of the project:  bash install.sh
 #
@@ -20,7 +20,7 @@
 
 main() {
     set -euo pipefail
-    local repo="${PCBM_REPO:-https://github.com/detailstech93/pc-benchmark-manager.git}"
+    local repo="${PCBM_REPO:-https://github.com/detailstech93/DetailsBench.git}"
     local dir="${PCBM_DIR:-$HOME/detailsbench}"
     local start=1
     for arg in "$@"; do

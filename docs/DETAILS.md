@@ -94,8 +94,8 @@ A virtual environment cannot be copied between machines: it points at the Python
 install of the machine that created it, so create a fresh one after cloning.
 
 ```powershell
-git clone https://github.com/detailstech93/pc-benchmark-manager.git
-cd pc-benchmark-manager
+git clone https://github.com/detailstech93/DetailsBench.git
+cd DetailsBench
 py -3.10 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt   # runtime + pytest
 .\.venv\Scripts\python.exe -m pytest tests -q

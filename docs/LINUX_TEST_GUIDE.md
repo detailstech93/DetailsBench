@@ -19,8 +19,8 @@ An ARM64 machine is worth a second, shorter pass (part 2 only: most tools have n
 ## 1. Setup (about 10 min)
 
 ```bash
-git clone https://github.com/detailstech93/pc-benchmark-manager.git
-cd pc-benchmark-manager
+git clone https://github.com/detailstech93/DetailsBench.git
+cd DetailsBench
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements-dev.txt
 .venv/bin/python -m pytest tests -q
