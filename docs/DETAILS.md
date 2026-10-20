@@ -678,7 +678,18 @@ RTX 5090 Laptop GPU: 822 of 24,463 MiB): each sample has `gpu0_vram_used` (GiB) 
 psutil adds `ram_used_gib` (GiB) next to `ram_used` (%). The AI reports (fixed LM Studio models, llama-benchy with a
 chosen model, MLPerf Client) draw both over the whole test ("Graphics card memory (VRAM) used", "Memory (RAM) used"):
 a full VRAM (the model does not fit, layers move to the CPU) shows why a model is slow. Every report's "During the
-test" table has a VRAM row (%). Other GPUs (AMD, Intel) get no VRAM reading yet.
+test" table has a VRAM row (%).
+
+Every GPU (owner, 2026-10-20, `app/telemetry/gpu_memory.py`): NVIDIA, AMD, Intel and integrated GPUs. On Windows the
+GPU Adapter Memory performance counters (Dedicated Usage, Shared Usage; the numbers Task Manager shows, any vendor, no
+admin) through PDH, with each adapter's name and size from DXGI (matched on the adapter LUID); on Linux amdgpu's
+`mem_info_vram_*` / `mem_info_gtt_used` files; on macOS the GPU uses the RAM (unified). Keys: `gpumem{n}_dedicated`
+(GiB), `gpumem{n}_dedicated_pct`, `gpumem{n}_shared` (GiB of RAM the GPU uses: an integrated GPU works in it, a
+graphics card spills into it when full), the GPU with the most dedicated memory first; the names are in the run's
+telemetry.json ("read"). Seen on this PC: gpumem0 RTX 5090 Laptop 0.81 GiB (nvidia-smi said 822 MiB), gpumem1 Intel
+Graphics 0.1 GiB shared. An AI test (benchmark_type "ai") always records RAM and GPU memory, also with Record
+telemetry off and also on the CPU alone (`sources.new_memory_sampler`). The AI charts add "Shared GPU memory used";
+VRAM from the counters is left out when nvidia-smi's is there (the same reading).
 
 **Record telemetry** (on by default, in both the Automated runs and Frame capture sections) samples once per second
 during every run. Each run folder gets `telemetry.csv` (every sample) and `telemetry.json` (sample count, sources that

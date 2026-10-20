@@ -25,6 +25,7 @@ class TelemetryResult:
     unavailable: Dict[str, str] = field(default_factory=dict)            # source name -> reason
     errors: Dict[str, int] = field(default_factory=dict)                 # source name -> failed reads
     last_error: Dict[str, str] = field(default_factory=dict)
+    available: Dict[str, str] = field(default_factory=dict)              # source name -> what it reads
 
 
 def _finite(value) -> bool:
@@ -50,6 +51,7 @@ class TelemetrySampler:
                 ok, reason = False, f"availability check failed: {e}"
             if ok:
                 self._active.append(src)
+                self.result.available[src.name] = reason
             else:
                 self.result.unavailable[src.name] = reason
         self._started = self.clock()
@@ -103,7 +105,8 @@ def summarize(result: TelemetryResult, window: Optional[Tuple[float, float]] = N
 
 
 CHART_KEYS = ("cpu_load", "cpu_temperature_hottest", "cpu_package_power", "cpu_core_clock_avg", "cpu_clock_avg",
-              "gpu0_load", "gpu0_temperature", "gpu0_power", "gpu0_sm_clock", "gpu0_vram_used", "ram_used_gib")
+              "gpu0_load", "gpu0_temperature", "gpu0_power", "gpu0_sm_clock", "gpu0_vram_used", "ram_used_gib",
+              "gpumem0_dedicated", "gpumem0_shared", "gpumem1_dedicated", "gpumem1_shared")
 
 
 def chart_series(result: TelemetryResult, keys=CHART_KEYS, max_points: int = 300) -> Dict[str, tuple]:

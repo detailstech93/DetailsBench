@@ -113,3 +113,14 @@ def _not_a_remote_session(monkeypatch):
     is reached, so it is never a remote session here; the test of that case passes its own check."""
     from app.frames import game_benchmark
     monkeypatch.setattr(game_benchmark, "is_remote_session", lambda: False)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_memory_readings(monkeypatch, request):
+    """An AI test records RAM and GPU memory even with telemetry off (app/automation/runner.py). Tests must not
+    depend on this computer: that sampler reads nothing here; tests/test_gpu_memory.py checks it with fakes."""
+    if request.module.__name__.endswith("test_gpu_memory"):
+        return
+    from app.telemetry import sources
+    from app.telemetry.sampler import TelemetrySampler
+    monkeypatch.setattr(sources, "new_memory_sampler", lambda interval_seconds=1.0: TelemetrySampler([]))

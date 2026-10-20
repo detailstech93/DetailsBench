@@ -125,11 +125,15 @@ class AutomationRunner:
             except Exception as e:
                 self.on_progress(f"metrics not stored: {e}")
 
-    def _start_telemetry(self):
-        if self.telemetry is None:
+    def _start_telemetry(self, wl=None):
+        factory = self.telemetry
+        if factory is None and getattr(wl, "benchmark_type", None) == "ai":
+            from app.telemetry import sources       # RAM and GPU memory always, for an AI test
+            factory = sources.new_memory_sampler
+        if factory is None:
             return None
         try:
-            return self.telemetry().start()
+            return factory().start()
         except Exception as e:              # telemetry never blocks a run
             self.on_progress(f"telemetry not started: {e}")
             return None
@@ -151,7 +155,8 @@ class AutomationRunner:
             self.on_progress(f"telemetry: {len(result.samples)} samples{missing}")
             write_csv(result, run_dir / "telemetry.csv")
             (run_dir / "telemetry.json").write_text(json.dumps(
-                {"samples": len(result.samples), "unavailable": result.unavailable,
+                {"samples": len(result.samples), "read": getattr(result, "available", {}),
+                 "unavailable": result.unavailable,
                  "read_errors": result.errors, "last_error": result.last_error,
                  "summary_window_seconds": list(window) if window else None}, indent=2), encoding="utf-8")
             summary = summarize(result, window) if window else {}
@@ -237,7 +242,7 @@ class AutomationRunner:
             key = (wl.id, run_index, is_warmup)
             if self.journal is not None:
                 self.journal.run_started(key)
-            sampler = self._start_telemetry()
+            sampler = self._start_telemetry(wl)
             try:
                 if getattr(wl, "needs_desktop", False) and self.screen_locked():
                     result = WorkloadResult(status="skipped", error=awake.LOCKED_ERROR)

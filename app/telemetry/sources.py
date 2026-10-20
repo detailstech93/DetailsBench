@@ -9,6 +9,8 @@
   flagged as vulnerable, CVE-2020-14979). For the copy this app set up, the port and the password
   are read from its settings file on every request, because that file always holds the password
   the running server expects. Only a loopback address is ever read.
+- GPU memory (app/telemetry/gpu_memory.py): dedicated and shared memory in use of every GPU, any vendor,
+  integrated ones too (Windows performance counters; amdgpu on Linux).
 - psutil: CPU load and memory use everywhere; on Linux also CPU temperature (hwmon) and the
   live CPU clock. On Windows psutil.cpu_freq() is the static base clock, so it is not used.
 - RAPL (Linux): CPU package power from the kernel's energy counters
@@ -28,6 +30,7 @@ import urllib.request
 from typing import Callable, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
+from app.telemetry.gpu_memory import GpuMemorySource
 from app.telemetry.lhm import parse_lhm_data, pick
 from app.telemetry.nvidia_smi import parse_query_output, query_args
 
@@ -260,6 +263,13 @@ def new_sampler(interval_seconds: float = 1.0):
     return TelemetrySampler(default_sources(), interval_seconds)
 
 
+def new_memory_sampler(interval_seconds: float = 1.0):
+    """RAM and GPU memory only: an AI test records them even with Record telemetry off (owner, 2026-10-20: the
+    memory is an important reading of an AI test, on a graphics card, an integrated GPU or the CPU alone)."""
+    from app.telemetry.sampler import TelemetrySampler
+    return TelemetrySampler([PsutilSource(), GpuMemorySource()], interval_seconds)
+
+
 RAPL_ROOT = "/sys/class/powercap"
 
 
@@ -342,7 +352,7 @@ def _provisioned_lhm_settings() -> dict:
 
 
 def default_sources(platform_name: str = sys.platform) -> list:
-    sources = [PsutilSource(platform_name=platform_name), NvidiaSmiSource()]
+    sources = [PsutilSource(platform_name=platform_name), NvidiaSmiSource(), GpuMemorySource(platform_name)]
     if platform_name == "win32":
         sources.append(LhmSource(settings=_provisioned_lhm_settings))
     elif platform_name.startswith("linux"):

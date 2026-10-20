@@ -117,7 +117,11 @@ GAME_READINGS = (
     ("GPU clock", ("gpu0_sm_clock",), "MHz"),
     ("GPU memory clock", ("gpu0_mem_clock",), "MHz"),
     ("RAM used", ("ram_used",), "%"),
-    ("Graphics card memory (VRAM) used", ("gpu0_vram_used_pct",), "%"),
+    ("RAM used (amount)", ("ram_used_gib",), "GiB"),
+    ("Graphics card memory (VRAM) used", ("gpu0_vram_used_pct", "gpumem0_dedicated_pct"), "%"),
+    ("Graphics card memory (VRAM) used (amount)", ("gpu0_vram_used", "gpumem0_dedicated"), "GiB"),
+    ("Shared GPU memory used (taken from the RAM)", ("gpumem0_shared",), "GiB"),
+    ("Second GPU: shared memory used", ("gpumem1_shared",), "GiB"),
 )
 
 
@@ -176,8 +180,12 @@ def _readings_rows(extra: Mapping) -> list:
     rows = []
     for label, keys, unit in GAME_READINGS:
         key = next((k for k in keys if f"tel_{k}_avg" in extra), None)
-        avg = _whole((_mapping(extra.get(f"tel_{key}_avg")) or {}).get("mean")) if key else None
-        top = _whole((_mapping(extra.get(f"tel_{key}_max")) or {}).get("max")) if key else None
+        avg = (_mapping(extra.get(f"tel_{key}_avg")) or {}).get("mean") if key else None
+        top = (_mapping(extra.get(f"tel_{key}_max")) or {}).get("max") if key else None
+        if unit == "GiB":           # memory in GiB with one decimal (0.4 GiB is not 0)
+            avg, top = (round(v, 1) if _whole(v) is not None else None for v in (avg, top))
+        else:
+            avg, top = _whole(avg), _whole(top)
         if avg is None and top is None:
             rows.append(f'<tr><td>{label}</td><td colspan="2" class="muted">not measured (no reading '
                         "in this run)</td></tr>")
@@ -200,7 +208,8 @@ SERIES_NAMES = {"cpu_work": "CPU", "gpu_work": "GPU", "tel_cpu_package_power": "
                 "tel_cpu_temperature_hottest": "CPU (hottest core)", "tel_gpu0_temperature": "GPU",
                 "tel_cpu_core_clock_avg": "CPU", "tel_cpu_clock_avg": "CPU", "tel_gpu0_sm_clock": "GPU",
                 "tel_cpu_load": "CPU", "tel_gpu0_load": "GPU", "tel_gpu0_vram_used": "GPU",
-                "tel_ram_used_gib": "PC"}
+                "tel_ram_used_gib": "PC", "tel_gpumem0_dedicated": "GPU", "tel_gpumem0_shared": "GPU",
+                "tel_gpumem1_dedicated": "second GPU", "tel_gpumem1_shared": "second GPU"}
 
 
 def _safe_svg(svg: str) -> str:
@@ -373,9 +382,16 @@ BLENDER_TESTS = ("blender_benchmark", "blender_benchmark_gpu")
 BLENDER_SCENES = ("monster", "junkshop", "classroom")
 BLENDER_CHARTS = tuple(c for c in STRESS_CHARTS if c[1][0] != "cpu_work")
 # AI tests (owner, 2026-10-20): graphics card memory and the PC's memory over the whole test; a full VRAM (the model
-# does not fit, layers move to the CPU) shows why a model is slow
-AI_CHARTS = BLENDER_CHARTS + (("Graphics card memory (VRAM) used", ("tel_gpu0_vram_used",), "GiB"),
+# does not fit, layers move to the CPU) shows why a model is slow. Every GPU (owner, 2026-10-20): NVIDIA, AMD, Intel and
+# integrated ones (app/telemetry/gpu_memory.py); "GPU" is the one with the most memory. Shared GPU memory is RAM the
+# GPU uses: an integrated GPU works in it, a graphics card spills into it when its own is full. RAM is always there,
+# also for a test on the CPU alone.
+AI_CHARTS = BLENDER_CHARTS + (("Graphics card memory (VRAM) used", ("tel_gpu0_vram_used", "tel_gpumem0_dedicated",
+                                                                    "tel_gpumem1_dedicated"), "GiB"),
+                              ("Shared GPU memory used (RAM)", ("tel_gpumem0_shared", "tel_gpumem1_shared"), "GiB"),
                               ("Memory (RAM) used", ("tel_ram_used_gib",), "GiB"))
+# a series left out when another one of the same reading is there (nvidia-smi and the counters show the same VRAM)
+SAME_AS = {"tel_cpu_clock_avg": "tel_cpu_core_clock_avg", "tel_gpumem0_dedicated": "tel_gpu0_vram_used"}
 
 
 def _series_charts(run: Mapping, specs) -> list:
@@ -387,8 +403,10 @@ def _series_charts(run: Mapping, specs) -> list:
             points = (_mapping(series.get(s_name)) or {}).get("points") or []
             if len(points) < 2:
                 continue
-            if s_name == "tel_cpu_clock_avg" and "tel_cpu_core_clock_avg" in series:
+            if SAME_AS.get(s_name) in series:
                 continue
+            if s_name.startswith("tel_gpumem1_") and max(p[1] for p in points) < 0.05:
+                continue            # a second GPU the test did not use
             svg = line_chart(f"{chart_title}: {SERIES_NAMES.get(s_name, s_name)}", [p[0] for p in points],
                              [p[1] for p in points], x_unit="s", y_unit=unit)
             if svg:
