@@ -15,6 +15,9 @@ from pathlib import Path
 from typing import List, Mapping, Optional
 
 SAFE = re.compile(r"[^\w\-. ]+")
+# a step's text: "<display name>: run 2", "...: warmup 0 (retry)", "...: run 1 completed (12.5 pts)"; a display name
+# may hold ': ' itself ("Stress test: CPU", "llama-benchy: Gemma 4 12B (Q4_0)")
+STEP = re.compile(r"^(.*?): (?:warmup|run) \d+(?: \((?:retry|extra)\))?(?: \w+ \(.*\))?$", re.S)
 
 
 def stamp(created_at) -> str:
@@ -135,11 +138,17 @@ def write_test_report(export: Mapping, root: Path, name: str) -> Path:
     return write_export(one_test(export, name), folder / f"{safe_name(title)}_{when}.html", "html")
 
 
+def test_of_step(text: str) -> str:
+    """The display name of the test a step's text is about (all of it, ': ' included)."""
+    m = STEP.match(str(text or ""))
+    return (m.group(1) if m else str(text or "").split(":")[0]).strip()
+
+
 def finished_tests(export: Mapping, current: str) -> List[str]:
     """The tests of a running plan that are over: every test with a stored run except the one going on now
     (current: the step's text, "<display name>: run 2"); tests run one after the other."""
     titles = display_names(export)
-    now = str(current or "").split(":")[0].strip()
+    now = test_of_step(current)
     return [n for n in tested_names(export) if titles.get(n, n) != now and n != now]
 
 

@@ -146,6 +146,8 @@ a { color:var(--accent); }
         <div><label for="rep">Measured runs</label><input id="rep" type="number" min="1" max="50"></div>
         <div><label for="warm">Warm-up runs</label><input id="warm" type="number" min="0" max="10"></div>
         <div><label for="cool">Pause (s)</label><input id="cool" type="number" min="0" max="3600"></div>
+        <div><label for="stressMin">Stress test (min)</label><select id="stressMin">
+          <option>1</option><option>5</option><option selected>10</option><option>20</option><option>30</option><option>60</option></select></div>
       </div>
       <p id="note" class="muted"></p>
       <button id="start" class="go" style="width:100%">Start</button>
@@ -426,7 +428,7 @@ $("start").onclick = async () => {
   const ids = [...document.querySelectorAll("#tests input:checked")].map((c) => c.value);
   if (!ids.length) { $("message").textContent = "Tick at least one test."; return; }
   const body = { ids, repetitions: parseInt($("rep").value, 10), warmup_runs: parseInt($("warm").value, 10),
-                 cooldown_seconds: parseInt($("cool").value, 10) };
+                 cooldown_seconds: parseInt($("cool").value, 10), stress_minutes: parseInt($("stressMin").value, 10) };
   $("message").textContent = "Starting...";
   try {
     const d = await (await call("/api/start", body)).json();

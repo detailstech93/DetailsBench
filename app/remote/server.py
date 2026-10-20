@@ -125,6 +125,11 @@ def check_start(body: object, offered: List[str]) -> Tuple[Optional[dict], str]:
         if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
             return None, f"{key} must be a whole number from {low} to {high}"
         out[key] = value
+    minutes = body.get("stress_minutes")        # optional: the stress tests' length (none: the app's default)
+    if minutes is not None:
+        if isinstance(minutes, bool) or not isinstance(minutes, int) or not 1 <= minutes <= 240:
+            return None, "stress_minutes must be a whole number from 1 to 240"
+        out["stress_minutes"] = minutes
     return out, ""
 
 

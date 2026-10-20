@@ -130,3 +130,20 @@ def test_a_plan_of_several_tests_saves_each_report_and_opens_only_the_summary(tm
     panel.on_plan_finished(sid, "Session done: 1 completed, 1 failed.")
     assert opened == [folder / f"Summary_{stamp}.html"]          # only the final report opens
     assert sorted(p.name for p in folder.iterdir()) == [f"Summary_{stamp}.html", f"a_{stamp}.html", f"b_{stamp}.html"]
+
+
+def test_a_name_with_a_colon_is_one_test(tmp_path):
+    """Stress tests and llama-benchy have ': ' in their names (real run 2026-10-20: their reports waited for the end)."""
+    assert rs.test_of_step("Stress test: CPU: run 1") == "Stress test: CPU"
+    assert rs.test_of_step("Stress test: CPU + GPU together: warmup 0 (retry)") == "Stress test: CPU + GPU together"
+    assert rs.test_of_step("llama-benchy: Gemma 4 12B (Q4_0): run 2 completed (84.7 tok/s)") == \
+        "llama-benchy: Gemma 4 12B (Q4_0)"
+    assert rs.test_of_step("7-Zip: run 3 failed (could not start: no file)") == "7-Zip"
+    assert rs.test_of_step("Pause 30 s before the next run") == "Pause 30 s before the next run"
+    db = Database(str(tmp_path / "r.db"))
+    sid = db.create_session("x")
+    db.create_result(sid, "stress_cpu", "cpu", 97.0, unit="%", run_index=1)
+    export = build_session_export(db, sid)
+    export["manifest"] = dict(export.get("manifest") or {}, benchmarks=[{"name": "stress_cpu", "display_name": "Stress test: CPU"}])
+    assert rs.finished_tests(export, "Stress test: CPU: run 1") == []
+    assert rs.finished_tests(export, "Stress test: GPU: run 1") == ["stress_cpu"]

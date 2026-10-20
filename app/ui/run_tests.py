@@ -194,7 +194,9 @@ class RunTestsDialog(QDialog):
             self.stress_minutes = QComboBox()
             for m in MINUTE_CHOICES:
                 self.stress_minutes.addItem(f"{m} min", m)
-            current = stress_minutes() if not (saved or {}).get("stress_minutes") else saved["stress_minutes"]
+            from app.stress.workload import DEFAULT_MINUTES
+            # not chosen for this plan yet: 10 minutes in a run of several tests (owner, 2026-10-20), else the last
+            current = (saved or {}).get("stress_minutes") or (DEFAULT_MINUTES if len(entries) > 1 else stress_minutes())
             self.stress_minutes.setCurrentIndex(max(0, self.stress_minutes.findData(current)))
             form.addRow("Stress test length (each run):", self.stress_minutes)
         layout.addLayout(form)
@@ -414,8 +416,8 @@ def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_re
         """Several tests: each test's report is saved in the run's folder once it is over (not opened; only the
         final report opens at the end)."""
         from app.export import build_session_export
-        from app.report_set import finished_tests, write_test_report
-        now = text.split(":")[0].strip()
+        from app.report_set import finished_tests, test_of_step, write_test_report
+        now = test_of_step(text)
         if folder is None or panel.last_session_id is None or now == seen["now"] or text.startswith("Pause"):
             return                              # the same test still going on: nothing new is over
         seen["now"] = now

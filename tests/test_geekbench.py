@@ -136,7 +136,7 @@ def test_cpu_run(tmp_path, monkeypatch):
     assert r.status == "completed" and r.score == 22129 and r.unit == "points"
     assert "Single-Core Score: 2545" in r.note and "Result online: https://browser.geekbench.com/v7/cpu/675555" in r.note
     assert "claim" not in r.note and "uploaded" in r.note
-    assert wl.verified and wl.benchmark_type == "cpu" and wl.fixed_counts == (0, 1)
+    assert wl.verified and wl.benchmark_type == "cpu" and wl.no_warmup and not hasattr(wl, "fixed_counts")
 
 
 def test_gpu_run_uses_the_biggest_gpu(tmp_path, monkeypatch):
@@ -172,3 +172,13 @@ def test_the_report_has_its_own_sections():
     from app import report
     assert [t[0] for t in report.GEEKBENCH_TESTS] == list(gb.MODES)
     assert [t[0] for t in report.WEB_TESTS] == ["speedometer", "jetstream"]
+
+
+def test_the_chosen_runs_and_no_warm_up():
+    """Owner, 2026-10-20: one run is not enough (22129 then 19963 on the same PC the same day); no warm-up."""
+    from types import SimpleNamespace as NS
+    from app.ui.automation_panel import AutomationPanel
+    wl = gb.GeekbenchWorkload("geekbench7_cpu", exe=r"C:\GB\geekbench7.exe")
+    other = NS(id="sevenzip_benchmark", timeout_seconds=600)
+    plan = AutomationPanel.build_plan(None, [wl, other], NS(warmup_runs=1, repetitions=3), extra_runs=2)
+    assert [(p.warmup_runs, p.repetitions, p.max_extra_runs) for p in plan] == [(0, 3, 2), (1, 3, 2)]

@@ -148,7 +148,9 @@ def _why(text: str, wanted: str) -> str:
 class GeekbenchWorkload(Workload):
     benchmark_type = "cpu"
     warning = WARNING
-    fixed_counts = (0, 1)           # one run, no warm-up: every run is one more upload
+    # the runs chosen for the plan, no warm-up (owner, 2026-10-20): one run is not enough, the same PC gave 22129 then
+    # 19963 (CPU) and 200121 then 235746 (Vulkan) on one day; every run is one more upload (allowed)
+    no_warmup = True
 
     def __init__(self, test_id: str = "geekbench7_cpu", exe: Optional[str] = None,
                  finder: Callable[[], Optional[str]] = program_path,
@@ -159,7 +161,7 @@ class GeekbenchWorkload(Workload):
         self.benchmark_type = "gpu" if self.gpu else "cpu"
         self.timeout_seconds = 1200 if self.gpu else 1800
         self.display_name = f"Geekbench {MAJOR} ({self.title})"
-        self.verified = test_id != "geekbench7_gpu_cuda"       # real runs here, 2026-10-20 (CUDA not run yet)
+        self.verified = True            # real runs of all four here, 2026-10-20 (CUDA: 350115 points, RTX 5090)
         self.exe = exe if exe is not None else finder()
         self._gpu_name, self._run = gpu_name, runner
         self._started: Optional[float] = None

@@ -335,11 +335,13 @@ class AutomationPanel(QGroupBox):
     # ---- plan --------------------------------------------------------------
     def build_plan(self, workloads, profile, extra_runs: int = 0) -> List[PlanItem]:
         # a workload with fixed_counts (warmups, runs) ignores the profile: a stress test runs once for its minutes
-        # (no retry and no extra runs for it: a stress run is long and has no score to compare)
+        # (no retry and no extra runs for it: a stress run is long and has no score to compare); one with no_warmup
+        # follows the profile's runs without a warm-up (Geekbench: its own gap between workloads, each run uploads)
         plan = []
         for wl in workloads:
             fixed = getattr(wl, "fixed_counts", None)
-            warmups, runs = fixed or (profile.warmup_runs, profile.repetitions)
+            warmups, runs = fixed or (0 if getattr(wl, "no_warmup", False) else profile.warmup_runs,
+                                      profile.repetitions)
             plan.append(PlanItem(wl, repetitions=runs, warmup_runs=warmups,
                                  timeout_seconds=_spec_value(wl, "timeout_seconds"),
                                  retries=0 if fixed else RETRIES, max_extra_runs=0 if fixed else extra_runs))

@@ -194,7 +194,7 @@ def remote_entries(entries: List[TestEntry], platform: str = sys.platform) -> Li
 
 
 def remote_start(window, ids: List[str], repetitions: int, warmup_runs: int, cooldown_seconds: int,
-                 launch: Optional[Callable] = None) -> Tuple[bool, str]:
+                 launch: Optional[Callable] = None, stress_minutes: Optional[int] = None) -> Tuple[bool, str]:
     """Start the tests the page picked, like Run selected on the Tests screen but without its windows."""
     from app.ui import run_tests
     from app.ui.automation_panel import EXTRA_RUNS
@@ -214,8 +214,9 @@ def remote_start(window, ids: List[str], repetitions: int, warmup_runs: int, coo
         run_tests.save_preset(data_dir, games, preset, run_tests.read_offered(games, data_dir))
     minutes = None
     if any(e.id.startswith("stress_") for e in entries):
-        from app.stress.workload import stress_minutes
-        minutes = stress_minutes()
+        from app.stress.workload import DEFAULT_MINUTES, stress_minutes as last_minutes
+        # the page's choice; none: 10 minutes in a run of several tests (owner, 2026-10-20), else the last length
+        minutes = stress_minutes or (DEFAULT_MINUTES if len(entries) > 1 else last_minutes())
     choice = run_tests.RunChoice(repetitions, warmup_runs, cooldown_seconds, preset, minutes, EXTRA_RUNS)
     run_tests._save_plan(data_dir, entries, choice)
     lhm = panel.lhm
@@ -396,8 +397,9 @@ class RemoteApi:
         out["tests_key"] = tests_key(page.entries)
         return out
 
-    def start(self, ids, repetitions, warmup_runs, cooldown_seconds) -> Tuple[bool, str]:
-        return self.main.run(lambda: remote_start(self.window, ids, repetitions, warmup_runs, cooldown_seconds))
+    def start(self, ids, repetitions, warmup_runs, cooldown_seconds, stress_minutes=None) -> Tuple[bool, str]:
+        return self.main.run(lambda: remote_start(self.window, ids, repetitions, warmup_runs, cooldown_seconds,
+                                                  stress_minutes=stress_minutes))
 
     def stop(self) -> str:
         def stop():

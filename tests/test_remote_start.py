@@ -468,3 +468,23 @@ def test_the_remote_button_says_admin_is_needed_for_every_test():
     assert shown == [text] and restarted == []
     assert rc.admin_first(None, choose=lambda t: True, restart=lambda: True, notice=lambda: text) is True
     assert rc.admin_first(None, choose=lambda t: 1 / 0, notice=lambda: None) is False   # admin: no notice
+
+
+def test_stress_length_from_the_page_or_ten_minutes_in_a_run_of_several(tmp_path):
+    """Owner, 2026-10-20: a run of several tests whose stress length was not chosen runs 10 minutes (the real run
+    used 1 minute, the last length chosen, too short to judge)."""
+    from app.remote import server as rsrv
+    from app.ui.remote_control import remote_start
+    from app.stress.workload import DEFAULT_MINUTES
+    good = {"ids": ["a"], "repetitions": 3, "warmup_runs": 1, "cooldown_seconds": 0}
+    assert "stress_minutes" not in rsrv.check_start(good, ["a"])[0]
+    assert rsrv.check_start(dict(good, stress_minutes=20), ["a"])[0]["stress_minutes"] == 20
+    assert rsrv.check_start(dict(good, stress_minutes=0), ["a"])[0] is None
+    seen = []
+    launch = lambda window, entries, choice, **k: seen.append(choice.stress_minutes) or True
+    (tmp_path / "settings.json").write_text('{"stress_minutes": 1}', encoding="utf-8")
+    both = [_entry("stress_cpu"), _entry("sevenzip_benchmark")]
+    remote_start(_window(tmp_path, both), ["stress_cpu", "sevenzip_benchmark"], 1, 0, 0, launch=launch)
+    remote_start(_window(tmp_path, both), ["stress_cpu", "sevenzip_benchmark"], 1, 0, 0, launch=launch,
+                 stress_minutes=30)
+    assert seen == [DEFAULT_MINUTES, 30] and DEFAULT_MINUTES == 10
