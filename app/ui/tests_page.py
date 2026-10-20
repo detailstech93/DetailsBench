@@ -56,8 +56,22 @@ def install_plan(entry: TestEntry, host=None) -> Optional[dict]:
     return plan_for(entry.id, entry.source, ref.get("app_id", ref.get("appid")), host)
 
 
-def installable(entry: TestEntry, host=None) -> bool:
-    return install_plan(entry, host) is not None
+LMSTUDIO_URL = "https://lmstudio.ai/download"
+
+
+def needs_lmstudio(entry: TestEntry, host=None, lms=None) -> bool:
+    """A fixed AI model downloads through LM Studio's lms tool: without LM Studio there is nothing to install it
+    with (owner, 2026-10-20: "Install selected" said so for three models). LM Studio itself is installed by hand."""
+    plan = install_plan(entry, host)
+    if not plan or plan["kind"] != "lmstudio":
+        return False
+    if lms is None:
+        from app.ai.lmstudio import lms_path as lms
+    return lms() is None
+
+
+def installable(entry: TestEntry, host=None, lms=None) -> bool:
+    return install_plan(entry, host) is not None and not needs_lmstudio(entry, host, lms)
 
 
 def state_text(entry: TestEntry) -> str:
@@ -336,6 +350,12 @@ class TestsPage(QWidget):
                          + (f"\nOfficial page: {e.official_url}" if e.official_url else ""))
             b.clicked.connect(lambda checked=False, x=e: self.request_install(x))
             b.setEnabled(not self.busy)
+            return b
+        if e.compatible and e.state == MISSING and needs_lmstudio(e, self.host):
+            b = QPushButton("Get LM Studio first")
+            b.setToolTip("This model downloads through LM Studio, which is not installed here. Install LM Studio "
+                         f"from its official page ({LMSTUDIO_URL}), open it once, then Rescan.")
+            b.clicked.connect(lambda checked=False: self.open_url(LMSTUDIO_URL))
             return b
         if e.compatible and e.state == MISSING and e.official_url:
             b = QPushButton("Official download page")

@@ -207,3 +207,17 @@ def test_run_all_lists_a_model_with_its_size():
                 {"kind": "lmstudio", "test_id": "llama_benchy_qwen35_4b"})
     assert item.line() == ("- llama-benchy: Qwen3.5 4B (Q4_K_M): Download Qwen3.5 4B (Q4_K_M, about 3.75 GB as "
                            "LM Studio lists it) with LM Studio's own command:")
+
+
+def test_without_lm_studio_a_model_is_not_offered_for_install():
+    """Owner, 2026-10-20 (WSL): "Install selected" ticked three models and then said LM Studio is not installed."""
+    from app.catalog import MISSING, TestEntry
+    from app.ui.tests_page import installable, needs_lmstudio
+    host = plans.Host("linux", "x64", "debian")
+    e = TestEntry(id="llama_benchy_qwen35_4b", name="Qwen3.5 4B", group="ai", mode="automatic", state=MISSING,
+                  state_reason="", compatible=True, compatibility_reason="", verified=False, source="workload")
+    assert needs_lmstudio(e, host, lms=lambda: None) and not installable(e, host, lms=lambda: None)
+    assert installable(e, host, lms=lambda: Path("/home/u/.lmstudio/bin/lms"))
+    other = TestEntry(id="sevenzip_benchmark", name="7-Zip", group="cpu", mode="automatic", state=MISSING,
+                      state_reason="", compatible=True, compatibility_reason="", verified=True, source="workload")
+    assert not needs_lmstudio(other, host, lms=lambda: None)
