@@ -390,6 +390,9 @@ AI_CHARTS = BLENDER_CHARTS + (("Graphics card memory (VRAM) used", ("tel_gpu0_vr
                                                                     "tel_gpumem1_dedicated"), "GiB"),
                               ("Shared GPU memory used (RAM)", ("tel_gpumem0_shared", "tel_gpumem1_shared"), "GiB"),
                               ("Memory (RAM) used", ("tel_ram_used_gib",), "GiB"))
+# memory charts: the whole of that memory, read during the test, so the chart shows the use out of all of it
+TOTAL_OF = {"tel_gpu0_vram_used": "tel_gpu0_vram_total", "tel_gpumem0_dedicated": "tel_gpumem0_dedicated_total",
+            "tel_gpumem1_dedicated": "tel_gpumem1_dedicated_total", "tel_ram_used_gib": "tel_ram_total_gib"}
 # a series left out when another one of the same reading is there (nvidia-smi and the counters show the same VRAM)
 SAME_AS = {"tel_cpu_clock_avg": "tel_cpu_core_clock_avg", "tel_gpumem0_dedicated": "tel_gpu0_vram_used"}
 
@@ -407,10 +410,21 @@ def _series_charts(run: Mapping, specs) -> list:
                 continue
             if s_name.startswith("tel_gpumem1_") and max(p[1] for p in points) < 0.05:
                 continue            # a second GPU the test did not use
-            svg = line_chart(f"{chart_title}: {SERIES_NAMES.get(s_name, s_name)}", [p[0] for p in points],
-                             [p[1] for p in points], x_unit="s", y_unit=unit)
+            totals = [p[1] for p in (_mapping(series.get(TOTAL_OF.get(s_name, ""))) or {}).get("points") or []
+                      if isinstance(p[1], (int, float)) and p[1] > 0]
+            full = max(totals) if totals else None
+            title = f"{chart_title}: {SERIES_NAMES.get(s_name, s_name)}" + (f" (of {full:,.1f} {unit})" if full else "")
+            svg = line_chart(title, [p[0] for p in points], [p[1] for p in points], x_unit="s", y_unit=unit,
+                             y_full=full)
             if svg:
-                charts.append(f'<div class="chart">{_safe_svg(svg)}</div>')
+                note = ""
+                if full:
+                    values = [p[1] for p in points]
+                    high, mean = max(values), sum(values) / len(values)
+                    note = (f'<p class="muted">Highest {high:,.1f} of {full:,.1f} {esc(unit)} '
+                            f"({100 * high / full:.0f}%) · average {mean:,.1f} {esc(unit)} "
+                            f"({100 * mean / full:.0f}%)</p>")
+                charts.append(f'<div class="chart">{_safe_svg(svg)}{note}</div>')
     return charts
 
 
@@ -531,10 +545,11 @@ WEB_TESTS = (("speedometer", "Speedometer 3.1", "score"), ("jetstream", "JetStre
 def _geekbench_section(export: Mapping) -> str:
     return _tiles_section(
         export, "Geekbench 7", GEEKBENCH_TESTS,
-        "Geekbench 7's own scores (Primate Labs). Higher is faster. The CPU tile is the Multi-Core Score; the "
-        "Single-Core Score of the same run is next to it under the tile. GPU scores compare only with the same API "
+        "Geekbench 7's own scores (Primate Labs). Higher is faster. CPU: a Multi-Core and a Single-Core tile, each "
+        "the average of the measured runs. GPU scores compare only with the same API "
         "(OpenCL, Vulkan, CUDA). Scores compare only with Geekbench 7. Geekbench 7's free version UPLOADED every "
-        "result to the Geekbench Browser (allowed by the owner); each run's link is shown.")
+        "result to the Geekbench Browser (allowed by the owner); each run's link is shown.",
+        metric_tiles={"geekbench7_cpu": [("single_core_score", "CPU, Single-Core")]})
 
 
 def _web_section(export: Mapping) -> str:
@@ -662,9 +677,10 @@ def _pugetbench_section(export: Mapping) -> str:
 
 
 def _tiles_section(export: Mapping, heading: str, tests, explanation: str, readings: bool = True,
-                   decimals: int = 0, chart_specs=BLENDER_CHARTS) -> str:
+                   decimals: int = 0, chart_specs=BLENDER_CHARTS, metric_tiles=None) -> str:
     """A tool with several tests, each with its own unit: one tile per test, what ran, how the PC behaved and
-    charts over time."""
+    charts over time. metric_tiles {test: [(metric, label)]}: more tiles of that test from its metrics (the mean
+    of its measured runs), e.g. Geekbench's Single-Core Score next to the Multi-Core one."""
     session_is_test = _truthy((_mapping(export.get("session")) or {}).get("is_test"))
     names = [t[0] for t in tests]
     by_test: dict = {}
@@ -696,6 +712,12 @@ def _tiles_section(export: Mapping, heading: str, tests, explanation: str, readi
         tiles.append(f'<div class="tile good"><div class="label">{esc(engine)}</div><div class="value">'
                      + (f"{score:,.{decimals}f} <span>{unit}</span>" if score is not None else "<span>-</span>")
                      + "</div></div>")
+        for metric, label in (metric_tiles or {}).get(name, []):
+            m = _mapping((_mapping(metrics.get(name)) or {}).get(metric)) or {}
+            value = _whole(m.get("mean"))
+            if value is not None:
+                tiles.append(f'<div class="tile good"><div class="label">{esc(label)}</div><div class="value">'
+                             f"{value:,} <span>{esc(m.get('unit') or unit)}</span></div></div>")
         details = {}
         for part in str(done[-1].get("note") or "").split("; "):
             key, sep, value = part.partition(": ")

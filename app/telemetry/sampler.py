@@ -106,7 +106,9 @@ def summarize(result: TelemetryResult, window: Optional[Tuple[float, float]] = N
 
 CHART_KEYS = ("cpu_load", "cpu_temperature_hottest", "cpu_package_power", "cpu_core_clock_avg", "cpu_clock_avg",
               "gpu0_load", "gpu0_temperature", "gpu0_power", "gpu0_sm_clock", "gpu0_vram_used", "ram_used_gib",
-              "gpumem0_dedicated", "gpumem0_shared", "gpumem1_dedicated", "gpumem1_shared")
+              "gpumem0_dedicated", "gpumem0_shared", "gpumem1_dedicated", "gpumem1_shared",
+              # the totals: memory charts show the use out of all of it (owner, 2026-10-20)
+              "gpu0_vram_total", "ram_total_gib", "gpumem0_dedicated_total", "gpumem1_dedicated_total")
 
 
 def chart_series(result: TelemetryResult, keys=CHART_KEYS, max_points: int = 300) -> Dict[str, tuple]:

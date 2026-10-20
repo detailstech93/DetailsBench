@@ -182,3 +182,18 @@ def test_the_chosen_runs_and_no_warm_up():
     other = NS(id="sevenzip_benchmark", timeout_seconds=600)
     plan = AutomationPanel.build_plan(None, [wl, other], NS(warmup_runs=1, repetitions=3), extra_runs=2)
     assert [(p.warmup_runs, p.repetitions, p.max_extra_runs) for p in plan] == [(0, 3, 2), (1, 3, 2)]
+
+
+def test_the_report_shows_single_core_next_to_multi_core(tmp_path):
+    """Owner, 2026-10-20: the report showed only the Multi-Core tile."""
+    from app.database import Database
+    from app.export import build_session_export
+    from app.report import render_session_report
+    db = Database(str(tmp_path / "r.db"))
+    sid = db.create_session("Automated")
+    for i, (multi, single) in enumerate(((19963.0, 2033.0), (20500.0, 2051.0)), 1):
+        rid = db.create_result(sid, "geekbench7_cpu", "cpu", multi, unit="points", run_index=i)
+        db.save_result_metrics(rid, {"multi_core_score": (multi, "points"), "single_core_score": (single, "points")})
+    html = render_session_report(build_session_export(db, sid))
+    assert "CPU, Multi-Core</div><div class=\"value\">20,232 <span>points" in html
+    assert "CPU, Single-Core</div><div class=\"value\">2,042 <span>points" in html

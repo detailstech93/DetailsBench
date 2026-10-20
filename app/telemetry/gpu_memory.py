@@ -68,6 +68,7 @@ def windows_reading(adapters: List[Adapter], dedicated: Dict[str, float], shared
             out[f"gpumem{n}_dedicated"] = (gib(used), "GiB")
             if a.dedicated_total > 0:
                 out[f"gpumem{n}_dedicated_pct"] = (round(100 * used / a.dedicated_total, 1), "%")
+                out[f"gpumem{n}_dedicated_total"] = (gib(a.dedicated_total), "GiB")
         spill = total(shared, a.luid)
         if spill is not None:
             out[f"gpumem{n}_shared"] = (gib(spill), "GiB")
@@ -220,6 +221,7 @@ def linux_reading(root: str = DRM_ROOT, listdir: Callable = os.listdir,
             out[f"gpumem{n}_dedicated"] = (gib(used), "GiB")
             if total:
                 out[f"gpumem{n}_dedicated_pct"] = (round(100 * used / total, 1), "%")
+                out[f"gpumem{n}_dedicated_total"] = (gib(total), "GiB")
         if gtt is not None:
             out[f"gpumem{n}_shared"] = (gib(gtt), "GiB")
     return out

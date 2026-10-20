@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import html
 import math
+from typing import Optional
 
 __all__ = [
     "bar_chart",
@@ -188,7 +189,10 @@ def line_chart(
     y_unit: str = "",
     width: int = 640,
     height: int = 240,
+    y_full: Optional[float] = None,
 ) -> str:
+    """y_full: the whole of what is measured (e.g. the card's memory): the chart's top, so the line shows the part
+    used out of all of it."""
     if len(xs) != len(ys):
         raise ValueError("xs and ys must have the same length")
 
@@ -228,7 +232,10 @@ def line_chart(
         x_min -= 0.5
         x_max += 0.5
 
-    if all(y >= 0 for y in ys_vals):
+    if y_full is not None and y_full > 0 and all(y >= 0 for y in ys_vals):
+        y_min = 0.0
+        y_max = max(y_full, max(ys_vals))
+    elif all(y >= 0 for y in ys_vals):
         y_min = 0.0
         y_max = max(ys_vals) * 1.1
         if y_max == 0:
