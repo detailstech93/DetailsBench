@@ -523,6 +523,28 @@ def _cinebench_section(export: Mapping) -> str:
         "Maxon's default minimum time. Nothing was uploaded.")
 
 
+GEEKBENCH_TESTS = (("geekbench7_cpu", "CPU, Multi-Core", "points"), ("geekbench7_gpu_opencl", "GPU, OpenCL", "points"),
+                   ("geekbench7_gpu_vulkan", "GPU, Vulkan", "points"), ("geekbench7_gpu_cuda", "GPU, CUDA", "points"))
+WEB_TESTS = (("speedometer", "Speedometer 3.1", "score"), ("jetstream", "JetStream 3.0", "points"))
+
+
+def _geekbench_section(export: Mapping) -> str:
+    return _tiles_section(
+        export, "Geekbench 7", GEEKBENCH_TESTS,
+        "Geekbench 7's own scores (Primate Labs). Higher is faster. The CPU tile is the Multi-Core Score; the "
+        "Single-Core Score of the same run is next to it under the tile. GPU scores compare only with the same API "
+        "(OpenCL, Vulkan, CUDA). Scores compare only with Geekbench 7. Geekbench 7's free version UPLOADED every "
+        "result to the Geekbench Browser (allowed by the owner); each run's link is shown.")
+
+
+def _web_section(export: Mapping) -> str:
+    return _tiles_section(
+        export, "Browser tests", WEB_TESTS,
+        "The browserbench.org pages' own scores, run by the app in a new empty browser profile. Higher is faster. "
+        "Scores compare only with the same browser and version (shown under each tile). Nothing was uploaded.",
+        decimals=1)
+
+
 YCRUNCHER_TESTS = (("ycruncher_pi_1b", "Pi, 1 billion digits", "s"), ("ycruncher_pi_2_5b", "Pi, 2.5 billion digits", "s"))
 
 
@@ -1325,10 +1347,12 @@ def render_session_report(export: Mapping) -> str:
         + _blender_section(export_mapping)
         + _vray_section(export_mapping)
         + _cinebench_section(export_mapping)
+        + _geekbench_section(export_mapping)
         + _passmark_section(export_mapping)
         + _ycruncher_section(export_mapping)
         + _handbrake_section(export_mapping)
         + _sevenzip_section(export_mapping)
+        + _web_section(export_mapping)
         + _storage_section(export_mapping)
         + _free_llama_section(export_mapping)
         + _model_sections(export_mapping)

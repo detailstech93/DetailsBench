@@ -810,3 +810,7 @@ it now opens the free **3DMark Demo** (231350, Steam store API). 3DMark is also 
 **Geekbench 6** is listed again when only Geekbench 7 is installed, with an Install button (winget
 `PrimateLabs.Geekbench.6`, 6.4.0 from cdn.geekbench.com, x64). Geekbench 7's free command line (7.1.0) has no option
 to keep results local: every run uploads its result to Primate Labs, so it is not automated without the owner's OK.
+
+### Geekbench 7 (automated)
+
+`app/pro/geekbench.py`: the free command line (7.1.0) runs `--cpu` and `--gpu OpenCL|Vulkan|CUDA` and reads "Multi-Core Score" / "Single-Core Score" / "GPU Score" from its console. The free version always uploads each result to the Geekbench Browser (no offline option): the owner allowed this on 2026-10-20. The note keeps the result link (not the claim link). The GPU is the one with the most dedicated memory when it is in `--gpu-list`. Real runs on the owner's PC (2026-10-20): CPU 2545 / 22129 (about 6 min), OpenCL 248425, Vulkan 200121 (142 s, through the workload). One run, no warm-up (each run is one more upload). The report has its own Geekbench 7 section, and the Speedometer / JetStream results now have a Browser tests section.

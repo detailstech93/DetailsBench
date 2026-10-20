@@ -140,7 +140,8 @@ BENCHMARK_DEFINITIONS: List[BenchmarkDefinition] = [
         major_version_policy="separate_per_major",
         supported_os=["windows"],
         supported_architectures=dict(UNVERIFIED_ARCHES),
-        license_note="Windows GUI requires manual execution; CLI automation needs Pro license",
+        license_note=("Geekbench 7's free command line is automated (app/pro/geekbench.py) and uploads every "
+                      "result (allowed by the owner, 2026-10-20); other majors: manual"),
         discovery_channels=["registry", "filesystem", "app_paths", "start_menu"],
     ),
 
