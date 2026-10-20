@@ -53,10 +53,8 @@ def main():
             qt_app = QApplication(sys.argv)
             
         window = MainWindow(db, system_info)
-        
-        if sys.platform == "win32":
-            window.show()
-            
+        window.show()           # on every system (it was Windows only: Linux ran with no window)
+
         qt_app.exec()
     except Exception as e:
         print(f"Error starting application: {e}")
