@@ -182,6 +182,26 @@ INSTALLERS["cinebench_2026_single"] = INSTALLERS["cinebench_2026"]
 # the automated Geekbench 6 tests use the same program
 for _id in ("geekbench6_cpu", "geekbench6_gpu_opencl", "geekbench6_gpu_vulkan"):
     INSTALLERS[_id] = INSTALLERS["geekbench_6"]
+# Geekbench on Linux: Primate Labs ships a tar.gz (geekbench.com/download/linux links geekbench-cdn.b-cdn.net; 6.7.1
+# from /download/legacy), read on 2026-10-20. No checksum is published: size and SHA-256 pinned from the downloads
+# here (owner said yes). Each holds Geekbench-<version>-Linux/geekbench<major> (x86-64). The ARM preview builds are
+# not pinned, so ARM Linux is not offered.
+_GEEKBENCH_LINUX = {
+    6: {"product": "Geekbench 6 for Linux (x86-64)", "version": "6.7.1",
+        "url": "https://geekbench-cdn.b-cdn.net/Geekbench-6.7.1-Linux.tar.gz",
+        "hosts": ["geekbench-cdn.b-cdn.net"], "size": 228093838,
+        "sha256": "0ddca977deb6d9db4bd866485f9408e72e2869d0dea0737b18d4bfe472858ace",
+        "folder": "geekbench-6.7.1-linux", "exe": "Geekbench-6.7.1-Linux/geekbench6"},
+    7: {"product": "Geekbench 7 for Linux (x86-64)", "version": "7.1.0",
+        "url": "https://geekbench-cdn.b-cdn.net/Geekbench-7.1.0-Linux.tar.gz",
+        "hosts": ["geekbench-cdn.b-cdn.net"], "size": 484515924,
+        "sha256": "411b72a9c851b69e6f91d390649d419e2e625f475e3983880169651ca27a8672",
+        "folder": "geekbench-7.1.0-linux", "exe": "Geekbench-7.1.0-Linux/geekbench7"},
+}
+INSTALLERS["geekbench_6"]["linux"] = {"zip": _GEEKBENCH_LINUX[6], "arch": ["x64"]}    # the Geekbench 6 tests share it
+INSTALLERS["geekbench_7"] = {"linux": {"zip": _GEEKBENCH_LINUX[7], "arch": ["x64"]}}
+for _id in ("geekbench7_cpu", "geekbench7_gpu_opencl", "geekbench7_gpu_vulkan", "geekbench7_gpu_cuda"):
+    INSTALLERS[_id] = INSTALLERS["geekbench_7"]
 INSTALLERS["ycruncher_pi_2_5b"] = INSTALLERS["ycruncher_pi_1b"]
 INSTALLERS["handbrake_x265_1080p"] = INSTALLERS["handbrake_x264_1080p"]
 

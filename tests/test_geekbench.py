@@ -214,3 +214,24 @@ def test_geekbench_6_runs_the_same_way(tmp_path, monkeypatch):
     assert "geekbench6_gpu_cuda" not in gb.MODES      # Geekbench 6 has no CUDA test
     from data.installers import INSTALLERS
     assert INSTALLERS["geekbench6_cpu"] is INSTALLERS["geekbench_6"]
+
+
+def test_linux_install_is_the_pinned_tar_gz_and_the_program_is_found_there(tmp_path):
+    """Owner, 2026-10-20: Geekbench 6 and 7 had no Install on Linux."""
+    from app.install import direct
+    from app.install.plans import Host, plan_for
+    linux = Host("linux", "x64", "debian")
+    for test_id, major, version in (("geekbench7_cpu", 7, "7.1.0"), ("geekbench7_gpu_cuda", 7, "7.1.0"),
+                                    ("geekbench6_cpu", 6, "6.7.1"), ("geekbench_6", 6, "6.7.1")):
+        plan = plan_for(test_id, host=linux)
+        assert plan["kind"] == "zip" and plan["version"] == version and len(plan["sha256"]) == 64
+        assert plan["hosts"] == ["geekbench-cdn.b-cdn.net"] and plan["url"].endswith("-Linux.tar.gz")
+        assert direct.problem(plan) is None
+        assert plan["exe"] == f"Geekbench-{version}-Linux/geekbench{major}"
+    assert plan_for("geekbench7_cpu", host=Host("linux", "arm64", "debian")) is None        # ARM not pinned
+    assert plan_for("geekbench6_cpu", host=Host("windows", "x64"))["kind"] == "winget"         # Windows unchanged
+    exe = tmp_path / "tools" / "geekbench-7.1.0-linux" / "Geekbench-7.1.0-Linux" / "geekbench7"
+    assert gb.installed_path(7, data_dir=tmp_path) is None
+    exe.parent.mkdir(parents=True)
+    exe.write_text("")
+    assert gb.installed_path(7, data_dir=tmp_path) == str(exe)

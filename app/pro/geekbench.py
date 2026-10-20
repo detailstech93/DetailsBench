@@ -65,6 +65,17 @@ def warning_for(major: int) -> str:
     return WARNING.replace("Geekbench 7", f"Geekbench {major}")
 
 
+def installed_path(major: int, isfile=os.path.isfile, data_dir=None) -> Optional[str]:
+    """geekbench<major> in the app's tools folder, where the Install button unpacks the Linux tar.gz."""
+    from app.install import direct
+    from app.install.plans import INSTALLERS
+    entry = ((INSTALLERS.get(f"geekbench_{major}") or {}).get("linux") or {}).get("zip")
+    if not entry:
+        return None
+    exe = direct.target_folder(entry, data_dir) / entry["exe"]
+    return str(exe) if isfile(str(exe)) else None
+
+
 def program_path(platform: Optional[str] = None, env=None, isfile=os.path.isfile, which=shutil.which,
                  home: Optional[str] = None, major: int = MAJOR) -> Optional[str]:
     """geekbench7(.exe): Primate Labs' Windows installer puts it in Program Files\\Geekbench 7; the Linux download is
@@ -82,6 +93,9 @@ def program_path(platform: Optional[str] = None, env=None, isfile=os.path.isfile
     found = which(f"geekbench{major}")
     if found:
         return found
+    installed = installed_path(major, isfile)          # unpacked by the Install button (data/installers.py)
+    if installed:
+        return installed
     for root in (home or os.path.expanduser("~"), "/opt"):
         try:
             names = sorted(os.listdir(root), reverse=True)
