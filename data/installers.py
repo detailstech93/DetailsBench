@@ -163,8 +163,14 @@ INSTALLERS: Dict[str, dict] = {
             "folder": "bbb-sunflower-1080p30", "exe": "bbb_sunflower_1080p_30fps_normal.mp4", "then": "handbrake_cli",
             "note": "The clip is 263 MB once extracted; it is only read (encoded), never changed."}},
     },
-    # 3DMark is on Steam (the library scan may find only the free demo); Windows only
-    "d3dmark": {"windows": {"steam": 223850}},
+    # 3DMark is on Steam; Windows only. The free "3DMark Demo" (231350): the paid 3DMark (223850, EUR 24.99) gave
+    # the owner an error in Steam when it is not owned (2026-10-20). Steam store API, 2026-10-20: 231350 is a
+    # free demo of 223850.
+    "d3dmark": {"windows": {"steam": 231350}},
+    # Geekbench 6.4.0 (owner, 2026-10-20: bring it back): winget's PrimateLabs.Geekbench.6 installs Primate Labs' own
+    # https://cdn.geekbench.com/Geekbench-6.4.0-WindowsSetup.exe (SHA-256 4e46a831...67654, winget show 2026-10-20);
+    # winget has no ARM64 installer for it
+    "geekbench_6": {"windows": {"winget": "PrimateLabs.Geekbench.6", "hosts": ["cdn.geekbench.com"], "arch": ["x64"]}},
 }
 
 # the GPU run of Blender Benchmark uses the same launcher

@@ -17,9 +17,10 @@ def load_workloads() -> Tuple[list, List[str]]:
     from app.simulation.script import load_scripts
     from app.storage.disk_tools import storage_workloads
     from app.stress.workload import stress_workloads
+    from app.web.benchmarks import web_workloads
     workloads, errors = load_cli()
     scripts, script_errors = load_scripts()
     return (workloads + [LlamaBenchyWorkload(None)] + model_workloads() + mlperf_workloads() + storage_workloads() + stress_workloads() + blender_workloads() + vray_workloads()
             + cinebench_workloads() + passmark_workloads() + ycruncher_workloads()
-            + handbrake_workloads() + scripts,
+            + handbrake_workloads() + web_workloads() + scripts,
             errors + script_errors)

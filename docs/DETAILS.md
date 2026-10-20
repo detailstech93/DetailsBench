@@ -527,6 +527,10 @@ publishes and they are kept outside the project, in `%USERPROFILE%\Tools` (nothi
   from the `Tot:` line; CPU usage % and R/U MIPS are metrics. Uses `%PCBM_7ZIP%`, the installed 7-Zip,
   `%USERPROFILE%\Tools\7-Zip\x64\7za.exe` (7-Zip Extra 26.04 from the official ip7z/7zip release) or PATH.
   Real run here: 173,712 MIPS (Core Ultra 9 275HX, 24 threads).
+- **Rest between disk runs (2026-10-20).** A DiskSpd or fio run that starts less than 120 s after the previous disk
+  run waits for the rest of that time first, and its note says so: on the overnight run fio's sequential write fell
+  to 1,513 MiB/s right after DiskSpd (its own warm-up a minute before: 5,765) because the drive's fast write cache
+  was full.
 - **DiskSpd 2.3** (Microsoft, MIT; `%USERPROFILE%\Tools\DiskSpd\amd64\diskspd.exe` or `PCBM_DISKSPD`) and **fio 3.43**
   (GPL-2.0; the official MSI extracted with `msiexec /a` to `%USERPROFILE%\Tools\fio`, or `PCBM_FIO`):
   `app/storage/disk_tools.py` runs four tests like CrystalDiskMark's defaults: SEQ1M Q8T1 and RND4K Q32T1, each
@@ -581,6 +585,18 @@ with a warning not to use the keyboard or mouse while they run.
   script. `python scripts/verify_simulation.py cyberpunk2077_builtin_benchmark` runs it once.
 
 ### Unattended runs (Phase 12)
+
+**Screen on, and no screen test on a locked screen (2026-10-20).** On the overnight run of 2026-10-20 the PC was
+locked: PassMark's 3D tests never drew (GPU 0 % until the 1800 s timeout, three times) and the 7-Zip File Manager
+window could not be brought to the front, while the tests that only compute ran. Now a plan holds
+`app/automation/awake.py` keep_awake() for its whole length: the system does not sleep and the screen does not go
+off (so it does not lock by itself) - a request held by the app (Windows SetThreadExecutionState, Linux
+systemd-inhibit, macOS caffeinate), no setting is changed and it ends with the plan. A test that draws on the screen or
+needs its window in front (`needs_desktop`: PassMark 3D, simulation scripts such as the 7-Zip File Manager, games,
+Speedometer, JetStream) is not started while the screen is locked (Windows: the input desktop is not "Default";
+Linux: logind's LockedHint): it is stored as **skipped** with the reason at once instead of waiting for its timeout.
+Do not press Windows+L before leaving a run. Diagnostics now record `screen_locked`. PassMark's timeouts follow
+its real length: 600 s per group (80 - 115 s here), 900 s for the 3D group.
 
 A plan in **Automated runs** is a queue: every ticked tool, each with the profile's warm-ups and measured runs
 (3 measured + 1 warm-up by default) and the cooldown between runs, one after another without input.
@@ -656,6 +672,13 @@ keeps the default (`reports` next to the database) and asks again next time. **R
 screen (or Change... in the remote window) picks another one.
 
 ### Telemetry
+
+**Graphics card and PC memory (2026-10-20).** nvidia-smi also gives `memory.used` / `memory.total` (checked on the
+RTX 5090 Laptop GPU: 822 of 24,463 MiB): each sample has `gpu0_vram_used` (GiB) and `gpu0_vram_used_pct` (%), and
+psutil adds `ram_used_gib` (GiB) next to `ram_used` (%). The AI reports (fixed LM Studio models, llama-benchy with a
+chosen model, MLPerf Client) draw both over the whole test ("Graphics card memory (VRAM) used", "Memory (RAM) used"):
+a full VRAM (the model does not fit, layers move to the CPU) shows why a model is slow. Every report's "During the
+test" table has a VRAM row (%). Other GPUs (AMD, Intel) get no VRAM reading yet.
 
 **Record telemetry** (on by default, in both the Automated runs and Frame capture sections) samples once per second
 during every run. Each run folder gets `telemetry.csv` (every sample) and `telemetry.json` (sample count, sources that
@@ -756,3 +779,23 @@ python -m compileall app tests
 - **Comparability Rules**: [`app/benchmark_manager.py`](../app/benchmark_manager.py) - `can_compare_geekbench_scores()` and `assert_can_compare_benchmarks()`.
 - **Database Self-Migration**: [`app/database.py`](../app/database.py) - Additive column check and migration.
 - **Tests**: [`tests/test_benchmark_manager.py`](../tests/test_benchmark_manager.py) - Includes `TestProcessSnapshot` (snapshot logic), `TestElevationFallbackMocks` (OSError paths), `TestChannelBoundaryMocks` (fake registry), and `TestChannelIsolation` (failing channel). Line references: `TestProcessSnapshot` at line ~850, `TestElevationFallbackMocks` at line ~700, `TestChannelBoundaryMocks` at line ~280, `TestChannelIsolation` at line ~420.
+
+### Web benchmarks run by themselves (2026-10-20)
+
+**Speedometer 3.1** and **JetStream 3.0** are automated tests (`app/web/benchmarks.py`, `app/web/cdp.py`). Each run
+starts Chrome (or Edge / Chromium) with a new, empty profile of its own (deleted after the run; never your profile,
+history, extensions or sign-ins) on the official page from `data/benchmark_definitions.py` with `?startAutomatically`,
+and reads the finished score through the browser's DevTools protocol on 127.0.0.1 (a free port the browser picks).
+Speedometer: when `benchmarkClient` has results, `#result-number` (its default 10 iterations); JetStream: the
+`.score` of `#result-summary.done`. The browser and version are in the note: scores compare only with the same
+browser version. The window must stay in front and the screen unlocked. Not seen on a full real run yet; a short
+real check (Chrome 150) opened the page and read it through the protocol.
+
+### 3DMark and Geekbench 6 (2026-10-20)
+
+3DMark's Install button opened Steam for the paid 3DMark (app 223850, EUR 24.99) and Steam answered with an error;
+it now opens the free **3DMark Demo** (231350, Steam store API). 3DMark is also found through Steam's own libraries
+(appmanifest): its uninstall entry kept an old drive letter (Z:), so the registry alone missed the Demo on D:.
+**Geekbench 6** is listed again when only Geekbench 7 is installed, with an Install button (winget
+`PrimateLabs.Geekbench.6`, 6.4.0 from cdn.geekbench.com, x64). Geekbench 7's free command line (7.1.0) has no option
+to keep results local: every run uploads its result to Primate Labs, so it is not automated without the owner's OK.

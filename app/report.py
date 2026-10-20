@@ -117,6 +117,7 @@ GAME_READINGS = (
     ("GPU clock", ("gpu0_sm_clock",), "MHz"),
     ("GPU memory clock", ("gpu0_mem_clock",), "MHz"),
     ("RAM used", ("ram_used",), "%"),
+    ("Graphics card memory (VRAM) used", ("gpu0_vram_used_pct",), "%"),
 )
 
 
@@ -198,7 +199,8 @@ STRESS_CHARTS = (
 SERIES_NAMES = {"cpu_work": "CPU", "gpu_work": "GPU", "tel_cpu_package_power": "CPU", "tel_gpu0_power": "GPU",
                 "tel_cpu_temperature_hottest": "CPU (hottest core)", "tel_gpu0_temperature": "GPU",
                 "tel_cpu_core_clock_avg": "CPU", "tel_cpu_clock_avg": "CPU", "tel_gpu0_sm_clock": "GPU",
-                "tel_cpu_load": "CPU", "tel_gpu0_load": "GPU"}
+                "tel_cpu_load": "CPU", "tel_gpu0_load": "GPU", "tel_gpu0_vram_used": "GPU",
+                "tel_ram_used_gib": "PC"}
 
 
 def _safe_svg(svg: str) -> str:
@@ -370,6 +372,10 @@ def _game_section(export: Mapping) -> str:
 BLENDER_TESTS = ("blender_benchmark", "blender_benchmark_gpu")
 BLENDER_SCENES = ("monster", "junkshop", "classroom")
 BLENDER_CHARTS = tuple(c for c in STRESS_CHARTS if c[1][0] != "cpu_work")
+# AI tests (owner, 2026-10-20): graphics card memory and the PC's memory over the whole test; a full VRAM (the model
+# does not fit, layers move to the CPU) shows why a model is slow
+AI_CHARTS = BLENDER_CHARTS + (("Graphics card memory (VRAM) used", ("tel_gpu0_vram_used",), "GiB"),
+                              ("Memory (RAM) used", ("tel_ram_used_gib",), "GiB"))
 
 
 def _series_charts(run: Mapping, specs) -> list:
@@ -543,7 +549,7 @@ def _model_sections(export: Mapping) -> str:
             f"counts) for {model} in LM Studio, loaded by the app with context {CONTEXT}, every layer on the "
             f"graphics card and one request at a time; prompt {PP} tokens, {TG} generated. Higher is faster. "
             "Comparable only with the same model, quantization, LM Studio engine and llama-benchy version. Nothing "
-            "was uploaded.", decimals=1))
+            "was uploaded.", decimals=1, chart_specs=AI_CHARTS))
     return "".join(sections)
 
 
@@ -558,7 +564,7 @@ def _mlperf_section(export: Mapping) -> str:
         "fixed prompts (all models Q4_0). Higher is faster. Comparable only with the same scenario, the same "
         "backend (llama.cpp CUDA, Windows ML DirectML or OpenVINO: shown on each tile) and the same MLPerf Client "
         "version. Nothing was uploaded.",
-        decimals=1)
+        decimals=1, chart_specs=AI_CHARTS)
 
 
 PASSMARK_TESTS = (("passmark_cpu", "CPU Mark", "points"), ("passmark_2d", "2D Graphics Mark", "points"),
@@ -594,7 +600,7 @@ def _free_llama_section(export: Mapping) -> str:
         "Token generation in tokens per second with the LM Studio model and settings chosen before the run (they "
         "are on the tile and in the runs table). Higher is faster. Comparable only with the same model, "
         "quantization, settings and LM Studio engine; for results that compare between PCs use the fixed AI "
-        "models. Nothing was uploaded.", decimals=1)
+        "models. Nothing was uploaded.", decimals=1, chart_specs=AI_CHARTS)
 
 
 def _passmark_section(export: Mapping) -> str:
@@ -616,7 +622,7 @@ def _pugetbench_section(export: Mapping) -> str:
 
 
 def _tiles_section(export: Mapping, heading: str, tests, explanation: str, readings: bool = True,
-                   decimals: int = 0) -> str:
+                   decimals: int = 0, chart_specs=BLENDER_CHARTS) -> str:
     """A tool with several tests, each with its own unit: one tile per test, what ran, how the PC behaved and
     charts over time."""
     session_is_test = _truthy((_mapping(export.get("session")) or {}).get("is_test"))
@@ -666,7 +672,7 @@ def _tiles_section(export: Mapping, heading: str, tests, explanation: str, readi
         if not readings:            # typed in by the owner: no readings were taken during the test
             blocks.append(f"<h3>{esc(engine)}</h3>" + f'<table class="kv">{kv}</table>')
             continue
-        charts = _series_charts(done[-1], BLENDER_CHARTS)
+        charts = _series_charts(done[-1], chart_specs)
         blocks.append(
             f"<h3>{esc(engine)}</h3>" + f'<table class="kv">{kv}</table>'
             "<h4>During the test</h4>"

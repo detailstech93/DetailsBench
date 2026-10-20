@@ -35,6 +35,8 @@ def system_snapshot() -> dict:
         mem = psutil.virtual_memory()
         snap["memory_available_gb"] = round(mem.available / 2**30, 2)
         snap["memory_percent"] = mem.percent
+        from app.automation.awake import screen_locked
+        snap["screen_locked"] = screen_locked()
     except Exception as e:      # best effort: report, never fail the run because of it
         snap["error"] = str(e)
     return snap

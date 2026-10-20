@@ -9,7 +9,7 @@ from app.telemetry.nvidia_smi import (
 
 def test_query_args():
     assert query_args() == [
-        "--query-gpu=index,name,temperature.gpu,clocks.sm,clocks.mem,power.draw,utilization.gpu",
+        "--query-gpu=index,name,temperature.gpu,clocks.sm,clocks.mem,power.draw,utilization.gpu,memory.used,memory.total",
         "--format=csv,noheader,nounits",
     ]
 
@@ -167,3 +167,26 @@ def test_blank_lines_are_ignored():
 
     assert result.error is None
     assert len(result.gpus) == 1
+
+
+def test_graphics_card_memory_from_a_real_line():
+    # RTX 5090 Laptop GPU, 2026-10-20 (owner: a full VRAM explains a slow AI test)
+    gpu = parse_query_output("0, NVIDIA GeForce RTX 5090 Laptop GPU, 45, 1590, 14001, 23.22, 0, 822, 24463\n").gpus[0]
+    assert (gpu.vram_used_mib, gpu.vram_total_mib, gpu.utilization_pct) == (822.0, 24463.0, 0.0)
+    old = parse_query_output("0, NVIDIA GeForce RTX 5090 Laptop GPU, 45, 1590, 14001, 23.22, 0\n").gpus[0]
+    assert old.vram_used_mib is None and old.power_w == 23.22
+
+
+def test_vram_and_ram_readings():
+    import subprocess
+    from types import SimpleNamespace
+    from app.telemetry.sources import NvidiaSmiSource, PsutilSource
+
+    def run(cmd, **kw):
+        return subprocess.CompletedProcess(cmd, 0, stdout="0, GPU, 45, 1590, 14001, 23.22, 0, 12288, 24576\n")
+    out = NvidiaSmiSource(executable="nvidia-smi", runner=run).read()
+    assert out["gpu0_vram_used"] == (12.0, "GiB") and out["gpu0_vram_used_pct"] == (50.0, "%")
+    ps = SimpleNamespace(virtual_memory=lambda: SimpleNamespace(percent=25.0, total=64 * 2**30, available=48 * 2**30),
+                         cpu_times=lambda percpu=False: None)
+    reading = PsutilSource(psutil_module=ps, platform_name="win32").read()
+    assert reading["ram_used"] == (25.0, "%") and reading["ram_used_gib"] == (16.0, "GiB")

@@ -102,6 +102,7 @@ def validate_script(data) -> List[str]:
 
 
 class SimulationWorkload(Workload):
+    needs_desktop = True        # keys and clicks go to its window: nothing reaches it on a locked screen
     def __init__(self, script: dict, env=None, exists: Callable[[str], bool] = os.path.isfile,
                  which: Callable[[str], Optional[str]] = shutil.which, desktop=None,
                  find_game: Optional[Callable[[int], Optional[str]]] = None, steam_hooks=None,

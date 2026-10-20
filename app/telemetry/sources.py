@@ -80,6 +80,10 @@ class NvidiaSmiSource:
                                      ("load", gpu.utilization_pct, "%")):
                 if value is not None:
                     out[f"gpu{n}_{key}"] = (value, unit)
+            if gpu.vram_used_mib is not None:
+                out[f"gpu{n}_vram_used"] = (round(gpu.vram_used_mib / 1024, 2), "GiB")
+                if gpu.vram_total_mib:
+                    out[f"gpu{n}_vram_used_pct"] = (round(100 * gpu.vram_used_mib / gpu.vram_total_mib, 1), "%")
         return out
 
 
@@ -226,7 +230,11 @@ class PsutilSource:
         return self.platform_name.startswith("linux")
 
     def read(self) -> Reading:
-        out: Reading = {"ram_used": (float(self.ps.virtual_memory().percent), "%")}
+        mem = self.ps.virtual_memory()
+        out: Reading = {"ram_used": (float(mem.percent), "%")}
+        used = getattr(mem, "total", 0) - getattr(mem, "available", 0)
+        if getattr(mem, "total", 0) and used >= 0:
+            out["ram_used_gib"] = (round(used / 2**30, 2), "GiB")
         now = self.clock()
         if self._load_since is None or now - self._load_since >= self.MIN_LOAD_WINDOW:
             load = self._cpu_busy_since_last()   # load since the previous call

@@ -15,6 +15,10 @@ Reliability (ReBench's ideas, owner 2026-10-19), both only when the plan item as
 - max_extra_runs: when an item's measured runs are done and their scores vary more than CV_LIMIT_PERCENT (at least
   3 scores), one more measured run is added, again until the spread is below the limit or the extra runs are used
   up. Each one's note says why.
+
+Screen (overnight run, 2026-10-20): the whole run holds keep_awake() (app/automation/awake.py) so the screen does
+not go off and lock; a workload with needs_desktop (it draws on the screen or needs its window in front) is not
+started while the screen is locked: it is stored as "skipped" with the reason instead of waiting for its timeout.
 """
 
 import json
@@ -25,6 +29,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
+from app.automation import awake
 from app.automation.diagnostics import write_snapshot
 from app.automation.journal import INTERRUPTED_ERROR
 from app.automation.workload import RunContext, Workload, WorkloadResult
@@ -83,8 +88,12 @@ class AutomationRunner:
                  telemetry: Optional[Callable[[], object]] = None,
                  journal=None, done: Iterable[Tuple[str, int, bool]] = (),
                  interrupted: Optional[Tuple[str, int, bool]] = None, stamp: Optional[str] = None,
-                 on_step: Optional[Callable[[int, int, str], None]] = None):
+                 on_step: Optional[Callable[[int, int, str], None]] = None,
+                 screen_locked: Optional[Callable[[], Optional[bool]]] = None,
+                 keep_awake: Optional[Callable] = None):
         self.db = db
+        self.screen_locked = screen_locked or awake.screen_locked
+        self.keep_awake = keep_awake or awake.keep_awake
         self.on_step = on_step or (lambda done, total, text: None)   # runs finished, runs planned, now doing
         self.session_id = session_id
         self.plan = plan
@@ -184,7 +193,8 @@ class AutomationRunner:
         if self.interrupted is not None and self.interrupted not in self.done:
             self._store_interrupted(summary, stamp)
         schedule = [s for s in self._schedule() if (s[0].workload.id, s[1], s[2]) not in self.done]
-        summary = self._run_schedule(summary, schedule, stamp)
+        with self.keep_awake():
+            summary = self._run_schedule(summary, schedule, stamp)
         if self.journal is not None:
             self.journal.finish()           # ended normally or stopped by the user: nothing to resume
         return summary
@@ -229,7 +239,10 @@ class AutomationRunner:
                 self.journal.run_started(key)
             sampler = self._start_telemetry()
             try:
-                result = wl.run(ctx)
+                if getattr(wl, "needs_desktop", False) and self.screen_locked():
+                    result = WorkloadResult(status="skipped", error=awake.LOCKED_ERROR)
+                else:
+                    result = wl.run(ctx)
             except Exception as e:      # a broken workload must not end the whole plan
                 result = WorkloadResult(status="failed", error=f"workload raised: {e}")
             telemetry_metrics = self._finish_telemetry(sampler, run_dir, result.measured_window)

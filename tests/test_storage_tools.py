@@ -2,6 +2,8 @@ import sys
 import threading
 from pathlib import Path
 
+import pytest
+
 from app.automation.workload import RunContext
 from app.storage import disk_tools as dt
 
@@ -10,6 +12,13 @@ DATA = Path(__file__).parent / "data"
 DISKSPD_XML = (DATA / "diskspd_2.3_seq1m_read.xml").read_text(encoding="utf-8")
 FIO_JSON = (DATA / "fio_3.43_rnd4k_read.json").read_text(encoding="utf-8")
 SEQ_READ, SEQ_WRITE, RND_READ, RND_WRITE = dt.TESTS
+
+
+@pytest.fixture(autouse=True)
+def no_rest(monkeypatch):
+    """No rest between the fake disk runs of these tests (one test below checks the rest itself)."""
+    monkeypatch.setattr(dt, "REST_SECONDS", 0)
+    monkeypatch.setattr(dt, "_last_end", [None])
 
 
 def test_commands_use_documented_options():
@@ -81,3 +90,46 @@ def test_workload_failures_never_score(tmp_path):
     missing = dt.StorageWorkload(dt.FIO, exe="")
     missing.exe = None
     assert missing.availability()[0] is False and missing.run(RunContext(output_dir=tmp_path)).status == "skipped"
+
+
+class Waits(threading.Event):
+    def __init__(self):
+        super().__init__()
+        self.waited = []
+
+    def wait(self, timeout=None):
+        self.waited.append(timeout)
+        return self.is_set()
+
+
+def test_a_disk_run_right_after_another_lets_the_drive_rest(tmp_path, monkeypatch):
+    # overnight run 2026-10-20: fio's sequential write 1,513 MiB/s right after DiskSpd (its warm-up: 5,765)
+    monkeypatch.setattr(dt, "REST_SECONDS", 120)
+    now = [1000.0]
+    first, second = FakeDiskSpd(READ_ONLY), FakeDiskSpd(READ_ONLY)
+    for wl in (first, second):
+        wl.clock = lambda: now[0]
+    stop = Waits()
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    r1 = first.run(RunContext(output_dir=tmp_path / "a", timeout_seconds=60, stop_event=stop))
+    assert r1.status == "completed" and r1.note is None
+    assert all(w is None or w < 1 for w in stop.waited)          # the first: no rest (only the tool's polling)
+    stop.waited.clear()
+    now[0] += 30                                                                     # 30 s later
+    r2 = second.run(RunContext(output_dir=tmp_path / "b", timeout_seconds=60, stop_event=stop))
+    assert stop.waited[0] == 90 and r2.status == "completed"
+    assert r2.note.startswith("the drive rested 90 s before this run")
+    now[0] += 500
+    stop.set()                                                       # long after: no wait, so stop is not seen here
+    assert FakeDiskSpd(READ_ONLY).run(RunContext(output_dir=tmp_path / "b", timeout_seconds=60,
+                                                 stop_event=Waits())).note is None
+
+
+def test_stop_during_the_rest_cancels(tmp_path, monkeypatch):
+    monkeypatch.setattr(dt, "REST_SECONDS", 120)
+    monkeypatch.setattr(dt, "_last_end", [dt.StorageWorkload.clock()])
+    stop = Waits()
+    stop.set()
+    r = FakeDiskSpd(READ_ONLY).run(RunContext(output_dir=tmp_path, timeout_seconds=60, stop_event=stop))
+    assert r.status == "cancelled" and not (tmp_path / dt.REPORT_FILE).exists()

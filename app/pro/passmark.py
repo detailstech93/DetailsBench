@@ -239,7 +239,7 @@ def parse_mark(mark: str, csv_text: str, plain_text: str = "") -> Tuple[Optional
 
 
 class PassMarkWorkload(Workload):
-    timeout_seconds = 1800          # a full test group with its windows; a slow PC takes longer
+    timeout_seconds = 600           # a group took 80 - 115 s here (2026-10-19/20); a slow PC takes longer
     warning = WARNING
 
     needs_admin = True              # one UAC prompt for the whole run: app/frames/admin_helper.py
@@ -252,6 +252,10 @@ class PassMarkWorkload(Workload):
         self.exe = exe if exe is not None else (linux_program_path() if self._linux else program_path())
         self.display_name = f"PassMark PerformanceTest ({self.mark})"
         self.benchmark_type = "gpu" if test_id in ("passmark_2d", "passmark_3d") else "cpu"   # memory: with the CPU
+        # 3D: five DirectX scenes and GPU compute, longer than the others; it needs the unlocked screen to draw (the
+        # overnight run of 2026-10-20 had a locked screen: GPU 0% until the 1800 s timeout, three times)
+        self.timeout_seconds = 900 if test_id == "passmark_3d" else type(self).timeout_seconds
+        self.needs_desktop = test_id == "passmark_3d"
         self._helper = helper
         self._ncurses = ncurses or ncurses5_present
         if self._linux:             # no administrator rights and no upload on Linux

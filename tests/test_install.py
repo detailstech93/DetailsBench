@@ -131,7 +131,7 @@ def test_the_install_fits_the_os_and_the_architecture():
     assert plan_for("fio", host=UNKNOWN_LINUX) is None              # unknown distribution: the page
     assert plan_for("diskspd", host=DEBIAN_ARM) is None             # Windows-only tool
     assert plan_for("passmark_performancetest", host=ARCH) is None
-    assert plan_for("d3dmark", host=WIN_X64) == {"kind": "steam", "app_id": 223850}
+    assert plan_for("d3dmark", host=WIN_X64) == {"kind": "steam", "app_id": 231350}   # the free demo
     assert plan_for("d3dmark", host=ARCH) is None
     assert plan_for("steam_1593500", "steam", "1593500", host=ARCH) == {"kind": "steam", "app_id": 1593500}
     assert plan_for("steam_1593500", "steam", "1593500", host=Host("darwin", "arm64")) is None
@@ -358,3 +358,10 @@ def test_an_install_from_the_remote_page_asks_nothing_at_the_pc(qapp, monkeypatc
     assert not flow.start(steam, confirmed=True) and opened == []
     assert install_flow.question_text(entry("fio"), DEBIAN_ARM)[0] is None
     assert install_flow.question_text(entry("cinebench"), WIN_X64)[0] is None
+
+
+def test_geekbench_6_comes_back_through_winget():
+    # owner, 2026-10-20: Geekbench 6 is listed again; winget installs Primate Labs' own setup (x64 only there)
+    plan = plan_for("geekbench_6", host=WIN_X64)
+    assert plan["kind"] == "winget" and plan["winget"] == "PrimateLabs.Geekbench.6"
+    assert plan["hosts"] == ["cdn.geekbench.com"]

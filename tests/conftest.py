@@ -29,6 +29,19 @@ def _no_real_presentmon_search(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _screen_never_locked(monkeypatch, request):
+    """The runner does not start a screen test on a locked screen (app/automation/awake.py). Tests must not depend
+    on this computer being locked: here the screen is never locked, and the run asks the system for nothing.
+    tests/test_awake.py checks the real functions with fakes."""
+    if request.module.__name__.endswith("test_awake"):
+        return
+    from contextlib import nullcontext
+    from app.automation import awake
+    monkeypatch.setattr(awake, "screen_locked", lambda platform=None: False)
+    monkeypatch.setattr(awake, "keep_awake", lambda *a, **k: nullcontext(False))
+
+
+@pytest.fixture(autouse=True)
 def _no_real_conditions_check(monkeypatch):
     """A plan reads the PC's power and background load before it asks to start. Tests must not depend on this
     computer: nothing is read here; app/environment/conditions.py is tested with fakes."""

@@ -54,6 +54,7 @@ class Workload(ABC):
     display_name: str = ""
     benchmark_type: str = "cpu"
     is_test: bool = False          # framework self-tests are stored as test data
+    needs_desktop: bool = False    # draws on the screen / needs its window in front: not run on a locked screen
 
     def availability(self) -> Tuple[bool, str]:
         """(can run now, short reason)."""

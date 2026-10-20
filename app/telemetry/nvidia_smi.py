@@ -1,7 +1,10 @@
 """Parse NVIDIA GPU telemetry from `nvidia-smi --query-gpu=... --format=csv,noheader,nounits` (Phase 7).
 
 A missing or unsupported value ("[N/A]", "[Not Supported]") is None, never 0. Checked against a
-real line from an RTX 5090 Laptop GPU (driver 617.42) on 2026-10-17.
+real line from an RTX 5090 Laptop GPU (driver 617.42) on 2026-10-17. memory.used / memory.total (MiB, owner
+2026-10-20: a full graphics card memory explains a slow AI test) checked on the same PC on 2026-10-20:
+"0, NVIDIA GeForce RTX 5090 Laptop GPU, 45, 1590, 14001, 23.22, 0, 822, 24463". A line without the two memory
+fields (an older reading) is still read.
 
 Drafted by the local agent, reviewed.
 """
@@ -19,7 +22,10 @@ QUERY_FIELDS = (
     "clocks.mem",
     "power.draw",
     "utilization.gpu",
+    "memory.used",
+    "memory.total",
 )
+BASE_FIELDS = 7                 # the fields before memory.used
 
 
 def query_args() -> list:
@@ -38,6 +44,8 @@ class GpuReading:
     mem_clock_mhz: Optional[float] = None
     power_w: Optional[float] = None
     utilization_pct: Optional[float] = None
+    vram_used_mib: Optional[float] = None
+    vram_total_mib: Optional[float] = None
 
 
 @dataclass
@@ -95,7 +103,7 @@ def parse_query_output(text: Optional[str]) -> NvidiaSmiParse:
         except Exception:
             row = None
 
-        if row is None or len(row) != len(QUERY_FIELDS):
+        if row is None or len(row) not in (BASE_FIELDS, len(QUERY_FIELDS)):
             remembered_error = remembered_error or f"unexpected line: {stripped_line}"
             continue
 
@@ -115,6 +123,8 @@ def parse_query_output(text: Optional[str]) -> NvidiaSmiParse:
                 mem_clock_mhz=parse_value(fields[4]),
                 power_w=parse_value(fields[5]),
                 utilization_pct=parse_value(fields[6]),
+                vram_used_mib=parse_value(fields[7]) if len(fields) > 8 else None,
+                vram_total_mib=parse_value(fields[8]) if len(fields) > 8 else None,
             )
         )
 

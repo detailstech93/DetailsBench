@@ -17,6 +17,11 @@ fio's JSON (jobs[0].read/write: bw_bytes, iops, lat_ns.mean). Verified with raw 
 fio 3.43 (x64) on the development computer, 2026-10-18 (tests/data). Without administrator rights DiskSpd
 warns that it cannot use SeManageVolumePrivilege and prepares the test file the slower way; the measurement
 itself is not affected.
+
+Rest between disk runs (overnight run, 2026-10-20): DiskSpd's two runs and fio's warm-up wrote back to back and
+fio's measured sequential write fell to 1,513 MiB/s (its warm-up a minute before: 5,765; DiskSpd: 5,856): the
+drive's fast write cache was full. A disk run that starts less than REST_SECONDS after the previous one ended waits
+for the rest of that time first, so each run starts with the cache emptied; the wait is in the run's note.
 """
 
 import json
@@ -24,6 +29,7 @@ import math
 import os
 import shutil
 import subprocess
+import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,6 +41,8 @@ from app.automation.workload import RunContext, Workload, WorkloadResult
 MIB = 1024 * 1024
 TEST_FILE = "pcbm_storage_test.dat"
 REPORT_FILE = "storage_report.md"
+REST_SECONDS = 120                  # between disk runs: the drive empties its write cache (see above)
+_last_end: List[Optional[float]] = [None]      # time.monotonic() when the last disk run of this app ended
 
 
 @dataclass(frozen=True)
@@ -183,6 +191,7 @@ class StorageWorkload(Workload):
     verified = True                   # DiskSpd 2.3 and fio 3.43, real runs on the development computer
     warning = ("Writes a test file to the drive that holds the app's data and keeps it busy: close other "
                "programs that use that drive. The file is deleted after the run.")
+    clock = staticmethod(time.monotonic)
 
     def __init__(self, tool: DiskTool, size_mib: int = 1024, seconds: int = 5, warmup: int = 2,
                  exe: Optional[str] = None, tests=TESTS):
@@ -212,6 +221,11 @@ class StorageWorkload(Workload):
     def run(self, ctx: RunContext) -> WorkloadResult:
         if not self.exe:
             return WorkloadResult(status="skipped", error=f"{self.tool.display_name}: not found")
+        rest = 0.0
+        if _last_end[0] is not None:
+            rest = max(0.0, REST_SECONDS - (self.clock() - _last_end[0]))
+            if rest > 0 and ctx.stop_event.wait(rest):
+                return WorkloadResult(status="cancelled", error="stopped by user")
         folder = Path(ctx.output_dir)
         rows, metrics, commands = [], {}, []
         total = 0.0
@@ -247,6 +261,7 @@ class StorageWorkload(Workload):
                     if key in values:
                         metrics[f"{test.id}_{key}"] = (values[key], unit)
         finally:
+            _last_end[0] = self.clock()
             try:
                 (folder / TEST_FILE).unlink()          # the test file this run created, nothing else
             except OSError:
@@ -260,7 +275,9 @@ class StorageWorkload(Workload):
             return WorkloadResult(status="invalid", error=f"output not usable: {rows[0][2] if rows else 'no tests'}",
                                   metrics=metrics, **common)
         metrics["tests_with_errors"] = ", ".join(t.label for t, _v, e in rows if e)
-        return WorkloadResult(status="completed", score=first, unit="MiB/s", metrics=metrics, **common)
+        note = (f"the drive rested {rest:.0f} s before this run (its write cache empties after the previous disk "
+                "run)") if rest >= 1 else None
+        return WorkloadResult(status="completed", score=first, unit="MiB/s", metrics=metrics, note=note, **common)
 
 
 def storage_workloads() -> List[StorageWorkload]:

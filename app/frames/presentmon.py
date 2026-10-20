@@ -81,6 +81,7 @@ class FrameCaptureWorkload(Workload):
     """One timed PresentMon capture of one process; score = average FPS."""
 
     benchmark_type = "game"
+    needs_desktop = True        # the game draws on the screen
 
     def __init__(self, presentmon_path: str, process_name: str, seconds: int = 60,
                  process_id: Optional[int] = None, min_frames: int = 100,

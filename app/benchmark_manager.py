@@ -968,6 +968,18 @@ $res | ConvertTo-Json -Depth 3
                 logger.error("channel app_paths failed for %s: %s", definition.id, exc)
                 channel_errors.append(f"channel app_paths failed: {exc}")
 
+        if 'steam' in definition.discovery_channels and definition.steam_apps:
+            try:
+                from app.simulation.script import find_steam_game
+                for app_id, rel in definition.steam_apps:
+                    folder = find_steam_game(app_id)
+                    if folder and os.path.isfile(os.path.join(folder, rel)):
+                        all_candidates.append({'path': os.path.normpath(os.path.join(folder, rel)),
+                                               'method': f'Steam library (app {app_id})'})
+            except Exception as exc:
+                logger.error("channel steam failed for %s: %s", definition.id, exc)
+                channel_errors.append(f"channel steam failed: {exc}")
+
         # ── Filter candidates: verify file still exists, read metadata ────────
         exclusion_re = re.compile(
             '|'.join(definition.exclusion_patterns), re.IGNORECASE
@@ -1062,6 +1074,13 @@ $res | ConvertTo-Json -Depth 3
                     file_exists=os.path.isfile(primary['path']),
                     scan_diagnostics=channel_errors if channel_errors else None,
                 ))
+            if 6 not in by_major:   # owner, 2026-10-20: Geekbench 6 stays listed (with its Install button)
+                results.append(BenchmarkInfo(
+                    name="geekbench_6", display_name="Geekbench 6", type=BenchmarkType.CPU,
+                    status=BenchmarkStatus.NOT_INSTALLED, reason="Geekbench 6 not found on this system",
+                    official_url=definition.official_url, prerequisites=['Windows 10/11'],
+                    detection_method='not_found', file_exists=False,
+                    scan_diagnostics=channel_errors if channel_errors else None))
             return results
 
         # Single-series or single-install: report highest version as primary

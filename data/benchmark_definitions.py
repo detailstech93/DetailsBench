@@ -77,6 +77,7 @@ class BenchmarkDefinition:
     #   "start_menu"        → .lnk shortcuts + Get-StartApps
     #   "appx"              → Get-AppxPackage
     #   "browser"           → browser detection (web benchmarks)
+    #   "steam"             → Steam's own libraries (appmanifest), see steam_apps
     discovery_channels: List[str]
 
     # ── License / notes ───────────────────────────────────────────────────────
@@ -99,6 +100,11 @@ class BenchmarkDefinition:
     # When True, the edition string is read from metadata and used as a
     # sub-key so that CB2023 and CB2024 are never mixed.
     editions_are_separate: bool = False
+
+    # "steam" channel: (app id, program path inside the game folder) pairs, read from Steam's own library list.
+    # Steam's uninstall entry keeps the drive letter of the day it was installed (3DMark Demo on the owner's PC:
+    # "Z:\SteamLibrary", the library is on D: now, 2026-10-20), so the registry alone misses it.
+    steam_apps: Optional[List[tuple]] = None
 
 
 def _derive_official_url(defn: BenchmarkDefinition) -> str:
@@ -171,7 +177,9 @@ BENCHMARK_DEFINITIONS: List[BenchmarkDefinition] = [
         supported_architectures=dict(UNVERIFIED_ARCHES),
         license_note=None,
         required_graphics_api="directx",
-        discovery_channels=["registry", "filesystem", "start_menu"],
+        discovery_channels=["registry", "filesystem", "start_menu", "steam"],
+        # 3DMark (paid) and the free 3DMark Demo (Steam store, 2026-10-20); bindDMark.exe seen in the Demo
+        steam_apps=[(223850, "bin/x64/3DMark.exe"), (231350, "bin/x64/3DMark.exe")],
     ),
 
     # ── Pro benchmarks (owner's request, 2026-10-18; manual until automated, see docs/PRO_BENCHMARKS.md) ──

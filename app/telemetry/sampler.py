@@ -103,7 +103,7 @@ def summarize(result: TelemetryResult, window: Optional[Tuple[float, float]] = N
 
 
 CHART_KEYS = ("cpu_load", "cpu_temperature_hottest", "cpu_package_power", "cpu_core_clock_avg", "cpu_clock_avg",
-              "gpu0_load", "gpu0_temperature", "gpu0_power", "gpu0_sm_clock")
+              "gpu0_load", "gpu0_temperature", "gpu0_power", "gpu0_sm_clock", "gpu0_vram_used", "ram_used_gib")
 
 
 def chart_series(result: TelemetryResult, keys=CHART_KEYS, max_points: int = 300) -> Dict[str, tuple]:

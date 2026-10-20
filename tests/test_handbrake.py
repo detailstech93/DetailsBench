@@ -94,6 +94,8 @@ def test_no_speed_no_file_or_nothing_installed_store_no_score(tmp_path, monkeypa
     monkeypatch.setattr(hb, "run_process", run)
     r = hb.HandBrakeWorkload(cli=cli, clip=clip).run(_ctx(tmp_path, "b"))
     assert r.status == "invalid" and "no video file" in r.error
+    monkeypatch.setattr(hb, "cli_path", lambda: None)       # not this PC's HandBrake and clip
+    monkeypatch.setattr(hb, "clip_path", lambda: None)
     w = hb.HandBrakeWorkload(cli=None, clip=None)
     assert w.run(_ctx(tmp_path, "c")).status == "skipped" and "clip" in w.availability()[1]
     assert "HandBrakeCLI" in hb.HandBrakeWorkload(cli=None, clip=clip).availability()[1]
