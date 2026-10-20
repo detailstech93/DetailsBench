@@ -453,6 +453,7 @@ class MainWindow(QMainWindow):
         from app.ui.install_flow import InstallFlow
         self.install_flow = InstallFlow(self)
         self.tests_page.install_requested.connect(self.install_flow.start)
+        self.tests_page.lmstudio_install_requested.connect(self.install_flow.start_lmstudio)
         self.after_scan = []
         from app.ui.run_all import RunAllFlow
         self.run_all_flow = RunAllFlow(self)

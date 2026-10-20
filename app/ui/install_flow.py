@@ -13,6 +13,7 @@ PC go this way (a vendor zip, an LM Studio model, winget); Steam's dialog and Li
 
 import logging
 import threading
+from pathlib import Path
 from typing import Callable, Optional
 
 from PySide6.QtCore import QObject, Signal
@@ -159,18 +160,29 @@ class InstallFlow(QObject):
             self._warn(f"{entry.name} cannot be installed by the app: {problem}.")
             return False
         shown = "\n".join(" ".join(c) for c in commands)
-        if not self._ask("Install", f"Install {entry.name} with your distribution's package manager?\n\n"
+        if plan.get("fetch") == "chrome":
+            from app.install.chrome_linux import question
+            asked = self._ask("Install", question(Path(plan["package"])) + f"\n\nCommands:\n{shown}")
+        else:
+            asked = None
+        if asked is False or asked is None and not self._ask("Install", f"Install {entry.name} with your distribution's package manager?\n\n"
                          f"{shown}\n\nThe package {plan['package']!r} comes from your distribution's own servers; "
                          f"the system asks for your password (pkexec). This package name was not checked on a real "
                          f"{plan['family']} machine yet: if it is not found, nothing is installed."):
             return False
-        self._show(f"Installing {plan['package']} (enter your password in the system prompt)...")
+        what = plan.get("label") or plan["package"]
+        self._show(f"Installing {what} (enter your password in the system prompt)...")
 
         def work():
-            text = self.run_commands(commands)
+            from app.install import chrome_linux
+            if plan.get("fetch"):
+                self._progress(f"Downloading {what}...")
+            why = chrome_linux.prepare(plan)
+            text = self.run_commands(commands) if why is None else why
+            chrome_linux.cleanup(plan)
             ok = text == "done"
-            self.finished.emit(winget.Outcome(ok, f"{plan['package']} installed." if ok else
-                                              f"{plan['package']} was not installed: {text}"))
+            self.finished.emit(winget.Outcome(ok, f"{what} installed." if ok else
+                                              f"{what} was not installed: {text}"))
         self.start_thread(lambda: self._safe(work, winget.Outcome(False, "")))
         return True
 
@@ -212,6 +224,39 @@ class InstallFlow(QObject):
         failed = winget.Outcome(False, "")
         self.start_thread(lambda: self.finished.emit(self._safe(
             lambda: model_set.install(plan["test_id"], self._progress), failed)))
+        return True
+
+    def start_lmstudio(self, missing=None, install=None) -> bool:
+        """Linux: LM Studio's official install.sh (app/ai/lmstudio_linux.py), libatomic first when it is missing."""
+        from app.ai import lmstudio_linux
+        if self.busy():
+            return False
+        first: list = []
+        if (missing or lmstudio_linux.libatomic_missing)():
+            host = self.window.tests_page.host or plans.this_host()
+            package = {"debian": "libatomic1", "fedora": "libatomic", "arch": "gcc-libs", "suse": "libatomic1"}.get(
+                host.family or "")
+            if not package:
+                self._warn("LM Studio needs the system library libatomic, which is missing; install it with your "
+                           "package manager, then press Install LM Studio again.")
+                return False
+            first, problem = self.linux_commands(host.family, package)
+            if problem:
+                self._warn(f"LM Studio needs libatomic, which cannot be installed by the app: {problem}.")
+                return False
+        if not self._ask("Install", lmstudio_linux.question(first)):
+            return False
+        self.entry, self.remote = None, False
+        self._show("Installing LM Studio (it downloads about 1 GB; enter your password if asked)...")
+
+        def work():
+            if first:
+                text = self.run_commands(first)
+                if text != "done":
+                    return winget.Outcome(False, f"LM Studio was not installed: libatomic could not be installed ({text}).")
+                self._progress("Installing LM Studio (it downloads about 1 GB)...")
+            return (install or lmstudio_linux.install)()
+        self.start_thread(lambda: self.finished.emit(self._safe(work, winget.Outcome(False, ""))))
         return True
 
     def _ask(self, title: str, text: str) -> bool:

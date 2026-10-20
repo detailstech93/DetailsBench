@@ -70,6 +70,13 @@ def needs_lmstudio(entry: TestEntry, host=None, lms=None) -> bool:
     return lms() is None
 
 
+def lmstudio_one_click(host=None) -> bool:
+    """Linux x64/arm64: LM Studio's official install.sh installs it (app/ai/lmstudio_linux.py)."""
+    from app.install.plans import this_host
+    host = host or this_host()
+    return host.os == "linux" and host.arch in ("x64", "arm64")
+
+
 def installable(entry: TestEntry, host=None, lms=None) -> bool:
     return install_plan(entry, host) is not None and not needs_lmstudio(entry, host, lms)
 
@@ -92,6 +99,7 @@ class TestsPage(QWidget):
     admin_requested = Signal()        # "Restart as administrator" (app/ui/admin_restart.py)
     rescan_requested = Signal()
     install_requested = Signal(object)      # TestEntry: missing, with a one-click install (app/install)
+    lmstudio_install_requested = Signal()   # Linux: LM Studio itself, for the AI models
     install_many_requested = Signal(list)   # the ticked missing tests: installed one after the other (app/ui/run_all)
 
     def __init__(self, open_url: Optional[Callable[[str], object]] = None, parent=None):
@@ -356,6 +364,13 @@ class TestsPage(QWidget):
             b.setToolTip("Download from the official source and install it (you are asked first)"
                          + (f"\nOfficial page: {e.official_url}" if e.official_url else ""))
             b.clicked.connect(lambda checked=False, x=e: self.request_install(x))
+            b.setEnabled(not self.busy)
+            return b
+        if e.compatible and e.state == MISSING and needs_lmstudio(e, self.host) and lmstudio_one_click(self.host):
+            b = QPushButton("Install LM Studio")
+            b.setToolTip("This model downloads through LM Studio, which is not installed here. Installs LM Studio's "
+                         "server (llmster) with its official install script (you are asked first).")
+            b.clicked.connect(lambda checked=False: self.lmstudio_install_requested.emit())
             b.setEnabled(not self.busy)
             return b
         if e.compatible and e.state == MISSING and needs_lmstudio(e, self.host):

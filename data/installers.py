@@ -191,12 +191,14 @@ _GEEKBENCH_LINUX = {
         "url": "https://geekbench-cdn.b-cdn.net/Geekbench-6.7.1-Linux.tar.gz",
         "hosts": ["geekbench-cdn.b-cdn.net"], "size": 228093838,
         "sha256": "0ddca977deb6d9db4bd866485f9408e72e2869d0dea0737b18d4bfe472858ace",
-        "folder": "geekbench-6.7.1-linux", "exe": "Geekbench-6.7.1-Linux/geekbench6"},
+        "folder": "geekbench-6.7.1-linux", "exe": "Geekbench-6.7.1-Linux/geekbench6",
+        "max_unpacked": 600 * 1024 ** 2},           # 5 files, 500,109,413 bytes unpacked (its tar's listing)
     7: {"product": "Geekbench 7 for Linux (x86-64)", "version": "7.1.0",
         "url": "https://geekbench-cdn.b-cdn.net/Geekbench-7.1.0-Linux.tar.gz",
         "hosts": ["geekbench-cdn.b-cdn.net"], "size": 484515924,
         "sha256": "411b72a9c851b69e6f91d390649d419e2e625f475e3983880169651ca27a8672",
-        "folder": "geekbench-7.1.0-linux", "exe": "Geekbench-7.1.0-Linux/geekbench7"},
+        "folder": "geekbench-7.1.0-linux", "exe": "Geekbench-7.1.0-Linux/geekbench7",
+        "max_unpacked": 1100 * 1024 ** 2},          # 6 files, 1,009,518,416 bytes unpacked (owner hit the 500 MB limit)
 }
 INSTALLERS["geekbench_6"]["linux"] = {"zip": _GEEKBENCH_LINUX[6], "arch": ["x64"]}    # the Geekbench 6 tests share it
 INSTALLERS["geekbench_7"] = {"linux": {"zip": _GEEKBENCH_LINUX[7], "arch": ["x64"]}}
@@ -225,6 +227,9 @@ for _id in ("gravitymark_vulkan", "gravitymark_opengl", "gravitymark_d3d12"):
 # vkmark and glmark2 (Linux): the distribution's packages. Debian/Ubuntu names read with apt-cache on Ubuntu 24.04
 # (2026-10-20): vkmark 2017.08+git20220909; glmark2 2023.01 is split by window system there, glmark2-x11 gives the
 # "glmark2" program (it also runs on Wayland desktops through XWayland). Other families are not offered.
+# the web tests on Linux: Google Chrome's current stable .deb from dl.google.com, its size and SHA-256 read from
+# Google's own apt index at install time (app/install/chrome_linux.py), installed by apt. Debian/Ubuntu x64 only.
+INSTALLERS["speedometer"] = INSTALLERS["jetstream"] = {"linux": {"chrome_deb": True, "arch": ["x64"]}}
 INSTALLERS["vkmark"] = {"linux": {"packages": {"debian": "vkmark"}}}
 INSTALLERS["glmark2"] = {"linux": {"packages": {"debian": "glmark2-x11"}}}
 INSTALLERS["ycruncher_pi_2_5b"] = INSTALLERS["ycruncher_pi_1b"]

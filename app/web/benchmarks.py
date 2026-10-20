@@ -103,7 +103,7 @@ class WebBenchmarkWorkload(Workload):
 
     def availability(self) -> Tuple[bool, str]:
         if not self.browser:
-            return False, "no Chrome, Edge or Chromium found (the web tests use one of them)"
+            return False, "browser not installed: no Chrome, Edge or Chromium found (the web tests use one of them)"
         return True, self.browser
 
     def executable(self) -> Tuple[Optional[str], str]:

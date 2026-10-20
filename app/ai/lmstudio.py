@@ -41,10 +41,20 @@ def parse_runtimes(text: str) -> Dict[str, str]:
 def lms_path(env: Optional[Mapping[str, str]] = None) -> Optional[Path]:
     env = os.environ if env is None else env
     home = env.get("USERPROFILE") or env.get("HOME")
-    for name in ("lms.exe", "lms"):
-        p = Path(home) / ".lmstudio" / "bin" / name if home else None
-        if p and p.is_file():
-            return p
+    if not home:
+        return None
+    roots = [Path(home) / ".lmstudio"]
+    try:                    # LM Studio may keep its home elsewhere and point to it (its install.sh reads this)
+        pointed = (Path(home) / ".lmstudio-home-pointer").read_text(encoding="utf-8").strip()
+        if pointed:
+            roots.insert(0, Path(pointed))
+    except OSError:
+        pass
+    for root in roots:
+        for name in ("lms.exe", "lms"):
+            p = root / "bin" / name
+            if p.is_file():
+                return p
     return None
 
 

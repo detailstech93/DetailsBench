@@ -68,6 +68,12 @@ def plan_for(test_id: str, source: str = "", app_id=None, host: Optional[Host] =
             return None
         return {"kind": "winget", "test_id": test_id, "winget": entry["winget"], "hosts": list(entry["hosts"]),
                 "path_prefix": entry.get("path_prefix", "")}
+    if host.os == "linux" and entry.get("chrome_deb"):      # Google's current .deb, checked against its index
+        if host.arch not in entry.get("arch", []) or host.family != "debian":
+            return None
+        from app.install.chrome_linux import deb_path
+        return {"kind": "linux", "family": "debian", "package": str(deb_path()), "fetch": "chrome",
+                "label": "Google Chrome (stable)"}
     if host.os == "linux":
         package = entry.get("packages", {}).get(host.family)
         return {"kind": "linux", "family": host.family, "package": package} if package else None

@@ -235,3 +235,10 @@ def test_linux_install_is_the_pinned_tar_gz_and_the_program_is_found_there(tmp_p
     exe.parent.mkdir(parents=True)
     exe.write_text("")
     assert gb.installed_path(7, data_dir=tmp_path) == str(exe)
+
+
+def test_the_linux_archives_may_unpack_to_their_real_size():
+    from data.installers import INSTALLERS
+    # their tar listings: Geekbench 7.1.0 unpacks 1,009,518,416 bytes (owner hit the 500 MB limit), 6.7.1 500,109,413
+    assert INSTALLERS["geekbench7_cpu"]["linux"]["zip"]["max_unpacked"] > 1_009_518_416
+    assert INSTALLERS["geekbench_6"]["linux"]["zip"]["max_unpacked"] > 500_109_413

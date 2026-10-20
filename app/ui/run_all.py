@@ -66,6 +66,10 @@ class Item:
             p = self.package
             return (f"- {self.entry.name}: {p.name} {p.version} by {p.publisher or 'unknown publisher'}, "
                     f"{winget.size_text(p.size_bytes)}, from {p.url} (SHA256 {p.sha256[:16]}...)")
+        if self.plan.get("fetch") == "chrome":
+            from app.install.chrome_linux import SERVER, TERMS_URL
+            return (f"- {self.entry.name}: Google Chrome (stable), the newest from {SERVER}, kept only if size and "
+                    f"SHA-256 match Google's package list, then apt installs it (terms: {TERMS_URL})")
         return (f"- {self.entry.name}: package {self.plan['package']!r} from your distribution "
                 f"(not checked on a real {self.plan['family']} machine yet): " + "; ".join(" ".join(c) for c in
                                                                                           self.commands))
@@ -113,6 +117,9 @@ class RunAllFlow(QObject):
                     items.append(Item(e, plan))
                 else:                           # one program for several tests (Blender CPU and GPU)
                     same.entry = dataclasses.replace(same.entry, name=f"{same.entry.name} + {e.name}")
+            elif plan is not None and plan["kind"] == "linux" and any(i.plan == plan for i in items):
+                same = next(i for i in items if i.plan == plan)     # one browser for both web tests
+                same.entry = dataclasses.replace(same.entry, name=f"{same.entry.name} + {e.name}")
             elif plan is not None and plan["kind"] in ("winget", "linux", "lmstudio"):
                 items.append(Item(e, plan))
             elif e.source == "steam":
@@ -201,9 +208,12 @@ class RunAllFlow(QObject):
                     out = self.install_fn(item.package)
                     lines.append(out.message)
                 else:
-                    result = self.run_commands(item.commands)
-                    lines.append(f"{item.plan['package']} installed." if result == "done" else
-                                 f"{item.plan['package']} was not installed: {result}")
+                    from app.install import chrome_linux
+                    what = item.plan.get("label") or item.plan["package"]
+                    why = chrome_linux.prepare(item.plan)
+                    result = self.run_commands(item.commands) if why is None else why
+                    chrome_linux.cleanup(item.plan)
+                    lines.append(f"{what} installed." if result == "done" else f"{what} was not installed: {result}")
             except Exception as e:
                 logger.exception("Install failed")
                 lines.append(f"{item.entry.name}: the install failed ({e})")
