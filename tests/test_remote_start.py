@@ -540,3 +540,20 @@ def test_nothing_starts_from_the_phone_while_the_pc_scans(tmp_path):
     assert not ok and "scanning" in text
     from app.remote.page import PAGE as html
     assert "s.running || !!s.scanning" in html
+
+
+def test_wsl_loopback_addresses_are_not_offered_and_wsl_explains_why_the_phone_cannot_reach_it(monkeypatch):
+    import socket
+    from types import SimpleNamespace
+
+    import psutil
+
+    from app.remote import server
+    a = lambda ip: SimpleNamespace(family=socket.AF_INET, address=ip)
+    monkeypatch.setattr(psutil, "net_if_addrs", lambda: {"lo": [a("127.0.0.1"), a("10.255.255.254")],
+                                                          "eth0": [a("172.24.101.72")]})
+    assert server.local_addresses() == ["172.24.101.72"]
+    note = server.wsl_note(["http://172.24.101.72:8765/"], wsl=True)
+    assert "WSL" in note and "Tailscale" in note and "mirrored" in note
+    assert server.wsl_note(["http://172.24.101.72:8765/", "http://100.84.145.56:8765/"], wsl=True) == ""
+    assert server.wsl_note(["http://192.168.1.5:8765/"], wsl=False) == ""

@@ -582,7 +582,13 @@ class RemoteDialog(QDialog):
         self.copy_address = QPushButton("Copy")
         self.open_here = QPushButton("Open here")
         self.open_here.setToolTip("Open the page in this PC's browser")
-        grid.addWidget(self.address, 1, 0, 1, 2)
+        self.wsl_hint = QLabel()            # under WSL: why the phone cannot reach these addresses
+        self.wsl_hint.setWordWrap(True)
+        self.wsl_hint.setVisible(False)
+        where = QVBoxLayout()
+        where.addWidget(self.address)
+        where.addWidget(self.wsl_hint)
+        grid.addLayout(where, 1, 0, 1, 2)
         buttons = QHBoxLayout()
         buttons.addWidget(self.copy_address)
         buttons.addWidget(self.open_here)
@@ -733,5 +739,10 @@ class RemoteDialog(QDialog):
         addresses = self.control.server.addresses()
         self.address.setText("\n".join(a.rstrip("/") for a in addresses) if addresses else
                              f"http://127.0.0.1:{self.control.server.port} (no network address: this PC only)")
+        from app.remote.server import wsl_note
+        from app.ui.run_tests import on_wsl
+        note = "" if self.control.server.local_only else wsl_note(addresses, sys.platform.startswith("linux") and on_wsl())
+        self.wsl_hint.setText(note)
+        self.wsl_hint.setVisible(bool(note))
         self.code.setText(self.control.server.code)
         self.adjustSize()

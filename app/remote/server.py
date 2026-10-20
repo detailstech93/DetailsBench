@@ -97,7 +97,9 @@ def local_addresses() -> List[str]:
     try:
         import psutil
         found = []
-        for addrs in psutil.net_if_addrs().values():
+        for name, addrs in psutil.net_if_addrs().items():
+            if name == "lo":                # Linux loopback; under WSL it also holds 10.255.255.254 (its DNS)
+                continue
             for a in addrs:
                 if a.family == socket.AF_INET and allowed_client(a.address, a.address) and \
                         not ipaddress.ip_address(a.address).is_loopback and \
@@ -107,6 +109,16 @@ def local_addresses() -> List[str]:
     except Exception:
         logger.exception("Could not list the network addresses")
         return []
+
+
+def wsl_note(addresses: List[str], wsl: bool) -> str:
+    """Under WSL (its default NAT network) the app sees only WSL's own virtual network, not Windows' Tailscale or
+    home network address, so the phone cannot reach what is listed (owner, 2026-10-20)."""
+    if not wsl or any(is_tailscale(a.split("//")[-1].split(":")[0]) for a in addresses):
+        return ""
+    return ("Running inside WSL: these are WSL's own internal addresses, the phone cannot reach them (Windows' "
+            "Tailscale address is not seen here). For Remote, run the app on Windows, or install Tailscale inside "
+            "WSL, or turn on WSL's mirrored networking yourself (networkingMode=mirrored in .wslconfig).")
 
 
 def check_start(body: object, offered: List[str]) -> Tuple[Optional[dict], str]:
