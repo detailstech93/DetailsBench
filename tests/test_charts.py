@@ -83,3 +83,17 @@ def test_threshold_chart_empty_returns_empty():
 def test_threshold_chart_parses():
     svg = threshold_chart("t", [10, 20, 40])
     ET.fromstring(svg)
+
+
+def test_line_charts_label_every_round_step_and_load_tops_at_100():
+    """Owner, 2026-10-20: more labels on Y (temperature, power) to read closely; a load chart showed 109.89 %."""
+    import re
+    from app.charts import line_chart, nice_step
+
+    def labels(svg):          # the y axis: the labels with a unit
+        return [t for t in re.findall(r'text-anchor="end" fill="var\(--chart-text, #374151\)" font-size="10">([^<]+)<', svg) if " " in t]
+    assert labels(line_chart("Load", [0, 1, 2], [5, 99.9, 60], y_unit="%", y_full=100.0)) == \
+        [f"{v} %" for v in range(0, 101, 10)]
+    assert labels(line_chart("Temp", [0, 1, 2], [40, 66, 85], y_unit="C"))[-1] == "90 C"
+    assert len(labels(line_chart("Power", [0, 1, 2], [30, 180, 250], y_unit="W"))) >= 10
+    assert nice_step(100) == 10 and nice_step(270) == 25 and nice_step(0) == 1.0

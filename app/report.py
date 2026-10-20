@@ -412,13 +412,14 @@ def _series_charts(run: Mapping, specs) -> list:
                 continue            # a second GPU the test did not use
             totals = [p[1] for p in (_mapping(series.get(TOTAL_OF.get(s_name, ""))) or {}).get("points") or []
                       if isinstance(p[1], (int, float)) and p[1] > 0]
-            full = max(totals) if totals else None
-            title = f"{chart_title}: {SERIES_NAMES.get(s_name, s_name)}" + (f" (of {full:,.1f} {unit})" if full else "")
+            full = max(totals) if totals else (100.0 if unit == "%" else None)   # a load's top is 100 %
+            title = f"{chart_title}: {SERIES_NAMES.get(s_name, s_name)}" + (
+                f" (of {full:,.1f} {unit})" if full and unit != "%" else "")
             svg = line_chart(title, [p[0] for p in points], [p[1] for p in points], x_unit="s", y_unit=unit,
                              y_full=full)
             if svg:
                 note = ""
-                if full:
+                if full and unit != "%":
                     values = [p[1] for p in points]
                     high, mean = max(values), sum(values) / len(values)
                     note = (f'<p class="muted">Highest {high:,.1f} of {full:,.1f} {esc(unit)} '

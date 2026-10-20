@@ -80,6 +80,18 @@ def _svg_title(title: str, width: int) -> str:
     )
 
 
+def nice_step(span: float, target: int = 12) -> float:
+    """A round step (1, 2, 2.5 or 5 times a power of ten) that cuts span into about `target` parts."""
+    if not span > 0 or not math.isfinite(span):
+        return 1.0
+    raw = span / target
+    power = 10 ** math.floor(math.log10(raw))
+    for m in (1, 2, 2.5, 5, 10):
+        if m * power >= raw - 1e-12:
+            return m * power
+    return 10 * power
+
+
 def _grid_lines(
     left: float,
     right: float,
@@ -88,15 +100,24 @@ def _grid_lines(
     y_min: float,
     y_max: float,
     y_unit: str = "",
+    step: Optional[float] = None,
 ) -> str:
     if y_max == y_min:
         y_max = y_min + 1.0
+    if step:
+        # owner, 2026-10-20: a label at every round step (e.g. every 10 C, 25 W, 10 %) to read the line closely
+        first = math.ceil(y_min / step - 1e-9) * step
+        values = []
+        v = first
+        while v <= y_max + step * 1e-6 and len(values) < 30:
+            values.append(v)
+            v = first + len(values) * step
+    else:
+        values = [y_min + i / 3.0 * (y_max - y_min) for i in range(4)]
 
     parts = []
-    for i in range(4):
-        frac = i / 3.0
-        y = bottom - frac * (bottom - top)
-        value = y_min + frac * (y_max - y_min)
+    for value in values:
+        y = bottom - (value - y_min) / (y_max - y_min) * (bottom - top)
         label = _axis(value) + _unit_suffix(y_unit)
 
         parts.append(
@@ -232,14 +253,18 @@ def line_chart(
         x_min -= 0.5
         x_max += 0.5
 
+    step = None
     if y_full is not None and y_full > 0 and all(y >= 0 for y in ys_vals):
         y_min = 0.0
         y_max = max(y_full, max(ys_vals))
+        step = nice_step(y_max)
     elif all(y >= 0 for y in ys_vals):
         y_min = 0.0
-        y_max = max(ys_vals) * 1.1
+        y_max = max(ys_vals) * 1.05
         if y_max == 0:
             y_max = 1.0
+        step = nice_step(y_max)
+        y_max = math.ceil(y_max / step - 1e-9) * step         # the top is a round number too
     else:
         y_min = min(ys_vals)
         y_max = max(ys_vals)
@@ -261,7 +286,7 @@ def line_chart(
         return bottom - (y - y_min) / (y_max - y_min) * plot_h
 
     parts = [_svg_open(title, W, H), _svg_title(title, W)]
-    parts.append(_grid_lines(left, right, top, bottom, y_min, y_max, y_unit))
+    parts.append(_grid_lines(left, right, top, bottom, y_min, y_max, y_unit, step))
 
     pts = " ".join(f"{_n(x_to_px(x))},{_n(y_to_px(y))}" for x, y in points)
     parts.append(
