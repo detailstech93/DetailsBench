@@ -61,6 +61,8 @@ def main():
         theme.apply(theme.saved())          # Light / Dark / System, as last chosen
         window = MainWindow(db, system_info)
         window.show()           # on every system (it was Windows only: Linux ran with no window)
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(8000, window.update_flow.at_start)   # a newer version? (at most once a day, can be off)
 
         qt_app.exec()
     except Exception as e:

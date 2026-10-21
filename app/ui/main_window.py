@@ -409,7 +409,10 @@ class MainWindow(QMainWindow):
         header_layout.addWidget(self.rescan_btn)
         
         main_layout.addWidget(header_frame)
-        
+        from app.ui.update_ui import UpdateBar
+        self.update_bar = UpdateBar()          # shown when a newer version is out (app/ui/update_ui.py)
+        main_layout.addWidget(self.update_bar)
+
         # --- Main Tabbed Views ---
         self.tabs = QTabWidget()
         
@@ -436,6 +439,11 @@ class MainWindow(QMainWindow):
         # 6. Steam View
         self.steam_tab = self._create_steam_tab()
         self.tabs.addTab(self.steam_tab, "Steam")
+
+        # 7. Updates of the app itself
+        from app.ui.update_ui import UpdatesTab
+        self.updates_tab = UpdatesTab()
+        self.tabs.addTab(self.updates_tab, "Updates")
         
         from app.ui.this_pc_page import ThisPcPage
         from app.ui.tests_page import TestsPage
@@ -473,6 +481,8 @@ class MainWindow(QMainWindow):
         install_ids = elevation.install_requested()
         if install_ids:                     # started again as administrator for Install selected
             self.after_scan.append(lambda: _admin.install_after_restart(self, install_ids))
+        from app.ui.update_ui import UpdateFlow
+        self.update_flow = UpdateFlow(self, self.update_bar, self.updates_tab)   # the check at start: scripts/main.py
         self.pages = QStackedWidget()
         # Tests and Games are one screen showing one section each (shared progress bar, Stop and Skip)
         self.page_widgets = {"this_pc": self.this_pc_page, "tests": self.tests_page, "games": self.tests_page,
