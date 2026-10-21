@@ -218,3 +218,19 @@ def test_the_button_shows_only_on_windows():
     assert not page.admin_btn.isHidden() and page.admin_btn.isEnabled()
     page.show_admin("win32", True)
     assert not page.admin_btn.isEnabled() and page.admin_btn.text() == "Administrator"
+
+
+def test_a_restart_asked_from_the_remote_button_opens_the_remote_window_again():
+    """Owner, 2026-10-21: Remote asked for administrator, the app restarted; the new window must open Remote so
+    the owner carries on where they stopped."""
+    assert elevation.restart_command(open_remote=True)[1].endswith(elevation.REMOTE_OPEN_FLAG)
+    assert elevation.REMOTE_OPEN_FLAG not in elevation.restart_command(remote_on=True, open_remote=True)[1]
+    assert elevation.remote_open_requested(["main.py", elevation.REMOTE_OPEN_FLAG])
+    assert not elevation.remote_open_requested(["main.py"])
+    w, got = _window(), []
+    assert admin_restart.restart(w, ask=lambda win, text: True, open_remote=True,
+                                 relaunch=lambda remote_on, open_remote=False: got.append(open_remote))
+    assert got == [True] and w.closed
+    w = _window()
+    admin_restart.remote_window_after_restart(w)
+    assert w.pages == ["tests"] and w.dialogs == 1

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Callable, List, Optional, Sequence, Tuple
 
 REMOTE_ON_FLAG = "--remote-on"         # remote mode was on before the restart: switch it on again (new code)
+REMOTE_OPEN_FLAG = "--open-remote"     # the Remote button asked for the restart: open the Remote window again
 INSTALL_FLAG = "--install-tests"       # + "id1,id2": tests ticked for "Install selected" before the restart
 ERROR_CANCELLED = 1223
 _TEST_ID = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
@@ -31,9 +32,12 @@ def is_elevated(platform: str = sys.platform) -> bool:
         return False
 
 
-def restart_command(remote_on: bool = False, install_ids: Sequence[str] = ()) -> Tuple[str, str, str]:
+def restart_command(remote_on: bool = False, install_ids: Sequence[str] = (),
+                    open_remote: bool = False) -> Tuple[str, str, str]:
     """(program, parameters, folder) that start this app again: the packaged app, or Python with scripts/main.py."""
     extra: List[str] = [REMOTE_ON_FLAG] if remote_on else []
+    if open_remote and not remote_on:
+        extra.append(REMOTE_OPEN_FLAG)
     ids = [i for i in install_ids if _TEST_ID.match(i)]
     if ids:
         extra += [INSTALL_FLAG, ",".join(ids)]
@@ -44,10 +48,10 @@ def restart_command(remote_on: bool = False, install_ids: Sequence[str] = ()) ->
 
 
 def relaunch_elevated(remote_on: bool = False, startfile: Optional[Callable] = None,
-                      install_ids: Sequence[str] = ()) -> Optional[str]:
+                      install_ids: Sequence[str] = (), open_remote: bool = False) -> Optional[str]:
     """Start the app again through the UAC prompt; None when it started, else why not ("declined" when the
     owner pressed No)."""
-    program, params, folder = restart_command(remote_on, install_ids)
+    program, params, folder = restart_command(remote_on, install_ids, open_remote)
     start = startfile or getattr(os, "startfile", None)
     if start is None:
         return "only on Windows"
@@ -62,6 +66,11 @@ def relaunch_elevated(remote_on: bool = False, startfile: Optional[Callable] = N
 
 def remote_on_requested(argv: Optional[List[str]] = None) -> bool:
     return REMOTE_ON_FLAG in (sys.argv if argv is None else argv)[1:]
+
+
+def remote_open_requested(argv: Optional[List[str]] = None) -> bool:
+    """The restart came from the Remote button (owner, 2026-10-21: carry on where I stopped)."""
+    return REMOTE_OPEN_FLAG in (sys.argv if argv is None else argv)[1:]
 
 
 def install_requested(argv: Optional[List[str]] = None) -> List[str]:

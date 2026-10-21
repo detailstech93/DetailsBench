@@ -187,7 +187,7 @@ def admin_first(window, choose: Optional[Callable[[str], bool]] = None, restart:
         from app.ui import admin_restart
 
         def restart():                          # the notice was the question: no second one
-            return admin_restart.restart(window, ask=lambda w, t: True)
+            return admin_restart.restart(window, ask=lambda w, t: True, open_remote=True)
     return bool(restart())
 
 

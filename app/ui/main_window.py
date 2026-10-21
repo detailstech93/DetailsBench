@@ -468,6 +468,10 @@ class MainWindow(QMainWindow):
             from PySide6.QtCore import QTimer
             from app.ui import admin_restart
             QTimer.singleShot(1500, lambda: admin_restart.remote_on_after_restart(self))
+        elif elevation.remote_open_requested():
+            from PySide6.QtCore import QTimer
+            from app.ui import admin_restart
+            QTimer.singleShot(1500, lambda: admin_restart.remote_window_after_restart(self))
         from app.ui.install_flow import InstallFlow
         self.install_flow = InstallFlow(self)
         self.tests_page.install_requested.connect(self.install_flow.start)

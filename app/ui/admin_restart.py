@@ -45,9 +45,10 @@ def ask(window, text: str) -> bool:
 
 
 def restart(window, ask: Callable = ask, relaunch: Callable = elevation.relaunch_elevated,
-            warn: Optional[Callable] = None, install_ids: Sequence[str] = ()) -> bool:
+            warn: Optional[Callable] = None, install_ids: Sequence[str] = (), open_remote: bool = False) -> bool:
     """Ask, start the app again through the UAC prompt and close this window. False when nothing changed.
-    install_ids: the new window installs these tests (Install selected; it asks first again, with the list)."""
+    install_ids: the new window installs these tests (Install selected; it asks first again, with the list).
+    open_remote: the new window opens the Remote window (the restart was asked from the Remote button)."""
     warn = warn or (lambda text: QMessageBox.information(window, "Restart as administrator", text))
     if elevation.is_elevated():
         warn("The app already runs as administrator.")
@@ -61,7 +62,10 @@ def restart(window, ask: Callable = ask, relaunch: Callable = elevation.relaunch
     remote_on = window.remote.running()
     settings = window.remote.settings()
     window.remote.stop()               # frees the port for the new window
-    why = relaunch(remote_on, install_ids=list(install_ids)) if install_ids else relaunch(remote_on)
+    extra = {"install_ids": list(install_ids)} if install_ids else {}
+    if open_remote:
+        extra["open_remote"] = True
+    why = relaunch(remote_on, **extra)
     if why is not None:
         if remote_on:
             window.remote.start(settings["local_only"], settings["port"])
@@ -73,6 +77,12 @@ def restart(window, ask: Callable = ask, relaunch: Callable = elevation.relaunch
     logger.info("Restarting as administrator (remote mode %s)", "on" if remote_on else "off")
     window.close()
     return True
+
+
+def remote_window_after_restart(window):
+    """The Remote button asked for the restart: open its window in the new one, so the owner carries on there."""
+    window.show_page("tests")
+    window.edit_remote_start()
 
 
 def remote_on_after_restart(window, attempt: int = 0):
