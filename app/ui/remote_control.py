@@ -32,6 +32,7 @@ from PySide6.QtGui import QDesktopServices, QFont, QGuiApplication
 from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
                                QPushButton, QSpinBox, QVBoxLayout)
 
+from app.automation.runner import SKIPPED_BY_USER
 from app.catalog import GROUPS, TestEntry
 from app.remote import server as remote
 from app.ui.tests_page import SCANNING_TEXT, elapsed_text, progress_percent
@@ -279,7 +280,11 @@ def plan_tests(panel, db, running: bool) -> List[dict]:
         mine = [r for r in rows if r.get("benchmark_name") == wl.id]
         measured = [r for r in mine if not r.get("is_warmup")]
         good = [r for r in measured if (r.get("status") or "completed") == "completed" and r.get("score") is not None]
-        if running and now.startswith(name + ":"):
+        skipped = any(r.get("status") == "skipped" and str(r.get("note") or "").startswith(SKIPPED_BY_USER)
+                      for r in measured)
+        if skipped:
+            state = "skipped"                   # owner, 2026-10-21: it said "running" after the skip
+        elif running and now.startswith(name + ":"):
             state = "running"
         elif running:
             state = "waiting" if not mine else "running" if len(measured) < item.repetitions else "done"

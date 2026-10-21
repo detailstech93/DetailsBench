@@ -50,6 +50,7 @@ button:disabled { opacity:.45; cursor:default; }
 .dot.running { background:var(--run); box-shadow:0 0 0 4px rgba(21,101,192,.18); }
 .dot.done { background:var(--accent); }
 .dot.failed { background:var(--stop); }
+.dot.skipped { background:var(--muted); }
 .ptest .scores { grid-column:2 / 4; font-size:13px; color:var(--muted); overflow-wrap:anywhere; }
 .ptest .count { font-size:13px; color:var(--muted); white-space:nowrap; }
 .tabs button.on { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
@@ -427,7 +428,7 @@ async function reloadInfo() {
 }
 
 const STATE_WORDS = { running: "running now", waiting: "waiting", done: "done", failed: "failed",
-                      "not run": "not run" };
+                      "not run": "not run", skipped: "skipped" };
 
 function showPlan(tests) {
   const box = $("plan");

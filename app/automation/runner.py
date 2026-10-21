@@ -303,8 +303,9 @@ class AutomationRunner:
                 self.skip_event.clear()
             if self.skip_target == item.workload.id:
                 note = self._store_skip(summary, item, run_index)
-                self.on_step(position + 1, total, f"{item.workload.display_name}: run {run_index} skipped ({note})")
-                self._drop_rest(schedule, position, item)
+                self._drop_rest(schedule, position, item)       # the count shrinks: the bar must not stop short
+                self.on_step(position + 1, len(schedule),
+                             f"{item.workload.display_name}: run {run_index} skipped ({note})")
                 continue
             wl = item.workload
             label = f"{'warmup' if is_warmup else 'run'} {run_index}" + (" (retry)" if why.startswith("Retry") else
@@ -367,6 +368,7 @@ class AutomationRunner:
                                and not r.is_warmup] + [0]) + 1
                     self._store_skip(summary, item, nxt)        # it finished just before: the rest is skipped
                 self._drop_rest(schedule, position, item)
+                self.on_step(position + 1, len(schedule), f"{wl.display_name}: skipped")    # the count shrank
                 continue
             if result.status == "cancelled":
                 summary.stopped = True

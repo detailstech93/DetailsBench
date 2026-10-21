@@ -111,3 +111,18 @@ def test_the_run_dialog_has_the_box_off_by_default(qapp, monkeypatch):
     d = RunTestsDialog([entry], profile, [])
     d.shutdown_after.setChecked(True)
     assert not d.shutdown_after.isEnabled() and not d.choice().shutdown_after
+
+
+def test_a_skip_cancels_the_shutdown(tmp_path):
+    """Owner, 2026-10-21: Skip during a run with "shut down when it ends" must keep the PC on."""
+    from types import SimpleNamespace
+    from app.automation.runner import SKIPPED_BY_USER
+    from app.ui import shutdown_after
+    report = tmp_path / "r.html"
+    report.write_text("x", encoding="utf-8")
+    db = SimpleNamespace(get_runs=lambda sid, include_test=True: [{"id": 1}])
+    rec = lambda error: SimpleNamespace(result=SimpleNamespace(error=error))
+    done = SimpleNamespace(stopped=False, records=[rec(None)])
+    assert shutdown_after.why_not_now(db, 1, done, report) is None
+    skipped = SimpleNamespace(stopped=False, records=[rec(None), rec(SKIPPED_BY_USER + " before any result")])
+    assert "skipped" in shutdown_after.why_not_now(db, 1, skipped, report)

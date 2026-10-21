@@ -45,6 +45,9 @@ def why_not_now(db, session_id: Optional[int], summary, report: Optional[Path]) 
         return "the run has no session"
     if summary is None or getattr(summary, "stopped", False) or not hasattr(summary, "records"):
         return "the run was stopped or did not end normally"
+    from app.automation.runner import SKIPPED_BY_USER
+    if any(str(getattr(getattr(r, "result", None), "error", "") or "").startswith(SKIPPED_BY_USER) for r in summary.records):
+        return "a test was skipped (Skip cancels the shutdown)"         # owner, 2026-10-21
     try:
         stored = db.get_runs(session_id, include_test=True)
     except Exception as e:

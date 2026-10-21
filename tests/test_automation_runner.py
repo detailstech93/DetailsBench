@@ -239,3 +239,17 @@ def test_skip_with_nothing_going_on_does_nothing(db, tmp_path):
     assert runner.skip_test() is None
     runner.run()
     assert [r["status"] for r in database.get_runs(sid)] == ["completed"]
+
+
+def test_after_skips_the_last_step_reaches_the_end(db, tmp_path):
+    """Owner, 2026-10-21: two tests, each skipped while running; the bar stayed at 50 % (the count had shrunk)."""
+    database, sid = db
+    holder, steps = {}, []
+    skip = lambda ctx: holder["runner"].skip_test() if ctx.run_index == 1 else None
+    x = Scripted("x", [WorkloadResult(status="cancelled", error="stopped")] * 3, on_run=skip)
+    y = Scripted("y", [WorkloadResult(status="cancelled", error="stopped")] * 3, on_run=skip)
+    runner = AutomationRunner(database, sid, [PlanItem(x, 3, 0), PlanItem(y, 3, 0)], tmp_path / "o",
+                              on_step=lambda done, total, text: steps.append((done, total)))
+    holder["runner"] = runner
+    assert not runner.run().stopped
+    assert steps[-1][0] == steps[-1][1]

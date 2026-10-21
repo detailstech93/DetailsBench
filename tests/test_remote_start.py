@@ -358,6 +358,12 @@ def test_the_page_follows_each_test_of_the_plan():
     assert (first["runs"], first["planned"], first["failed"], first["unit"]) == (3, 3, 1, "MIPS")
     assert first["scores"] == ["173,304", "172,726"] and first["average"] == "173,015"
     assert [t["state"] for t in plan_tests(panel, db, False)] == ["done", "not run", "not run"]
+    # a skipped test says so, not "running" (owner, 2026-10-21)
+    rows.append({"benchmark_name": "blender_cpu", "is_warmup": 0, "score": None, "status": "skipped",
+                 "note": "Skipped by the user before any result"})
+    panel.step = (5, 5, "y-cruncher: run 1")
+    assert [t["state"] for t in plan_tests(panel, db, True)] == ["done", "skipped", "running"]
+    assert [t["state"] for t in plan_tests(panel, db, False)] == ["done", "skipped", "not run"]
     panel.last_session_id = 25                           # another session since: nothing to show
     assert plan_tests(panel, db, False) == []
 
