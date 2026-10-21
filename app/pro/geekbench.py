@@ -36,6 +36,7 @@ from typing import Callable, List, Optional, Tuple
 
 from app.automation.process import run_process
 from app.automation.workload import RunContext, Workload, WorkloadResult
+from app.pro import software_gpu
 
 MAJOR = 7
 UNIT = "points"
@@ -54,7 +55,7 @@ MODES = {
 SINGLE = re.compile(r"^\s*Single-Core Score\s+(\d+)\s*$", re.M)
 MULTI = re.compile(r"^\s*Multi-Core Score\s+(\d+)\s*$", re.M)
 GPU = re.compile(r"^\s*GPU Score\s+(\d+)\s*$", re.M)
-RESULT_URL = re.compile(r"https://browser\.geekbench\.com/v\d+/(?:cpu|gpu)/\d+(?![\w/?])")
+RESULT_URL = re.compile(r"https://browser\.geekbench\.com/v\d+/(?:cpu|gpu|compute)/\d+(?![\w/?])")
 DEVICE = re.compile(r"^\s*Device Name\s+(.+?)\s*$", re.M)
 ROW = re.compile(r"^\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(.+?)\s*\|\s*$")
 WARNING = ("Geekbench 7's free version uploads every result to the Geekbench Browser (browser.geekbench.com) and needs "
@@ -169,7 +170,15 @@ def parse_scores(text: str, gpu: bool) -> Tuple[Optional[float], dict, Optional[
 
 
 def _why(text: str, wanted: str) -> str:
-    lines = [l.strip() for l in text.splitlines() if l.strip() and not l.strip().startswith("Running ")]
+    """Why there is no score. The "claim" link's key is never put in the note (it stays in the run folder)."""
+    url = RESULT_URL.findall(text)
+    if url and "Upload succeeded" in text:
+        # Geekbench 6.7.1 on Linux (full run, WSL, 2026-10-21): the run finished and uploaded, but the console shows
+        # only the result's link, no score lines; its page sits behind a browser check the app does not get past
+        return (f"Geekbench finished and uploaded, but printed no '{wanted}' line (this version shows the score only "
+                f"on its result page): {url[-1]}")
+    lines = [l.strip() for l in text.splitlines() if l.strip() and not l.strip().startswith("Running ")
+             and "claim?key=" not in l]
     hint = " (it needs the internet: the free version uploads every result)" if "upload" in text.lower() else ""
     return f"no '{wanted}' line in Geekbench's output{hint}" + (f"; it ended with: {lines[-1][:200]}" if lines else "")
 
@@ -227,9 +236,14 @@ class GeekbenchWorkload(Workload):
                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except (OSError, subprocess.SubprocessError) as e:
             return None, f"--gpu-list failed: {e}"
-        rows = parse_gpu_list(res.stdout or "").get(self.options[1], [])
+        listed = parse_gpu_list(res.stdout or "").get(self.options[1], [])
+        rows = [r for r in listed if not software_gpu.software_renderer(r[2])]
         row = pick_device(rows, self._gpu_name())
-        return (row, "") if row else (None, f"Geekbench lists no {self.options[1]} device on this PC")
+        if row:
+            return row, ""
+        if listed:      # WSL, 2026-10-21: Vulkan listed only llvmpipe, and the "GPU" score was the CPU's
+            return None, "Geekbench: " + software_gpu.why(software_gpu.software_renderer(listed[0][2]), self.options[1])
+        return None, f"Geekbench lists no {self.options[1]} device on this PC"
 
     def run(self, ctx: RunContext) -> WorkloadResult:
         available, why = self.availability()
@@ -260,6 +274,10 @@ class GeekbenchWorkload(Workload):
         if outcome.timed_out:
             return WorkloadResult(status="timed_out", error=f"timeout after {ctx.timeout_seconds:g} s", **common)
         text = out.read_text(encoding="utf-8", errors="replace")
+        renderer = software_gpu.software_renderer(" ".join(DEVICE.findall(text))) if self.gpu else None
+        if renderer:
+            return WorkloadResult(status="invalid", error="Geekbench: " + software_gpu.why(renderer, self.options[1]),
+                                  **common)
         score, metrics, why = parse_scores(text, self.gpu)
         if score is None:
             return WorkloadResult(status="invalid", error=why + (f"; exit code {outcome.exit_code}"

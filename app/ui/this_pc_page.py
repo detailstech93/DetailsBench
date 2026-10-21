@@ -95,7 +95,7 @@ class ThisPcPage(QWidget):
         head.setFont(font)
         layout.addWidget(head)
         self.note = QLabel("Reading the system... values marked \"not certain\" could not be confirmed.")
-        self.note.setStyleSheet("color: #555555;")
+        self.note.setStyleSheet("color: palette(placeholder-text);")
         layout.addWidget(self.note)
 
         self.grid = QGridLayout()

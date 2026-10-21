@@ -242,3 +242,32 @@ def test_the_linux_archives_may_unpack_to_their_real_size():
     # their tar listings: Geekbench 7.1.0 unpacks 1,009,518,416 bytes (owner hit the 500 MB limit), 6.7.1 500,109,413
     assert INSTALLERS["geekbench7_cpu"]["linux"]["zip"]["max_unpacked"] > 1_009_518_416
     assert INSTALLERS["geekbench_6"]["linux"]["zip"]["max_unpacked"] > 500_109_413
+
+
+GB6_LINUX_OUT = ("Single-Core\n  Running Clang\n\nMulti-Core\n  Running Clang\n\n"
+                 "Upload succeeded. Visit the following link and view your results online:\n\n"
+                 "  https://browser.geekbench.com/v6/cpu/19370277\n\n"
+                 "Visit the following link and add this result to your profile:\n\n"
+                 "  https://browser.geekbench.com/v6/cpu/19370277/claim?key=244591\n")
+
+
+def test_geekbench6_on_linux_prints_no_score_and_the_claim_key_is_not_kept(tmp_path, monkeypatch):
+    # Geekbench 6.7.1, full run on Linux (WSL) 2026-10-21: only the result links, no score lines
+    wl, _ = _workload("geekbench6_cpu", GB6_LINUX_OUT, monkeypatch)
+    r = wl.run(RunContext(output_dir=tmp_path, stop_event=threading.Event()))
+    assert r.status == "invalid" and r.score is None
+    assert "https://browser.geekbench.com/v6/cpu/19370277" in r.error and "claim" not in r.error
+    assert gb.RESULT_URL.findall("https://browser.geekbench.com/v6/compute/6945159\n") == [
+        "https://browser.geekbench.com/v6/compute/6945159"]
+
+
+def test_a_software_renderer_is_never_a_gpu_score(tmp_path, monkeypatch):
+    # WSL, 2026-10-21: Vulkan listed only Mesa's llvmpipe, and its "GPU Score" was the CPU's
+    listed = "Vulkan\n| Platform ID | Device ID | Description |\n| 0 | 0 | llvmpipe (LLVM 20.1.2, 256 bits) |\n"
+    wl, seen = _workload("geekbench7_gpu_vulkan", GPU_OUT, monkeypatch, listed=listed)
+    r = wl.run(RunContext(output_dir=tmp_path, stop_event=threading.Event()))
+    assert r.status == "skipped" and "llvmpipe" in r.error and "software renderer" in r.error and not seen
+    out = GPU_OUT + "  Device Name                   llvmpipe (LLVM 20.1.2, 256 bits)\n"
+    wl, _ = _workload("geekbench7_gpu_opencl", out, monkeypatch)
+    r = wl.run(RunContext(output_dir=tmp_path, stop_event=threading.Event()))
+    assert r.status == "invalid" and r.score is None and "llvmpipe" in r.error

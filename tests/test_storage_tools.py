@@ -31,6 +31,14 @@ def test_commands_use_documented_options():
     assert "--rw=write" in dt.fio_command("f", SEQ_WRITE, 1, 1, 0, "o")
 
 
+def test_fio_uses_the_systems_own_io_engine():
+    # the full run on Linux failed with "engine windowsaio not loadable" (2026-10-21)
+    assert dt.fio_engine("win32") == "windowsaio"
+    assert dt.fio_engine("linux") == "libaio"
+    assert dt.fio_engine("darwin") == "posixaio"
+    assert "--ioengine=libaio" in dt.fio_command("fio", SEQ_READ, 1, 1, 0, "o", engine="libaio")
+
+
 def test_parse_real_diskspd_and_fio():
     assert dt.parse_diskspd(DISKSPD_XML, write=False) == ({"mib_s": 6772.26, "iops": 6772.3, "latency_ms": 1.182}, None)
     assert dt.parse_diskspd(DISKSPD_XML, write=True)[1] == "no write bytes in the result"

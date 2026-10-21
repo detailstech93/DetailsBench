@@ -130,7 +130,7 @@ class PresetBox(QGroupBox):
             self.combos[key], self.rows[key] = combo, label
         if gpu:
             card = QLabel(f"Graphics card: {gpu}. Only what it can run is offered.")
-            card.setStyleSheet("color: gray;")
+            card.setStyleSheet("color: palette(placeholder-text);")
             form.addRow(card)
         self.summary = QLabel()
         self.summary.setWordWrap(True)
@@ -139,7 +139,7 @@ class PresetBox(QGroupBox):
                       "after the run it puts your own settings back. A value a game does not have is not set "
                       "(listed above), never guessed.")
         note.setWordWrap(True)
-        note.setStyleSheet("color: gray;")
+        note.setStyleSheet("color: palette(placeholder-text);")
         form.addRow(note)
         self._load(initial)
         self._target_changed()

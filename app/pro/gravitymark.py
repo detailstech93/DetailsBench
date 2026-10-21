@@ -33,6 +33,7 @@ from typing import Dict, Optional, Tuple
 
 from app.automation.process import run_process
 from app.automation.workload import RunContext, Workload, WorkloadResult
+from app.pro import software_gpu
 
 VERSION = "1.89"
 LICENSE_URL = "https://gravitymark.tellusim.com/"
@@ -211,6 +212,9 @@ class GravityMarkWorkload(Workload):
             return WorkloadResult(status="cancelled", error="stopped by user", **common)
         if outcome.timed_out:
             return WorkloadResult(status="timed_out", error=f"timeout after {ctx.timeout_seconds:g} s", **common)
+        renderer = software_gpu.software_renderer(_read(out) + "\n" + _read(err))
+        if renderer:                    # the WSL run crashed on llvmpipe (exit -11); a finished one is no GPU score
+            return WorkloadResult(status="invalid", error=software_gpu.why(renderer, self.title), **common)
         if outcome.exit_code in DLL_MISSING:
             return WorkloadResult(status="failed", error=f"exit code {outcome.exit_code}: a DLL is missing (Windows: "
                                   "GravityMark needs Microsoft's Visual C++ Redistributable x64; its own "

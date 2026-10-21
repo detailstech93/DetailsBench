@@ -378,7 +378,7 @@ class MainWindow(QMainWindow):
         title_label.setFont(title_font)
         
         self.status_label = QLabel("Initializing...")
-        self.status_label.setStyleSheet("color: #555555; font-style: italic;")
+        self.status_label.setStyleSheet("color: palette(placeholder-text); font-style: italic;")
         
         self.rescan_btn = QPushButton("Rescan Benchmarks")
         self.rescan_btn.setFixedWidth(160)
@@ -396,6 +396,16 @@ class MainWindow(QMainWindow):
             header_layout.addWidget(b)
         header_layout.addSpacing(12)
         header_layout.addWidget(self.status_label, 1)
+        # Light / Dark / System (app/ui/theme.py), kept in settings.json
+        from app.ui import theme
+        self.theme_box = QComboBox()
+        for key, text in theme.CHOICES:
+            self.theme_box.addItem(text, key)
+        self.theme_box.setToolTip("Look of the app: the system's setting, light or dark")
+        self.theme_box.setCurrentIndex(max(0, self.theme_box.findData(theme.saved())))
+        self.theme_box.currentIndexChanged.connect(lambda _i: self.set_theme(self.theme_box.currentData()))
+        header_layout.addWidget(QLabel("Theme:"))
+        header_layout.addWidget(self.theme_box)
         header_layout.addWidget(self.rescan_btn)
         
         main_layout.addWidget(header_frame)
@@ -471,6 +481,15 @@ class MainWindow(QMainWindow):
             self.pages.addWidget(widget)
         main_layout.addWidget(self.pages, 1)
         self.show_page("this_pc")
+
+    def set_theme(self, mode: str):
+        """Show the app in the chosen look now and keep the choice."""
+        from app.ui import theme
+        theme.apply(mode)
+        try:
+            theme.save(mode)
+        except (OSError, ValueError) as e:
+            self.status_label.setText(f"Theme not saved: {e}")
 
     def show_page(self, key: str):
         if key in ("tests", "games"):
@@ -1589,7 +1608,7 @@ class MainWindow(QMainWindow):
         # URL preview
         url_label = QLabel(f"URL: {versions[default_idx]['url']}")
         url_label.setWordWrap(True)
-        url_label.setStyleSheet("font-style: italic; color: #555;")
+        url_label.setStyleSheet("font-style: italic; color: palette(placeholder-text);")
         layout.addWidget(url_label)
 
         def on_url_version_changed(idx):

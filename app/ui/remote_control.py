@@ -528,7 +528,7 @@ class RemoteControl:
 def _muted(text: str) -> QLabel:
     label = QLabel(text)
     label.setWordWrap(True)
-    label.setStyleSheet("color: #667085;")
+    label.setStyleSheet("color: palette(placeholder-text);")
     return label
 
 

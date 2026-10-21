@@ -21,6 +21,7 @@ from typing import Optional, Tuple
 
 from app.automation.process import run_process
 from app.automation.workload import RunContext, Workload, WorkloadResult
+from app.pro import software_gpu
 
 UNIT = "points"
 # test id: (display name, program, API, project page)
@@ -108,7 +109,11 @@ class LinuxGpuWorkload(Workload):
         if outcome.exit_code != 0:
             return WorkloadResult(status="failed", error=f"exit code {outcome.exit_code} (no {self.api} driver or "
                                   "no desktop?)", **common)
-        score, why_not = parse_score(self.program, _read(out) + "\n" + _read(err))
+        text = _read(out) + "\n" + _read(err)
+        renderer = software_gpu.software_renderer(text)
+        if renderer:
+            return WorkloadResult(status="invalid", error=software_gpu.why(renderer, self.api), **common)
+        score, why_not = parse_score(self.program, text)
         if score is None:
             return WorkloadResult(status="invalid", error=why_not, **common)
         note = f"{self.program}, {self.api}, default scenes, 800x600 window"

@@ -89,10 +89,12 @@ def build_command(exe: str, mode: str, rtx: bool, output: str, devices: Optional
 
 
 def parse_devices(text: str) -> List[Tuple[int, str]]:
-    """(index, name) from --list-devices: lines like "[0] NVIDIA GeForce RTX 5090 Laptop GPU" or "0: name"."""
+    """(index, name) from --list-devices: lines like "[0] NVIDIA GeForce RTX 5090 Laptop GPU" or "0: name". On Linux
+    the list follows the license text and its prompt on the same line ("Do you agree? [Y/n] [0]: Intel(R) Core(TM)
+    Ultra 9 275HX", full run 2026-10-21); the license's numbered sections ("9.1. This AGREEMENT") are not devices."""
     out = []
     for line in text.splitlines():
-        m = re.match(r"\s*\[?(\d+)\]?[:.)]?\s+(.+?)\s*$", line)
+        m = re.search(r"\[(\d+)\]:?\s+(.+?)\s*$", line) or re.match(r"\s*(\d+):\s+(.+?)\s*$", line)
         if m:
             out.append((int(m.group(1)), m.group(2)))
     return out

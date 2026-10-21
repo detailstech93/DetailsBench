@@ -10,11 +10,13 @@ database is the drive measured. The app deletes only that file, which it created
 
 Commands use only documented options: DiskSpd -c -d -W -b -o -t -w [-r] -Sh -L -Rxml <file> (sequential is
 DiskSpd's default; -si is ignored with one thread, DiskSpd warns); fio --name --filename --size --rw --bs
---iodepth --numjobs --ioengine=windowsaio --direct=1 --thread --ramp_time --runtime --time_based
+--iodepth --numjobs --ioengine=<engine> --direct=1 --thread --ramp_time --runtime --time_based
 --group_reporting --output-format=json --output. Parsers read DiskSpd's XML result (TimeSpan/TestTimeSeconds,
 TimeSpan/Thread/Target ReadBytes, ReadCount, WriteBytes, WriteCount, TimeSpan/Latency/Average*Milliseconds) and
 fio's JSON (jobs[0].read/write: bw_bytes, iops, lat_ns.mean). Verified with raw output of DiskSpd 2.3 and
-fio 3.43 (x64) on the development computer, 2026-10-18 (tests/data). Without administrator rights DiskSpd
+fio 3.43 (x64) on the development computer, 2026-10-18 (tests/data). The I/O engine is the system's own
+asynchronous one: windowsaio on Windows, libaio on Linux (the full run on Linux, 2026-10-21, failed with
+"engine windowsaio not loadable"), posixaio elsewhere. Without administrator rights DiskSpd
 warns that it cannot use SeManageVolumePrivilege and prepares the test file the slower way; the measurement
 itself is not affected.
 
@@ -29,6 +31,7 @@ import math
 import os
 import shutil
 import subprocess
+import sys
 import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -102,12 +105,18 @@ def parse_diskspd(text: str, write: bool) -> Tuple[Dict[str, float], Optional[st
 
 
 # ---- fio -----------------------------------------------------------------------------------------
-def fio_command(exe: str, test: DiskTest, size_mib: int, seconds: int, warmup: int, output: str) -> List[str]:
+def fio_engine(platform: Optional[str] = None) -> str:
+    platform = sys.platform if platform is None else platform
+    return "windowsaio" if platform == "win32" else "libaio" if platform.startswith("linux") else "posixaio"
+
+
+def fio_command(exe: str, test: DiskTest, size_mib: int, seconds: int, warmup: int, output: str,
+                engine: Optional[str] = None) -> List[str]:
     rw = ("randwrite" if test.random else "write") if test.write else ("randread" if test.random else "read")
     # relative file name: fio treats ':' in a path as a separator, so the run folder is the working directory
     return [exe, f"--name={test.id}", f"--filename={TEST_FILE}", f"--size={size_mib}M", f"--rw={rw}",
             f"--bs={test.block.lower()}", f"--iodepth={test.queue}", f"--numjobs={test.threads}",
-            "--ioengine=windowsaio", "--direct=1", "--thread", f"--ramp_time={warmup}", f"--runtime={seconds}",
+            f"--ioengine={engine or fio_engine()}", "--direct=1", "--thread", f"--ramp_time={warmup}", f"--runtime={seconds}",
             "--time_based", "--group_reporting", "--output-format=json", f"--output={output}"]
 
 

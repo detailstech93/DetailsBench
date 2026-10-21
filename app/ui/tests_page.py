@@ -173,7 +173,7 @@ class TestsPage(QWidget):
 
         row = QHBoxLayout()
         self.hint = QLabel("Tick tests, or double-click one, then choose how many times to run them.")
-        self.hint.setStyleSheet("color: #555555;")
+        self.hint.setStyleSheet("color: palette(placeholder-text);")
         self.run_btn = QPushButton("Run selected...")
         self.run_btn.setMinimumHeight(40)
         self.run_btn.setStyleSheet("QPushButton { font-size: 14px; font-weight: bold; padding: 6px 24px; }")

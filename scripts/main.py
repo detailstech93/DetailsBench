@@ -57,6 +57,8 @@ def main():
         if qt_app is None:
             qt_app = QApplication(sys.argv)
             
+        from app.ui import theme
+        theme.apply(theme.saved())          # Light / Dark / System, as last chosen
         window = MainWindow(db, system_info)
         window.show()           # on every system (it was Windows only: Linux ran with no window)
 

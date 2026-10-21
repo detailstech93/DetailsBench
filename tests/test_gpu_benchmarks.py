@@ -209,3 +209,27 @@ def test_the_report_has_one_gpu_benchmarks_section():
     assert "<h2>GPU benchmarks</h2>" in html and "151.3 <span>FPS</span>" in html and "GravityMark, Vulkan" in html
     assert "glmark2 (OpenGL)" in html and "Higher is faster" in html
     assert _gpu_bench_section({"runs": []}) == ""
+
+
+def test_a_software_renderer_is_never_a_gpu_score(tmp_path, monkeypatch):
+    # full run on Linux (WSL), 2026-10-21: vkmark and glmark2 "completed" on Mesa's llvmpipe, GravityMark crashed on it
+    from app.pro import software_gpu
+    assert software_gpu.software_renderer("GL_RENDERER:    llvmpipe (LLVM 20.1.2, 256 bits)") == "llvmpipe"
+    assert software_gpu.software_renderer("Device: NVIDIA GeForce RTX 5090 Laptop GPU") is None
+    w = linux_gl.LinuxGpuWorkload("glmark2", platform="linux", which=lambda name: f"/usr/bin/{name}")
+    run, _ = _fake(lambda folder, out: out.write_text(
+        "    GL_RENDERER:    llvmpipe (LLVM 20.1.2, 256 bits)\n  glmark2 Score: 1075\n", encoding="utf-8"))
+    monkeypatch.setattr(linux_gl, "run_process", run)
+    r = w.run(_ctx(tmp_path))
+    assert r.status == "invalid" and r.score is None and "llvmpipe" in r.error and "OpenGL" in r.error
+    exe = tmp_path / "bin" / "GravityMark.x64"
+    exe.parent.mkdir()
+    exe.write_bytes(b"")
+    g = gm.GravityMarkWorkload("gravitymark_vulkan", exe=exe, data_dir=tmp_path, platform="linux")
+    g.accept_license()
+    run, _ = _fake(lambda folder, out: out.write_text(
+        "M:  37.60 ms: GPU: NVIDIA GeForce RTX 5090 Laptop GPU\nM: 298.81 ms: Device: llvmpipe (LLVM 20.1.2, 256 bits)\n",
+        encoding="utf-8"), exit_code=-11)
+    monkeypatch.setattr(gm, "run_process", run)
+    r = g.run(_ctx(tmp_path))
+    assert r.status == "invalid" and "llvmpipe" in r.error and "Vulkan" in r.error

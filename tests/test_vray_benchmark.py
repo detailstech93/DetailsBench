@@ -88,6 +88,15 @@ def test_only_nvidia_gpus_are_picked():
     assert vb.gpu_devices([(0, "AMD Radeon RX 7900 XTX"), (1, "AMD Ryzen 9 7950X")]) == []
 
 
+def test_the_license_text_is_not_read_as_devices():
+    # Linux (WSL), full run 2026-10-21: the list is glued to the license prompt, and no NVIDIA device was listed
+    text = ("1. DEFINITIONS, ACCOUNT AND PASSWORD\n9.1. This AGREEMENT is effective until terminated.\n"
+            "_______END OF THE AGREEMENT_______\n\nDo you agree? [Y/n] [0]: Intel(R) Core(TM) Ultra 9 275HX\n\n"
+            "Automatic installation was successful!\n")
+    assert vb.parse_devices(text) == [(0, "Intel(R) Core(TM) Ultra 9 275HX")]
+    assert vb.parse_devices("0: NVIDIA GeForce RTX 4090\n") == [(0, "NVIDIA GeForce RTX 4090")]
+
+
 DATA = Path(__file__).parent / "data"
 
 
