@@ -48,6 +48,7 @@ CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"     # no 0/O or 1/I: read off
 CODE_LENGTH = 8
 MAX_WRONG, LOCK_SECONDS = 5, 60
 MAX_BODY = 16 * 1024
+REQUEST_TIMEOUT = 20         # seconds a connection may stay silent (security review, 2026-10-21)
 LIMITS = {"repetitions": (1, 50), "warmup_runs": (0, 10), "cooldown_seconds": (0, 3600)}
 MAX_TESTS = 100
 COOKIE = "pcbm"
@@ -205,6 +206,7 @@ def _handler(server: "RemoteServer"):
     class Handler(BaseHTTPRequestHandler):
         server_version = "PCBenchmarkManager"
         sys_version = ""
+        timeout = REQUEST_TIMEOUT       # a client that opens a connection and sends nothing must not hold a thread
 
         def log_message(self, fmt, *args):      # requests go to the app's log, never to a console
             logger.info("remote %s: " + fmt, self.client_address[0], *args)

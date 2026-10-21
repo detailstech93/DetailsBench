@@ -107,3 +107,75 @@ class PugetResultDialog(RecordResultDialog):
         self.values["display_name"] = f"PugetBench {app}"
         self.values["note"] = pugetbench.note_text(self.puget_version, self.app_version.text(), self.preset.text(),
                                                    self.values["note"] or "")
+
+
+class ScoresDialog(QDialog):
+    """A test whose score is typed, run several times (owner, 2026-10-21): one field per run, every score is stored
+    as its own measured MANUAL run, so the report shows their average like any other test. An empty field is a run
+    not done (nothing stored for it); failures are never typed as numbers."""
+
+    def __init__(self, benchmark_label: str, session_label: str, count: int, default_unit: str = "points",
+                 links=(), puget: bool = False, puget_version=None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Scores: {benchmark_label}")
+        self.puget_version = puget_version
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel(f"Session: {session_label}\nOne field per run, the score exactly as displayed; "
+                                "leave a field empty for a run that did not finish. Recorded as MANUAL entries."))
+        form = QFormLayout()
+        self.application = self.app_version = self.preset = None
+        if puget:
+            from app.pro import pugetbench
+            self.application = QComboBox()
+            self.application.addItems([app for _, app, _ in pugetbench.TESTS])
+            form.addRow("Application:", self.application)
+        self.scores = []
+        for n in range(count):
+            field = QLineEdit()
+            field.setPlaceholderText("score exactly as displayed")
+            link = links[n] if n < len(links) else None
+            form.addRow(f"Run {n + 1}:" if not link else f"Run {n + 1} ({link}):", field)
+            self.scores.append(field)
+        self.unit = QLineEdit(default_unit)
+        self.note = QLineEdit()
+        form.addRow("Unit:", self.unit)
+        if puget:
+            self.app_version = QLineEdit()
+            self.app_version.setPlaceholderText("e.g. Photoshop 27.0 (shown on PugetBench's results)")
+            self.preset = QLineEdit()
+            self.preset.setPlaceholderText("e.g. Standard")
+            form.addRow("Application version:", self.app_version)
+            form.addRow("Preset:", self.preset)
+        form.addRow("Note:", self.note)
+        layout.addLayout(form)
+        self.error = QLabel("")
+        self.error.setStyleSheet("color: #C62828;")
+        layout.addWidget(self.error)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self._try_accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self.values: Optional[dict] = None
+
+    def _try_accept(self):
+        scores = []
+        for n, field in enumerate(self.scores):
+            if not field.text().strip():
+                continue
+            score, err = parse_score("completed", field.text())
+            if err:
+                self.error.setText(f"Run {n + 1}: {err}")
+                return
+            scores.append((n, score))
+        if not scores:
+            self.error.setText("enter at least one score")
+            return
+        self.values = {"scores": [s for _, s in scores], "runs": scores, "unit": self.unit.text().strip() or "points",
+                       "note": self.note.text().strip() or None}
+        if self.application is not None:
+            from app.pro import pugetbench
+            app = self.application.currentText()
+            self.values.update(benchmark_name=pugetbench.test_for(app), display_name=f"PugetBench {app}",
+                               note=pugetbench.note_text(self.puget_version, self.app_version.text(),
+                                                         self.preset.text(), self.values["note"] or ""))
+        self.accept()

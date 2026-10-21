@@ -614,3 +614,14 @@ def test_install_several_from_the_page_shows_the_list_then_installs_with_no_wind
     assert ok and started == [(["fio", "sevenzip_benchmark"], {"install_only": True, "confirmed": True})]
     window.run_all_flow = SimpleNamespace(busy=lambda: True)
     assert api.act(["fio"], "install_many") == (False, "Something is going on at the PC; wait for it first.")
+
+
+def test_a_silent_connection_is_closed(served, monkeypatch):
+    """Security review (2026-10-21): a client that connects and sends nothing must not hold a thread forever."""
+    import socket
+    _, server, _ = served
+    assert server.httpd.RequestHandlerClass.timeout == rs.REQUEST_TIMEOUT
+    monkeypatch.setattr(server.httpd.RequestHandlerClass, "timeout", 0.5)
+    with socket.create_connection(("127.0.0.1", server.port), timeout=10) as s:
+        start = time.monotonic()
+        assert s.recv(100) == b"" and time.monotonic() - start < 9     # the server hung up

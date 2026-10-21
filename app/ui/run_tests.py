@@ -558,7 +558,10 @@ def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_re
             initial = presets.GamePreset.from_dict(saved["game_preset"])
         extra = {"saved": saved}
     if len(automatic) == 1 and automatic[0].waits_for_typed_score():
-        choice = RunChoice(1, 0, 0)         # one run: its page opens and the owner types its score
+        count = ask_count(window, automatic[0].name)
+        if count is None:
+            return False
+        choice = RunChoice(count, 0, 0)     # no warm-up: each run's page opens and the owner types its score
     else:
         choice = ask(window, automatic or others, profile, [] if lone_game else others, games, offered, initial,
                      **extra)
@@ -658,38 +661,35 @@ def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_re
 RESULT_PAGE = re.compile(r"https://browser\.geekbench\.com/v\d+/(?:cpu|gpu|compute)/\d+(?![\w/?])")
 
 
-def _ask_typed(window, name: str, session_id: int) -> Optional[dict]:
-    from app.ui.record_dialog import RecordResultDialog
-    dialog = RecordResultDialog(name, f"#{session_id}", "points", window)
-    return dialog.values if dialog.exec() == QDialog.Accepted else None
-
-
-def typed_followup(window, entry: TestEntry, session_id: int, opener=None, ask=_ask_typed) -> Optional[str]:
-    """A workload whose score is typed (Geekbench 6 on Linux): its result page opens, then "Enter the score..."
-    stores the typed score in the same session, as a manual entry next to the run, and writes the report again.
-    The result's page, or None when the run left none."""
+def typed_followup(window, entry: TestEntry, session_id: int, opener=None, ask=None) -> Optional[List[str]]:
+    """A workload whose score is typed (Geekbench 6 on Linux): the result page of each run opens, then "Enter the
+    scores..." stores one typed score per run in the same session, as manual entries next to the runs, and writes
+    the report again (with their average). The result pages, or None when the runs left none."""
     try:
         rows = window.db.get_runs(session_id, entry.id, include_test=True)
     except Exception:
         logger.exception("Could not read the run back")
         rows = []
-    pages = [m for r in rows for m in RESULT_PAGE.findall(" ".join(str(v) for v in dict(r).values() if v))]
+    pages = list(dict.fromkeys(m for r in rows if not r.get("is_warmup")
+                               for m in RESULT_PAGE.findall(" ".join(str(v) for v in dict(r).values() if v))))
     if not pages:
         window.status_label.setText(f"{entry.name} left no result page to read its score from.")
         return None
-    page = pages[-1]
-    window.tests_page.open_url(page)
+    for page in pages:
+        window.tests_page.open_url(page)
 
     def record():
-        values = ask(window, entry.name, session_id)
+        values = (ask or _ask_scores)(window, entry.name, f"#{session_id}", len(pages), pages)
         if values is None:
             return None
         try:
-            window.db.create_result(session_id, entry.id, getattr(entry.ref, "benchmark_type", "cpu"),
-                                    values["score"], values["unit"], benchmark_version=entry.ref.version(),
-                                    is_manual=True, status=values["status"], is_warmup=values["is_warmup"],
-                                    run_index=len(rows), note="; ".join(x for x in (values["note"],
-                                                                                   f"typed from {page}") if x))
+            for k, (n, score) in enumerate(values.get("runs") or list(enumerate(values["scores"]))):
+                window.db.create_result(session_id, entry.id, getattr(entry.ref, "benchmark_type", "cpu"),
+                                        score, values["unit"], benchmark_version=entry.ref.version(),
+                                        is_manual=True, status="completed", is_warmup=False,
+                                        run_index=len(rows) + k,
+                                        note="; ".join(x for x in (values["note"], f"typed from {pages[n]}")
+                                                       if x))
         except Exception as e:
             logger.exception("Could not save the typed score")
             window.status_label.setText(f"The score was NOT saved: {e}")
@@ -704,17 +704,60 @@ def typed_followup(window, entry: TestEntry, session_id: int, opener=None, ask=_
         window.tests_page.offer_report(lambda: (opener or open_report)(path))
         (opener or open_report)(path)
         return path
-    window.tests_page.offer_record(f"{entry.name} finished: its score is on the page that opened ({page}). "
-                                   "Enter it.", record)
-    return page
+    window.tests_page.offer_record(f"{entry.name} finished: the score of each run is on the page that opened "
+                                   f"({len(pages)} page(s)). Enter them.", record)
+    return pages
 
 
-def record_and_report(window, entry: TestEntry, opener=None) -> Optional[Path]:
-    """The typed score is stored, then the session's report is written and opened (PugetBench gets its own
+def record_scores(window, bm, count: int, ask=None) -> Optional[int]:
+    """Ask for the scores of `count` runs and store each one as a measured MANUAL run; the session id, or None."""
+    from app.pro import pugetbench
+    label = f"#{window.current_session_id}" if window.current_session_id else "new session"
+    values = (ask or _ask_scores)(window, bm.display_name, label, count, puget=bm.name == pugetbench.LIBRARY_ID,
+                                  puget_version=bm.version)
+    if values is None:
+        return None
+    sid = window._ensure_session()
+    if sid is None:
+        window.run_log.append("No database available; result not saved.")
+        return None
+    name = values.get("benchmark_name") or bm.name           # PugetBench: one test per application
+    try:
+        first = len(window.db.get_runs(sid, name, include_test=True))
+        for n, score in enumerate(values["scores"]):
+            window.db.create_result(sid, name, bm.type.value, score, values["unit"], benchmark_version=bm.version,
+                                    is_manual=True, status="completed", is_warmup=False, run_index=first + n,
+                                    note=values["note"])
+    except Exception as exc:
+        logger.exception("Could not save result")
+        window.run_log.append(f"Result NOT saved: {exc}")
+        return None
+    window.run_log.append(f"Saved {len(values['scores'])} measured run(s) of "
+                          f"{values.get('display_name') or bm.display_name} in session #{sid} [MANUAL]")
+    window.refresh_history_screen()
+    return sid
+
+
+def ask_count(window, name: str) -> Optional[int]:
+    """How many times the owner will run a test whose score is typed (owner, 2026-10-21: then one field per run)."""
+    from PySide6.QtWidgets import QInputDialog
+    count, ok = QInputDialog.getInt(window, f"Run {name}", "How many times will you run it? (one score field per "
+                                    "run; the report shows their average)", 3, 1, 10)
+    return count if ok else None
+
+
+def _ask_scores(window, name: str, session_label: str, count: int, links=(), puget=False, puget_version=None):
+    from app.ui.record_dialog import ScoresDialog
+    dialog = ScoresDialog(name, session_label, count, "points", links, puget, puget_version, window)
+    return dialog.values if dialog.exec() == QDialog.Accepted else None
+
+
+def record_and_report(window, entry: TestEntry, opener=None, count: int = 1) -> Optional[Path]:
+    """The typed scores are stored, then the session's report is written and opened (PugetBench gets its own
     section there)."""
     from app.ui import reports_folder
     reports_folder.choose(window)                  # the first time: where all reports go
-    sid = window._on_record_clicked(entry.ref)
+    sid = record_scores(window, entry.ref, count)
     folder = reports_folder.folder(window)
     if sid is None or folder is None:
         return None
@@ -759,8 +802,13 @@ def start_other(window, entry: TestEntry, choice: Optional[RunChoice] = None) ->
                 frame.emergency_stop)
         return True
     if entry.source == "library":
+        count = ask_count(window, entry.name)
+        if count is None:
+            return False
         window._on_launch_clicked(entry.ref)
-        window.tests_page.offer_record(f"{entry.name} was started. Run its benchmark, then enter the score.",
-                                       lambda: record_and_report(window, entry))
+        times = "once" if count == 1 else f"{count} times"
+        window.tests_page.offer_record(f"{entry.name} was started. Run its benchmark {times}, then enter the "
+                                       f"score{'s' if count > 1 else ''}.",
+                                       lambda: record_and_report(window, entry, count=count))
         return True
     return False

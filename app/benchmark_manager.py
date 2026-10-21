@@ -444,6 +444,42 @@ def _launch_with_elevation_fallback(
     }
 
 
+def steam_app_of(benchmark_info: BenchmarkInfo, find=None) -> Optional[int]:
+    """The Steam app id when the found exe lies in that app's Steam install folder (definition's steam_apps)."""
+    defn = DEFINITIONS_BY_ID.get(benchmark_info.name)
+    exe = benchmark_info.executable_path
+    if not defn or not exe or not getattr(defn, 'steam_apps', None):
+        return None
+    if find is None:
+        from app.simulation.script import find_steam_game as find
+    exe = os.path.normcase(os.path.normpath(exe))
+    for app_id, _rel in defn.steam_apps:
+        folder = find(app_id)
+        if folder and exe.startswith(os.path.normcase(os.path.normpath(folder)) + os.sep):
+            return int(app_id)
+    return None
+
+
+def _launch_through_steam(app_id: int, benchmark_info: BenchmarkInfo, timeout: int,
+                          opener=None) -> Dict[str, Any]:
+    """steam://rungameid/<app id> (Steam starts first if it is closed), then wait for the program's exe."""
+    from app.steam.launch import build_launch_url
+    url = build_launch_url(app_id, [str(app_id)])
+    exe_name = os.path.basename(benchmark_info.executable_path).lower()
+    before = _get_process_snapshot()
+    try:
+        (opener or os.startfile)(url)
+    except Exception as e:
+        return {'status': 'error', 'message': f"Steam could not be asked to start {benchmark_info.display_name}: {e}"}
+    start_time = datetime.now()
+    while (datetime.now() - start_time).total_seconds() < timeout:
+        time.sleep(1)
+        if _has_new_process(before, _get_process_snapshot(), exe_name):
+            return {'status': 'launched', 'message': f"{benchmark_info.display_name} started through Steam"}
+    return {'status': 'unconfirmed', 'message': f"Steam was asked to start {benchmark_info.display_name} ({url}); "
+            "it was not seen running yet. If Steam asks something, answer it there."}
+
+
 def launch_assisted_benchmark(
     benchmark_info: BenchmarkInfo, confirm: bool = False, timeout: int = 5
 ) -> Dict[str, Any]:
@@ -496,6 +532,12 @@ def launch_assisted_benchmark(
         return _launch_with_elevation_fallback(
             exe_path, benchmark_info, os.path.basename(exe_path), timeout
         )
+
+    # A Steam copy (3DMark): started through Steam. Its own exe started directly shows "Could not connect to
+    # Steam client" (owner, 2026-10-21): Steam's DRM needs the start to come from Steam.
+    app_id = steam_app_of(benchmark_info)
+    if app_id:
+        return _launch_through_steam(app_id, benchmark_info, max(timeout, 30))
 
     # Generic manual benchmark (uses elevation fallback)
     if benchmark_info.executable_path and os.path.isfile(benchmark_info.executable_path):

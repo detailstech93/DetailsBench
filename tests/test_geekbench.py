@@ -294,16 +294,18 @@ def test_geekbench_6_on_linux_waits_for_a_typed_score_and_runs_alone(monkeypatch
     assert leave_out_typed([entry(gb6), entry(gb7)]) == ([entry(gb7)], [entry(gb6)])
 
 
-def test_after_the_run_its_page_opens_and_the_typed_score_is_stored_with_it(tmp_path, monkeypatch):
+def test_after_the_runs_their_pages_open_and_one_typed_score_per_run_is_stored(tmp_path, monkeypatch):
+    """Owner, 2026-10-21: runs chosen first; one field per run; the report averages them."""
     from app.catalog import TestEntry
     from app.ui import reports_folder, run_tests
-    url = "https://browser.geekbench.com/v6/cpu/19371314"
-    stored, opened, offered, reports = [], [], [], []
+    urls = ["https://browser.geekbench.com/v6/cpu/19371314", "https://browser.geekbench.com/v6/cpu/19371320"]
+    stored, opened, offered, reports, asked = [], [], [], [], []
 
     class Db:
         def get_runs(self, sid, name=None, include_test=False):
-            return [{"id": 1, "benchmark_name": name, "status": "invalid",
-                     "note": f"Geekbench finished and uploaded, but printed no 'Multi-Core Score' line: {url}"}]
+            return [{"id": n, "benchmark_name": name, "status": "invalid", "is_warmup": 0,
+                     "note": f"Geekbench finished and uploaded, but printed no 'Multi-Core Score' line: {u}"}
+                    for n, u in enumerate(urls)]
 
         def create_result(self, *a, **k):
             stored.append((a, k))
@@ -318,14 +320,18 @@ def test_after_the_run_its_page_opens_and_the_typed_score_is_stored_with_it(tmp_
     monkeypatch.setattr(reports_folder, "folder", lambda win: tmp_path)
     monkeypatch.setattr(run_tests, "write_report", lambda db, sid, folder, only=None, at=None:
                         reports.append(only) or tmp_path / "r.html")
-    values = {"score": 21000.0, "unit": "points", "status": "completed", "is_warmup": False, "note": ""}
-    assert run_tests.typed_followup(window, e, 7, opener=lambda p: None, ask=lambda *a: values) == url
-    assert opened == [url] and url in offered[0][0]
-    offered[0][1]()                                     # "Enter the score..."
-    (args, kw), = stored
-    assert args[:5] == (7, "geekbench6_cpu", "cpu", 21000.0, "points") and kw["is_manual"] and kw["run_index"] == 1
-    assert kw["note"] == f"typed from {url}" and reports == ["geekbench6_cpu"]
+
+    def ask(window, name, label, count, links):
+        asked.append((count, list(links)))
+        return {"scores": [21500.0], "runs": [(1, 21500.0)], "unit": "points", "note": None}
+    assert run_tests.typed_followup(window, e, 7, opener=lambda p: None, ask=ask) == urls
+    assert opened == urls and "2 page(s)" in offered[0][0]
+    offered[0][1]()                                     # "Enter the scores..."
+    assert asked == [(2, urls)]
+    (args, kw), = stored                                # the first run's field was left empty
+    assert args[:5] == (7, "geekbench6_cpu", "cpu", 21500.0, "points") and kw["is_manual"] and kw["run_index"] == 2
+    assert kw["note"] == f"typed from {urls[1]}" and not kw["is_warmup"] and reports == ["geekbench6_cpu"]
     stored.clear()
-    assert run_tests.typed_followup(window, e, 7, ask=lambda *a: None) == url
+    run_tests.typed_followup(window, e, 7, ask=lambda *a: None)
     offered[-1][1]()
     assert stored == []                                 # cancelled: nothing stored

@@ -52,11 +52,11 @@ def test_typed_scores_go_into_the_report_with_their_own_section(qapp, tmp_path):
     try:
         w.automation_panel.output_root = tmp_path / "automation_runs"
         for app, score in (("pugetbench_photoshop", 9876.0), ("pugetbench_premiere_pro", 1234.0)):
-            answer = {"status": "completed", "score": score, "is_warmup": False, "unit": "points",
+            answer = {"scores": [score], "unit": "points",
                       "benchmark_name": app, "display_name": app,
                       "note": pugetbench.note_text("1.4.2", "27.0", "Standard")}
             opened = []
-            with patch.object(MainWindow, "_ask_result", return_value=answer), \
+            with patch.object(run_tests, "_ask_scores", return_value=answer), \
                     patch("app.manifest.git_commit", return_value="c" * 40):
                 path = run_tests.record_and_report(w, library(), opener=opened.append)
         runs = db.get_runs(w.current_session_id)
@@ -69,7 +69,7 @@ def test_typed_scores_go_into_the_report_with_their_own_section(qapp, tmp_path):
         assert "1,234" in html and "9,876" not in html and "PugetBench version" in html
         assert path.name.startswith("pugetbench_premiere_pro_") or path.name.startswith("PugetBench")
         assert "During the test" not in html.split("<h2>PugetBench for Creators</h2>")[1].split("</section>")[0]
-        with patch.object(MainWindow, "_ask_result", return_value=None):         # cancelled: nothing, no report
+        with patch.object(run_tests, "_ask_scores", return_value=None):         # cancelled: nothing, no report
             assert run_tests.record_and_report(w, library(), opener=opened.append) is None
     finally:
         with patch.object(w.automation_panel, "shutdown"):
