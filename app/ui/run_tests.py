@@ -36,6 +36,7 @@ class RunChoice:
     stress_minutes: Optional[int] = None             # None: no stress test selected
     extra_runs: int = 0                              # extra runs allowed when the scores vary a lot
     game_presets: Optional[Dict[str, presets.GamePreset]] = None     # {app id: preset}; None: `preset` for all
+    shutdown_after: bool = False                     # shut the computer down when the run ends (app/ui/shutdown_after.py)
 
 
 PRESET_KEY = "game_preset"          # settings.json: the last preset chosen on the Tests screen
@@ -297,6 +298,14 @@ class RunTestsDialog(QDialog):
         self.extra_runs_count = EXTRA_RUNS
         form.addRow("Uneven scores:", self.extra_runs)
         form.addRow("", QLabel("A run that fails is stored as failed and run once more by itself."))
+        from app.ui import shutdown_after
+        self.shutdown_after = QCheckBox("Shut down the computer when the run ends (only once every result and "
+                                        "report is saved; 60 s to cancel)")
+        not_offered = shutdown_after.why_not_offered()
+        if not_offered:
+            self.shutdown_after.setEnabled(False)
+            self.shutdown_after.setToolTip(not_offered.capitalize() + ".")
+        form.addRow("When it ends:", self.shutdown_after)
         self.stress_minutes = None
         if any(e.id.startswith("stress_") for e in entries):
             from app.stress.workload import MINUTE_CHOICES, stress_minutes
@@ -342,7 +351,8 @@ class RunTestsDialog(QDialog):
                          self.preset_box.preset() if self.preset_box is not None else None,
                          self.stress_minutes.currentData() if self.stress_minutes is not None else None,
                          self.extra_runs_count if self.extra_runs.isChecked() else 0,
-                         self.preset_box.presets() if self.preset_box is not None else None)
+                         self.preset_box.presets() if self.preset_box is not None else None,
+                         self.shutdown_after.isChecked() and self.shutdown_after.isEnabled())
 
 
 def ask_choice(window, entries, profile, others, games=None, offered=None, initial=None,
@@ -597,25 +607,32 @@ def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_re
                 written.add(name)
 
     def finished(session_id: int, text: str):
+        report = written_report(session_id, text)
+        if getattr(choice, "shutdown_after", False):
+            from app.ui import shutdown_after
+            shutdown_after.after_run(window, session_id, panel.last_summary, report)
+
+    def written_report(session_id: int, text: str) -> Optional[Path]:
         panel.on_step_report = None
         done, total, _ = panel.step
         first = text.splitlines()[0]
         result["final"] = (done, total, first)
         window.status_label.setText(first)
         if folder is None:
-            return
+            return None
         try:
             path = write_report(window.db, session_id, folder)
         except Exception as e:
             logger.exception("Could not write the report")
             result["final"] = (done, total, f"{first} The report could not be written: {e}")
             window.status_label.setText(f"Session #{session_id} done; the report could not be written: {e}")
-            return
+            return None
         result["final"] = (done, total, f"{first} Report opened: {path.name}")
         window.last_report_path = path
         window.status_label.setText(f"Session #{session_id} done. Report: {path}")
         window.tests_page.offer_report(lambda: opener(path))
         opener(path)
+        return path
 
     panel.on_plan_finished = finished
     panel.on_step_report = step_report if len(automatic) > 1 else None
