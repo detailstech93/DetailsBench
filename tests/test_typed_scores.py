@@ -30,6 +30,22 @@ def test_one_field_per_run_empty_ones_skipped_and_only_numbers(qapp):
     assert d.values["scores"] == [31.5, 33.0] and d.values["runs"] == [(0, 31.5), (2, 33.0)]
 
 
+def test_geekbench_cpu_gets_its_single_core_score_beside_each_run(qapp):
+    d = ScoresDialog("Geekbench 6 (CPU)", "#4", 2, metric=("single_core_score", "Single-Core"), score_label="Multi-Core")
+    assert len(d.seconds) == 2
+    d.seconds[0].setText("2900")
+    d._try_accept()
+    assert d.values is None and "score too" in d.error.text()           # a Single-Core alone is not a run
+    d.scores[0].setText("21000")
+    d.scores[1].setText("21500")
+    d.seconds[1].setText("x")
+    d._try_accept()
+    assert d.values is None and d.error.text().startswith("Run 2, Single-Core:")
+    d.seconds[1].setText("")
+    d._try_accept()
+    assert d.values["scores"] == [21000.0, 21500.0] and d.values["metrics"] == {0: {"single_core_score": 2900.0}}
+
+
 def test_pugetbench_keeps_its_application_and_details(qapp):
     from app.pro import pugetbench
     d = ScoresDialog("PugetBench", "#4", 2, puget=True, puget_version="1.2")

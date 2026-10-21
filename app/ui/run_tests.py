@@ -679,17 +679,20 @@ def typed_followup(window, entry: TestEntry, session_id: int, opener=None, ask=N
         window.tests_page.open_url(page)
 
     def record():
-        values = (ask or _ask_scores)(window, entry.name, f"#{session_id}", len(pages), pages)
+        metric = getattr(entry.ref, "typed_metric", None)
+        values = (ask or _ask_scores)(window, entry.name, f"#{session_id}", len(pages), pages,
+                                      **({"metric": metric} if metric else {}))
         if values is None:
             return None
         try:
             for k, (n, score) in enumerate(values.get("runs") or list(enumerate(values["scores"]))):
-                window.db.create_result(session_id, entry.id, getattr(entry.ref, "benchmark_type", "cpu"),
-                                        score, values["unit"], benchmark_version=entry.ref.version(),
-                                        is_manual=True, status="completed", is_warmup=False,
-                                        run_index=len(rows) + k,
-                                        note="; ".join(x for x in (values["note"], f"typed from {pages[n]}")
-                                                       if x))
+                result_id = window.db.create_result(
+                    session_id, entry.id, getattr(entry.ref, "benchmark_type", "cpu"), score, values["unit"],
+                    benchmark_version=entry.ref.version(), is_manual=True, status="completed", is_warmup=False,
+                    run_index=len(rows) + k, note="; ".join(x for x in (values["note"], f"typed from {pages[n]}") if x))
+                extra = (values.get("metrics") or {}).get(n)
+                if extra:
+                    window.db.save_result_metrics(result_id, {k: (v, values["unit"]) for k, v in extra.items()})
         except Exception as e:
             logger.exception("Could not save the typed score")
             window.status_label.setText(f"The score was NOT saved: {e}")
@@ -746,9 +749,11 @@ def ask_count(window, name: str) -> Optional[int]:
     return count if ok else None
 
 
-def _ask_scores(window, name: str, session_label: str, count: int, links=(), puget=False, puget_version=None):
+def _ask_scores(window, name: str, session_label: str, count: int, links=(), puget=False, puget_version=None,
+                metric=None):
     from app.ui.record_dialog import ScoresDialog
-    dialog = ScoresDialog(name, session_label, count, "points", links, puget, puget_version, window)
+    dialog = ScoresDialog(name, session_label, count, "points", links, puget, puget_version, window, metric=metric,
+                          score_label="Multi-Core" if metric and metric[0] == "single_core_score" else "score")
     return dialog.values if dialog.exec() == QDialog.Accepted else None
 
 

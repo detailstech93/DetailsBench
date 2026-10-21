@@ -206,6 +206,8 @@ class GeekbenchWorkload(Workload):
         # check (owner, 2026-10-21): it runs alone, once, the app opens the result's page and the owner types the
         # score there (app/ui/run_tests.py, typed_followup)
         self.typed_score = self.major == 6 and sys.platform.startswith("linux")
+        # its page shows two scores: Multi-Core is the score, Single-Core is typed beside it as a metric (owner)
+        self.typed_metric = ("single_core_score", "Single-Core") if self.typed_score and not self.gpu else None
         if exe is None:
             exe = finder() if finder is not None else program_path(major=self.major)
         self.exe = exe

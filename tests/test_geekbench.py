@@ -283,6 +283,8 @@ def test_geekbench_6_on_linux_waits_for_a_typed_score_and_runs_alone(monkeypatch
     monkeypatch.setattr(sys, "platform", "linux")
     gb6, gb7 = gb.GeekbenchWorkload("geekbench6_cpu", exe="gb6"), gb.GeekbenchWorkload("geekbench7_cpu", exe="gb7")
     assert gb6.typed_score and not gb7.typed_score
+    assert gb6.typed_metric == ("single_core_score", "Single-Core")     # its page shows Single- and Multi-Core
+    assert gb.GeekbenchWorkload("geekbench6_gpu_vulkan", exe="gb6").typed_metric is None
     monkeypatch.setattr(sys, "platform", "win32")
     assert not gb.GeekbenchWorkload("geekbench6_cpu", exe="gb6").typed_score
 
@@ -309,29 +311,37 @@ def test_after_the_runs_their_pages_open_and_one_typed_score_per_run_is_stored(t
 
         def create_result(self, *a, **k):
             stored.append((a, k))
+            return 41
+
+        def save_result_metrics(self, result_id, metrics):
+            stored.append((result_id, metrics))
     label = SimpleNamespace(value="", text=lambda: label.value)
     label.setText = lambda t: setattr(label, "value", t)
     page = SimpleNamespace(open_url=opened.append, offer_record=lambda text, fn: offered.append((text, fn)),
                            offer_report=lambda fn: None)
     window = SimpleNamespace(db=Db(), status_label=label, tests_page=page)
+    monkeypatch.setattr(sys, "platform", "linux")
     w = gb.GeekbenchWorkload("geekbench6_cpu", exe="gb6")
+    monkeypatch.undo()
     e = TestEntry(id=w.id, name=w.display_name, group="cpu", mode="automatic", state="installed", state_reason="",
                   compatible=True, compatibility_reason="", verified=False, source="workload", ref=w)
     monkeypatch.setattr(reports_folder, "folder", lambda win: tmp_path)
     monkeypatch.setattr(run_tests, "write_report", lambda db, sid, folder, only=None, at=None:
                         reports.append(only) or tmp_path / "r.html")
 
-    def ask(window, name, label, count, links):
-        asked.append((count, list(links)))
-        return {"scores": [21500.0], "runs": [(1, 21500.0)], "unit": "points", "note": None}
+    def ask(window, name, label, count, links, metric=None):
+        asked.append((count, list(links), metric))
+        return {"scores": [21500.0], "runs": [(1, 21500.0)], "unit": "points", "note": None,
+                "metrics": {1: {"single_core_score": 2900.0}}}
     assert run_tests.typed_followup(window, e, 7, opener=lambda p: None, ask=ask) == urls
     assert opened == urls and "2 page(s)" in offered[0][0]
     offered[0][1]()                                     # "Enter the scores..."
-    assert asked == [(2, urls)]
-    (args, kw), = stored                                # the first run's field was left empty
+    assert asked == [(2, urls, ("single_core_score", "Single-Core"))]   # Multi-Core and Single-Core per run
+    (args, kw), single = stored                         # the first run's fields were left empty
+    assert single == (41, {"single_core_score": (2900.0, "points")})
     assert args[:5] == (7, "geekbench6_cpu", "cpu", 21500.0, "points") and kw["is_manual"] and kw["run_index"] == 2
     assert kw["note"] == f"typed from {urls[1]}" and not kw["is_warmup"] and reports == ["geekbench6_cpu"]
     stored.clear()
-    run_tests.typed_followup(window, e, 7, ask=lambda *a: None)
+    run_tests.typed_followup(window, e, 7, ask=lambda *a, **k: None)
     offered[-1][1]()
     assert stored == []                                 # cancelled: nothing stored

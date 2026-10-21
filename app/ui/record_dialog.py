@@ -4,7 +4,7 @@ import math
 from typing import Optional, Tuple
 
 from PySide6.QtWidgets import (
-    QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QVBoxLayout,
+    QComboBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QVBoxLayout,
 )
 
 from app.database import RESULT_STATUSES
@@ -115,8 +115,12 @@ class ScoresDialog(QDialog):
     not done (nothing stored for it); failures are never typed as numbers."""
 
     def __init__(self, benchmark_label: str, session_label: str, count: int, default_unit: str = "points",
-                 links=(), puget: bool = False, puget_version=None, parent=None):
+                 links=(), puget: bool = False, puget_version=None, parent=None,
+                 metric: Optional[Tuple[str, str]] = None, score_label: str = "score"):
+        """metric: (name, label) of a second number typed beside each run's score (Geekbench CPU: Single-Core next
+        to the Multi-Core score); stored as that run's metric."""
         super().__init__(parent)
+        self.metric = metric
         self.setWindowTitle(f"Scores: {benchmark_label}")
         self.puget_version = puget_version
         layout = QVBoxLayout(self)
@@ -129,12 +133,21 @@ class ScoresDialog(QDialog):
             self.application = QComboBox()
             self.application.addItems([app for _, app, _ in pugetbench.TESTS])
             form.addRow("Application:", self.application)
-        self.scores = []
+        self.scores, self.seconds = [], []
         for n in range(count):
             field = QLineEdit()
-            field.setPlaceholderText("score exactly as displayed")
+            field.setPlaceholderText(f"{score_label} exactly as displayed")
             link = links[n] if n < len(links) else None
-            form.addRow(f"Run {n + 1}:" if not link else f"Run {n + 1} ({link}):", field)
+            row = field
+            if metric:
+                second = QLineEdit()
+                second.setPlaceholderText(f"{metric[1]} exactly as displayed")
+                row = QHBoxLayout()
+                for text, w in ((score_label + ":", field), (metric[1] + ":", second)):
+                    row.addWidget(QLabel(text))
+                    row.addWidget(w)
+                self.seconds.append(second)
+            form.addRow(f"Run {n + 1}:" if not link else f"Run {n + 1} ({link}):", row)
             self.scores.append(field)
         self.unit = QLineEdit(default_unit)
         self.note = QLineEdit()
@@ -158,20 +171,30 @@ class ScoresDialog(QDialog):
         self.values: Optional[dict] = None
 
     def _try_accept(self):
-        scores = []
+        scores, metrics = [], {}
         for n, field in enumerate(self.scores):
+            second = self.seconds[n].text().strip() if self.seconds else ""
             if not field.text().strip():
+                if second:
+                    self.error.setText(f"Run {n + 1}: enter its score too, or leave both empty")
+                    return
                 continue
             score, err = parse_score("completed", field.text())
             if err:
                 self.error.setText(f"Run {n + 1}: {err}")
                 return
+            if second:
+                value, err = parse_score("completed", second)
+                if err:
+                    self.error.setText(f"Run {n + 1}, {self.metric[1]}: {err}")
+                    return
+                metrics[n] = {self.metric[0]: value}
             scores.append((n, score))
         if not scores:
             self.error.setText("enter at least one score")
             return
         self.values = {"scores": [s for _, s in scores], "runs": scores, "unit": self.unit.text().strip() or "points",
-                       "note": self.note.text().strip() or None}
+                       "note": self.note.text().strip() or None, "metrics": metrics}
         if self.application is not None:
             from app.pro import pugetbench
             app = self.application.currentText()
