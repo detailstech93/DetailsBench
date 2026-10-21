@@ -1,9 +1,9 @@
 """Remote start in the app (plan Phase D): the window that switches the server on and off, and the answers the page
 gets (app/remote/server.py). Every answer is made on the Qt thread (MainThread), as if the owner had pressed the
 buttons on the Tests screen; nothing on the PC waits for a click when the page starts a run:
-- every test for this PC is listed on the page; the ones that need someone at the PC are shown with the reason and
-  cannot be ticked there (a typed score, a license still to accept, the llama-benchy settings window, a Steam game
-  played by hand, a test that is not installed);
+- every test for this PC that the app runs by itself is listed on the page (tests run by hand, a typed score or a
+  Steam game played by hand, are not shown: owner, 2026-10-21); the ones that cannot start from there are shown with
+  the reason and cannot be ticked (a license still to accept, the llama-benchy settings window, not installed);
 - tests that ask Windows for administrator rights (PassMark: once per run; game benchmarks: PresentMon at each run)
   can be started, with a warning: the UAC prompt shows on the PC and someone must press Yes there;
 - the counts come from the page, game tests use the game preset chosen last on the PC, a stress test its last
@@ -32,7 +32,7 @@ from PySide6.QtGui import QDesktopServices, QFont, QGuiApplication
 from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
                                QPushButton, QSpinBox, QVBoxLayout)
 
-from app.catalog import GROUPS, TYPED_GROUP, TestEntry
+from app.catalog import GROUPS, TestEntry
 from app.remote import server as remote
 from app.ui.tests_page import SCANNING_TEXT, elapsed_text, progress_percent
 
@@ -119,8 +119,9 @@ class MainThread(QObject):
 
 def remote_listing(entries: List[TestEntry], platform: str = sys.platform,
                    elevated: Optional[bool] = None) -> List[Tuple[TestEntry, str, str]]:
-    """Every test for this PC as (entry, why it cannot start from the page or "", a warning or ""), in the order of
-    the Tests screen's groups. No administrator warning while the app runs as administrator (nothing asks then)."""
+    """Every test for this PC that the app runs by itself as (entry, why it cannot start from the page or "", a
+    warning or ""), in the order of the Tests screen's groups. Tests run by hand (score typed, game played) are left
+    out. No administrator warning while the app runs as administrator (nothing asks then)."""
     from app import elevation
     from app.ui.run_tests import game_of
     asks = platform == "win32" and not (elevation.is_elevated(platform) if elevated is None else elevated)
@@ -128,12 +129,10 @@ def remote_listing(entries: List[TestEntry], platform: str = sys.platform,
     for e in entries:
         if not e.compatible:
             continue                            # not for this PC at all
+        if e.waits_for_typed_score() or e.source != "workload":
+            continue                            # run by hand at the PC: not shown on the phone (owner, 2026-10-21)
         ref, why, warning = e.ref, "", ""
-        if e.waits_for_typed_score():
-            why = "Its score is typed in on the PC: start it there."
-        elif e.source != "workload":
-            why = "It needs someone at the PC (a game played by hand): start it there."
-        elif not e.can_run():
+        if not e.can_run():
             why = f"Not ready on the PC: {e.state_reason or e.state}"[:160]
         elif getattr(ref, "license", None) and not ref.license_ok():
             why = "Its license agreement is not accepted yet: read it with Accept license."
@@ -145,9 +144,7 @@ def remote_listing(entries: List[TestEntry], platform: str = sys.platform,
             warning = ADMIN_WARNING
         out.append((e, why, warning))
     order = {g: i for i, (g, _) in enumerate(GROUPS)}
-    # the tests whose score is typed come last, in their own group (owner, 2026-10-20)
-    return sorted(out, key=lambda x: (x[0].waits_for_typed_score(), order.get(x[0].group, len(order)),
-                                      x[0].name.lower()))
+    return sorted(out, key=lambda x: (order.get(x[0].group, len(order)), x[0].name.lower()))
 
 
 ADMIN_NOTICE = (
@@ -251,7 +248,7 @@ def remote_start(window, ids: List[str], repetitions: int, warmup_runs: int, coo
     window.status_label.setText(f"Started from the remote page: {len(entries)} test(s).")
     note = "" if lhm_ready or not panel.telemetry_box.isChecked() else \
         " Without CPU sensors: LibreHardwareMonitor is not running on the PC."
-    admin = [e for e in entries if remote_listing([e])[0][2]]
+    admin = [e for e in entries if any(warning for _, _, warning in remote_listing([e]))]
     if admin:
         note += " Windows will ask for administrator rights on the PC: someone must press Yes there."
     if shutdown:
@@ -311,8 +308,7 @@ class RemoteApi:
         specs = [(k, str(si.get(key))) for k, key in (("Processor", "cpu_brand"), ("Cores", "core_count"),
                                                      ("Memory (GB)", "ram_size_gb"), ("Graphics", "gpu_name"),
                                                      ("System", "operating_system")) if si.get(key) is not None]
-        tests = [{"id": e.id, "name": e.name, "group": TYPED_GROUP if e.waits_for_typed_score() else
-                  GROUP_TITLES.get(e.group, e.group.title()),
+        tests = [{"id": e.id, "name": e.name, "group": GROUP_TITLES.get(e.group, e.group.title()),
                   "section": "games" if e.group == "game" else "tests",
                   "minutes": e.expected_minutes, "verified": bool(e.verified), "can_start": not why,
                   "why": why, "warning": warning, "install": self._can_install(e),

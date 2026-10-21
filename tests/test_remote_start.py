@@ -217,11 +217,12 @@ def test_only_tests_that_need_nobody_are_offered():
     listing = {e.id: (why, warning) for e, why, warning in remote_listing(admin, "win32")}
     assert listing["passmark_cpu"][0] == "" and "administrator" in listing["passmark_cpu"][1]
     assert listing["cyberpunk"][0] == "" and "game" in listing["cyberpunk"][1].lower()
-    # every test for this PC is listed; the ones that need someone at the PC say why
+    # tests run by hand (typed score, a game played) are not shown on the phone at all (owner, 2026-10-21); the
+    # others are listed, and the ones that cannot start from there say why
     shown = {e.id: why for e, why, _ in remote_listing(entries + [_entry("blender", state="missing")], "linux")}
-    assert set(shown) == {e.id for e in entries} | {"blender"}
-    assert "typed" in shown["geekbench_6"] and "license" in shown["vray_benchmark"]
-    assert "window" in shown["llama_benchy"] and "Not ready" in shown["blender"] and shown["steam_game"]
+    assert set(shown) == {e.id for e in entries} - {"geekbench_6", "steam_game"} | {"blender"}
+    assert "license" in shown["vray_benchmark"]
+    assert "window" in shown["llama_benchy"] and "Not ready" in shown["blender"]
 
 
 def _window(tmp_path, entries, running=False):
