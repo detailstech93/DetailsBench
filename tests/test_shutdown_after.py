@@ -140,8 +140,8 @@ def test_an_emergency_stop_or_stop_on_the_phone_cancels_the_countdown(monkeypatc
     dialog = shutdown_after.CountdownDialog(None, seconds=60)
     shutdown_after._open.append(dialog)
     try:
-        assert shutdown_after.pending()
+        assert shutdown_after.pending() and shutdown_after.seconds_left() == 60     # shown on the phone too
         assert shutdown_after.cancel_pending() and dialog.result() == 0 and not dialog.timer.isActive()
     finally:
         shutdown_after._open.remove(dialog)
-    assert not shutdown_after.pending() and not shutdown_after.cancel_pending()
+    assert not shutdown_after.pending() and not shutdown_after.cancel_pending() and shutdown_after.seconds_left() is None

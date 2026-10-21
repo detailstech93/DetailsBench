@@ -128,6 +128,11 @@ def pending() -> bool:
     return bool(_open)
 
 
+def seconds_left() -> Optional[int]:
+    """The countdown's seconds left, or None when there is none."""
+    return _open[-1].left if _open else None
+
+
 def cancel_pending() -> bool:
     """Emergency stop, or Stop on the phone, during the countdown: the computer stays on (owner, 2026-10-21).
     True when a countdown was cancelled."""

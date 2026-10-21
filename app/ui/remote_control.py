@@ -467,6 +467,7 @@ class RemoteApi:
         out["tests_key"] = tests_key(page.entries)
         from app.ui import shutdown_after
         out["shutdown_pending"] = shutdown_after.pending()      # the 60 s countdown: the page offers to cancel it
+        out["shutdown_left"] = shutdown_after.seconds_left()    # and shows it (owner, 2026-10-21)
         out["scanning"] = bool(getattr(page, "scanning", False)) and not running
         if out["scanning"]:
             out["text"] = SCANNING_TEXT

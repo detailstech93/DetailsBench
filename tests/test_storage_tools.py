@@ -130,8 +130,10 @@ def test_a_disk_run_right_after_another_lets_the_drive_rest(tmp_path, monkeypatc
     assert r2.note.startswith("the drive rested 90 s before this run")
     now[0] += 500
     stop.set()                                                       # long after: no wait, so stop is not seen here
-    assert FakeDiskSpd(READ_ONLY).run(RunContext(output_dir=tmp_path / "b", timeout_seconds=60,
-                                                 stop_event=Waits())).note is None
+    third = FakeDiskSpd(READ_ONLY)
+    third.clock = lambda: now[0]        # the same fake clock: the real one counts from boot (a PC just turned on
+    assert third.run(RunContext(output_dir=tmp_path / "b", timeout_seconds=60,   # could be near 1000 s)
+                                stop_event=Waits())).note is None
 
 
 def test_stop_during_the_rest_cancels(tmp_path, monkeypatch):

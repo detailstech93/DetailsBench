@@ -24,6 +24,7 @@ h2 { font-size:16px; margin:0 0 10px; }
 section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:12px; }
 .muted { color:var(--muted); font-size:13px; }
 .hidden { display:none !important; }
+.shutdown { color:var(--stop); font-weight:600; font-size:1.1em; }
 input[type=text], input[type=number], select { font:inherit; padding:8px; border:1px solid var(--line);
   border-radius:8px; background:var(--bg); color:var(--text); width:100%; }
 button, .btn { font:inherit; padding:9px 14px; border-radius:8px; border:1px solid var(--line); background:var(--bg);
@@ -120,6 +121,7 @@ a { color:var(--accent); }
       <button id="skip" class="hidden">Skip this test</button>
       <button id="stop" class="stop" disabled>Emergency stop</button>
     </div>
+    <p id="shutdownNote" class="shutdown hidden"></p>
     <p id="message" class="muted"></p>
   </section>
 
@@ -505,9 +507,12 @@ function showState(s) {
   showPlan(s.tests);
   $("stop").disabled = !s.running && !s.shutdown_pending;
   $("stop").textContent = s.shutdown_pending && !s.running ? "Cancel the shutdown" : "Emergency stop";
+  $("shutdownNote").classList.toggle("hidden", !s.shutdown_pending);   // the PC's 60 s countdown, here too
+  $("shutdownNote").textContent = s.shutdown_pending ? "The PC shuts down in " + s.shutdown_left + " s." : "";
   $("skip").classList.toggle("hidden", !s.can_skip);
   $("start").disabled = s.running || !!s.scanning;   // nothing starts while the PC scans for tests
-  $("pill").textContent = s.running ? "running" : (s.scanning ? "scanning" : "idle");
+  $("pill").textContent = s.running ? "running" : s.shutdown_pending ? "shutting down" :
+                          (s.scanning ? "scanning" : "idle");
   const finished = wasRunning && !s.running;
   if (finished) {                                   // a run or an install ended: say how, read the tests again
     $("message").textContent = s.text || "Finished.";

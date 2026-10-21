@@ -646,3 +646,8 @@ def test_stop_on_the_phone_cancels_the_shutdown_countdown(monkeypatch):
     assert "stays on" in api.stop() and stopped == []
     monkeypatch.setattr(shutdown_after, "cancel_pending", lambda: False)
     assert api.stop() == "Nothing is running."
+
+
+def test_the_page_shows_the_shutdown_countdown():
+    from app.remote.page import PAGE
+    assert 'id="shutdownNote"' in PAGE and "s.shutdown_left" in PAGE and "Cancel the shutdown" in PAGE
