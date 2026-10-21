@@ -419,12 +419,11 @@ def test_an_install_from_the_remote_page_asks_nothing_at_the_pc(qapp, monkeypatc
     flow, win, asked, _ = flow_for(qapp, [], lambda tid: pkg, lambda p: winget.Outcome(False, "disk full"))
     assert flow.start(entry("sevenzip_benchmark"), confirmed=True)
     assert warned == [] and "disk full" in flow.state.text            # the page reads it; no box at the PC
-    # Steam's dialog and Linux's password prompt need someone at the PC: never from the page
+    # Steam's dialog needs someone at the PC: never from the page (Linux packages can: their password stays at the PC)
     steam = entry("steam_1593500", source="steam", ref={"app_id": "1593500", "name": "GoW"})
     assert install_flow.question_text(steam, WIN_X64)[0] is None
     flow, win, asked, opened = flow_for(qapp, [], None, None)
     assert not flow.start(steam, confirmed=True) and opened == []
-    assert install_flow.question_text(entry("fio"), DEBIAN_ARM)[0] is None
     assert install_flow.question_text(entry("cinebench"), WIN_X64)[0] is None
 
 
