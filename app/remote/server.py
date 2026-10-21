@@ -151,6 +151,11 @@ def check_start(body: object, offered: List[str]) -> Tuple[Optional[dict], str]:
         if any(p is None for p in presets.values()):
             return None, "a game preset is not valid"
         out["game_presets"] = {test_id: p.to_dict() for test_id, p in presets.items()}
+    shutdown = body.get("shutdown_after")       # optional: shut the PC down when the run ends (app/ui/shutdown_after.py)
+    if shutdown is not None:
+        if not isinstance(shutdown, bool):
+            return None, "shutdown_after must be true or false"
+        out["shutdown_after"] = shutdown
     return out, ""
 
 

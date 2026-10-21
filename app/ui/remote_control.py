@@ -197,7 +197,7 @@ def remote_entries(entries: List[TestEntry], platform: str = sys.platform) -> Li
 
 def remote_start(window, ids: List[str], repetitions: int, warmup_runs: int, cooldown_seconds: int,
                  launch: Optional[Callable] = None, stress_minutes: Optional[int] = None,
-                 game_presets: Optional[dict] = None) -> Tuple[bool, str]:
+                 game_presets: Optional[dict] = None, shutdown_after: bool = False) -> Tuple[bool, str]:
     """Start the tests the page picked, like Run selected on the Tests screen but without its windows.
     game_presets: {test id: preset dict} chosen on the page's Games section (none: the last preset)."""
     from app.ui import run_tests
@@ -229,7 +229,10 @@ def remote_start(window, ids: List[str], repetitions: int, warmup_runs: int, coo
         from app.stress.workload import DEFAULT_MINUTES, stress_minutes as last_minutes
         # the page's choice; none: 10 minutes in a run of several tests (owner, 2026-10-20), else the last length
         minutes = stress_minutes or (DEFAULT_MINUTES if len(entries) > 1 else last_minutes())
-    choice = run_tests.RunChoice(repetitions, warmup_runs, cooldown_seconds, preset, minutes, EXTRA_RUNS, per_game)
+    from app.ui import shutdown_after as power
+    shutdown = bool(shutdown_after) and power.why_not_offered() is None
+    choice = run_tests.RunChoice(repetitions, warmup_runs, cooldown_seconds, preset, minutes, EXTRA_RUNS, per_game,
+                                 shutdown)
     run_tests._save_plan(data_dir, entries, choice)
     lhm = panel.lhm
     try:
@@ -250,6 +253,8 @@ def remote_start(window, ids: List[str], repetitions: int, warmup_runs: int, coo
     admin = [e for e in entries if remote_listing([e])[0][2]]
     if admin:
         note += " Windows will ask for administrator rights on the PC: someone must press Yes there."
+    if shutdown:
+        note += " The PC shuts down when the run ends, once everything is saved (60 s to cancel at the PC)."
     return True, f"Started {len(entries)} test(s), {repetitions} measured run(s) each.{note}"
 
 
@@ -314,6 +319,7 @@ class RemoteApi:
                  for e, why, warning in remote_listing(w.tests_page.entries)]
         profile = w.selected_profile()
         from app.games import presets
+        from app.ui import shutdown_after
         from app.ui.run_tests import last_preset
         games = presets.page_choices(presets.main_gpu(str(si.get("gpu_name") or "").split(", ")))
         last = last_preset(w.frame_panel.data_dir)
@@ -322,6 +328,7 @@ class RemoteApi:
         return {"specs": specs, "tests": tests, "games": games,
                 "defaults": {"repetitions": max(1, int(profile.repetitions)), "warmup_runs": int(profile.warmup_runs),
                              "cooldown_seconds": int(profile.cooldown_seconds)},
+                "shutdown": shutdown_after.why_not_offered() or "",      # "": the page offers the box
                 "note": "A failed run is stored as failed and run once more; uneven scores get up to a few extra "
                         "runs. Game tests use the game settings chosen last on the PC."}
 
@@ -421,9 +428,10 @@ class RemoteApi:
         return out
 
     def start(self, ids, repetitions, warmup_runs, cooldown_seconds, stress_minutes=None,
-              game_presets=None) -> Tuple[bool, str]:
+              game_presets=None, shutdown_after=False) -> Tuple[bool, str]:
         return self.main.run(lambda: remote_start(self.window, ids, repetitions, warmup_runs, cooldown_seconds,
-                                                  stress_minutes=stress_minutes, game_presets=game_presets))
+                                                  stress_minutes=stress_minutes, game_presets=game_presets,
+                                                  shutdown_after=shutdown_after))
 
     def stop(self) -> str:
         def stop():

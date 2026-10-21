@@ -154,6 +154,8 @@ a { color:var(--accent); }
         <div id="stressBox"><label for="stressMin">Stress test (min)</label><select id="stressMin">
           <option>1</option><option>5</option><option selected>10</option><option>20</option><option>30</option><option>60</option></select></div>
       </div>
+      <label class="test" id="offBox"><input id="off" type="checkbox"><span>Shut down the PC when the run ends
+        (only once every result and report is saved; 60 s to cancel at the PC)</span></label>
       <div id="gameBox" class="hidden">
         <h2 style="margin-top:12px">Game preset</h2>
         <label class="test"><input id="gSame" type="checkbox" checked><span>One preset for every game</span></label>
@@ -323,6 +325,9 @@ function showInfo(info) {
   $("rep").value = info.defaults.repetitions;
   $("warm").value = info.defaults.warmup_runs;
   $("cool").value = info.defaults.cooldown_seconds;
+  $("off").disabled = !!info.shutdown;
+  $("off").title = info.shutdown || "";
+  if (info.shutdown) $("off").checked = false;
   $("note").textContent = info.note || "";
   countPicked();
 }
@@ -526,7 +531,7 @@ $("start").onclick = async () => {
   const ids = [...document.querySelectorAll("#tests input:checked")].map((c) => c.value);
   if (!ids.length) { $("message").textContent = section === "games" ? "Tick at least one game." : "Tick at least one test."; return; }
   const body = { ids, repetitions: parseInt($("rep").value, 10), warmup_runs: parseInt($("warm").value, 10),
-                 cooldown_seconds: parseInt($("cool").value, 10) };
+                 cooldown_seconds: parseInt($("cool").value, 10), shutdown_after: $("off").checked };
   if (section === "games") body.game_presets = gamePresets(ids);
   else body.stress_minutes = parseInt($("stressMin").value, 10);
   $("message").textContent = "Starting...";

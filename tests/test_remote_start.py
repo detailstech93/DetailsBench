@@ -557,3 +557,28 @@ def test_wsl_loopback_addresses_are_not_offered_and_wsl_explains_why_the_phone_c
     assert "WSL" in note and "Tailscale" in note and "mirrored" in note
     assert server.wsl_note(["http://172.24.101.72:8765/", "http://100.84.145.56:8765/"], wsl=True) == ""
     assert server.wsl_note(["http://192.168.1.5:8765/"], wsl=False) == ""
+
+
+def test_shut_down_after_the_run_from_the_page(tmp_path, monkeypatch):
+    """Owner, 2026-10-21: the shutdown box on the remote page too; refused where the PC does not offer it (WSL)."""
+    from app.remote import server as rs
+    from app.ui import shutdown_after
+    from app.ui.remote_control import remote_start
+    good = {"ids": ["a"], "repetitions": 1, "warmup_runs": 0, "cooldown_seconds": 0}
+    assert "shutdown_after" not in rs.check_start(good, ["a"])[0]
+    assert rs.check_start(dict(good, shutdown_after=True), ["a"])[0]["shutdown_after"] is True
+    assert rs.check_start(dict(good, shutdown_after="yes"), ["a"])[0] is None
+    seen = []
+
+    def launch(window, entries, choice, confirm=None, tools_ready=False):
+        seen.append(choice.shutdown_after)
+        return True
+    monkeypatch.setattr(shutdown_after, "why_not_offered", lambda *a, **k: None)
+    w = _window(tmp_path, [_entry("sevenzip_benchmark")])
+    ok, text = remote_start(w, ["sevenzip_benchmark"], 1, 0, 0, launch=launch, shutdown_after=True)
+    assert ok and "shuts down when the run ends" in text
+    ok, text = remote_start(w, ["sevenzip_benchmark"], 1, 0, 0, launch=launch)
+    assert ok and "shuts down" not in text
+    monkeypatch.setattr(shutdown_after, "why_not_offered", lambda *a, **k: "not offered in WSL")
+    ok, text = remote_start(w, ["sevenzip_benchmark"], 1, 0, 0, launch=launch, shutdown_after=True)
+    assert seen == [True, False, False] and "shuts down" not in text
