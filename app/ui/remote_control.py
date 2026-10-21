@@ -30,7 +30,7 @@ from typing import Callable, List, Optional, Tuple
 from PySide6.QtCore import QObject, QThread, Qt, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices, QFont, QGuiApplication
 from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
-                               QPushButton, QSpinBox, QVBoxLayout)
+                               QLayout, QPushButton, QSpinBox, QVBoxLayout)
 
 from app.automation.runner import SKIPPED_BY_USER
 from app.catalog import GROUPS, TestEntry
@@ -596,10 +596,12 @@ class RemoteDialog(QDialog):
         super().__init__(parent)
         self.control = control
         self.setWindowTitle("Remote mode")
-        self.setMinimumWidth(520)
         self.setStyleSheet(CARD)
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
+        # the window is never smaller than its content: with only a minimum width set, a Wayland desktop (Radxa
+        # board, GNOME, 2026-10-21) kept the short "off" height when remote mode came on and squashed every row
+        layout.setSizeConstraint(QLayout.SetMinimumSize)
 
         top = QHBoxLayout()
         title = QLabel("Remote mode")
@@ -619,6 +621,7 @@ class RemoteDialog(QDialog):
         self.switch = QPushButton()                  # the on/off switch of remote mode
         self.switch.setCheckable(True)
         self.switch.setMinimumHeight(52)
+        self.switch.setMinimumWidth(500)             # keeps the window about 520 wide
         self.switch.setCursor(Qt.PointingHandCursor)
         self.switch.clicked.connect(self.toggle)
         layout.addWidget(self.switch)
@@ -802,4 +805,5 @@ class RemoteDialog(QDialog):
         self.wsl_hint.setText(note)
         self.wsl_hint.setVisible(bool(note))
         self.code.setText(self.control.server.code)
+        self.layout().activate()
         self.adjustSize()

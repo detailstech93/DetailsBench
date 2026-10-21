@@ -306,6 +306,9 @@ def test_the_switch_window_shows_a_new_code(tmp_path, qapp):
     assert d.reports.text() == str(tmp_path / "reports")
     assert d.toggle() and d.code.text() == control.server.code and "127.0.0.1" in d.address.text()
     assert d.switch.isChecked() and "ON" in d.switch.text() and d.pill.text() == "ON" and not d.card.isHidden()
+    d.layout().activate()
+    needed = d.layout().totalMinimumSize()
+    assert d.minimumHeight() >= needed.height() > 0 and d.minimumWidth() >= 500   # never squashed (Wayland)
     first = control.server.code
     assert not d.toggle() and d.code.text() == ""
     assert d.toggle() and control.server.code != first
