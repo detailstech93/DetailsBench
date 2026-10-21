@@ -465,7 +465,7 @@ def _launch_through_steam(app_id: int, benchmark_info: BenchmarkInfo, timeout: i
     """steam://rungameid/<app id> (Steam starts first if it is closed), then wait for the program's exe."""
     from app.steam.launch import build_launch_url
     url = build_launch_url(app_id, [str(app_id)])
-    exe_name = os.path.basename(benchmark_info.executable_path).lower()
+    exe_name = ntpath.basename(benchmark_info.executable_path).lower()     # ntpath: splits on both  and /
     before = _get_process_snapshot()
     try:
         (opener or os.startfile)(url)
