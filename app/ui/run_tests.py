@@ -557,7 +557,11 @@ def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_re
         if games and saved.get("game_preset"):
             initial = presets.GamePreset.from_dict(saved["game_preset"])
         extra = {"saved": saved}
-    choice = ask(window, automatic or others, profile, [] if lone_game else others, games, offered, initial, **extra)
+    if len(automatic) == 1 and automatic[0].waits_for_typed_score():
+        choice = RunChoice(1, 0, 0)         # one run: its page opens and the owner types its score
+    else:
+        choice = ask(window, automatic or others, profile, [] if lone_game else others, games, offered, initial,
+                     **extra)
     if choice is None:
         return False
     _save_plan(data_dir, automatic + others, choice)
@@ -608,6 +612,8 @@ def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_re
 
     def finished(session_id: int, text: str):
         report = written_report(session_id, text)
+        if len(automatic) == 1 and automatic[0].waits_for_typed_score():
+            typed_followup(window, automatic[0], session_id, opener)
         if getattr(choice, "shutdown_after", False):
             from app.ui import shutdown_after
             shutdown_after.after_run(window, session_id, panel.last_summary, report)
@@ -647,6 +653,60 @@ def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_re
         panel.on_plan_finished = None          # cancelled; a later plan must not open this report
         panel.on_step_report = None
     return started
+
+
+RESULT_PAGE = re.compile(r"https://browser\.geekbench\.com/v\d+/(?:cpu|gpu|compute)/\d+(?![\w/?])")
+
+
+def _ask_typed(window, name: str, session_id: int) -> Optional[dict]:
+    from app.ui.record_dialog import RecordResultDialog
+    dialog = RecordResultDialog(name, f"#{session_id}", "points", window)
+    return dialog.values if dialog.exec() == QDialog.Accepted else None
+
+
+def typed_followup(window, entry: TestEntry, session_id: int, opener=None, ask=_ask_typed) -> Optional[str]:
+    """A workload whose score is typed (Geekbench 6 on Linux): its result page opens, then "Enter the score..."
+    stores the typed score in the same session, as a manual entry next to the run, and writes the report again.
+    The result's page, or None when the run left none."""
+    try:
+        rows = window.db.get_runs(session_id, entry.id, include_test=True)
+    except Exception:
+        logger.exception("Could not read the run back")
+        rows = []
+    pages = [m for r in rows for m in RESULT_PAGE.findall(" ".join(str(v) for v in dict(r).values() if v))]
+    if not pages:
+        window.status_label.setText(f"{entry.name} left no result page to read its score from.")
+        return None
+    page = pages[-1]
+    window.tests_page.open_url(page)
+
+    def record():
+        values = ask(window, entry.name, session_id)
+        if values is None:
+            return None
+        try:
+            window.db.create_result(session_id, entry.id, getattr(entry.ref, "benchmark_type", "cpu"),
+                                    values["score"], values["unit"], benchmark_version=entry.ref.version(),
+                                    is_manual=True, status=values["status"], is_warmup=values["is_warmup"],
+                                    run_index=len(rows), note="; ".join(x for x in (values["note"],
+                                                                                   f"typed from {page}") if x))
+        except Exception as e:
+            logger.exception("Could not save the typed score")
+            window.status_label.setText(f"The score was NOT saved: {e}")
+            return None
+        from app.ui import reports_folder
+        folder = reports_folder.folder(window)
+        if folder is None:
+            return None
+        from datetime import datetime
+        path = write_report(window.db, session_id, folder, only=entry.id, at=datetime.now().isoformat(timespec="seconds"))
+        window.status_label.setText(f"Score saved in session #{session_id}. Report: {path}")
+        window.tests_page.offer_report(lambda: (opener or open_report)(path))
+        (opener or open_report)(path)
+        return path
+    window.tests_page.offer_record(f"{entry.name} finished: its score is on the page that opened ({page}). "
+                                   "Enter it.", record)
+    return page
 
 
 def record_and_report(window, entry: TestEntry, opener=None) -> Optional[Path]:

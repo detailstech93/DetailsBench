@@ -2,6 +2,8 @@
 
 import subprocess
 import threading
+import sys
+from types import SimpleNamespace
 
 from app.automation.process import ProcessOutcome
 from app.automation.workload import RunContext
@@ -271,3 +273,59 @@ def test_a_software_renderer_is_never_a_gpu_score(tmp_path, monkeypatch):
     wl, _ = _workload("geekbench7_gpu_opencl", out, monkeypatch)
     r = wl.run(RunContext(output_dir=tmp_path, stop_event=threading.Event()))
     assert r.status == "invalid" and r.score is None and "llvmpipe" in r.error
+
+
+def test_geekbench_6_on_linux_waits_for_a_typed_score_and_runs_alone(monkeypatch):
+    """Owner, 2026-10-21: Geekbench 6 on Linux prints no score, even in a terminal; its page sits behind a browser
+    check. It joins the tests whose score is typed (each runs alone)."""
+    from app.catalog import TestEntry
+    from app.ui.run_tests import leave_out_typed
+    monkeypatch.setattr(sys, "platform", "linux")
+    gb6, gb7 = gb.GeekbenchWorkload("geekbench6_cpu", exe="gb6"), gb.GeekbenchWorkload("geekbench7_cpu", exe="gb7")
+    assert gb6.typed_score and not gb7.typed_score
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert not gb.GeekbenchWorkload("geekbench6_cpu", exe="gb6").typed_score
+
+    def entry(w):
+        return TestEntry(id=w.id, name=w.display_name, group="cpu", mode="automatic", state="installed",
+                         state_reason="", compatible=True, compatibility_reason="", verified=False, source="workload",
+                         ref=w)
+    assert entry(gb6).waits_for_typed_score() and not entry(gb7).waits_for_typed_score()
+    assert leave_out_typed([entry(gb6), entry(gb7)]) == ([entry(gb7)], [entry(gb6)])
+
+
+def test_after_the_run_its_page_opens_and_the_typed_score_is_stored_with_it(tmp_path, monkeypatch):
+    from app.catalog import TestEntry
+    from app.ui import reports_folder, run_tests
+    url = "https://browser.geekbench.com/v6/cpu/19371314"
+    stored, opened, offered, reports = [], [], [], []
+
+    class Db:
+        def get_runs(self, sid, name=None, include_test=False):
+            return [{"id": 1, "benchmark_name": name, "status": "invalid",
+                     "note": f"Geekbench finished and uploaded, but printed no 'Multi-Core Score' line: {url}"}]
+
+        def create_result(self, *a, **k):
+            stored.append((a, k))
+    label = SimpleNamespace(value="", text=lambda: label.value)
+    label.setText = lambda t: setattr(label, "value", t)
+    page = SimpleNamespace(open_url=opened.append, offer_record=lambda text, fn: offered.append((text, fn)),
+                           offer_report=lambda fn: None)
+    window = SimpleNamespace(db=Db(), status_label=label, tests_page=page)
+    w = gb.GeekbenchWorkload("geekbench6_cpu", exe="gb6")
+    e = TestEntry(id=w.id, name=w.display_name, group="cpu", mode="automatic", state="installed", state_reason="",
+                  compatible=True, compatibility_reason="", verified=False, source="workload", ref=w)
+    monkeypatch.setattr(reports_folder, "folder", lambda win: tmp_path)
+    monkeypatch.setattr(run_tests, "write_report", lambda db, sid, folder, only=None, at=None:
+                        reports.append(only) or tmp_path / "r.html")
+    values = {"score": 21000.0, "unit": "points", "status": "completed", "is_warmup": False, "note": ""}
+    assert run_tests.typed_followup(window, e, 7, opener=lambda p: None, ask=lambda *a: values) == url
+    assert opened == [url] and url in offered[0][0]
+    offered[0][1]()                                     # "Enter the score..."
+    (args, kw), = stored
+    assert args[:5] == (7, "geekbench6_cpu", "cpu", 21000.0, "points") and kw["is_manual"] and kw["run_index"] == 1
+    assert kw["note"] == f"typed from {url}" and reports == ["geekbench6_cpu"]
+    stored.clear()
+    assert run_tests.typed_followup(window, e, 7, ask=lambda *a: None) == url
+    offered[-1][1]()
+    assert stored == []                                 # cancelled: nothing stored

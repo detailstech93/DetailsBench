@@ -202,6 +202,10 @@ class GeekbenchWorkload(Workload):
         self.warning = warning_for(self.major)
         # Geekbench 7: real runs of all four here, 2026-10-20 (CUDA: 350115 points, RTX 5090); Geekbench 6: not yet
         self.verified = self.major == MAJOR
+        # Geekbench 6.7.1 on Linux prints no score, even in a terminal, and its result page sits behind a browser
+        # check (owner, 2026-10-21): it runs alone, once, the app opens the result's page and the owner types the
+        # score there (app/ui/run_tests.py, typed_followup)
+        self.typed_score = self.major == 6 and sys.platform.startswith("linux")
         if exe is None:
             exe = finder() if finder is not None else program_path(major=self.major)
         self.exe = exe

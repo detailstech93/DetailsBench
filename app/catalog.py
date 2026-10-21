@@ -58,8 +58,8 @@ class TestEntry:
     def waits_for_typed_score(self) -> bool:
         """The owner runs it and types the score (library entries: PugetBench, Geekbench, web tests...). Such a
         test only runs alone: in a run of several tests it would stop everything until someone types (owner,
-        2026-10-19)."""
-        return self.source == "library"
+        2026-10-19). A workload can wait for one too (Geekbench 6 on Linux: it runs, its page opens, the owner types)."""
+        return self.source == "library" or (self.source == "workload" and getattr(self.ref, "typed_score", False) is True)
 
 
 def check_platform(info: dict, environment: Optional[dict]) -> Tuple[bool, str]:
