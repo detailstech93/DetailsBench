@@ -253,3 +253,31 @@ def test_a_dropped_model_download_is_resumed_and_its_error_is_readable(tmp_path)
     assert not out.ok and [c[0] for c in fake.calls].count("get") == ms.GET_ATTEMPTS
     assert "lms said: Error: Download failed: Timed-out. Please try to resume." in out.message
     assert "█" not in out.message and "\x1b" not in out.message
+
+
+def test_lm_studio_not_running_is_started_once_and_never_called_not_installed(tmp_path):
+    """Owner, 2026-10-21 (Linux): all AI tests ticked, the run had only the free llama-benchy test; the three fixed
+    models were on disk, but LM Studio (llmster) was not running when the Tests screen asked `lms ls`."""
+    class Asleep(FakeLms):
+        def __init__(self, wakes):
+            super().__init__()
+            self.wakes, self.started = wakes, False
+
+        def __call__(self, argv, timeout):
+            if argv[1] == "server":
+                self.calls.append(argv[1:])
+                self.started = self.wakes
+                return 0, ""
+            if argv[1] == "ls" and not self.started:
+                self.calls.append(argv[1:])
+                return 1, "Error: connect ECONNREFUSED 127.0.0.1:41343\n"
+            return super().__call__(argv, timeout)
+    fake = Asleep(wakes=True)
+    assert ms.list_models(tmp_path / "lms", run=fake) == LS and ms.list_error() is None
+    assert [c[0] for c in fake.calls] == ["ls", "server", "ls"]
+    ms._LS.clear()
+    fake = Asleep(wakes=False)
+    w = ms.FixedModelWorkload("llama_benchy_gemma4_12b", exe="llama-benchy", lms=tmp_path / "lms", run=fake)
+    ok, why = w.availability()
+    assert not ok and "did not list its models" in why and "ECONNREFUSED" in why and "not installed" not in why
+    assert [c[0] for c in fake.calls] == ["ls", "server", "ls"]

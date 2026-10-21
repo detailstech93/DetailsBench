@@ -55,6 +55,7 @@ RESUMABLE = re.compile(r"timed?[- ]?out|try to resume|ECONNRESET|socket hang up|
 TERMINAL = re.compile(r"\x1b(\[[0-9;?]*[A-Za-z]|[()][A-Za-z0-9])")
 PROGRESS = re.compile(r"\d+(\.\d+)?%\s*\|")
 _LS: List[Tuple[float, object]] = []          # (time, `lms ls --json` result): the Tests screen asks once per model
+_LS_ERROR: List[str] = []                      # why the last `lms ls` gave no list
 CUSTOM_KEY = "ai_fixed_models"
 KEY = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 QUANT = re.compile(r"^[A-Za-z0-9_]{1,24}$")
@@ -162,19 +163,40 @@ def _run(argv: List[str], timeout: float) -> Tuple[int, str]:
 
 
 def list_models(lms: Optional[Path], run: Callable = _run, now: Callable[[], float] = time.monotonic) -> list:
-    """`lms ls --json` (kept 10 s), [] when LM Studio is missing or answers something else."""
+    """`lms ls --json` (kept 10 s), [] when LM Studio is missing or answers something else (why: list_error()).
+
+    On Linux LM Studio is the llmster service, which is not running until something starts it: the full run on
+    Linux (2026-10-21) showed the three fixed models as "not installed" although all three were on disk, and LM
+    Studio's server log starts only when the run began. So when `lms ls` gives no list, `lms server start` (its own
+    command) runs once and the list is read again."""
     if lms is None:
         return []
     if _LS and now() - _LS[0][0] < 10:
         return _LS[0][1]
-    code, text = run([str(lms), "ls", "--json"], 30)
-    try:
-        data = json.loads(text) if code == 0 else []
-    except ValueError:
-        data = []
-    data = data if isinstance(data, list) else []
+
+    def read() -> Tuple[Optional[list], str]:
+        code, text = run([str(lms), "ls", "--json"], 30)
+        try:
+            data = json.loads(text) if code == 0 else None
+        except ValueError:
+            data = None
+        if isinstance(data, list):
+            return data, ""
+        lines = [l for l in text.splitlines() if l.strip()]
+        return None, (lines[-1][:200] if lines else f"exit code {code}")
+    data, why = read()
+    if data is None:
+        run([str(lms), "server", "start"], 60)
+        data, why = read()
+    _LS_ERROR[:] = [] if data is not None else [why]
+    data = data if data is not None else []
     _LS[:] = [(now(), data)]
     return data
+
+
+def list_error() -> Optional[str]:
+    """Why the last `lms ls` gave no list, or None."""
+    return _LS_ERROR[0] if _LS_ERROR else None
 
 
 def installed(models: list, key: str, quant: str) -> Tuple[bool, str]:
@@ -252,7 +274,10 @@ class FixedModelWorkload(llama_benchy.LlamaBenchyWorkload):
             # not "not installed": the Tests screen would offer the Install button, which downloads only the model
             return False, ("llama-benchy is missing from the app's Python: pip install -r requirements.txt (or set "
                            "PCBM_LLAMA_BENCHY)")
-        return installed(list_models(self.lms, self._lms_run), self.key, self.quant)
+        models = list_models(self.lms, self._lms_run)
+        if not models and list_error():     # LM Studio did not answer: not a model to download
+            return False, f"LM Studio did not list its models (lms ls): {list_error()}"
+        return installed(models, self.key, self.quant)
 
     def _command(self, result_path: str) -> List[str]:
         return super()._command(result_path) + ["--tokenizer", "gpt2"]
