@@ -230,20 +230,33 @@ def test_linux_install_is_the_pinned_tar_gz_and_the_program_is_found_there(tmp_p
         assert plan["hosts"] == ["geekbench-cdn.b-cdn.net"] and plan["url"].endswith("-Linux.tar.gz")
         assert direct.problem(plan) is None
         assert plan["exe"] == f"Geekbench-{version}-Linux/geekbench{major}"
-    assert plan_for("geekbench7_cpu", host=Host("linux", "arm64", "debian")) is None        # ARM not pinned
+    arm = Host("linux", "arm64", "debian")
+    for test_id, major, version in (("geekbench7_cpu", 7, "7.1.0"), ("geekbench6_cpu", 6, "6.7.1")):
+        plan = plan_for(test_id, host=arm)              # Primate Labs' ARM preview build (Radxa board, 2026-10-21)
+        assert plan["kind"] == "zip" and plan["version"] == version and direct.problem(plan) is None
+        assert plan["url"] == f"https://cdn.geekbench.com/Geekbench-{version}-LinuxARMPreview.tar.gz"
+        assert plan["exe"] == f"Geekbench-{version}-LinuxARMPreview/geekbench{major}"
+    assert plan_for("geekbench7_cpu", host=Host("linux", "x86", "debian")) is None
     assert plan_for("geekbench6_cpu", host=Host("windows", "x64"))["kind"] == "winget"         # Windows unchanged
     exe = tmp_path / "tools" / "geekbench-7.1.0-linux" / "Geekbench-7.1.0-Linux" / "geekbench7"
-    assert gb.installed_path(7, data_dir=tmp_path) is None
+    assert gb.installed_path(7, data_dir=tmp_path, arch="x64") is None
     exe.parent.mkdir(parents=True)
     exe.write_text("")
-    assert gb.installed_path(7, data_dir=tmp_path) == str(exe)
+    assert gb.installed_path(7, data_dir=tmp_path, arch="x64") == str(exe)
+    assert gb.installed_path(7, data_dir=tmp_path, arch="arm64") is None     # an x86-64 build is not run on ARM
+    arm = tmp_path / "tools" / "geekbench-7.1.0-linux-arm" / "Geekbench-7.1.0-LinuxARMPreview" / "geekbench7"
+    arm.parent.mkdir(parents=True)
+    arm.write_text("")
+    assert gb.installed_path(7, data_dir=tmp_path, arch="arm64") == str(arm)
 
 
 def test_the_linux_archives_may_unpack_to_their_real_size():
     from data.installers import INSTALLERS
     # their tar listings: Geekbench 7.1.0 unpacks 1,009,518,416 bytes (owner hit the 500 MB limit), 6.7.1 500,109,413
-    assert INSTALLERS["geekbench7_cpu"]["linux"]["zip"]["max_unpacked"] > 1_009_518_416
-    assert INSTALLERS["geekbench_6"]["linux"]["zip"]["max_unpacked"] > 500_109_413
+    assert INSTALLERS["geekbench7_cpu"]["linux"]["zip_by_arch"]["x64"]["max_unpacked"] > 1_009_518_416
+    assert INSTALLERS["geekbench_6"]["linux"]["zip_by_arch"]["x64"]["max_unpacked"] > 500_109_413
+    assert INSTALLERS["geekbench7_cpu"]["linux"]["zip_by_arch"]["arm64"]["max_unpacked"] > 826_968_228
+    assert INSTALLERS["geekbench_6"]["linux"]["zip_by_arch"]["arm64"]["max_unpacked"] > 396_014_581
 
 
 GB6_LINUX_OUT = ("Single-Core\n  Running Clang\n\nMulti-Core\n  Running Clang\n\n"

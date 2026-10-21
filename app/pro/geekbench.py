@@ -66,11 +66,15 @@ def warning_for(major: int) -> str:
     return WARNING.replace("Geekbench 7", f"Geekbench {major}")
 
 
-def installed_path(major: int, isfile=os.path.isfile, data_dir=None) -> Optional[str]:
-    """geekbench<major> in the app's tools folder, where the Install button unpacks the Linux tar.gz."""
+def installed_path(major: int, isfile=os.path.isfile, data_dir=None, arch: Optional[str] = None) -> Optional[str]:
+    """geekbench<major> in the app's tools folder, where the Install button unpacks the Linux tar.gz (one per
+    machine architecture: x64 or arm64)."""
     from app.install import direct
     from app.install.plans import INSTALLERS
-    entry = ((INSTALLERS.get(f"geekbench_{major}") or {}).get("linux") or {}).get("zip")
+    if arch is None:
+        from app.frames.provision import native_arch
+        arch = native_arch()
+    entry = (((INSTALLERS.get(f"geekbench_{major}") or {}).get("linux") or {}).get("zip_by_arch") or {}).get(arch)
     if not entry:
         return None
     exe = direct.target_folder(entry, data_dir) / entry["exe"]

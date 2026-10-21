@@ -184,8 +184,11 @@ for _id in ("geekbench6_cpu", "geekbench6_gpu_opencl", "geekbench6_gpu_vulkan"):
     INSTALLERS[_id] = INSTALLERS["geekbench_6"]
 # Geekbench on Linux: Primate Labs ships a tar.gz (geekbench.com/download/linux links geekbench-cdn.b-cdn.net; 6.7.1
 # from /download/legacy), read on 2026-10-20. No checksum is published: size and SHA-256 pinned from the downloads
-# here (owner said yes). Each holds Geekbench-<version>-Linux/geekbench<major> (x86-64). The ARM preview builds are
-# not pinned, so ARM Linux is not offered.
+# here (owner said yes). Each holds Geekbench-<version>-Linux/geekbench<major> (x86-64).
+# ARM64: Primate Labs' "Linux ARM Preview" builds, same versions, from cdn.geekbench.com (owner said yes, 2026-10-21,
+# for the Radxa Dragon Q8B). Size and SHA-256 pinned from the downloads here; each holds
+# Geekbench-<version>-LinuxARMPreview/geekbench<major> plus geekbench_aarch64 (tar listings: 6.7.1 unpacks
+# 396,014,581 bytes in 4 files, 7.1.0 826,968,228 bytes in 5 files).
 _GEEKBENCH_LINUX = {
     6: {"product": "Geekbench 6 for Linux (x86-64)", "version": "6.7.1",
         "url": "https://geekbench-cdn.b-cdn.net/Geekbench-6.7.1-Linux.tar.gz",
@@ -200,8 +203,24 @@ _GEEKBENCH_LINUX = {
         "folder": "geekbench-7.1.0-linux", "exe": "Geekbench-7.1.0-Linux/geekbench7",
         "max_unpacked": 1100 * 1024 ** 2},          # 6 files, 1,009,518,416 bytes unpacked (owner hit the 500 MB limit)
 }
-INSTALLERS["geekbench_6"]["linux"] = {"zip": _GEEKBENCH_LINUX[6], "arch": ["x64"]}    # the Geekbench 6 tests share it
-INSTALLERS["geekbench_7"] = {"linux": {"zip": _GEEKBENCH_LINUX[7], "arch": ["x64"]}}
+_GEEKBENCH_LINUX_ARM = {
+    6: {"product": "Geekbench 6 for Linux (ARM64 preview)", "version": "6.7.1",
+        "url": "https://cdn.geekbench.com/Geekbench-6.7.1-LinuxARMPreview.tar.gz",
+        "hosts": ["cdn.geekbench.com"], "size": 192088662,
+        "sha256": "6e59acb83e6dea3671e2e295365fc37c40fdd280cdbddd50acf248910e14a0e3",
+        "folder": "geekbench-6.7.1-linux-arm", "exe": "Geekbench-6.7.1-LinuxARMPreview/geekbench6",
+        "max_unpacked": 600 * 1024 ** 2},
+    7: {"product": "Geekbench 7 for Linux (ARM64 preview)", "version": "7.1.0",
+        "url": "https://cdn.geekbench.com/Geekbench-7.1.0-LinuxARMPreview.tar.gz",
+        "hosts": ["cdn.geekbench.com"], "size": 419635785,
+        "sha256": "bb6abc61a68a9b33fecf1f3c0b800050dd76e93666a13eaabfa52cbd26ad3319",
+        "folder": "geekbench-7.1.0-linux-arm", "exe": "Geekbench-7.1.0-LinuxARMPreview/geekbench7",
+        "max_unpacked": 1100 * 1024 ** 2},
+}
+INSTALLERS["geekbench_6"]["linux"] = {"arch": ["x64", "arm64"], "zip_by_arch": {    # the Geekbench 6 tests share it
+    "x64": _GEEKBENCH_LINUX[6], "arm64": _GEEKBENCH_LINUX_ARM[6]}}
+INSTALLERS["geekbench_7"] = {"linux": {"arch": ["x64", "arm64"], "zip_by_arch": {
+    "x64": _GEEKBENCH_LINUX[7], "arm64": _GEEKBENCH_LINUX_ARM[7]}}}
 for _id in ("geekbench7_cpu", "geekbench7_gpu_opencl", "geekbench7_gpu_vulkan", "geekbench7_gpu_cuda"):
     INSTALLERS[_id] = INSTALLERS["geekbench_7"]
 # GravityMark 1.89 (Tellusim), x64, from tellusim.com/download as linked on gravitymark.tellusim.com, read on
