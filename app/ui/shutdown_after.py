@@ -46,8 +46,11 @@ def why_not_now(db, session_id: Optional[int], summary, report: Optional[Path]) 
     if summary is None or getattr(summary, "stopped", False) or not hasattr(summary, "records"):
         return "the run was stopped or did not end normally"
     from app.automation.runner import SKIPPED_BY_USER
-    if any(str(getattr(getattr(r, "result", None), "error", "") or "").startswith(SKIPPED_BY_USER) for r in summary.records):
-        return "a test was skipped (Skip cancels the shutdown)"         # owner, 2026-10-21
+    # a Skip cancels it only when nothing ran after it: the last test (or the only one) was skipped. A test skipped
+    # in the middle of a plan does not (owner, 2026-10-21)
+    last = summary.records[-1] if summary.records else None
+    if str(getattr(getattr(last, "result", None), "error", "") or "").startswith(SKIPPED_BY_USER):
+        return "the last test was skipped (Skip of the last test cancels the shutdown)"
     try:
         stored = db.get_runs(session_id, include_test=True)
     except Exception as e:
@@ -109,8 +112,29 @@ class CountdownDialog(QDialog):
             self._show()
 
 
+_open: list = []                                    # the countdown on screen now (at most one)
+
+
 def _countdown(window) -> bool:
-    return CountdownDialog(window).exec() == QDialog.Accepted
+    dialog = CountdownDialog(window)
+    _open.append(dialog)
+    try:
+        return dialog.exec() == QDialog.Accepted
+    finally:
+        _open.remove(dialog)
+
+
+def pending() -> bool:
+    return bool(_open)
+
+
+def cancel_pending() -> bool:
+    """Emergency stop, or Stop on the phone, during the countdown: the computer stays on (owner, 2026-10-21).
+    True when a countdown was cancelled."""
+    for dialog in list(_open):
+        dialog.timer.stop()
+        dialog.reject()
+    return bool(_open)
 
 
 def after_run(window, session_id: Optional[int], summary, report: Optional[Path],

@@ -1093,6 +1093,8 @@ class MainWindow(QMainWindow):
         return tab
     
     def emergency_stop_all(self):
+        from app.ui import shutdown_after
+        shutdown_after.cancel_pending()        # an emergency stop always keeps the computer on
         self.automation_panel.emergency_stop()
         self.frame_panel.emergency_stop()
 

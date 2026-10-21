@@ -359,7 +359,7 @@ def test_the_page_follows_each_test_of_the_plan():
     assert first["scores"] == ["173,304", "172,726"] and first["average"] == "173,015"
     assert [t["state"] for t in plan_tests(panel, db, False)] == ["done", "not run", "not run"]
     # a skipped test says so, not "running" (owner, 2026-10-21)
-    rows.append({"benchmark_name": "blender_cpu", "is_warmup": 0, "score": None, "status": "skipped",
+    rows.append({"benchmark_name": "blender_cpu", "is_warmup": 1, "score": None, "status": "skipped",   # in its warm-up
                  "note": "Skipped by the user before any result"})
     panel.step = (5, 5, "y-cruncher: run 1")
     assert [t["state"] for t in plan_tests(panel, db, True)] == ["done", "skipped", "running"]
@@ -632,3 +632,17 @@ def test_a_silent_connection_is_closed(served, monkeypatch):
     with socket.create_connection(("127.0.0.1", server.port), timeout=10) as s:
         start = time.monotonic()
         assert s.recv(100) == b"" and time.monotonic() - start < 9     # the server hung up
+
+
+def test_stop_on_the_phone_cancels_the_shutdown_countdown(monkeypatch):
+    """Owner, 2026-10-21: after the run, during the 60 s countdown, the phone's button cancels the shutdown."""
+    from app.ui import shutdown_after
+    from app.ui.remote_control import RemoteApi
+    stopped = []
+    w = SimpleNamespace(tests_page=SimpleNamespace(busy=False, _stop=lambda: stopped.append("page")),
+                        emergency_stop_all=lambda: stopped.append("all"))
+    api = RemoteApi(w, SimpleNamespace(run=lambda fn: fn()))
+    monkeypatch.setattr(shutdown_after, "cancel_pending", lambda: True)
+    assert "stays on" in api.stop() and stopped == []
+    monkeypatch.setattr(shutdown_after, "cancel_pending", lambda: False)
+    assert api.stop() == "Nothing is running."

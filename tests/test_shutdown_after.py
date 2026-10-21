@@ -114,7 +114,7 @@ def test_the_run_dialog_has_the_box_off_by_default(qapp, monkeypatch):
 
 
 def test_a_skip_cancels_the_shutdown(tmp_path):
-    """Owner, 2026-10-21: Skip during a run with "shut down when it ends" must keep the PC on."""
+    """Owner, 2026-10-21: a Skip of the last (or only) test keeps the PC on; a Skip in the middle does not."""
     from types import SimpleNamespace
     from app.automation.runner import SKIPPED_BY_USER
     from app.ui import shutdown_after
@@ -126,3 +126,22 @@ def test_a_skip_cancels_the_shutdown(tmp_path):
     assert shutdown_after.why_not_now(db, 1, done, report) is None
     skipped = SimpleNamespace(stopped=False, records=[rec(None), rec(SKIPPED_BY_USER + " before any result")])
     assert "skipped" in shutdown_after.why_not_now(db, 1, skipped, report)
+    middle = SimpleNamespace(stopped=False, records=[rec(SKIPPED_BY_USER + " after 1 of 3 runs"), rec(None)])
+    assert shutdown_after.why_not_now(db, 1, middle, report) is None
+
+
+def test_an_emergency_stop_or_stop_on_the_phone_cancels_the_countdown(monkeypatch):
+    """Owner, 2026-10-21: an emergency stop always keeps the computer on, also during the 60 s countdown."""
+    import sys
+    from types import SimpleNamespace
+    from PySide6.QtWidgets import QApplication
+    from app.ui import shutdown_after
+    app = QApplication.instance() or QApplication(sys.argv)
+    dialog = shutdown_after.CountdownDialog(None, seconds=60)
+    shutdown_after._open.append(dialog)
+    try:
+        assert shutdown_after.pending()
+        assert shutdown_after.cancel_pending() and dialog.result() == 0 and not dialog.timer.isActive()
+    finally:
+        shutdown_after._open.remove(dialog)
+    assert not shutdown_after.pending() and not shutdown_after.cancel_pending()

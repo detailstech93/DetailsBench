@@ -187,7 +187,7 @@ a { color:var(--accent); }
 let code = "";
 try { code = sessionStorage.getItem("pcbm-code") || ""; } catch (e) {}
 const $ = (id) => document.getElementById(id);
-let running = false, timer = null, shownReport = "", knownReport = null, wasRunning = null;
+let running = false, timer = null, shownReport = "", knownReport = null, wasRunning = null, lastState = {};
 let picked = false, testsKey = null;    // picked: the owner chose an older report in the list
 
 async function call(path, body) {
@@ -503,7 +503,8 @@ function showState(s) {
   $("elapsed").textContent = s.elapsed ? "Time: " + s.elapsed : "";
   $("left").textContent = s.left ? "Left: " + s.left : "";
   showPlan(s.tests);
-  $("stop").disabled = !s.running;
+  $("stop").disabled = !s.running && !s.shutdown_pending;
+  $("stop").textContent = s.shutdown_pending && !s.running ? "Cancel the shutdown" : "Emergency stop";
   $("skip").classList.toggle("hidden", !s.can_skip);
   $("start").disabled = s.running || !!s.scanning;   // nothing starts while the PC scans for tests
   $("pill").textContent = s.running ? "running" : (s.scanning ? "scanning" : "idle");
@@ -525,6 +526,7 @@ function showState(s) {
     }
   }
   wasRunning = s.running;
+  lastState = s;
 }
 
 let polls = 0;
@@ -594,7 +596,8 @@ $("skip").onclick = async () => {
   catch (e) {}
 };
 $("stop").onclick = async () => {
-  if (!confirm("Stop the run now? The current run is cut off and stored as stopped.")) return;
+  if (!lastState.shutdown_pending && !confirm("Stop the run now? The current run is cut off and stored as stopped."))
+    return;
   try { $("message").textContent = (await (await call("/api/stop", {})).json()).text || ""; refresh(); }
   catch (e) {}
 };

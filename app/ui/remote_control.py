@@ -281,7 +281,7 @@ def plan_tests(panel, db, running: bool) -> List[dict]:
         measured = [r for r in mine if not r.get("is_warmup")]
         good = [r for r in measured if (r.get("status") or "completed") == "completed" and r.get("score") is not None]
         skipped = any(r.get("status") == "skipped" and str(r.get("note") or "").startswith(SKIPPED_BY_USER)
-                      for r in measured)
+                      for r in mine)             # a skip during a warm-up is stored as a warm-up row
         if skipped:
             state = "skipped"                   # owner, 2026-10-21: it said "running" after the skip
         elif running and now.startswith(name + ":"):
@@ -465,6 +465,8 @@ class RemoteApi:
         listed = self.reports()
         out["newest_report"] = listed[0]["name"] if listed else ""     # also after the app started again
         out["tests_key"] = tests_key(page.entries)
+        from app.ui import shutdown_after
+        out["shutdown_pending"] = shutdown_after.pending()      # the 60 s countdown: the page offers to cancel it
         out["scanning"] = bool(getattr(page, "scanning", False)) and not running
         if out["scanning"]:
             out["text"] = SCANNING_TEXT
@@ -479,6 +481,9 @@ class RemoteApi:
     def stop(self) -> str:
         def stop():
             page = self.window.tests_page
+            from app.ui import shutdown_after
+            if shutdown_after.cancel_pending():
+                return "The shutdown is cancelled: the computer stays on."
             if not page.busy:
                 return "Nothing is running."
             page._stop()
