@@ -138,6 +138,7 @@ class InstallFlow(QObject):
         self.state = RunState()
         self.entry: Optional[TestEntry] = None
         self.remote = False                 # started from the remote page: answered there, no window at the PC
+        self.after_lmstudio: Optional[TestEntry] = None     # a model to download once LM Studio is installed
         self.described.connect(self._on_described)
         self.finished.connect(self._on_finished)
 
@@ -228,6 +229,21 @@ class InstallFlow(QObject):
 
     def _lmstudio(self, entry: TestEntry, plan: dict) -> bool:
         from app.ai import model_set
+        from app.ui import tests_page
+        host = self.window.tests_page.host
+        if tests_page.needs_lmstudio(entry, host):
+            # LM Studio is missing (Radxa board, 2026-10-21: the model's Install only said "lms was not found"):
+            # on Linux it is installed first (asked at the PC: it may need the password for libatomic), then the model
+            if self.remote or not tests_page.lmstudio_one_click(host):
+                self._warn(f"{entry.name} downloads through LM Studio, which is not installed here: "
+                           + ("press Install LM Studio at the PC first." if tests_page.lmstudio_one_click(host)
+                              else f"install it from {tests_page.LMSTUDIO_URL}, open it once, then Rescan."))
+                return False
+            self.after_lmstudio = entry
+            if not self.start_lmstudio():
+                self.after_lmstudio = None
+                return False
+            return True
         if not self.remote and not self._ask("Install", model_set.install_text(plan["test_id"])):
             return False
         self._show(f"Downloading {entry.name} with LM Studio...")
@@ -318,6 +334,11 @@ class InstallFlow(QObject):
     def _on_finished(self, outcome: "winget.Outcome"):
         if not outcome.ok and not outcome.message:
             outcome.message = "The install failed (see the log)."
+        model, self.after_lmstudio = self.after_lmstudio, None
+        if outcome.ok and model is not None:        # LM Studio is in: now the model it was installed for
+            self._end(outcome.message)
+            if self.start(model):
+                return
         self._end(outcome.message + (" Checking the installed tests again..." if outcome.ok else ""))
         if outcome.ok:
             self.window.start_scan()

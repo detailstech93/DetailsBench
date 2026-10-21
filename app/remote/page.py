@@ -520,13 +520,16 @@ function showState(s) {
   }
   if (testsKey !== null && s.tests_key && s.tests_key !== testsKey && !asking) reloadInfo();
   if (s.tests_key) testsKey = s.tests_key;
-  const newest = s.report_name || s.newest_report || "";
-  if (newest && !s.running && (newest !== knownReport || finished)) {
+  // several tests: each test's report is saved as soon as it is over and shows here then, not only at the end
+  // (owner, 2026-10-21); while running, report_name is still the last run's report, so the newest file is used
+  const newest = (s.running ? s.newest_report : (s.report_name || s.newest_report)) || "";
+  if (newest && (newest !== knownReport || finished)) {
+    const fresh = knownReport !== null || finished;     // not the one already there when the page opened
     knownReport = newest;
     if (finished) picked = false;
     if (!picked || finished) {
       showReports(newest).then(() => {
-        if (finished) $("reportNew").textContent = "New: " + $("reportNew").textContent;   // stays closed if closed
+        if (fresh) $("reportNew").textContent = "New: " + $("reportNew").textContent;   // stays closed if closed
       });
     }
   }

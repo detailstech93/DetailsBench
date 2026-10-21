@@ -169,6 +169,34 @@ def test_the_models_offer_install_lmstudio_on_linux_and_it_installs_libatomic_fi
     assert flow.window.scans == 1 and flow.state.text.startswith("LM Studio installed.")
 
 
+def test_a_models_install_installs_lmstudio_first_then_the_model(qapp, monkeypatch):
+    # Radxa board, 2026-10-21: the model's Install only said "lms was not found in ~/.lmstudio/bin"
+    from app.ai import lmstudio_linux, model_set
+    from app.ui import tests_page as tp
+    from app.ui.install_flow import InstallFlow
+    model = next(iter(model_set.all_models()))
+    page = tp.TestsPage(open_url=lambda url: None)
+    page.host = LINUX
+    have = []
+    monkeypatch.setattr(tp, "needs_lmstudio", lambda e, host=None, lms=None: not have)
+    monkeypatch.setattr(lmstudio_linux, "libatomic_missing", lambda: False)
+    monkeypatch.setattr(lmstudio_linux, "install", lambda: have.append(1) or winget.Outcome(True, "LM Studio installed."))
+    got = []
+    monkeypatch.setattr(model_set, "install", lambda tid, progress=None: got.append(tid) or winget.Outcome(True, "ok"))
+    e = TestEntry(id=model, name="model", group="ai", mode="automatic", state=MISSING, state_reason="",
+                  compatible=True, compatibility_reason="", verified=False)
+    asked = []
+    flow = InstallFlow(None, ask=lambda parent, title, text: asked.append(text) or True, start_thread=lambda fn: fn())
+    flow.window = Window(page)
+    assert flow.start(e)
+    assert "Install LM Studio" in asked[0] and len(asked) == 2 and got == [model] and have
+    assert flow.window.scans == 1 and flow.after_lmstudio is None
+    have.clear()                                    # from the phone: nothing is installed without the PC
+    warned = []
+    monkeypatch.setattr(flow, "_warn", warned.append)
+    assert not flow.start(e, confirmed=True) and "at the PC" in warned[0] and not have
+
+
 def test_lms_server_start_is_lmstudios_own_command(tmp_path):
     seen = []
     ok = lambda c, **kw: seen.append(c) or subprocess.CompletedProcess(c, 0, b"", b"")

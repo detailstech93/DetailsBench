@@ -106,7 +106,8 @@ def check_items(items: List[Item], describe=winget.describe, linux_commands=plan
                 item.problem = direct.problem(item.plan)
             elif item.plan["kind"] == "lmstudio":
                 from app.ai.lmstudio import lms_path
-                item.problem = None if lms_path() else "LM Studio is not installed"
+                item.problem = None if lms_path() else ("LM Studio is not installed (Install LM Studio on the "
+                                                        "model's row first)")
             elif item.plan["kind"] == "winget":
                 item.package = describe(item.entry.id)
                 item.problem = item.package.problem

@@ -464,6 +464,9 @@ def test_the_page_keeps_install_buttons_out_of_the_grey_and_follows_the_newest_r
     assert "s.newest_report" in PAGE and "s.tests_key" in PAGE and '"?t=" + Date.now()' in PAGE
     assert 'id="reportReload"' in PAGE
     assert "reportToggle" in PAGE and "pcbm-report" in PAGE        # the report opens and closes on the phone
+    # several tests: each finished test's report shows while the run goes on (owner, 2026-10-21)
+    assert "(s.running ? s.newest_report : (s.report_name || s.newest_report))" in PAGE
+    assert "newest && !s.running" not in PAGE
 
 
 def test_a_download_moves_the_bar():
