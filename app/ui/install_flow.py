@@ -7,8 +7,9 @@ pkexec, after the owner saw the exact commands. A Steam game opens Steam's own i
 
 From the remote page (app/ui/remote_control.py) the same question is shown on the phone first (question_text);
 the owner's Install there is the answer, so start(entry, confirmed=True) asks nothing at the PC and shows no
-message box there (what happened is in the progress text the page reads). Only downloads that need nobody at the
-PC go this way (a vendor zip, an LM Studio model, winget); Steam's dialog and Linux's password prompt stay at the PC.
+message box there (what happened is in the progress text the page reads). A vendor zip, an LM Studio model, winget
+and Linux's package manager go this way (owner, 2026-10-21: apt and .deb from the phone too); Linux's password is
+still typed at the PC, in the system's own prompt (the page says so and never asks for it). Steam stays at the PC.
 """
 
 import logging
@@ -63,8 +64,22 @@ THEN = {"blender_content": (_blender_text, _blender_download),
         "handbrake_cli": (_handbrake_text, _handbrake_install)}
 
 
-REMOTE_KINDS = ("zip", "lmstudio", "winget")
+REMOTE_KINDS = ("zip", "lmstudio", "winget", "linux")
 WINGET_NOTE = "\n\nWindows may show an administrator prompt on the PC during the install: someone must press Yes there."
+LINUX_NOTE = ("\n\nThe PC asks for your password during the install, in the system's own prompt: someone must type "
+              "it at the PC. This page never asks for it or sends it.")
+
+
+def linux_question(name: str, plan: dict, commands) -> str:
+    """The question before a Linux install (the distribution's package manager, or Chrome's checked .deb)."""
+    shown = "\n".join(" ".join(c) for c in commands)
+    if plan.get("fetch") == "chrome":
+        from app.install.chrome_linux import question
+        return question(Path(plan["package"])) + f"\n\nCommands:\n{shown}"
+    return (f"Install {name} with your distribution's package manager?\n\n{shown}\n\nThe package "
+            f"{plan['package']!r} comes from your distribution's own servers; the system asks for your password "
+            f"(pkexec). This package name was not checked on a real {plan['family']} machine yet: if it is not "
+            f"found, nothing is installed.")
 
 
 def question_text(entry: TestEntry, host=None, describe=winget.describe):
@@ -75,8 +90,12 @@ def question_text(entry: TestEntry, host=None, describe=winget.describe):
         return None, "the app cannot install it (only its official download page)"
     kind = plan.get("kind", "winget")
     if kind not in REMOTE_KINDS:
-        return None, ("Steam installs it at the PC" if kind == "steam" else
-                      "the system asks for the password at the PC")
+        return None, "Steam installs it at the PC" if kind == "steam" else f"{kind} installs only at the PC"
+    if kind == "linux":
+        commands, problem = plans.linux_commands(plan["family"], plan["package"])
+        if problem:
+            return None, problem
+        return linux_question(entry.name, plan, commands) + LINUX_NOTE, ""
     if kind == "zip":
         from app.install import direct
         bad = direct.problem(plan)
@@ -159,16 +178,7 @@ class InstallFlow(QObject):
         if problem:
             self._warn(f"{entry.name} cannot be installed by the app: {problem}.")
             return False
-        shown = "\n".join(" ".join(c) for c in commands)
-        if plan.get("fetch") == "chrome":
-            from app.install.chrome_linux import question
-            asked = self._ask("Install", question(Path(plan["package"])) + f"\n\nCommands:\n{shown}")
-        else:
-            asked = None
-        if asked is False or asked is None and not self._ask("Install", f"Install {entry.name} with your distribution's package manager?\n\n"
-                         f"{shown}\n\nThe package {plan['package']!r} comes from your distribution's own servers; "
-                         f"the system asks for your password (pkexec). This package name was not checked on a real "
-                         f"{plan['family']} machine yet: if it is not found, nothing is installed."):
+        if not self._ask("Install", linux_question(entry.name, plan, commands)):
             return False
         what = plan.get("label") or plan["package"]
         self._show(f"Installing {what} (enter your password in the system prompt)...")

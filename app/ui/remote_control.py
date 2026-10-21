@@ -13,9 +13,10 @@ buttons on the Tests screen; nothing on the PC waits for a click when the page s
   question would wait at the PC);
 - the page follows the run: the test and run going on now, each test's state and scores so far, the time gone and
   left, and the report when it is written (shown on the page, with the earlier reports of the reports folder);
-- a missing test whose Install needs nobody at the PC (a vendor zip, an LM Studio model, winget) can be installed
-  from the page: the page shows the same question the Install button asks, and the owner's Install there is the
-  answer (app/ui/install_flow.py); a license not accepted yet can be read and accepted on the page too.
+- a missing test with a one-click install (a vendor zip, an LM Studio model, winget, Linux's package manager:
+  its password is still typed at the PC) can be installed from the page, one or several at once ("Install
+  several", the PC's Install selected): the page shows the same question the PC asks, and the owner's Install
+  there is the answer (app/ui/install_flow.py, app/ui/run_all.py); a license can be read and accepted there too.
 """
 
 import logging
@@ -350,6 +351,8 @@ class RemoteApi:
 
     def question(self, test_id: str, what: str) -> Tuple[bool, str]:
         """The question the PC would ask before an install or about a license, to show on the page."""
+        if what == "install_many":
+            return self._many_question(test_id)
         entry, host = self.main.run(lambda: self._entry(test_id))
         if entry is None:
             return False, "No such test on this PC."
@@ -366,6 +369,9 @@ class RemoteApi:
 
     def act(self, test_id: str, what: str) -> Tuple[bool, str]:
         """The owner answered Yes on the page: accept the license, or start the install (no window at the PC)."""
+        if what == "install_many":
+            return self.main.run(lambda: self._many_start(test_id))
+
         def run():
             w = self.window
             entry, _ = self._entry(test_id)
@@ -381,7 +387,7 @@ class RemoteApi:
                     return False, f"The answer could not be saved: {e}"
                 logger.info("License of %s accepted from the remote page", lic[1])
                 return True, f"{lic[1]}: license accepted."
-            if w.tests_page.busy or w.automation_panel.is_running() or w.install_flow.busy():
+            if self._busy():
                 return False, "Something is going on at the PC; wait for it first."
             if not self._can_install(entry):
                 return False, "This test cannot be installed from here."
@@ -390,6 +396,42 @@ class RemoteApi:
             logger.info("Install of %s started from the remote page", entry.id)
             return True, f"Installing {entry.name}: follow it under Now."
         return self.main.run(run)
+
+    def _busy(self) -> bool:
+        w = self.window
+        return bool(w.tests_page.busy or w.automation_panel.is_running() or w.install_flow.busy()
+                    or w.run_all_flow.busy())
+
+    def _many(self, ids: List[str]) -> List[TestEntry]:
+        return [e for e in (self._entry(i)[0] for i in ids) if e is not None and self._can_install(e)]
+
+    def _many_question(self, ids: List[str]) -> Tuple[bool, str]:
+        """Install several: the same list Install selected shows at the PC (winget is asked here, off the Qt
+        thread)."""
+        from app.ui import run_all
+        entries, host = self.main.run(lambda: (self._many(ids), self.window.tests_page.host))
+        if not entries:
+            return False, "None of these tests can be installed from here."
+        items, steam = run_all.collect(entries, host)
+        run_all.check_items(items)
+        if not any(not i.problem for i in items):
+            return False, "Nothing can be installed: " + " ".join(i.line()[2:] for i in items)
+        text = run_all.question(items, steam, install_only=True)
+        if any(i.plan["kind"] == "linux" and not i.problem for i in items):
+            from app.ui.install_flow import LINUX_NOTE
+            text += LINUX_NOTE
+        return True, text
+
+    def _many_start(self, ids: List[str]) -> Tuple[bool, str]:
+        if self._busy():
+            return False, "Something is going on at the PC; wait for it first."
+        entries = self._many(ids)
+        if not entries:
+            return False, "None of these tests can be installed from here."
+        if not self.window.run_all_flow.start(entries, install_only=True, confirmed=True):
+            return False, "The installs did not start."
+        logger.info("Install of %s started from the remote page", ", ".join(e.id for e in entries))
+        return True, f"Installing {len(entries)} test(s) one after the other: follow it under Now."
 
     def state(self) -> dict:
         return self.main.run(self._state)

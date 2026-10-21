@@ -16,7 +16,7 @@ the same flow with install_only, which asks only Install them / Cancel and runs 
 import dataclasses
 import logging
 import threading
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
 
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QMessageBox
@@ -75,6 +75,63 @@ class Item:
                                                                                           self.commands))
 
 
+def collect(entries: List[TestEntry], host) -> Tuple[List[Item], List[str]]:
+    """(what to install, missing Steam games) for these tests; one program for several tests is one item."""
+    items, steam_missing = [], []
+    for e in entries:
+        if not (e.compatible and e.state == MISSING):
+            continue
+        plan = install_plan(e, host)
+        if plan is not None and plan["kind"] == "zip":
+            same = next((i for i in items if i.plan.get("folder") == plan["folder"]), None)
+            if same is None:
+                items.append(Item(e, plan))
+            else:                           # one program for several tests (Blender CPU and GPU)
+                same.entry = dataclasses.replace(same.entry, name=f"{same.entry.name} + {e.name}")
+        elif plan is not None and plan["kind"] == "linux" and any(i.plan == plan for i in items):
+            same = next(i for i in items if i.plan == plan)     # one browser for both web tests
+            same.entry = dataclasses.replace(same.entry, name=f"{same.entry.name} + {e.name}")
+        elif plan is not None and plan["kind"] in ("winget", "linux", "lmstudio"):
+            items.append(Item(e, plan))
+        elif e.source == "steam":
+            steam_missing.append(e.name)
+    return items, steam_missing
+
+
+def check_items(items: List[Item], describe=winget.describe, linux_commands=plans.linux_commands) -> List[Item]:
+    """What each install would download or run (winget is asked: seconds; call it off the Qt thread)."""
+    for item in items:
+        try:
+            if item.plan["kind"] == "zip":
+                item.problem = direct.problem(item.plan)
+            elif item.plan["kind"] == "lmstudio":
+                from app.ai.lmstudio import lms_path
+                item.problem = None if lms_path() else "LM Studio is not installed"
+            elif item.plan["kind"] == "winget":
+                item.package = describe(item.entry.id)
+                item.problem = item.package.problem
+            else:
+                item.commands, item.problem = linux_commands(item.plan["family"], item.plan["package"])
+        except Exception as e:          # one broken check must not stop the others
+            logger.exception("Install check failed")
+            item.problem = str(e)
+    return items
+
+
+def question(items: List[Item], steam_missing: List[str], install_only: bool) -> str:
+    good = [i for i in items if not i.problem]
+    text = (f"{len(items)} {'selected tests' if install_only else 'tests for this PC'} are not "
+            f"installed:\n\n" + "\n".join(i.line() for i in items))
+    if steam_missing:
+        text += "\n\nNot downloaded here (install them from Steam if you want them): " + ", ".join(steam_missing)
+    if good:
+        text += ("\n\nInstall them: one after the other; each comes from the address shown; Windows may ask for "
+                 "administrator rights (UAC) or Linux for your password. By installing you accept each "
+                 "program's license.")
+        text += ("" if install_only else " Then all tests run.\nRun only installed tests: nothing is downloaded.")
+    return text
+
+
 class RunAllFlow(QObject):
     checked = Signal(object)        # [Item] (from the worker thread)
     installed = Signal(object)      # [str] one line per install
@@ -93,7 +150,7 @@ class RunAllFlow(QObject):
                                                                          name="run-all").start())
         self.state = RunState()
         self.steam_missing: List[str] = []
-        self.install_only = False
+        self.install_only = self.confirmed = False
         self.lines: List[str] = []
         self.checked.connect(self._on_checked)
         self.installed.connect(self._on_installed)
@@ -101,29 +158,14 @@ class RunAllFlow(QObject):
     def busy(self) -> bool:
         return self.state.running
 
-    def start(self, entries: List[TestEntry], install_only: bool = False) -> bool:
+    def start(self, entries: List[TestEntry], install_only: bool = False, confirmed: bool = False) -> bool:
+        """`confirmed`: the owner already answered the list on the remote page (install only, no window here)."""
         page = self.window.tests_page
         if self.busy() or page.busy:
             return False
-        self.install_only = install_only
-        items, self.steam_missing = [], []
-        for e in entries:
-            if not (e.compatible and e.state == MISSING):
-                continue
-            plan = install_plan(e, page.host)
-            if plan is not None and plan["kind"] == "zip":
-                same = next((i for i in items if i.plan.get("folder") == plan["folder"]), None)
-                if same is None:
-                    items.append(Item(e, plan))
-                else:                           # one program for several tests (Blender CPU and GPU)
-                    same.entry = dataclasses.replace(same.entry, name=f"{same.entry.name} + {e.name}")
-            elif plan is not None and plan["kind"] == "linux" and any(i.plan == plan for i in items):
-                same = next(i for i in items if i.plan == plan)     # one browser for both web tests
-                same.entry = dataclasses.replace(same.entry, name=f"{same.entry.name} + {e.name}")
-            elif plan is not None and plan["kind"] in ("winget", "linux", "lmstudio"):
-                items.append(Item(e, plan))
-            elif e.source == "steam":
-                self.steam_missing.append(e.name)
+        self.install_only, self.confirmed = install_only or confirmed, confirmed
+        install_only = self.install_only
+        items, self.steam_missing = collect(entries, page.host)
         if not items:
             if install_only:
                 self._show("")
@@ -135,23 +177,7 @@ class RunAllFlow(QObject):
         return True
 
     def _check(self, items: List[Item]) -> List[Item]:
-        for item in items:
-            try:
-                if item.plan["kind"] == "zip":
-                    from app.install import direct
-                    item.problem = direct.problem(item.plan)
-                elif item.plan["kind"] == "lmstudio":
-                    from app.ai.lmstudio import lms_path
-                    item.problem = None if lms_path() else "LM Studio is not installed"
-                elif item.plan["kind"] == "winget":
-                    item.package = self.describe_fn(item.entry.id)
-                    item.problem = item.package.problem
-                else:
-                    item.commands, item.problem = self.linux_commands(item.plan["family"], item.plan["package"])
-            except Exception as e:          # one broken check must not stop the others
-                logger.exception("Install check failed")
-                item.problem = str(e)
-        return items
+        return check_items(items, self.describe_fn, self.linux_commands)
 
     def _show(self, text: str):
         self.state = RunState(True, 0, None, text)
@@ -164,22 +190,15 @@ class RunAllFlow(QObject):
 
     def _on_checked(self, items: List[Item]):
         good = [i for i in items if not i.problem]
-        text = (f"{len(items)} {'selected tests' if self.install_only else 'tests for this PC'} are not "
-                f"installed:\n\n" + "\n".join(i.line() for i in items))
-        if self.steam_missing:
-            text += ("\n\nNot downloaded here (install them from Steam if you want them): "
-                     + ", ".join(self.steam_missing))
-        if good:
-            text += ("\n\nInstall them: one after the other; each comes from the address shown; Windows may ask for "
-                     "administrator rights (UAC) or Linux for your password. By installing you accept each "
-                     "program's license.")
-            text += ("" if self.install_only else " Then all tests run.\nRun only installed tests: nothing is "
-                                                  "downloaded.")
+        text = question(items, self.steam_missing, self.install_only)
         if self.install_only and not good:
             self._end("Nothing was installed: " + " ".join(i.line()[2:] for i in items))
             return
-        choice = (self.ask(self.window, text, install_only=True) if self.install_only
-                  else self.ask(self.window, text))
+        if self.confirmed:
+            choice = INSTALL                # answered on the remote page
+        else:
+            choice = (self.ask(self.window, text, install_only=True) if self.install_only
+                      else self.ask(self.window, text))
         if self.install_only and choice != INSTALL:
             self._end("Cancelled; nothing was downloaded.")
             return

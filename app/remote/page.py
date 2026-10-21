@@ -144,6 +144,7 @@ a { color:var(--accent); }
     they have an Install or Accept license button; an orange note means someone must answer a Windows prompt on the
     PC.</p>
     <div class="row"><button id="all">Select all</button><button id="none">Select none</button>
+      <button id="installMany" class="hidden">Install several</button>
       <span id="picked" class="muted"></span></div>
     <div id="tests"></div>
     <div class="sticky">
@@ -284,7 +285,11 @@ function gamePresets(ids) {
   return out;
 }
 
+let installable = [];
+
 function showInfo(info) {
+  installable = info.tests.filter((t) => t.install);
+  $("installMany").classList.toggle("hidden", installable.length < 2);
   const specs = $("specs");
   specs.replaceChildren();
   for (const [k, v] of info.specs) { specs.append(el("dt", k), el("dd", v)); }
@@ -358,10 +363,49 @@ async function askFor(t, what) {
   } catch (e) { if (e.message !== "code") $("message").textContent = "The PC does not answer."; }
 }
 
+function pickInstalls() {
+  // Install several (owner, 2026-10-21): tick the missing tests, then the PC's list (sizes, addresses) to answer
+  asking = { what: "pick" };
+  $("askTitle").textContent = "Install several";
+  const list = $("askText");
+  list.replaceChildren(el("p", "Tick what to install; the next step shows what each one downloads.", "muted"));
+  for (const t of installable) {
+    const row = el("label", null, "test");
+    const cb = el("input"); cb.type = "checkbox"; cb.value = t.id; cb.checked = true;
+    row.append(cb, el("span", t.name));
+    list.append(row);
+  }
+  $("askLink").classList.add("hidden");
+  $("askYes").textContent = "Next";
+  $("askNo").textContent = "Cancel";
+  $("ask").classList.remove("hidden");
+}
+
+async function askMany(ids) {
+  $("message").textContent = "Asking the PC what " + ids.length + " installs need...";
+  try {
+    const d = await (await call("/api/question", { what: "install_many", ids })).json();
+    if (!d.ok) { $("message").textContent = d.text || d.error || "Not possible from here."; return; }
+    asking = { what: "install_many", ids };
+    $("askTitle").textContent = "Install " + ids.length + " tests";
+    $("askText").textContent = d.text;
+    $("askLink").classList.add("hidden");
+    $("askYes").textContent = "Install them";
+    $("askNo").textContent = "Cancel";
+    $("ask").classList.remove("hidden");
+    $("message").textContent = "";
+  } catch (e) { if (e.message !== "code") $("message").textContent = "The PC does not answer."; }
+}
+
 async function answer(yes) {
   $("ask").classList.add("hidden");
   const a = asking; asking = null;
   if (!a || !yes) { $("message").textContent = "Nothing was done."; return; }
+  if (a.what === "pick") {
+    const ids = [...document.querySelectorAll("#askText input:checked")].map((c) => c.value);
+    if (!ids.length) { $("message").textContent = "Nothing was ticked."; return; }
+    return askMany(ids);
+  }
   try {
     const d = await (await call("/api/act", a)).json();
     $("message").textContent = d.text || d.error || "";
@@ -516,6 +560,7 @@ $("all").onclick = () => { document.querySelectorAll("#tests input:not(:disabled
                            countPicked(); };
 $("none").onclick = () => { document.querySelectorAll("#tests input").forEach((c) => c.checked = false);
                             countPicked(); };
+$("installMany").onclick = pickInstalls;
 $("askYes").onclick = () => answer(true);
 $("askNo").onclick = () => answer(false);
 $("reportPick").onchange = () => { picked = $("reportPick").selectedIndex > 0; openReport($("reportPick").value); };

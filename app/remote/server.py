@@ -161,9 +161,17 @@ def check_start(body: object, offered: List[str]) -> Tuple[Optional[dict], str]:
 
 def check_action(body: object, tests: List[dict]) -> Tuple[Optional[str], str]:
     """(test id, "install" or "license") for a test the app offers that action for, or (None, why)."""
-    if not isinstance(body, dict) or body.get("what") not in ("install", "license"):
+    if not isinstance(body, dict) or body.get("what") not in ("install", "license", "install_many"):
         return None, "not an install or license request"
     test_id, what = body.get("id"), body["what"]
+    if what == "install_many":          # several missing tests at once (owner, 2026-10-21): (list of ids, what)
+        ids = body.get("ids")
+        if not isinstance(ids, list) or not ids or len(ids) > MAX_TESTS or not all(isinstance(i, str) for i in ids):
+            return None, "pick at least one test to install"
+        can = {t.get("id") for t in tests if t.get("install")}
+        if not set(ids) <= can:
+            return None, "these tests have no install to do from here: " + ", ".join(sorted(set(ids) - can)[:5])
+        return list(dict.fromkeys(ids)), what
     if not isinstance(test_id, str) or not any(t.get("id") == test_id and t.get(what) for t in tests):
         return None, f"this test has no {what} to do from here"
     return test_id, what

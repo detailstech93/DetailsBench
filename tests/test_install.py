@@ -433,3 +433,32 @@ def test_geekbench_6_comes_back_through_winget():
     plan = plan_for("geekbench_6", host=WIN_X64)
     assert plan["kind"] == "winget" and plan["winget"] == "PrimateLabs.Geekbench.6"
     assert plan["hosts"] == ["cdn.geekbench.com"]
+
+
+def test_install_several_answered_on_the_remote_page_asks_nothing_at_the_pc(qapp):
+    """Owner, 2026-10-21: Install several from the phone; the list was answered there."""
+    pkg = winget.parse_show(SHOW, "sevenzip_benchmark", "7zip.7zip", ["www.7-zip.org"])
+    installed = []
+    entries = [entry("sevenzip_benchmark")]
+    flow, win, asked = run_all_for(qapp, None, entries, describe=lambda tid: pkg,
+                                   install=lambda p: installed.append(p) or winget.Outcome(True, "7-Zip installed."))
+    flow.ask = lambda *a, **k: pytest.fail("answered on the page: no question at the PC")
+    assert flow.start(entries, confirmed=True)
+    assert installed == [pkg] and win.scans == 1 and win.ran == [] and flow.install_only
+    assert flow.state.text.startswith("Installs done: 7-Zip installed.")
+
+
+def test_a_linux_package_can_be_installed_from_the_phone_but_the_password_stays_at_the_pc(monkeypatch):
+    from app.ui import install_flow
+    plan = {"kind": "linux", "family": "debian", "package": "fio"}
+    monkeypatch.setattr(install_flow, "install_plan", lambda e, host=None: plan)
+    monkeypatch.setattr(install_flow.plans, "linux_commands",
+                        lambda family, package: ([["/usr/bin/pkexec", "/usr/bin/apt-get", "install", "-y", package]],
+                                                 None))
+    text, why = install_flow.question_text(entry("fio"))
+    assert not why and "/usr/bin/apt-get install -y fio" in text and "someone must type it at the PC" in text
+    assert "linux" in install_flow.REMOTE_KINDS
+    monkeypatch.setattr(install_flow.plans, "linux_commands", lambda family, package: ([], "apt-get not found"))
+    assert install_flow.question_text(entry("fio")) == (None, "apt-get not found")
+    monkeypatch.setattr(install_flow, "install_plan", lambda e, host=None: {"kind": "steam", "app_id": "1"})
+    assert install_flow.question_text(entry("fio"))[0] is None

@@ -582,3 +582,35 @@ def test_shut_down_after_the_run_from_the_page(tmp_path, monkeypatch):
     monkeypatch.setattr(shutdown_after, "why_not_offered", lambda *a, **k: "not offered in WSL")
     ok, text = remote_start(w, ["sevenzip_benchmark"], 1, 0, 0, launch=launch, shutdown_after=True)
     assert seen == [True, False, False] and "shuts down" not in text
+
+
+def test_install_several_only_tests_the_page_offers_to_install():
+    tests = [{"id": "a", "install": True}, {"id": "b", "install": True}, {"id": "c", "install": False}]
+    assert rs.check_action({"what": "install_many", "ids": ["a", "b", "a"]}, tests) == (["a", "b"], "install_many")
+    for bad in ({"what": "install_many", "ids": ["a", "c"]}, {"what": "install_many", "ids": []},
+                {"what": "install_many", "ids": "a"}, {"what": "install_many", "ids": [5]}):
+        assert rs.check_action(bad, tests)[0] is None, bad
+
+
+def test_install_several_from_the_page_shows_the_list_then_installs_with_no_window_at_the_pc(qapp, monkeypatch):
+    from app.ui import run_all
+    from app.ui.remote_control import MainThread, RemoteApi
+    started = []
+    a, b = _entry("fio", state="missing"), _entry("sevenzip_benchmark", state="missing")
+    flow = SimpleNamespace(busy=lambda: False, start=lambda entries, **kw: started.append(([e.id for e in entries],
+                                                                                          kw)) or True)
+    window = SimpleNamespace(tests_page=SimpleNamespace(entries=[a, b], host=None, busy=False),
+                             automation_panel=SimpleNamespace(is_running=lambda: False),
+                             install_flow=SimpleNamespace(busy=lambda: False), run_all_flow=flow)
+    api = RemoteApi(window, MainThread())
+    monkeypatch.setattr(RemoteApi, "_can_install", lambda self, e: True)
+    item = run_all.Item(a, {"kind": "linux", "family": "debian", "package": "fio"})
+    item.commands = [["pkexec", "apt-get", "install", "-y", "fio"]]
+    monkeypatch.setattr(run_all, "collect", lambda entries, host: ([item], []))
+    monkeypatch.setattr(run_all, "check_items", lambda items: items)
+    ok, text = api.question(["fio", "sevenzip_benchmark"], "install_many")
+    assert ok and "apt-get install -y fio" in text and "someone must type it at the PC" in text
+    ok, text = api.act(["fio", "sevenzip_benchmark"], "install_many")
+    assert ok and started == [(["fio", "sevenzip_benchmark"], {"install_only": True, "confirmed": True})]
+    window.run_all_flow = SimpleNamespace(busy=lambda: True)
+    assert api.act(["fio"], "install_many") == (False, "Something is going on at the PC; wait for it first.")
