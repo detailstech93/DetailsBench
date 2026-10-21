@@ -221,7 +221,19 @@ class GeekbenchWorkload(Workload):
         gone = time.monotonic() - self._started
         return min(0.97, gone / self.expected), max(0.0, self.expected - gone)
 
+    def system_blocks(self, which=shutil.which, exists=os.path.exists) -> Optional[str]:
+        """CUDA needs an NVIDIA GPU and its driver: hidden where neither is found (the Radxa Dragon Q8B's Adreno
+        listed it, 2026-10-21). nvidia-smi comes with the driver on Windows and Linux; WSL has libcuda instead."""
+        if self.options[1:] != ["CUDA"]:
+            return None
+        if which("nvidia-smi") or exists("/proc/driver/nvidia") or exists("/usr/lib/wsl/lib/libcuda.so.1"):
+            return None
+        return "CUDA needs an NVIDIA GPU and its driver (none found)"
+
     def availability(self) -> Tuple[bool, str]:
+        blocked = self.system_blocks()
+        if blocked:
+            return False, blocked
         if not self.exe:
             return False, f"Geekbench {self.major} is not installed (geekbench{self.major} not found)"
         return True, self.exe

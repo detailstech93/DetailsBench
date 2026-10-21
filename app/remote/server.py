@@ -313,8 +313,6 @@ def _handler(server: "RemoteServer"):
             if path not in ("/api/start", "/api/stop", "/api/skip", "/api/question", "/api/act"):
                 self._json(404, {"error": "not found"})
                 return
-            if not self._authorised():
-                return
             try:
                 length = int(self.headers.get("Content-Length") or 0)
             except ValueError:
@@ -325,7 +323,10 @@ def _handler(server: "RemoteServer"):
                 self.close_connection = True
                 self._json(413, {"error": "request too large"})
                 return
+            # the body is read before a 401 too: an unread body made Windows reset the connection (WinError 10053)
             raw = self.rfile.read(length) if length else b""
+            if not self._authorised():
+                return
             try:
                 if path == "/api/stop":
                     self._json(200, {"ok": True, "text": server.api.stop()})

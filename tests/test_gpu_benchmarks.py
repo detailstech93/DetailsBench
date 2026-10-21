@@ -193,6 +193,20 @@ def test_vkmark_and_glmark2_run_from_path_and_only_on_linux(tmp_path, monkeypatc
     assert all(e.compatible and e.state == catalog.MISSING and e.group == "gpu" for e in entries)
 
 
+def test_glmark2_uses_its_wayland_build_on_a_wayland_desktop():
+    # Radxa Dragon Q8B, 2026-10-21: the X11 glmark2 failed through Xwayland, glmark2-wayland ran
+    both = lambda name: f"/usr/bin/{name}"
+    wayland = linux_gl.LinuxGpuWorkload("glmark2", platform="linux", which=both, env={"WAYLAND_DISPLAY": "wayland-0"})
+    assert wayland.executable()[0] == "/usr/bin/glmark2-wayland"
+    x11 = linux_gl.LinuxGpuWorkload("glmark2", platform="linux", which=both, env={"DISPLAY": ":0"})
+    assert x11.executable()[0] == "/usr/bin/glmark2"
+    only_x11 = lambda name: "/usr/bin/glmark2" if name == "glmark2" else None
+    fallback = linux_gl.LinuxGpuWorkload("glmark2", platform="linux", which=only_x11, env={"XDG_SESSION_TYPE": "wayland"})
+    assert fallback.executable()[0] == "/usr/bin/glmark2"
+    vk = linux_gl.LinuxGpuWorkload("vkmark", platform="linux", which=both, env={"WAYLAND_DISPLAY": "wayland-0"})
+    assert vk.executable()[0] == "/usr/bin/vkmark"
+
+
 def test_vkmark_and_glmark2_install_with_the_distribution_packages():
     host = plans.Host("linux", "x64", "debian")
     assert plans.plan_for("vkmark", host=host)["package"] == "vkmark"

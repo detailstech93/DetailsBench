@@ -345,3 +345,13 @@ def test_after_the_runs_their_pages_open_and_one_typed_score_per_run_is_stored(t
     run_tests.typed_followup(window, e, 7, ask=lambda *a, **k: None)
     offered[-1][1]()
     assert stored == []                                 # cancelled: nothing stored
+
+
+def test_cuda_is_hidden_without_an_nvidia_driver():
+    """Radxa Dragon Q8B (Adreno 690), 2026-10-21: Geekbench 7 CUDA was listed with no NVIDIA GPU."""
+    cuda = gb.GeekbenchWorkload("geekbench7_gpu_cuda", exe="gb7")
+    none = dict(which=lambda name: None, exists=lambda path: False)
+    assert "NVIDIA" in cuda.system_blocks(**none)
+    assert cuda.system_blocks(which=lambda name: "/usr/bin/nvidia-smi", exists=lambda path: False) is None
+    assert cuda.system_blocks(which=lambda name: None, exists=lambda p: p == "/usr/lib/wsl/lib/libcuda.so.1") is None
+    assert gb.GeekbenchWorkload("geekbench7_gpu_vulkan", exe="gb7").system_blocks(**none) is None

@@ -12,6 +12,7 @@ the GPU goes through a translation layer (or software rendering), so only a real
 that mean anything for the card. Not checked on a real run here yet, so the tests are not marked verified.
 """
 
+import os
 import re
 import shutil
 import subprocess
@@ -29,6 +30,11 @@ PROGRAMS = {
     "vkmark": ("vkmark", "vkmark", "Vulkan", "https://github.com/vkmark/vkmark"),
     "glmark2": ("glmark2", "glmark2", "OpenGL", "https://github.com/glmark2/glmark2"),
 }
+# On a Wayland desktop the native build is used when installed (Debian/Ubuntu package glmark2-wayland). Seen on the
+# Radxa Dragon Q8B (Armbian, Wayland, 2026-10-21): the X11 glmark2 went through Xwayland and stopped with
+# "Authorization required ... Could not initialize canvas" when started without the session's X authority, while
+# glmark2-wayland ran and printed its "glmark2 Score:" line like the X11 build.
+WAYLAND_BUILDS = {"glmark2": "glmark2-wayland"}
 
 
 def parse_score(program: str, text: str) -> Tuple[Optional[int], Optional[str]]:
@@ -55,12 +61,13 @@ class LinuxGpuWorkload(Workload):
     timeout_seconds = 900
     needs_desktop = True            # opens a window: it needs the unlocked desktop
 
-    def __init__(self, test_id: str, platform: Optional[str] = None, which=shutil.which):
+    def __init__(self, test_id: str, platform: Optional[str] = None, which=shutil.which, env=None):
         self.id = test_id
         self.verified = False       # the output has not been seen on a real run here yet
         self.display_name, self.program, self.api, self.url = PROGRAMS[test_id]
         self.platform = platform or sys.platform
         self.which = which
+        self.env = os.environ if env is None else env
         self.benchmark_type = "gpu"
 
     def system_blocks(self) -> Optional[str]:
@@ -69,7 +76,11 @@ class LinuxGpuWorkload(Workload):
         return None
 
     def _path(self) -> Optional[str]:
-        return self.which(self.program) if not self.system_blocks() else None
+        if self.system_blocks():
+            return None
+        wayland = self.env.get("WAYLAND_DISPLAY") or self.env.get("XDG_SESSION_TYPE") == "wayland"
+        native = self.which(WAYLAND_BUILDS[self.id]) if wayland and self.id in WAYLAND_BUILDS else None
+        return native or self.which(self.program)
 
     def availability(self) -> Tuple[bool, str]:
         blocked = self.system_blocks()
