@@ -345,6 +345,79 @@ class RaplSource:
         return {"cpu_package_power": (joules / (now - last[0]), "W")}
 
 
+THERMAL_ROOT = "/sys/class/thermal"
+DEVFREQ_ROOT = "/sys/class/devfreq"
+
+
+class ThermalZoneSource:
+    """Linux boards (ARM SBCs, Qualcomm): CPU and GPU temperature from the kernel's thermal zones and the GPU clock
+    from devfreq, no root (owner, 2026-10-22: the Radxa Dragon Q8B's stress report had no GPU chart; psutil's hwmon
+    chips did not name its CPU either). Zones "cpu..."/"cluster..." are the CPU, zones with "gpu" the GPU (gpuss-N on
+    Qualcomm, gpu_thermal on Rockchip); a devfreq device with "gpu" in its name is the GPU's clock. Listed first, so
+    psutil (hwmon CPU chips) and nvidia-smi win where they read the same thing."""
+    name = "thermal zones"
+
+    def __init__(self, thermal_root: str = THERMAL_ROOT, devfreq_root: str = DEVFREQ_ROOT,
+                 listdir: Callable[[str], list] = os.listdir, read_text: Optional[Callable[[str], str]] = None):
+        self.thermal_root, self.devfreq_root = thermal_root, devfreq_root
+        self.listdir = listdir
+        self.read_text = read_text or _read_text
+        self._zones: Optional[list] = None          # [(path, "cpu" | "gpu")], read once
+        self._gpu_freq: Optional[str] = None
+
+    def _find(self):
+        if self._zones is not None:
+            return
+        self._zones = []
+        try:
+            names = sorted(n for n in self.listdir(self.thermal_root) if n.startswith("thermal_zone"))
+        except OSError:
+            names = []
+        for n in names:
+            try:
+                kind = self.read_text(f"{self.thermal_root}/{n}/type").strip().lower()
+            except OSError:
+                continue
+            part = "gpu" if "gpu" in kind else "cpu" if kind.startswith(("cpu", "cluster")) else None
+            if part:
+                self._zones.append((f"{self.thermal_root}/{n}/temp", part))
+        try:
+            gpus = sorted(n for n in self.listdir(self.devfreq_root) if "gpu" in n.lower())
+        except OSError:
+            gpus = []
+        self._gpu_freq = f"{self.devfreq_root}/{gpus[0]}/cur_freq" if gpus else None
+
+    def available(self) -> Tuple[bool, str]:
+        self._find()
+        parts = sorted({part for _, part in self._zones})
+        if not parts and not self._gpu_freq:
+            return False, "no CPU or GPU thermal zone and no GPU devfreq clock"
+        return True, ", ".join([f"{p.upper()} temperature" for p in parts] + (["GPU clock"] if self._gpu_freq
+                                                                             else []))
+
+    def read(self) -> Reading:
+        self._find()
+        temps = {"cpu": [], "gpu": []}
+        for path, part in self._zones:
+            try:
+                value = int(self.read_text(path).strip()) / 1000.0
+            except (OSError, ValueError):
+                continue
+            if 0 < value < 150:                 # -40.96 and the like: a zone with no sensor behind it
+                temps[part].append(value)
+        out: Reading = {}
+        if temps["cpu"]:
+            out["cpu_temperature_hottest"] = (max(temps["cpu"]), "C")
+        if temps["gpu"]:
+            out["gpu0_temperature"] = (max(temps["gpu"]), "C")
+        if self._gpu_freq:
+            try:
+                out["gpu0_sm_clock"] = (int(self.read_text(self._gpu_freq).strip()) / 1e6, "MHz")
+            except (OSError, ValueError):
+                pass
+        return out
+
+
 def _provisioned_lhm_settings() -> dict:
     """LibreHardwareMonitor.config of the copy this app set up; {} when there is none."""
     from app.paths import get_data_dir
@@ -358,5 +431,6 @@ def default_sources(platform_name: str = sys.platform) -> list:
     if platform_name == "win32":
         sources.append(LhmSource(settings=_provisioned_lhm_settings))
     elif platform_name.startswith("linux"):
+        sources.insert(0, ThermalZoneSource())
         sources.append(RaplSource())
     return sources

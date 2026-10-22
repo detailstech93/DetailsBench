@@ -216,4 +216,30 @@ def test_psutil_linux_temperature_and_clock():
 
 def test_default_sources_per_platform():
     assert [s.name for s in default_sources("win32")] == ["psutil", "nvidia-smi", "GPU memory", "LibreHardwareMonitor"]
-    assert [s.name for s in default_sources("linux")] == ["psutil", "nvidia-smi", "GPU memory", "RAPL"]
+    assert [s.name for s in default_sources("linux")] == ["thermal zones", "psutil", "nvidia-smi", "GPU memory",
+                                                          "RAPL"]
+
+
+def test_thermal_zones_give_cpu_and_gpu_temperature_and_the_gpu_clock():
+    # Radxa Dragon Q8B, 2026-10-22: the stress report had no GPU chart and no CPU temperature
+    from app.telemetry.sources import ThermalZoneSource
+    files = {"/t/thermal_zone0/type": "cpu0-0-thermal\n", "/t/thermal_zone0/temp": "39200\n",
+             "/t/thermal_zone1/type": "gpuss-0-thermal\n", "/t/thermal_zone1/temp": "41600\n",
+             "/t/thermal_zone2/type": "gpuss-2-thermal\n", "/t/thermal_zone2/temp": "45300\n",
+             "/t/thermal_zone3/type": "cluster1-thermal\n", "/t/thermal_zone3/temp": "40300\n",
+             "/t/thermal_zone4/type": "pmc8280c-thermal\n", "/t/thermal_zone4/temp": "88000\n",
+             "/t/thermal_zone5/type": "cpu7-1-thermal\n", "/t/thermal_zone5/temp": "-40960\n",
+             "/d/3d00000.gpu/cur_freq": "690000000\n"}
+    dirs = {"/t": ["thermal_zone0", "thermal_zone1", "thermal_zone2", "thermal_zone3", "thermal_zone4",
+                   "thermal_zone5", "cooling_device0"], "/d": ["1d84000.ufshc", "3d00000.gpu"]}
+
+    def read(path):
+        if path not in files:
+            raise OSError(path)
+        return files[path]
+    src = ThermalZoneSource("/t", "/d", listdir=lambda p: dirs[p], read_text=read)
+    assert src.available() == (True, "CPU temperature, GPU temperature, GPU clock")
+    assert src.read() == {"cpu_temperature_hottest": (40.3, "C"), "gpu0_temperature": (45.3, "C"),
+                          "gpu0_sm_clock": (690.0, "MHz")}
+    nothing = ThermalZoneSource("/t", "/d", listdir=lambda p: (_ for _ in ()).throw(OSError(p)), read_text=read)
+    assert nothing.available()[0] is False and nothing.read() == {}
