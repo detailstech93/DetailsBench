@@ -42,3 +42,28 @@ def test_the_chart_top_is_the_whole_memory():
     full = line_chart("VRAM", [0, 1], [2.0, 4.0], y_unit="GiB", y_full=16.0)
     alone = line_chart("VRAM", [0, 1], [2.0, 4.0], y_unit="GiB")
     assert full != alone and "16" in full
+
+
+def test_every_llama_benchy_measurement_is_in_the_report():
+    # owner, 2026-10-22: the report showed one number; llama-benchy measures prompt processing, token generation,
+    # time to first token, context depths and the prefix cache
+    export = _export("llama_benchy")
+    m = lambda v, u: {"mean": v, "unit": u}
+    export["metric_summaries"] = {"llama_benchy": {
+        "pp_tok_s@d0_c1": m(5.31, "tok/s"), "tg_tok_s@d0_c1": m(3.44, "tok/s"), "e2e_ttft_ms@d0_c1": m(86171.8, "ms"),
+        "pp_tok_s@d4096_c1": m(4.2, "tok/s"), "tg_tok_s@d4096_c1": m(3.1, "tok/s"),
+        "ctx_pp_tok_s@d4096_c1": m(4.0, "tok/s"), "ctx_e2e_ttft_ms@d4096_c1": m(1000000.0, "ms"),
+        "tel_cpu_load_avg": m(50.0, "%")}}
+    html = report._free_llama_section(export)
+    assert "Prompt processing</div><div class=\"value\">5.3 <span>tok/s" in html
+    assert "Time to first token</div><div class=\"value\">86.17 <span>s" in html
+    assert "All llama-benchy measurements" in html
+    assert "<tr><td>1</td><td>0</td><td>measured</td><td>5.3</td><td>3.4</td><td>86.17</td></tr>" in html
+    assert ("<tr><td>1</td><td>4,096</td><td>context prefill (prefix cache)</td><td>4.0</td><td>-</td>"
+            "<td>1,000.00</td></tr>") in html
+    assert html.index("context prefill") < html.index("<td>4,096</td><td>measured")
+    fixed = report._model_sections({**export, "runs": [{**export["runs"][0], "benchmark_name": "llama_benchy_x"}],
+                                    "summaries": {"llama_benchy_x": {"stats": {"mean": 3.4}}},
+                                    "metric_summaries": {"llama_benchy_x": export["metric_summaries"]["llama_benchy"]}})
+    assert "All llama-benchy measurements" in fixed and "Time to first token" in fixed
+    assert "All llama-benchy measurements" not in report._mlperf_section(_export("mlperf_client"))

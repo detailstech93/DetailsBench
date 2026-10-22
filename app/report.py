@@ -628,7 +628,7 @@ def _model_sections(export: Mapping) -> str:
             f"counts) for {model} in LM Studio, loaded by the app with context {CONTEXT}, every layer on the "
             f"graphics card and one request at a time; prompt {PP} tokens, {TG} generated. Higher is faster. "
             "Comparable only with the same model, quantization, LM Studio engine and llama-benchy version. Nothing "
-            "was uploaded.", decimals=1, chart_specs=AI_CHARTS))
+            "was uploaded.", decimals=1, chart_specs=AI_CHARTS, ai=True))
     return "".join(sections)
 
 
@@ -679,7 +679,7 @@ def _free_llama_section(export: Mapping) -> str:
         "Token generation in tokens per second with the LM Studio model and settings chosen before the run (they "
         "are on the tile and in the runs table). Higher is faster. Comparable only with the same model, "
         "quantization, settings and LM Studio engine; for results that compare between PCs use the fixed AI "
-        "models. Nothing was uploaded.", decimals=1, chart_specs=AI_CHARTS)
+        "models. Nothing was uploaded.", decimals=1, chart_specs=AI_CHARTS, ai=True)
 
 
 def _passmark_section(export: Mapping) -> str:
@@ -700,8 +700,68 @@ def _pugetbench_section(export: Mapping) -> str:
         "Systems; command-line runs need Puget's paid license, so the app does not run it.", readings=False)
 
 
+# llama-benchy's measurements (app/ai/llama_benchy.py COLUMNS), stored per depth and concurrency: "pp_tok_s@d0_c1",
+# "ctx_..." for the request that loads the context when prefix caching is on (owner, 2026-10-22: the report showed
+# only token generation)
+AI_COLUMNS = (("pp_tok_s", "Prompt processing (tok/s)"), ("tg_tok_s", "Token generation (tok/s)"),
+              ("tg_req_tok_s", "Token generation per request (tok/s)"), ("peak_tok_s", "Peak token generation (tok/s)"),
+              ("ttfr_ms", "Time to first response (s)"), ("e2e_ttft_ms", "Time to first token (s)"))
+AI_METRIC = re.compile(r"^(ctx_)?([a-z0-9_]+?)@d(\d+)_c(\d+)$")
+
+
+def _ai_rows(metrics: Mapping) -> dict:
+    """{(concurrency, depth, context prefill): {measurement: mean}} from a llama-benchy test's metric summaries."""
+    rows: dict = {}
+    for key, m in metrics.items():
+        found = AI_METRIC.match(str(key))
+        mean = (_mapping(m) or {}).get("mean")
+        if found and isinstance(mean, (int, float)) and math.isfinite(mean):
+            ctx, name, depth, conc = found.groups()
+            rows.setdefault((int(conc), int(depth), not ctx), {})[name] = float(mean)
+    return rows
+
+
+def _ai_value(name: str, value: Optional[float]) -> str:
+    if value is None:
+        return "-"
+    return f"{value / 1000:,.2f}" if name.endswith("_ms") else f"{value:,.1f}"
+
+
+def _ai_tiles(metrics: Mapping) -> list:
+    """Prompt processing and time to first token next to the token generation tile (one request, smallest depth)."""
+    rows = _ai_rows(metrics)
+    measured = [k for k in rows if k[2]]
+    first = rows[min(measured)] if measured else None
+    if not first:
+        return []
+    return [f'<div class="tile good"><div class="label">{label}</div><div class="value">'
+            f"{_ai_value(name, first[name])} <span>{unit}</span></div></div>"
+            for name, label, unit in (("pp_tok_s", "Prompt processing", "tok/s"),
+                                      ("e2e_ttft_ms", "Time to first token", "s")) if name in first]
+
+
+def _ai_table(metrics: Mapping) -> str:
+    """Every llama-benchy measurement: one row per concurrency, context depth and phase (mean of the measured runs)."""
+    rows = _ai_rows(metrics)
+    if not rows:
+        return ""
+    cols = [c for c in AI_COLUMNS if any(c[0] in r for r in rows.values())]
+    head = "".join(f"<th>{esc(label)}</th>" for _, label in cols)
+    body = "".join(
+        f"<tr><td>{conc}</td><td>{depth:,}</td><td>{'measured' if measured else 'context prefill (prefix cache)'}</td>"
+        + "".join(f"<td>{_ai_value(name, values.get(name))}</td>" for name, _ in cols) + "</tr>"
+        for (conc, depth, measured), values in sorted(rows.items()))
+    return ("<h4>All llama-benchy measurements</h4>"
+            '<div class="table-wrap"><table><thead><tr><th>Requests at once</th><th>Context depth (tokens)</th>'
+            f"<th>Phase</th>{head}</tr></thead><tbody>{body}</tbody></table></div>"
+            '<p class="muted">Average of the measured runs. Context depth: tokens already in the conversation before '
+            "the prompt. Time to first token: from sending the prompt to the first generated token (it includes "
+            "prompt processing). A context prefill row is the request that loads the context when prefix caching is "
+            "on; the measured row after it reuses the cache. Higher tok/s is faster, a shorter time is faster.</p>")
+
+
 def _tiles_section(export: Mapping, heading: str, tests, explanation: str, readings: bool = True,
-                   decimals: int = 0, chart_specs=BLENDER_CHARTS, metric_tiles=None) -> str:
+                   decimals: int = 0, chart_specs=BLENDER_CHARTS, metric_tiles=None, ai: bool = False) -> str:
     """A tool with several tests, each with its own unit: one tile per test, what ran, how the PC behaved and
     charts over time. metric_tiles {test: [(metric, label)]}: more tiles of that test from its metrics (the mean
     of its measured runs), e.g. Geekbench's Single-Core Score next to the Multi-Core one."""
@@ -736,6 +796,8 @@ def _tiles_section(export: Mapping, heading: str, tests, explanation: str, readi
         tiles.append(f'<div class="tile good"><div class="label">{esc(engine)}</div><div class="value">'
                      + (f"{score:,.{decimals}f} <span>{unit}</span>" if score is not None else "<span>-</span>")
                      + "</div></div>")
+        if ai:
+            tiles += _ai_tiles(_mapping(metrics.get(name)) or {})
         for metric, label in (metric_tiles or {}).get(name, []):
             m = _mapping((_mapping(metrics.get(name)) or {}).get(metric)) or {}
             value = _whole(m.get("mean"))
@@ -761,6 +823,7 @@ def _tiles_section(export: Mapping, heading: str, tests, explanation: str, readi
         charts = _series_charts(done[-1], chart_specs)
         blocks.append(
             f"<h3>{esc(engine)}</h3>" + f'<table class="kv">{kv}</table>'
+            + (_ai_table(_mapping(metrics.get(name)) or {}) if ai else "") +
             "<h4>During the test</h4>"
             '<div class="table-wrap"><table><thead><tr><th>Reading</th><th>Average</th><th>Highest</th></tr>'
             "</thead><tbody>" + "".join(_readings_rows(_mapping(metrics.get(name)) or {})) + "</tbody></table></div>"
