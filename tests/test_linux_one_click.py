@@ -3,6 +3,7 @@
 
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -120,14 +121,15 @@ def test_lmstudio_runs_its_own_install_script_without_changing_the_shell_profile
         ran.append(command)
         assert Path(command[1]).read_bytes() == script and kw["timeout"] == lmstudio_linux.TIMEOUT
         return subprocess.CompletedProcess(command, 0, "Installing llmster...\n", "")
-    out = lmstudio_linux.install(opener=opener, run=run, data_dir=tmp_path, lms=lambda: Path("/home/o/.lmstudio/bin/lms"))
+    out = lmstudio_linux.install(opener=opener, run=run, data_dir=tmp_path, lms=lambda: Path("/home/o/.lmstudio/bin/lms"),
+                                 windows=False)
     assert out.ok and "/home/o/.lmstudio/bin/lms" in out.message.replace("\\", "/")
     assert ran[0][0] == "sh" and ran[0][2] == "--no-modify-path"
     assert not Path(ran[0][1]).exists()                     # the script is not kept
-    bad = lmstudio_linux.install(opener=lambda req, timeout: Response(b"<html>", lmstudio_linux.SCRIPT_URL),
+    bad = lmstudio_linux.install(windows=False, opener=lambda req, timeout: Response(b"<html>", lmstudio_linux.SCRIPT_URL),
                                  run=run, data_dir=tmp_path, lms=lambda: None)
     assert not bad.ok and "not LM Studio's install script" in bad.message
-    failed = lmstudio_linux.install(opener=opener, data_dir=tmp_path, lms=lambda: None, run=lambda c, **kw:
+    failed = lmstudio_linux.install(windows=False, opener=opener, data_dir=tmp_path, lms=lambda: None, run=lambda c, **kw:
                                     subprocess.CompletedProcess(c, 1, "", "ERROR: Missing required dependency\n"))
     assert not failed.ok and "Missing required dependency" in failed.message
 
@@ -163,7 +165,8 @@ def test_the_models_offer_install_lmstudio_on_linux_and_it_installs_libatomic_fi
     page.set_entries([e])
     button = page.tree.itemWidget(page.items[model], 5)
     assert button.text() == "Install LM Studio"
-    assert tp.lmstudio_one_click(LINUX) and not tp.lmstudio_one_click(Host("windows", "x64"))
+    assert tp.lmstudio_one_click(LINUX) and tp.lmstudio_one_click(Host("windows", "arm64"))
+    assert not tp.lmstudio_one_click(Host("windows", "x86")) and not tp.lmstudio_one_click(Host("darwin", "arm64"))
     asked, ran = [], []
     flow = InstallFlow(None, ask=lambda parent, title, text: asked.append(text) or True,
                        linux_commands=lambda family, package: ([["sudo", "-A", "apt-get", "install", "-y", package]], None),
@@ -221,3 +224,64 @@ def test_fedora_and_arch_on_arm_get_the_same_packages():
             on_arm = plans.plan_for(test_id, host=Host("linux", "arm64", family))
             assert on_arm is not None and on_arm == plans.plan_for(test_id, host=Host("linux", "x64", family))
     assert plans.plan_for("sevenzip_benchmark", host=Host("linux", "arm64", "fedora"))["package"] == "7zip"
+
+
+def test_windows_installs_lmstudio_with_its_own_powershell_script(tmp_path):
+    # owner, 2026-10-22 (Windows ARM): the models only said "Get LM Studio first"
+    script = b"$ARTIFACT_DOWNLOAD_URL = 'llmster.lmstudio.ai/download'\r\nfunction Install-Llmster {}\r\n"
+    opener = lambda req, timeout: Response(script, lmstudio_linux.WINDOWS_SCRIPT_URL)
+    ran = []
+
+    def run(command, **kw):
+        ran.append((command, kw["env"].get("LMS_NO_MODIFY_PATH")))
+        assert Path(command[-1]).read_bytes() == script and command[-1].endswith(".ps1")
+        return subprocess.CompletedProcess(command, 0, "Installing llmster...\n", "")
+    out = lmstudio_linux.install(opener=opener, run=run, data_dir=tmp_path, lms=lambda: Path("C:/u/.lmstudio/bin/lms.exe"),
+                                 windows=True)
+    assert out.ok and ran[0][1] == "1"                      # PATH is left alone
+    assert ran[0][0][:6] == ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"]
+    linux_script = Response(b"#!/bin/sh\nlmstudio.ai\n", lmstudio_linux.WINDOWS_SCRIPT_URL)
+    assert not lmstudio_linux.install(opener=lambda req, timeout: linux_script, run=run, data_dir=tmp_path,
+                                      lms=lambda: None, windows=True).ok
+
+
+def test_windows_lmstudio_install_asks_no_libatomic(qapp):
+    from app.ui import tests_page as tp
+    from app.ui.install_flow import InstallFlow
+    page = tp.TestsPage(open_url=lambda url: None)
+    page.host = Host("windows", "arm64")
+    asked = []
+    flow = InstallFlow(None, ask=lambda parent, title, text: asked.append(text) or True,
+                       run_commands=lambda commands: pytest.fail("no system package on Windows"),
+                       start_thread=lambda fn: fn())
+    flow.window = Window(page)
+    assert flow.start_lmstudio(missing=lambda: True, install=lambda: winget.Outcome(True, "LM Studio installed."))
+    assert "install.ps1" in asked[0] and "libatomic" not in asked[0] and "PATH is not changed" in asked[0]
+
+
+def test_install_selected_installs_lmstudio_before_the_models(qapp, monkeypatch):
+    # owner, 2026-10-22 (Windows ARM): "Select all not installed" should install everything, the AI models too
+    from app.ai import lmstudio, lmstudio_linux, model_set
+    from app.ui import run_all
+    models = list(model_set.all_models())[:2]
+    entries = [TestEntry(id=m, name=m, group="ai", mode="automatic", state=MISSING, state_reason="",
+                         compatible=True, compatibility_reason="", verified=False) for m in models]
+    win = Host("windows", "arm64")
+    monkeypatch.setattr(run_all, "install_plan", lambda e, host=None: {"kind": "lmstudio", "test_id": e.id})
+    items, _ = run_all.collect(entries, win, lms=lambda: None)
+    assert [i.plan["kind"] for i in items] == ["lmstudio_app", "lmstudio", "lmstudio"] and items[0].plan["windows"]
+    assert run_all.collect(entries, win, lms=lambda: "lms.exe")[0][0].plan["kind"] == "lmstudio"   # already there
+    assert run_all.collect(entries, Host("windows", "x86"), lms=lambda: None)[0][0].plan["kind"] == "lmstudio"
+    monkeypatch.setattr(lmstudio, "lms_path", lambda env=None: None)
+    monkeypatch.setattr(model_set, "fit_warning", lambda tid: "")
+    run_all.check_items(items)
+    assert not any(i.problem for i in items) and "install.ps1" in items[0].line()
+    done = []
+    monkeypatch.setattr(lmstudio_linux, "install", lambda windows=None: done.append(("lmstudio", windows))
+                        or winget.Outcome(True, "LM Studio installed."))
+    monkeypatch.setattr(model_set, "install", lambda tid, progress=None, stop=None: done.append(tid)
+                        or winget.Outcome(True, f"{tid} downloaded."))
+    flow = run_all.RunAllFlow.__new__(run_all.RunAllFlow)
+    flow.stop_event, flow.state, flow.pending = threading.Event(), None, items
+    lines = run_all.RunAllFlow._install(flow, items)
+    assert done == [("lmstudio", True)] + models and lines[0] == "LM Studio installed."

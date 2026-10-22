@@ -77,10 +77,10 @@ def needs_lmstudio(entry: TestEntry, host=None, lms=None) -> bool:
 
 
 def lmstudio_one_click(host=None) -> bool:
-    """Linux x64/arm64: LM Studio's official install.sh installs it (app/ai/lmstudio_linux.py)."""
+    """Linux and Windows, x64/arm64: LM Studio's official install.sh / install.ps1 (app/ai/lmstudio_linux.py)."""
     from app.install.plans import this_host
     host = host or this_host()
-    return host.os == "linux" and host.arch in ("x64", "arm64")
+    return host.os in ("linux", "windows") and host.arch in ("x64", "arm64")
 
 
 def installable(entry: TestEntry, host=None, lms=None) -> bool:
@@ -416,7 +416,8 @@ class TestsPage(QWidget):
 
     def can_install(self, e: TestEntry) -> bool:
         """Missing and installable with one click here; Steam games are not (Steam's own dialog, often tens of GB)."""
-        return e.compatible and e.state == MISSING and e.source != "steam" and installable(e, self.host)
+        return (e.compatible and e.state == MISSING and e.source != "steam"
+                and (installable(e, self.host) or (needs_lmstudio(e, self.host) and lmstudio_one_click(self.host))))
 
     def selected_to_install(self) -> List[TestEntry]:
         return [e for e in (self.entry(t) for t in self.selected_ids()) if e is not None and self.can_install(e)]

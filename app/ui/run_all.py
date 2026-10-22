@@ -69,6 +69,12 @@ class Item:
                 from app.ui.install_flow import THEN
                 text += ". " + THEN[p["then"]][0]()
             return text
+        if self.plan["kind"] == "lmstudio_app":
+            from app.ai import lmstudio_linux
+            url = lmstudio_linux.WINDOWS_SCRIPT_URL if self.plan["windows"] else lmstudio_linux.SCRIPT_URL
+            return (f"- LM Studio (for the AI models below): its official install script ({url}), as you; it "
+                    "downloads llmster (about 1 GB) from llmster.lmstudio.ai, checked with LM Studio's SHA-512"
+                    + ("; first libatomic: " + "; ".join(" ".join(c) for c in self.commands) if self.commands else ""))
         if self.plan["kind"] == "lmstudio":
             from app.ai.model_set import install_text
             first = install_text(self.plan["test_id"], fit=lambda size: "").splitlines()[0]
@@ -87,8 +93,10 @@ class Item:
                                                                                           self.commands))
 
 
-def collect(entries: List[TestEntry], host) -> Tuple[List[Item], List[str]]:
-    """(what to install, missing Steam games) for these tests; one program for several tests is one item."""
+def collect(entries: List[TestEntry], host, lms=None) -> Tuple[List[Item], List[str]]:
+    """(what to install, missing Steam games) for these tests; one program for several tests is one item. An AI
+    model with no LM Studio here gets LM Studio installed first, in the same line (owner, 2026-10-22: "Select all
+    not installed" should install everything)."""
     items, steam_missing = [], []
     for e in entries:
         if not (e.compatible and e.state == MISSING):
@@ -107,6 +115,16 @@ def collect(entries: List[TestEntry], host) -> Tuple[List[Item], List[str]]:
             items.append(Item(e, plan))
         elif e.source == "steam":
             steam_missing.append(e.name)
+    models = [i for i in items if i.plan["kind"] == "lmstudio"]
+    if models:
+        from app.ui.tests_page import lmstudio_one_click
+        if lms is None:
+            from app.ai.lmstudio import lms_path as lms
+        host = host or plans.this_host()
+        if lms() is None and lmstudio_one_click(host):
+            app = dataclasses.replace(models[0].entry, id="lmstudio", name="LM Studio")
+            items.insert(items.index(models[0]), Item(app, {"kind": "lmstudio_app", "windows": host.os == "windows",
+                                                            "family": host.family}))
     return items, steam_missing
 
 
@@ -116,12 +134,16 @@ def check_items(items: List[Item], describe=winget.describe, linux_commands=plan
         try:
             if item.plan["kind"] == "zip":
                 item.problem = direct.problem(item.plan)
+            elif item.plan["kind"] == "lmstudio_app":
+                if not item.plan["windows"]:
+                    item.commands, item.problem = libatomic_commands(item.plan["family"], linux_commands)
             elif item.plan["kind"] == "lmstudio":
                 from app.ai.lmstudio import lms_path
                 from app.ai.model_set import fit_warning
                 item.warning = fit_warning(item.plan["test_id"])
-                item.problem = None if lms_path() else ("LM Studio is not installed (Install LM Studio on the "
-                                                        "model's row first)")
+                first = any(i.plan["kind"] == "lmstudio_app" and not i.problem for i in items)
+                item.problem = None if first or lms_path() else ("LM Studio is not installed (Install LM Studio on "
+                                                                 "the model's row first)")
             elif item.plan["kind"] == "winget":
                 item.package = describe(item.entry.id)
                 item.problem = item.package.problem
@@ -131,6 +153,17 @@ def check_items(items: List[Item], describe=winget.describe, linux_commands=plan
             logger.exception("Install check failed")
             item.problem = str(e)
     return items
+
+
+def libatomic_commands(family, linux_commands, missing=None) -> Tuple[List[List[str]], Optional[str]]:
+    """Linux: LM Studio's install.sh stops without libatomic; its package for this distribution, when missing."""
+    from app.ai import lmstudio_linux
+    if not (missing or lmstudio_linux.libatomic_missing)():
+        return [], None
+    package = {"debian": "libatomic1", "fedora": "libatomic", "arch": "gcc-libs", "suse": "libatomic1"}.get(family or "")
+    if not package:
+        return [], "it needs the system library libatomic, which is missing: install it with your package manager"
+    return linux_commands(family, package)
 
 
 def question(items: List[Item], steam_missing: List[str], install_only: bool) -> str:
@@ -334,6 +367,11 @@ class RunAllFlow(QObject):
                     skipped = not outcome.ok and self.item_cancel.is_set() and not self.stop_event.is_set()
                     # Skip read as "stopped by user" and looked like the whole install had stopped (owner, 2026-10-22)
                     lines.append(f"{item.entry.name}: skipped, not installed." if skipped else outcome.message)
+                elif item.plan["kind"] == "lmstudio_app":
+                    from app.ai import lmstudio_linux
+                    result = self.run_commands(item.commands) if item.commands else "done"
+                    lines.append(lmstudio_linux.install(windows=item.plan["windows"]).message if result == "done"
+                                 else f"LM Studio was not installed: libatomic could not be installed ({result}).")
                 elif item.plan["kind"] == "lmstudio":
                     from app.ai.model_set import install
                     lines.append(install(item.plan["test_id"], stop=self.item_cancel).message)

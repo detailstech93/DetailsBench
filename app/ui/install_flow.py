@@ -293,13 +293,15 @@ class InstallFlow(QObject):
         return True
 
     def start_lmstudio(self, missing=None, install=None) -> bool:
-        """Linux: LM Studio's official install.sh (app/ai/lmstudio_linux.py), libatomic first when it is missing."""
+        """LM Studio's official install.sh (Linux; libatomic first when it is missing) or install.ps1 (Windows)
+        (app/ai/lmstudio_linux.py)."""
         from app.ai import lmstudio_linux
         if self.busy():
             return False
         first: list = []
-        if (missing or lmstudio_linux.libatomic_missing)():
-            host = self.window.tests_page.host or plans.this_host()
+        host = self.window.tests_page.host or plans.this_host()
+        windows = host.os == "windows"
+        if not windows and (missing or lmstudio_linux.libatomic_missing)():
             package = {"debian": "libatomic1", "fedora": "libatomic", "arch": "gcc-libs", "suse": "libatomic1"}.get(
                 host.family or "")
             if not package:
@@ -310,7 +312,7 @@ class InstallFlow(QObject):
             if problem:
                 self._warn(f"LM Studio needs libatomic, which cannot be installed by the app: {problem}.")
                 return False
-        if not self._ask("Install", lmstudio_linux.question(first)):
+        if not self._ask("Install", lmstudio_linux.question(first, windows)):
             return False
         self.entry, self.remote, self.asked = None, False, False
         self._show("Installing LM Studio (it downloads about 1 GB; enter your password if asked)...")
