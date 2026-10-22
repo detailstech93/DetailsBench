@@ -243,7 +243,10 @@ def automated_copy(entry: TestEntry, workload_ids) -> bool:
     workload, version = AUTOMATED_COPY.get(entry.id, (None, None))
     if workload not in workload_ids:
         return False
-    return version is None or str(getattr(entry.ref, "version", "") or "").startswith(version)
+    found = str(getattr(entry.ref, "version", "") or "")
+    # not on this computer (no version): the automated test's Install brings it (owner, 2026-10-22: Cinebench still
+    # showed "Official download page" in the typed group)
+    return version is None or entry.state == MISSING or found.startswith(version)
 
 
 def counts(entries: List[TestEntry]) -> Dict[str, int]:

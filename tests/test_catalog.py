@@ -199,3 +199,15 @@ def test_the_scan_finds_the_definition_by_its_full_id():
     assert check.call_args[0][0].id == "pugetbench_creators"
     assert m.benchmarks[0].compatibility["status"] == "incompatible"
     assert m.benchmarks[0].status == BenchmarkStatus.NOT_INSTALLED        # not installed stays not installed
+
+
+def test_a_missing_typed_copy_is_left_out_when_the_app_installs_and_runs_it():
+    # owner, 2026-10-22: "Cinebench" (typed score, Official download page) showed beside Cinebench 2026's Install
+    from types import SimpleNamespace
+    from app.catalog import INSTALLED, MISSING, automated_copy
+    missing = SimpleNamespace(id="cinebench", state=MISSING, ref=SimpleNamespace(version=None))
+    r23 = SimpleNamespace(id="cinebench", state=INSTALLED, ref=SimpleNamespace(version="23.200"))
+    store = SimpleNamespace(id="cinebench", state=INSTALLED, ref=SimpleNamespace(version="2026.1"))
+    assert automated_copy(missing, {"cinebench_2026"}) and automated_copy(store, {"cinebench_2026"})
+    assert not automated_copy(r23, {"cinebench_2026"})           # an older Cinebench here is still typed in
+    assert not automated_copy(missing, set())                     # no automatic Cinebench here: the page stays
