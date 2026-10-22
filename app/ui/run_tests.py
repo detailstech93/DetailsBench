@@ -811,9 +811,11 @@ def start_other(window, entry: TestEntry, choice: Optional[RunChoice] = None) ->
         else:
             frame.benchmark_game(ask_settings=False, counts=(choice.warmup_runs, choice.repetitions))
         if frame.is_running() or frame.lhm.active():
-            window.tests_page.watch(
-                lambda: RunState(frame.is_running() or frame.lhm.active(), 0, None, frame.status_label.text()),
-                frame.emergency_stop)
+            def game_state() -> RunState:      # a game on its own gets its blinking dot too (owner, 2026-10-22)
+                running = frame.is_running() or frame.lhm.active()
+                return RunState(running, 0, None, frame.status_label.text(),
+                                marks={entry.id: "running"} if running else {})
+            window.tests_page.watch(game_state, frame.emergency_stop)
         return True
     if entry.source == "library":
         count = ask_count(window, entry.name)

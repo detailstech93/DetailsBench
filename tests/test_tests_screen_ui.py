@@ -297,7 +297,11 @@ def test_one_game_from_the_tests_screen_asks_counts_and_preset_then_starts_witho
             return RunChoice(5, 2, 0, GamePreset("keep", "dlss", "off", "ultra"))
         game = entry("cp", mode=ASSISTED, group="games", source="steam",
                      ref={"app_id": "1091500", "name": "Cyberpunk 2077", "store": "steam"})
+        monkeypatch.setattr(frame, "is_running", lambda: bool(calls))      # running once the game started
         assert start_tests(w, [game], ask=ask)
+        assert w.tests_page.get_state().marks == {"cp": "running"}       # its blinking dot, alone too
+        w.tests_page.timer.stop()
+        monkeypatch.setattr(frame, "is_running", lambda: False)
         assert asked == [([("1091500", "Cyberpunk 2077")], GamePreset())]
         assert calls == [("select", "1091500"), ("bench", {"ask_settings": False, "counts": (2, 5)})]
         saved, _ = load_settings(tmp_path / "data")

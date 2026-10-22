@@ -24,7 +24,7 @@ from PySide6.QtWidgets import QMessageBox
 from app.catalog import MISSING, TestEntry
 from app.install import direct, plans, winget
 from app.ui.install_flow import QUEUE_KINDS
-from app.ui.tests_page import RunState, install_plan
+from app.ui.tests_page import RunState, install_plan, with_install_dot
 
 logger = logging.getLogger(__name__)
 
@@ -208,7 +208,8 @@ class RunAllFlow(QObject):
     def _show(self, text: str):
         self.state = RunState(True, 0, None, text)
         page = self.window.tests_page
-        page.watch(lambda: self.state, self._stop, self._skip, skip_what="download")
+        page.watch(lambda: with_install_dot(self.state, (self._current() or None) and self._current().entry.id),
+                   self._stop, self._skip, skip_what="download")
 
     def _stop(self):
         """Stop (owner, 2026-10-22): a download ends at once; an installer that is running is not cut off (it

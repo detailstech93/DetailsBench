@@ -28,7 +28,7 @@ from PySide6.QtWidgets import QMessageBox
 
 from app.catalog import TestEntry
 from app.install import plans, winget
-from app.ui.tests_page import RunState, install_plan
+from app.ui.tests_page import RunState, install_plan, with_install_dot
 
 logger = logging.getLogger(__name__)
 
@@ -351,7 +351,8 @@ class InstallFlow(QObject):
     def _show(self, text: str, cancellable: bool = False):
         self.cancellable = cancellable
         self.state = RunState(True, 0, None, text)
-        self.window.tests_page.watch(lambda: self.state, self._stop, self._skip, skip_what="download")
+        self.window.tests_page.watch(lambda: with_install_dot(self.state, self.entry and self.entry.id), self._stop,
+                                     self._skip, skip_what="download")
         self._mark()
 
     # ---- the line (owner, 2026-10-22) ---------------------------------------------------------------------------

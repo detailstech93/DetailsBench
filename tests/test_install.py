@@ -661,3 +661,21 @@ def test_a_plan_shows_a_dot_by_each_test(qapp, monkeypatch):
     page.watch(lambda: RunState(True, 0, 1, "y"), lambda: None)     # the next run starts clean
     assert icon("fio").isNull()
     page.timer.stop()
+
+
+def test_the_app_downloading_now_has_a_blue_dot(qapp, monkeypatch):
+    # owner, 2026-10-22: a blue blinking dot by the app that downloads or installs now
+    from app.ui import tests_page as tp
+    page = TestsPage(open_url=lambda url: None)
+    page.host = WIN_X64
+    page.set_entries([entry("fio", MISSING), entry("diskspd", MISSING)])
+    state = [RunState(True, 0, None, "Downloading fio")]
+    page.watch(lambda: tp.with_install_dot(state[0], "fio"), lambda: None, skip_what="download")
+    monkeypatch.setattr(tp.time, "monotonic", lambda: 0.1)
+    page.refresh_progress()
+    assert page.items["fio"].icon(0).cacheKey() == tp._dot("#1e88e5").cacheKey()
+    assert page.items["diskspd"].icon(0).isNull() and page.scrolled_to == "fio"
+    state[0] = RunState(False, 0, None, "fio installed.")          # done: the dot goes away
+    page.refresh_progress()
+    assert page.items["fio"].icon(0).isNull()
+    page.timer.stop()

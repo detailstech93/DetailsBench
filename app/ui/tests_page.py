@@ -2,7 +2,7 @@
 for the ones that are missing. Ticking tests and pressing Run hands them to `run_requested`."""
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable, Dict, List, Optional
 
 from PySide6.QtCore import QTimer, QUrl, Qt, Signal
@@ -33,6 +33,11 @@ class RunState:
     fraction: float = 0.0           # of the run going on now (a stress test knows it from its minutes)
     share: Optional[float] = None   # a download: the part done (0..1), with no runs
     marks: Optional[Dict[str, str]] = None  # a plan: test id -> running / ok / failed / skipped (the dots)
+
+
+def with_install_dot(state: RunState, test_id: Optional[str]) -> RunState:
+    """A blue blinking dot by the test whose app is downloading or installing now (owner, 2026-10-22)."""
+    return replace(state, marks={test_id: "installing"} if state.running and test_id else {})
 
 
 def progress_percent(state: RunState) -> Optional[int]:
@@ -599,11 +604,12 @@ class TestsPage(QWidget):
         lit = int(time.monotonic() * 2) % 2 == 0
         for test_id, item in self.items.items():
             mark = self.marks.get(test_id)
-            color = MARK_COLOR.get(mark) if mark != "running" or lit else None
-            item.setIcon(0, _dot(color) if color else _dot(None) if mark == "running" else QIcon())
+            blinks = mark in ("running", "installing")
+            color = MARK_COLOR.get(mark) if not blinks or lit else None
+            item.setIcon(0, _dot(color) if color else _dot(None) if blinks else QIcon())
             if mark:
                 item.setToolTip(0, MARK_TEXT[mark])
-            if mark == "running" and test_id != self.scrolled_to:
+            if blinks and test_id != self.scrolled_to:
                 self.tree.scrollToItem(item)       # follow the run once per test; the owner can still scroll away
                 self.scrolled_to = test_id
 
@@ -642,8 +648,8 @@ class TestsPage(QWidget):
             self.open_url(e.official_url)
 
 
-MARK_COLOR = {"running": "#2e7d32", "ok": "#2e7d32", "failed": "#c62828", "skipped": "#9e9e9e"}
-MARK_TEXT = {"running": "Running now", "ok": "Done: it has a score", "failed": "Failed: no score (see the report)",
+MARK_COLOR = {"running": "#2e7d32", "installing": "#1e88e5", "ok": "#2e7d32", "failed": "#c62828", "skipped": "#9e9e9e"}
+MARK_TEXT = {"running": "Running now", "installing": "Downloading or installing now", "ok": "Done: it has a score", "failed": "Failed: no score (see the report)",
              "skipped": "Skipped"}
 _DOTS: Dict[Optional[str], QIcon] = {}
 
