@@ -27,8 +27,10 @@ INSTALLERS: Dict[str, dict] = {
     "sevenzip_benchmark": {
         # 7-Zip 26.04: https://www.7-zip.org/a/7z2604-x64.msi (arm64: 7z2604-arm64.exe)
         "windows": {"winget": "7zip.7zip", "hosts": ["www.7-zip.org", "7-zip.org"], "arch": ["x64", "arm64", "x86"]},
-        # the tool spec runs 7z or 7za: p7zip-full gives 7z (Debian/Ubuntu), p7zip gives 7za (Fedora)
-        "linux": {"packages": {"debian": "p7zip-full", "fedora": "p7zip", "arch": "7zip", "suse": "7zip"}},
+        # the tool spec runs 7z or 7za: p7zip-full gives 7z (Debian/Ubuntu); Fedora 43-45 ship 7-Zip 26.04 as "7zip"
+        # with /usr/bin/7z (p7zip is gone from Fedora 44, packages.fedoraproject.org 2026-10-22); Arch's 7zip gives
+        # 7z and 7za
+        "linux": {"packages": {"debian": "p7zip-full", "fedora": "7zip", "arch": "7zip", "suse": "7zip"}},
     },
     "sevenzip_fm_benchmark": {          # 7-Zip's window (7zFM.exe): Windows only
         "windows": {"winget": "7zip.7zip", "hosts": ["www.7-zip.org", "7-zip.org"], "arch": ["x64", "arm64", "x86"]},
@@ -169,8 +171,11 @@ INSTALLERS: Dict[str, dict] = {
     "d3dmark": {"windows": {"steam": 231350}},
     # Geekbench 6.4.0 (owner, 2026-10-20: bring it back): winget's PrimateLabs.Geekbench.6 installs Primate Labs' own
     # https://cdn.geekbench.com/Geekbench-6.4.0-WindowsSetup.exe (SHA-256 4e46a831...67654, winget show 2026-10-20);
-    # winget has no ARM64 installer for it
-    "geekbench_6": {"windows": {"winget": "PrimateLabs.Geekbench.6", "hosts": ["cdn.geekbench.com"], "arch": ["x64"]}},
+    # winget lists only that x64 installer, but since Geekbench 6.2 it holds the native Windows on ARM build too
+    # (Primate Labs' 6.2 notes), and winget on an ARM PC falls back to the x64 installer when there is no ARM64 one
+    # (owner, 2026-10-22: before the Windows ARM test)
+    "geekbench_6": {"windows": {"winget": "PrimateLabs.Geekbench.6", "hosts": ["cdn.geekbench.com"],
+                                "arch": ["x64", "arm64"]}},
 }
 
 # the GPU run of Blender Benchmark uses the same launcher
@@ -245,12 +250,18 @@ for _id in ("gravitymark_vulkan", "gravitymark_opengl", "gravitymark_d3d12"):
     INSTALLERS[_id] = _GRAVITYMARK
 # vkmark and glmark2 (Linux): the distribution's packages. Debian/Ubuntu names read with apt-cache on Ubuntu 24.04
 # (2026-10-20): vkmark 2017.08+git20220909; glmark2 2023.01 is split by window system there, glmark2-x11 gives the
-# "glmark2" program (it also runs on Wayland desktops through XWayland). Other families are not offered.
+# "glmark2" program (it also runs on Wayland desktops through XWayland). Fedora (packages.fedoraproject.org, Fedora
+# 43-45, 2026-10-22: glmark2 gives /usr/bin/glmark2 and glmark2-wayland; vkmark 2025.01) and Arch (archlinux.org,
+# extra: glmark2, vkmark) ship them under their own names; openSUSE is not offered. Arch Linux ARM (aarch64) has
+# glmark2, vkmark, chromium, fio and 7zip too (archlinuxarm.org, 2026-10-22); it says ID_LIKE=arch.
 # the web tests on Linux: Google Chrome's current stable .deb from dl.google.com, its size and SHA-256 read from
 # Google's own apt index at install time (app/install/chrome_linux.py), installed by apt. Debian/Ubuntu x64 only.
-INSTALLERS["speedometer"] = INSTALLERS["jetstream"] = {"linux": {"chrome_deb": True, "arch": ["x64"]}}
-INSTALLERS["vkmark"] = {"linux": {"packages": {"debian": "vkmark"}}}
-INSTALLERS["glmark2"] = {"linux": {"packages": {"debian": "glmark2-x11"}}}
+# Fedora and Arch: their own Chromium package (Fedora 43-45 and Arch extra, 2026-10-22), found as chromium-browser
+# or chromium (app/web/cdp.py).
+INSTALLERS["speedometer"] = INSTALLERS["jetstream"] = {"linux": {"chrome_deb": True, "arch": ["x64"],
+                                                                 "packages": {"fedora": "chromium", "arch": "chromium"}}}
+INSTALLERS["vkmark"] = {"linux": {"packages": {"debian": "vkmark", "fedora": "vkmark", "arch": "vkmark"}}}
+INSTALLERS["glmark2"] = {"linux": {"packages": {"debian": "glmark2-x11", "fedora": "glmark2", "arch": "glmark2"}}}
 INSTALLERS["ycruncher_pi_2_5b"] = INSTALLERS["ycruncher_pi_1b"]
 INSTALLERS["handbrake_x265_1080p"] = INSTALLERS["handbrake_x264_1080p"]
 

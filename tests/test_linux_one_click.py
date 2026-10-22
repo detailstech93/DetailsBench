@@ -83,7 +83,12 @@ def test_the_web_tests_offer_chrome_on_debian_x64_only(tmp_path):
     assert plan["kind"] == "linux" and plan["fetch"] == "chrome" and plan["package"].endswith(".deb")
     assert plans.plan_for("jetstream", host=LINUX) == plan
     assert plans.plan_for("speedometer", host=Host("linux", "arm64", "debian")) is None
-    assert plans.plan_for("speedometer", host=Host("linux", "x64", "fedora")) is None
+    for family in ("fedora", "arch"):        # their own Chromium package (owner, 2026-10-22: before the Fedora test)
+        host = Host("linux", "x64", family)
+        assert plans.plan_for("speedometer", host=host) == {"kind": "linux", "family": family, "package": "chromium"}
+        assert plans.plan_for("glmark2", host=host)["package"] == "glmark2"
+        assert plans.plan_for("vkmark", host=host)["package"] == "vkmark"
+    assert plans.plan_for("speedometer", host=Host("linux", "x64", "suse")) is None
     assert plans.plan_for("speedometer", host=Host("windows", "x64")) is None
     called = []
     assert chrome_linux.prepare({"kind": "linux", "package": "vkmark"}, fetch_fn=lambda *a, **k: called.append(1)) is None
@@ -204,3 +209,15 @@ def test_lms_server_start_is_lmstudios_own_command(tmp_path):
     assert lmstudio.start_server(tmp_path / "lms", run=ok) is None and seen[0][1:] == ["server", "start"]
     bad = lambda c, **kw: subprocess.CompletedProcess(c, 1, b"", b"Error: port 1234 in use\n")
     assert lmstudio.start_server(tmp_path / "lms", run=bad) == "Error: port 1234 in use"
+
+
+def test_fedora_and_arch_on_arm_get_the_same_packages():
+    # owner, 2026-10-22: Fedora and Arch, x86 and ARM; Arch Linux ARM says ID=archarm, ID_LIKE=arch
+    from app.frames.linux_install import distro_family
+    assert distro_family({"ID": "archarm", "ID_LIKE": "arch"}) == "arch"
+    assert distro_family({"ID": "fedora"}) == "fedora"
+    for family in ("fedora", "arch"):
+        for test_id in ("sevenzip_benchmark", "fio", "glmark2", "vkmark", "jetstream"):
+            on_arm = plans.plan_for(test_id, host=Host("linux", "arm64", family))
+            assert on_arm is not None and on_arm == plans.plan_for(test_id, host=Host("linux", "x64", family))
+    assert plans.plan_for("sevenzip_benchmark", host=Host("linux", "arm64", "fedora"))["package"] == "7zip"

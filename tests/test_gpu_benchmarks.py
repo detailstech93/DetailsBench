@@ -212,7 +212,10 @@ def test_vkmark_and_glmark2_install_with_the_distribution_packages():
     host = plans.Host("linux", "x64", "debian")
     assert plans.plan_for("vkmark", host=host)["package"] == "vkmark"
     assert plans.plan_for("glmark2", host=host)["package"] == "glmark2-x11"
-    assert plans.plan_for("glmark2", host=plans.Host("linux", "x64", "fedora")) is None
+    for arch in ("x64", "arm64"):           # Fedora and Arch, x86 and ARM (owner, 2026-10-22)
+        assert plans.plan_for("glmark2", host=plans.Host("linux", arch, "fedora"))["package"] == "glmark2"
+        assert plans.plan_for("vkmark", host=plans.Host("linux", arch, "arch"))["package"] == "vkmark"
+    assert plans.plan_for("glmark2", host=plans.Host("linux", "x64", "suse")) is None
 
 
 def test_the_report_has_one_gpu_benchmarks_section():
