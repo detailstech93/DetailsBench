@@ -56,8 +56,14 @@ RETRY_STATUSES = ("failed", "timed_out")
 NO_RETRY_ERRORS = ("could not start",)
 
 
+def crashed(result: WorkloadResult) -> bool:
+    """The program was killed by a signal (exit code -11: SIGSEGV). Radxa Dragon Q8B, 2026-10-21: vkmark crashed
+    twice and the board went off 2 s into its third start; a crash is never run again."""
+    return result.status == "failed" and isinstance(result.exit_code, int) and result.exit_code < 0
+
+
 def should_retry(result: WorkloadResult) -> bool:
-    return (result.status in RETRY_STATUSES
+    return (result.status in RETRY_STATUSES and not crashed(result)
             and not any(str(result.error or "").startswith(e) for e in NO_RETRY_ERRORS))
 
 
@@ -157,15 +163,18 @@ class AutomationRunner:
         return (f"{SKIPPED_BY_USER} after {done} of {item.repetitions} runs" if done
                 else f"{SKIPPED_BY_USER} before any result")
 
-    def _drop_rest(self, schedule: list, position: int, item) -> None:
-        """The skipped test's runs still to come are not run (and not run again by a resumed plan)."""
+    def _drop_rest(self, schedule: list, position: int, item, skip: bool = True) -> int:
+        """The skipped (or crashed) test's runs still to come are not run (and not run again by a resumed plan);
+        returns how many were dropped."""
         rest = [s for s in schedule[position + 1:] if s[0] is item]
         schedule[position + 1:] = [s for s in schedule[position + 1:] if s[0] is not item]
         if self.journal is not None:
             for s in rest:
                 self.journal.run_done((item.workload.id, s[1], s[2]))
-        self.skip_target = None
-        self.skip_event.clear()
+        if skip:
+            self.skip_target = None
+            self.skip_event.clear()
+        return len(rest)
 
     def _store_skip(self, summary: "RunSummary", item, run_index: int) -> str:
         result = WorkloadResult(status="skipped", error=self._skip_note(summary, item))
@@ -369,6 +378,12 @@ class AutomationRunner:
                     self._store_skip(summary, item, nxt)        # it finished just before: the rest is skipped
                 self._drop_rest(schedule, position, item)
                 self.on_step(position + 1, len(schedule), f"{wl.display_name}: skipped")    # the count shrank
+                continue
+            if crashed(result):             # the warm-up too: a program that crashes is not started again
+                if self._drop_rest(schedule, position, item, skip=False):
+                    self.on_progress(f"{wl.display_name}: it crashed ({result.error}); its other runs are not "
+                                     "started")
+                    self.on_step(position + 1, len(schedule), f"{wl.display_name}: crashed, not run again")
                 continue
             if result.status == "cancelled":
                 summary.stopped = True

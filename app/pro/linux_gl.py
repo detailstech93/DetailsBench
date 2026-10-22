@@ -15,6 +15,7 @@ that mean anything for the card. Not checked on a real run here yet, so the test
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -35,6 +36,32 @@ PROGRAMS = {
 # "Authorization required ... Could not initialize canvas" when started without the session's X authority, while
 # glmark2-wayland ran and printed its "glmark2 Score:" line like the X11 build.
 WAYLAND_BUILDS = {"glmark2": "glmark2-wayland"}
+DRM_ROOT = "/sys/class/drm"
+
+
+def qualcomm_gpu(root: str = DRM_ROOT, listdir=os.listdir, realpath=os.path.realpath) -> bool:
+    """A Qualcomm Adreno GPU (the msm kernel driver; Mesa's Turnip for Vulkan)."""
+    try:
+        names = listdir(root)
+    except OSError:
+        return False
+    return any(os.path.basename(realpath(f"{root}/{n}/device/driver")).startswith("msm") for n in names
+               if re.fullmatch(r"(card|renderD)\d+", n))
+
+
+# Radxa Dragon Q8B (Adreno 690, Turnip, Mesa 26.0.3), 2026-10-21: vkmark crashed twice within seconds (exit -11)
+# and the board went off 2 s into its third start; on an Adreno it is not offered (owner)
+UNSAFE_ON_ADRENO = ("vkmark",)
+
+
+def exit_text(code: int) -> str:
+    if code < 0:
+        try:
+            name = signal.Signals(-code).name
+        except ValueError:
+            name = f"signal {-code}"
+        return f"crashed ({name}, exit code {code})"
+    return f"exit code {code}"
 
 
 def parse_score(program: str, text: str) -> Tuple[Optional[int], Optional[str]]:
@@ -61,18 +88,23 @@ class LinuxGpuWorkload(Workload):
     timeout_seconds = 900
     needs_desktop = True            # opens a window: it needs the unlocked desktop
 
-    def __init__(self, test_id: str, platform: Optional[str] = None, which=shutil.which, env=None):
+    def __init__(self, test_id: str, platform: Optional[str] = None, which=shutil.which, env=None,
+                 adreno=qualcomm_gpu):
         self.id = test_id
         self.verified = False       # the output has not been seen on a real run here yet
         self.display_name, self.program, self.api, self.url = PROGRAMS[test_id]
         self.platform = platform or sys.platform
         self.which = which
         self.env = os.environ if env is None else env
+        self.adreno = adreno
         self.benchmark_type = "gpu"
 
     def system_blocks(self) -> Optional[str]:
         if not self.platform.startswith("linux"):
             return f"{self.program} runs on Linux only"
+        if self.id in UNSAFE_ON_ADRENO and self.adreno():
+            return (f"{self.program} crashes on Qualcomm Adreno graphics (Mesa's Turnip driver): on the Radxa Dragon "
+                    "Q8B it crashed twice and the board went off, so it is not offered here")
         return None
 
     def _path(self) -> Optional[str]:
@@ -118,8 +150,8 @@ class LinuxGpuWorkload(Workload):
         if outcome.timed_out:
             return WorkloadResult(status="timed_out", error=f"timeout after {ctx.timeout_seconds:g} s", **common)
         if outcome.exit_code != 0:
-            return WorkloadResult(status="failed", error=f"exit code {outcome.exit_code} (no {self.api} driver or "
-                                  "no desktop?)", **common)
+            return WorkloadResult(status="failed", error=f"{exit_text(outcome.exit_code)} (no {self.api} driver or "
+                                  "no desktop?)" if outcome.exit_code > 0 else exit_text(outcome.exit_code), **common)
         text = _read(out) + "\n" + _read(err)
         renderer = software_gpu.software_renderer(text)
         if renderer:

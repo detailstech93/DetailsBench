@@ -188,7 +188,8 @@ def test_vkmark_and_glmark2_run_from_path_and_only_on_linux(tmp_path, monkeypatc
     assert missing.run(_ctx(tmp_path)).status == "skipped"
     on_windows = [linux_gl.LinuxGpuWorkload(t, platform="win32") for t in linux_gl.PROGRAMS]
     assert not any(e.compatible for e in catalog.workload_entries(on_windows, WINDOWS))
-    on_linux = [linux_gl.LinuxGpuWorkload(t, platform="linux", which=lambda n: None) for t in linux_gl.PROGRAMS]
+    on_linux = [linux_gl.LinuxGpuWorkload(t, platform="linux", which=lambda n: None, adreno=lambda: False)
+                for t in linux_gl.PROGRAMS]
     entries = catalog.workload_entries(on_linux, LINUX)
     assert all(e.compatible and e.state == catalog.MISSING and e.group == "gpu" for e in entries)
 
@@ -247,3 +248,29 @@ def test_a_software_renderer_is_never_a_gpu_score(tmp_path, monkeypatch):
     monkeypatch.setattr(gm, "run_process", run)
     r = g.run(_ctx(tmp_path))
     assert r.status == "invalid" and "llvmpipe" in r.error and "Vulkan" in r.error
+
+
+def test_vkmark_is_not_offered_on_a_qualcomm_adreno_gpu():
+    # Radxa Dragon Q8B, 2026-10-21: vkmark crashed twice (exit -11) and the board went off
+    links = {"/sys/class/drm/card1/device/driver": "/sys/bus/platform/drivers/msm_dpu",
+             "/sys/class/drm/renderD128/device/driver": "/sys/bus/platform/drivers/msm_dpu"}
+    listdir = lambda root: ["card1", "card1-DSI-1", "renderD128", "version"]
+    assert linux_gl.qualcomm_gpu(listdir=listdir, realpath=lambda p: links.get(p, p))
+    nvidia = lambda p: "/sys/bus/pci/drivers/nvidia"
+    assert not linux_gl.qualcomm_gpu(listdir=lambda root: ["card0"], realpath=nvidia)
+    assert not linux_gl.qualcomm_gpu(listdir=lambda root: (_ for _ in ()).throw(OSError()))
+    vk = linux_gl.LinuxGpuWorkload("vkmark", platform="linux", which=lambda n: "/usr/bin/vkmark", adreno=lambda: True)
+    assert "Adreno" in vk.system_blocks()
+    gl = linux_gl.LinuxGpuWorkload("glmark2", platform="linux", which=lambda n: "/usr/bin/glmark2", adreno=lambda: True)
+    assert gl.system_blocks() is None
+
+
+def test_a_crash_says_which_signal(tmp_path, monkeypatch):
+    w = linux_gl.LinuxGpuWorkload("glmark2", platform="linux", which=lambda name: f"/usr/bin/{name}", env={})
+    run, _ = _fake(lambda folder, out: None, exit_code=-11)
+    monkeypatch.setattr(linux_gl, "run_process", run)
+    r = w.run(_ctx(tmp_path))
+    assert r.status == "failed" and r.error == "crashed (SIGSEGV, exit code -11)"
+    run, _ = _fake(lambda folder, out: None, exit_code=1)
+    monkeypatch.setattr(linux_gl, "run_process", run)
+    assert w.run(_ctx(tmp_path)).error.startswith("exit code 1 (no OpenGL")

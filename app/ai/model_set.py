@@ -213,9 +213,14 @@ def installed(models: list, key: str, quant: str) -> Tuple[bool, str]:
     return True, ""
 
 
-def install_text(test_id: str) -> str:
+def install_text(test_id: str, fit: Optional[Callable[[str], str]] = None) -> str:
+    """The question before the download; a model that most likely does not fit here says so first (the owner
+    decides: app/ai/model_fit.py)."""
+    from app.ai import model_fit
     title, key, quant, size = all_models()[test_id]
-    return (f"Download {title} ({quant}, about {size} as LM Studio lists it) with LM Studio's own command:\n\n"
+    warning = (fit or model_fit.warning_here)(size)
+    return ((warning + "\n\n" if warning else "")
+            + f"Download {title} ({quant}, about {size} as LM Studio lists it) with LM Studio's own command:\n\n"
             f"lms {' '.join(get_command('', key, quant)[1:])}\n\nIt comes from LM Studio's model catalog (Hugging "
             "Face) into LM Studio's models folder. The model's own license applies (shown on lmstudio.ai/models).")
 

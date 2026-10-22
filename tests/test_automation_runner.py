@@ -151,6 +151,22 @@ def test_retries_are_limited_and_skip_what_a_retry_cannot_fix(db, tmp_path):
     assert len(off.contexts) == 1
 
 
+def test_a_crash_is_not_run_again(db, tmp_path):
+    # Radxa Dragon Q8B, 2026-10-21: vkmark crashed in its warm-up and its run, the retry started and the board went off
+    database, sid = db
+    crash = bad("crashed (SIGSEGV, exit code -11)")
+    crash.exit_code = -11
+    wl = Scripted("vkmark", [crash, ok(1.0), ok(2.0)])
+    nxt = Scripted("stress", [ok(3.0)])
+    progress = []
+    AutomationRunner(database, sid, [PlanItem(wl, repetitions=2, warmup_runs=1, retries=1),
+                                     PlanItem(nxt, repetitions=1, warmup_runs=0)],
+                     tmp_path / "o", on_progress=progress.append).run()
+    assert len(wl.contexts) == 1 and len(nxt.contexts) == 1
+    assert [r["status"] for r in database.get_runs(sid, "vkmark", include_test=True)] == ["failed"]
+    assert any("crashed" in p and "not started" in p for p in progress)
+
+
 def test_uneven_scores_get_extra_runs_until_even_or_used_up(db, tmp_path):
     database, sid = db
     wl = Scripted("tool_a", [ok(100.0), ok(100.0), ok(130.0), ok(100.0), ok(101.0), ok(99.0)])

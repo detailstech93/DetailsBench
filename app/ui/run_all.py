@@ -61,7 +61,10 @@ class Item:
             return text
         if self.plan["kind"] == "lmstudio":
             from app.ai.model_set import install_text
-            return f"- {self.entry.name}: " + install_text(self.plan["test_id"]).splitlines()[0]
+            parts = install_text(self.plan["test_id"]).split("\n\n")
+            first = parts[0].splitlines()[0]
+            return f"- {self.entry.name}: " + (f"{parts[1].splitlines()[0]} {first}" if first.startswith("Warning")
+                                               else first)
         if self.package is not None:
             p = self.package
             return (f"- {self.entry.name}: {p.name} {p.version} by {p.publisher or 'unknown publisher'}, "
