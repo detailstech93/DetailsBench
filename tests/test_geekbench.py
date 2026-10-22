@@ -151,6 +151,7 @@ def test_gpu_run_uses_the_biggest_gpu(tmp_path, monkeypatch):
 
 def test_an_api_with_no_device_is_skipped(tmp_path, monkeypatch):
     wl, _ = _workload("geekbench7_gpu_cuda", GPU_OUT, monkeypatch, listed="OpenCL\n| 0 | 0 | Intel(R) Graphics |\n")
+    monkeypatch.setattr(wl, "system_blocks", lambda: None)  # a driver is there; not this computer's (Windows ARM failed)
     r = wl.run(RunContext(output_dir=tmp_path, stop_event=threading.Event()))
     assert r.status == "skipped" and "no CUDA device" in r.error
 
