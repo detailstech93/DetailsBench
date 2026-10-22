@@ -26,6 +26,7 @@ agent): the numbers would measure both. Status mapping is the same as CliWorkloa
 import json
 import os
 import math
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -159,6 +160,26 @@ def tokenizer_used(log_text: str, model: str) -> str:
     return "gpt2 (fallback; token counts are approximate)" if FALLBACK in log_text else model
 
 
+NOT_ENOUGH_MEMORY = "not enough memory"
+SERVER_ERROR = re.compile(r'"message"\s*:\s*"((?:[^"\\]|\\.)*)"')
+NEEDS_GB = re.compile(r"requires approximately ([0-9.]+ ?[GM]B)")
+
+
+def server_error(log: str, model: str) -> Optional[str]:
+    """Why LM Studio answered with an error (llama-benchy prints its JSON), or None. Radxa Dragon Q8B, 2026-10-22: the
+    27B model needs about 19.24 GB on a 15 GB board; LM Studio refused to load it and the report said "exit code 1"."""
+    found = SERVER_ERROR.search(log or "")
+    if not found:
+        return None
+    message = found.group(1).replace('\\"', '"')
+    if "insufficient system resources" in message:
+        needs = NEEDS_GB.search(message)
+        return (f"{NOT_ENOUGH_MEMORY}: LM Studio would not load {model}"
+                + (f" (it needs about {needs.group(1)})" if needs else "")
+                + " so the computer does not freeze; choose a smaller model")
+    return "LM Studio: " + message[:300]
+
+
 def parse_ints(text: str, minimum: int) -> Optional[List[int]]:
     """'0 4096, 8192' -> [0, 4096, 8192] (sorted, no duplicates); None when any value is not a whole number."""
     try:
@@ -240,7 +261,9 @@ class LlamaBenchyWorkload(Workload):
         if outcome.timed_out:
             return WorkloadResult(status="timed_out", error=f"timeout after {ctx.timeout_seconds:g} s", **common)
         if outcome.exit_code != 0:
-            return WorkloadResult(status="failed", error=f"exit code {outcome.exit_code}", **common)
+            log = "".join(p.read_text(encoding="utf-8", errors="replace") for p in (out, err) if p.is_file())
+            why = server_error(log, self.model)
+            return WorkloadResult(status="failed", error=why or f"exit code {outcome.exit_code}", **common)
         log = "".join(p.read_text(encoding="utf-8", errors="replace") for p in (out, err))
         if "context_length" not in record:           # loaded by the run itself: read it again
             after = self._model_record()

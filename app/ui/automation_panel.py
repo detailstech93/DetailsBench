@@ -91,7 +91,24 @@ def _spec_value(wl, name: str):
     return getattr(spec, name) if spec is not None else getattr(wl, name)
 
 
-def language_models(parent, read_models=None, start_server=None) -> Optional[list]:
+def mark_fit(models: list, sizes=None, ram=..., card=...):
+    """Each model LM Studio has that most likely does not fit gets its warning in "fit" (owner, 2026-10-22: the 27B
+    was chosen on a 15 GB board and LM Studio refused to load it); a model whose size is unknown gets none."""
+    from app.ai import lmstudio, model_fit
+    try:
+        sizes = (sizes or lmstudio.model_sizes)()
+    except Exception:
+        sizes = {}
+    if not any(m.get("id") in sizes for m in models):
+        return
+    ram = model_fit.ram_gb() if ram is ... else ram          # ...: read this computer's
+    card = model_fit.card_gb() if card is ... else card      # None: no graphics card of its own
+    for m in models:
+        if m.get("id") in sizes:
+            m["fit"] = model_fit.warning(f"{sizes[m['id']]:.1f} GB", ram, card).replace(" Download it anyway?", "")
+
+
+def language_models(parent, read_models=None, start_server=None, sizes=None) -> Optional[list]:
     """LM Studio's language models (loaded ones first); None (with a message) when there are none to measure.
     Reads LM Studio's local server once (5 s limit)."""
     from app.ai import lmstudio
@@ -111,16 +128,18 @@ def language_models(parent, read_models=None, start_server=None) -> Optional[lis
             return None
     models = [m for m in models if m.get("type") in (None, "llm", "vlm")]
     models.sort(key=lambda m: m.get("state") != "loaded")
+    mark_fit(models, sizes)
     if not models:
         QMessageBox.warning(parent, "llama-benchy", "LM Studio lists no language models.")
         return None
     return models
 
 
-def choose_llama_settings(parent, current=None, read_models=None, dialog=None, start_server=None) -> Optional[dict]:
+def choose_llama_settings(parent, current=None, read_models=None, dialog=None, start_server=None,
+                          sizes=None) -> Optional[dict]:
     """Model, pp, tg, depths, concurrency and prefix caching for llama-benchy; None when cancelled."""
     from app.ui.llama_benchy_dialog import LlamaBenchyDialog
-    models = language_models(parent, read_models, start_server)
+    models = language_models(parent, read_models, start_server, sizes)
     if models is None:
         return None
     box = (dialog or LlamaBenchyDialog)(models, current, parent)

@@ -3,6 +3,7 @@ and the run report viewer (llama_benchy_report.md from the run folder)."""
 
 from typing import List, Mapping, Optional
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QSpinBox, QTextBrowser,
     QVBoxLayout,
@@ -20,7 +21,10 @@ class LlamaBenchyDialog(QDialog):
         form = QFormLayout()
         self.model = QComboBox()
         for m in self.models:
-            self.model.addItem(f"{m['id']}  ({m.get('quantization', '?')}, {m.get('state', '?')})", m["id"])
+            self.model.addItem(f"{m['id']}  ({m.get('quantization', '?')}, {m.get('state', '?')})"
+                               + ("  - most likely does not fit" if m.get("fit") else ""), m["id"])
+            if m.get("fit"):
+                self.model.setItemData(self.model.count() - 1, m["fit"], Qt.ToolTipRole)
         if current.get("model") in [m["id"] for m in self.models]:
             self.model.setCurrentIndex([m["id"] for m in self.models].index(current["model"]))
         self.pp = QSpinBox()

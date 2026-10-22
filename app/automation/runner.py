@@ -53,7 +53,7 @@ class PlanItem:
 
 CV_LIMIT_PERCENT = 5.0          # coefficient of variation above which the scores are called uneven
 RETRY_STATUSES = ("failed", "timed_out")
-NO_RETRY_ERRORS = ("could not start",)
+NO_RETRY_ERRORS = ("could not start", "not enough memory")     # the memory does not grow by trying again
 
 
 def crashed(result: WorkloadResult) -> bool:

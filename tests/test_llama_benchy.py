@@ -133,3 +133,22 @@ def test_benchy_path_override_and_packaged_app(tmp_path):
     assert benchy_path("C:/nowhere/python.exe", env={"PCBM_LLAMA_BENCHY": str(exe)}) == exe
     assert benchy_path(str(tmp_path / "python.exe"), env={}, frozen=False) == exe
     assert benchy_path(str(tmp_path / "python.exe"), env={}, frozen=True) is None    # packaged: no Python folder
+
+
+def test_lm_studio_refusing_the_model_says_why(tmp_path):
+    # Radxa Dragon Q8B, 2026-10-22: the report said only "exit code 1"
+    log = ('Warming up...\nWarmup failed: HTTP 400: {\n    "error": {\n        "message": "Failed to load model '
+           '\\"qwen/qwen3.8-27b\\". Error: Model loading was stopped due to insufficient system resources. Under the '
+           'current settings, this model requires approximately 19.24 GB of memory, and continuing to load it would '
+           'likely overload your system and cause it to freeze.",\n        "type": "invalid_request_error"\n    }\n}\n')
+    why = llama_benchy.server_error(log, "qwen/qwen3.8-27b")
+    assert why == ("not enough memory: LM Studio would not load qwen/qwen3.8-27b (it needs about 19.24 GB) so the "
+                   "computer does not freeze; choose a smaller model")
+    assert llama_benchy.server_error('{"error": {"message": "Model \\"x\\" not found"}}', "x") == \
+        'LM Studio: Model "x" not found'
+    assert llama_benchy.server_error("Traceback ...", "x") is None
+    run_dir = tmp_path / "refused"
+    run_dir.mkdir()
+    body = f"print({log!r})\nsys.exit(1)\n"
+    result = PyBenchy(_fake(tmp_path, body)).run(RunContext(output_dir=run_dir, timeout_seconds=60))
+    assert result.status == "failed" and result.error.startswith("not enough memory") and result.score is None

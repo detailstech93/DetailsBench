@@ -66,6 +66,21 @@ def read_models(base_url: str = DEFAULT_URL, fetch: Optional[Callable[[str], str
     return parse_models((fetch or get)(base_url.rstrip("/") + "/api/v0/models"))
 
 
+def model_sizes(lms: Optional[Path] = None, run: Callable = subprocess.run) -> Dict[str, float]:
+    """{model key: size in GB} from `lms ls --json` (its sizeBytes); {} when it cannot be read."""
+    lms = lms or lms_path()
+    if lms is None:
+        return {}
+    try:
+        done = run([str(lms), "ls", "--json"], capture_output=True, text=True, timeout=20,
+                   stdin=subprocess.DEVNULL)
+        rows = json.loads(done.stdout or "[]")
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return {}
+    return {r["modelKey"]: r["sizeBytes"] / 1e9 for r in rows if isinstance(r, dict)
+            and isinstance(r.get("modelKey"), str) and isinstance(r.get("sizeBytes"), (int, float))}
+
+
 def start_server(lms: Optional[Path] = None, run: Callable = subprocess.run) -> Optional[str]:
     """`lms server start` (LM Studio's own command; on Linux llmster has no window to start it from). None when
     it ended well, else why not."""

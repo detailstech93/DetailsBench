@@ -289,3 +289,12 @@ def test_marks_follow_each_test_for_its_dot(db, tmp_path):
     assert seen[2] == {"tool_a": "ok", "tool_b": "running"}
     assert seen[-1] == {"tool_a": "ok", "tool_b": "failed", "tool_c": "running"}
     assert runner.marks() == {"tool_a": "ok", "tool_b": "failed", "tool_c": "ok"}     # solid after the run
+
+
+def test_not_enough_memory_is_not_tried_again(db, tmp_path):
+    # Radxa Dragon Q8B, 2026-10-22: LM Studio refused the 27B model three times in a row
+    database, sid = db
+    wl = Scripted("llama_benchy", [bad("not enough memory: LM Studio would not load q (it needs about 19.24 GB)"),
+                                   ok(1.0)])
+    AutomationRunner(database, sid, [PlanItem(wl, repetitions=1, warmup_runs=0, retries=1)], tmp_path / "o").run()
+    assert len(wl.contexts) == 1

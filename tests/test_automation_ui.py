@@ -166,7 +166,7 @@ def test_llama_settings_dialog_and_no_server(qapp):
     with patch.object(automation_panel.QMessageBox, "warning") as warn:
         assert automation_panel.choose_llama_settings(
             None, read_models=lambda: (_ for _ in ()).throw(OSError("refused")),
-            start_server=lambda: "no lms") is None
+            start_server=lambda: "no lms", sizes=dict) is None
         assert "not reachable" in warn.call_args[0][2] and "lms server start: no lms" in warn.call_args[0][2]
     # not running yet (Linux llmster has no window): the app starts it, then reads the models (owner, 2026-10-20)
     up = []
@@ -175,11 +175,11 @@ def test_llama_settings_dialog_and_no_server(qapp):
         if not up:
             raise OSError("Connection refused")
         return [{"id": "a", "type": "llm", "state": "not-loaded"}]
-    assert automation_panel.language_models(None, read, start_server=lambda: up.append(1)) == read()
+    assert automation_panel.language_models(None, read, start_server=lambda: up.append(1), sizes=dict) == read()
     models = [{"id": "a", "type": "llm", "state": "not-loaded"}, {"id": "emb", "type": "embeddings"},
               {"id": "b", "type": "vlm", "quantization": "Q4_K_M", "state": "loaded"}]
-    assert [m["id"] for m in automation_panel.language_models(None, lambda: models)] == ["b", "a"]
-    box = LlamaBenchyDialog(automation_panel.language_models(None, lambda: models), {"model": "a", "pp": 256})
+    assert [m["id"] for m in automation_panel.language_models(None, lambda: models, sizes=dict)] == ["b", "a"]
+    box = LlamaBenchyDialog(automation_panel.language_models(None, lambda: models, sizes=dict), {"model": "a", "pp": 256})
     assert box.model.currentData() == "a" and box.pp.value() == 256
     box.depths.setText("8192 0")
     box.concurrency.setText("1 4")
@@ -192,7 +192,8 @@ def test_llama_settings_dialog_and_no_server(qapp):
     class Accepting(LlamaBenchyDialog):
         def exec(self):
             return automation_panel.QDialog.Accepted
-    got = automation_panel.choose_llama_settings(None, {"depths": [0]}, read_models=lambda: models, dialog=Accepting)
+    got = automation_panel.choose_llama_settings(None, {"depths": [0]}, read_models=lambda: models, dialog=Accepting,
+                                               sizes=dict)
     assert got["model"] == "b" and got["depths"] == [0]
     assert "Concurrency" in ReportDialog("r", "| Concurrency |\n|---|\n| 1 |").view.toPlainText()
 
@@ -233,3 +234,21 @@ def test_resume_or_discard_an_interrupted_plan(qapp, tmp_path):
     panel.ask_resume = lambda text: (asked.append(text), "resume")[1]
     assert panel.resume_plan() is False and "cannot be resumed" in asked[0] and path.exists()
     assert "session was deleted" in panel.status_label.text() and not panel.is_running()
+
+
+def test_a_model_that_does_not_fit_is_marked_in_the_llama_benchy_list(qapp):
+    # Radxa Dragon Q8B, 2026-10-22: the 27B (17.7 GB file) was chosen on a 15 GB board and LM Studio refused it
+    from app.ui import automation_panel
+    from app.ui.llama_benchy_dialog import LlamaBenchyDialog
+    models = [{"id": "qwen/qwen3.8-27b", "type": "llm", "state": "not-loaded"},
+              {"id": "google/gemma-4-12b-qat", "type": "llm", "state": "not-loaded"},
+              {"id": "other", "type": "llm", "state": "not-loaded"}]
+    automation_panel.mark_fit(models, lambda: {"qwen/qwen3.8-27b": 17.74, "google/gemma-4-12b-qat": 7.2}, ram=15.0,
+                              card=None)
+    assert "does not fit" in models[0]["fit"] and "Download" not in models[0]["fit"]
+    assert not models[1]["fit"] and "fit" not in models[2]
+    box = LlamaBenchyDialog(models)
+    assert box.model.itemText(0).endswith("most likely does not fit") and "fit" not in box.model.itemText(1)
+    unknown = [{"id": "x", "type": "llm"}]
+    automation_panel.mark_fit(unknown, dict)
+    assert unknown == [{"id": "x", "type": "llm"}]
