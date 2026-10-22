@@ -461,3 +461,67 @@ def test_a_linux_package_can_be_installed_from_the_phone_but_the_password_stays_
     assert install_flow.question_text(entry("fio")) == (None, "apt-get not found")
     monkeypatch.setattr(install_flow, "install_plan", lambda e, host=None: {"kind": "steam", "app_id": "1"})
     assert install_flow.question_text(entry("fio"))[0] is None
+
+
+def _models(monkeypatch, warn=("llama_benchy_qwen38_27b",)):
+    from app.ui import run_all
+    items = []
+    for tid in ("llama_benchy_qwen35_4b", "llama_benchy_qwen38_27b"):
+        item = run_all.Item(entry(tid), {"kind": "lmstudio", "test_id": tid})
+        item.warning = "Warning: this model most likely does not fit. It needs 21 GB. Download it anyway?" \
+            if tid in warn else ""
+        items.append(item)
+    monkeypatch.setattr(run_all, "collect", lambda entries, host: (items, []))
+    monkeypatch.setattr(run_all.RunAllFlow, "_check", lambda self, its: its)
+    return [i.entry for i in items]
+
+
+def test_a_model_that_may_not_fit_is_warned_first_and_can_be_left_out(qapp, monkeypatch):
+    # owner, 2026-10-22: three models ticked; the 27B's warning was lost inside the list
+    from app.ai import model_set
+    from app.ui import run_all
+    entries = _models(monkeypatch)
+    installed = []
+    monkeypatch.setattr(model_set, "install", lambda tid, stop=None: installed.append(tid) or
+                        winget.Outcome(True, f"{tid} is ready."))
+    flow, win, asked = run_all_for(qapp, None, entries)
+    seen = []
+    flow.ask = lambda parent, text, install_only=False, **kw: seen.append((text, kw)) or run_all.INSTALL_FITTING
+    assert flow.start(entries, install_only=True)
+    text, kw = seen[0]
+    assert text.startswith("WARNING: this model most likely does not fit on this computer:\n"
+                           "- llama_benchy_qwen38_27b: It needs 21 GB.")
+    assert "llama_benchy_qwen38_27b: Download" in text and "MOST LIKELY DOES NOT FIT" in text
+    assert kw == {"without": "llama_benchy_qwen38_27b"}
+    assert installed == ["llama_benchy_qwen35_4b"] and win.ran == []
+
+
+def test_stop_ends_a_model_download_and_starts_nothing_after_it(qapp, monkeypatch):
+    from app.ai import model_set
+    entries = _models(monkeypatch, warn=())
+    calls = []
+
+    def install(tid, stop=None):
+        calls.append(tid)
+        flow.page_stop()                                    # Stop pressed during the first download
+        assert stop.is_set()
+        return winget.Outcome(False, f"{tid}: the download was stopped.")
+    monkeypatch.setattr(model_set, "install", install)
+    flow, win, asked = run_all_for(qapp, "install", entries)
+    flow.page_stop = lambda: win.tests_page.stop_btn.click()
+    assert flow.start(entries)
+    assert win.tests_page.stop_btn.text() == "Stopping..." or not flow.busy()
+    assert calls == ["llama_benchy_qwen35_4b"] and win.ran == [] and not flow.busy()
+    assert "not installed (stopped)" in flow.state.text and "No test was run" in flow.state.text
+
+
+def test_a_stopped_command_is_killed(tmp_path):
+    import threading
+    import time
+    from app.ai import model_set
+    stop = threading.Event()
+    threading.Timer(0.3, stop.set).start()
+    start = time.monotonic()
+    code, text = model_set._run([sys.executable, "-c", "import time; time.sleep(30)"], 60, stop)
+    assert (code, text) == (-1, model_set.STOPPED) and time.monotonic() - start < 10
+    assert model_set._run([sys.executable, "-c", "print('hi')"], 30) == (0, "hi")

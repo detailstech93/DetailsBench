@@ -149,6 +149,8 @@ a { color:var(--accent); }
     <div class="row"><button id="all">Select all</button><button id="none">Select none</button>
       <button id="installMany" class="hidden">Install several</button>
       <span id="picked" class="muted"></span></div>
+    <p id="busyNote" class="muted hidden">Something is running on the PC (a test, an install or a scan): the
+      buttons come back when it ends.</p>
     <div id="tests"></div>
     <div class="sticky">
       <div class="grid">
@@ -306,6 +308,7 @@ function showInfo(info) {
     item.dataset.section = sec;
     const row = el("label", undefined, "test" + (t.can_start ? "" : " off"));
     const cb = el("input"); cb.type = "checkbox"; cb.value = t.id; cb.disabled = !t.can_start;
+    cb.dataset.off = t.can_start ? "" : "1";
     cb.dataset.name = t.name;
     cb.addEventListener("change", countPicked);
     const txt = el("span", t.name);
@@ -322,6 +325,7 @@ function showInfo(info) {
     box.append(item);
   }
   if (!info.tests.length) box.append(el("p", "No test for this PC was found.", "muted"));
+  freeze(frozen);
   if (info.games) {
     const first = !G;
     G = info.games;
@@ -338,6 +342,16 @@ function showInfo(info) {
   if (info.shutdown) $("off").checked = false;
   $("note").textContent = info.note || "";
   countPicked();
+}
+
+// owner, 2026-10-22: while the PC runs a test, installs or scans, every choice here is greyed out until it ends
+// (an Install pressed during an install was taken but never done)
+let frozen = false;
+function freeze(busy) {
+  frozen = busy;
+  document.querySelectorAll("#tests button.act, #installMany, #all, #none").forEach((b) => b.disabled = busy);
+  document.querySelectorAll("#tests input").forEach((c) => c.disabled = busy || c.dataset.off === "1");
+  $("busyNote").classList.toggle("hidden", !busy);
 }
 
 function actButton(label, t, what) {
@@ -511,6 +525,7 @@ function showState(s) {
   $("shutdownNote").textContent = s.shutdown_pending ? "The PC shuts down in " + s.shutdown_left + " s." : "";
   $("skip").classList.toggle("hidden", !s.can_skip);
   $("start").disabled = s.running || !!s.scanning;   // nothing starts while the PC scans for tests
+  freeze(!!(s.running || s.scanning));
   $("pill").textContent = s.running ? "running" : s.shutdown_pending ? "shutting down" :
                           (s.scanning ? "scanning" : "idle");
   const finished = wasRunning && !s.running;

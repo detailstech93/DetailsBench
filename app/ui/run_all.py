@@ -27,16 +27,18 @@ from app.ui.tests_page import RunState, install_plan
 
 logger = logging.getLogger(__name__)
 
-INSTALL, INSTALLED_ONLY = "install", "installed_only"
+INSTALL, INSTALLED_ONLY, INSTALL_FITTING = "install", "installed_only", "install_fitting"
 
 
-def ask_choice(parent, text: str, install_only: bool = False) -> Optional[str]:
+def ask_choice(parent, text: str, install_only: bool = False, without: str = "") -> Optional[str]:
+    """`without`: the models that most likely do not fit; a button installs the others only (owner, 2026-10-22)."""
     from app.ui.long_question import ask_buttons
+    skip = [(f"Install without {without}", INSTALL_FITTING)] if without else []
     if install_only:
-        return ask_buttons(parent, "Install selected tests", text, [("Install them", INSTALL), ("Cancel", None)])
-    return ask_buttons(parent, "Run all tests", text, [("Install them, then run all", INSTALL),
-                                                       ("Run only installed tests", INSTALLED_ONLY),
-                                                       ("Cancel", None)])
+        return ask_buttons(parent, "Install selected tests", text,
+                           [("Install them", INSTALL)] + skip + [("Cancel", None)])
+    return ask_buttons(parent, "Run all tests", text, [("Install them, then run all", INSTALL)] + skip
+                       + [("Run only installed tests", INSTALLED_ONLY), ("Cancel", None)])
 
 
 class Item:
@@ -47,6 +49,7 @@ class Item:
         self.package: Optional[winget.Package] = None
         self.commands: List[List[str]] = []
         self.problem: Optional[str] = None
+        self.warning = ""               # an AI model that most likely does not fit here (app/ai/model_fit.py)
 
     def line(self) -> str:
         if self.problem:
@@ -61,10 +64,9 @@ class Item:
             return text
         if self.plan["kind"] == "lmstudio":
             from app.ai.model_set import install_text
-            parts = install_text(self.plan["test_id"]).split("\n\n")
-            first = parts[0].splitlines()[0]
-            return f"- {self.entry.name}: " + (f"{parts[1].splitlines()[0]} {first}" if first.startswith("Warning")
-                                               else first)
+            first = install_text(self.plan["test_id"], fit=lambda size: "").splitlines()[0]
+            return f"- {self.entry.name}: {first}" + (" (MOST LIKELY DOES NOT FIT: see the warning above)"
+                                                      if self.warning else "")
         if self.package is not None:
             p = self.package
             return (f"- {self.entry.name}: {p.name} {p.version} by {p.publisher or 'unknown publisher'}, "
@@ -109,6 +111,8 @@ def check_items(items: List[Item], describe=winget.describe, linux_commands=plan
                 item.problem = direct.problem(item.plan)
             elif item.plan["kind"] == "lmstudio":
                 from app.ai.lmstudio import lms_path
+                from app.ai.model_set import fit_warning
+                item.warning = fit_warning(item.plan["test_id"])
                 item.problem = None if lms_path() else ("LM Studio is not installed (Install LM Studio on the "
                                                         "model's row first)")
             elif item.plan["kind"] == "winget":
@@ -124,8 +128,18 @@ def check_items(items: List[Item], describe=winget.describe, linux_commands=plan
 
 def question(items: List[Item], steam_missing: List[str], install_only: bool) -> str:
     good = [i for i in items if not i.problem]
-    text = (f"{len(items)} {'selected tests' if install_only else 'tests for this PC'} are not "
-            f"installed:\n\n" + "\n".join(i.line() for i in items))
+    warned = [i for i in good if i.warning]
+    text = ""
+    if warned:                      # first, not inside a long list (owner, 2026-10-22: the 27B's warning was missed)
+        one = len(warned) == 1
+        text = ("WARNING: " + ("this model most likely does" if one else f"these {len(warned)} models most likely do")
+                + " not fit on this computer:\n"
+                + "\n".join(f"- {i.entry.name}: " + i.warning.replace("Warning: this model most likely does not "
+                                                                      "fit. ", "").replace(" Download it anyway?", "")
+                            for i in warned)
+                + "\nInstall without " + ("it" if one else "them") + ": the others only.\n\n")
+    text += (f"{len(items)} {'selected tests' if install_only else 'tests for this PC'} are not "
+             f"installed:\n\n" + "\n".join(i.line() for i in items))
     if steam_missing:
         text += "\n\nNot downloaded here (install them from Steam if you want them): " + ", ".join(steam_missing)
     if good:
@@ -156,6 +170,7 @@ class RunAllFlow(QObject):
         self.steam_missing: List[str] = []
         self.install_only = self.confirmed = False
         self.lines: List[str] = []
+        self.stop_event = threading.Event()
         self.checked.connect(self._on_checked)
         self.installed.connect(self._on_installed)
 
@@ -168,6 +183,7 @@ class RunAllFlow(QObject):
         if self.busy() or page.busy:
             return False
         self.install_only, self.confirmed = install_only or confirmed, confirmed
+        self.stop_event = threading.Event()
         install_only = self.install_only
         items, self.steam_missing = collect(entries, page.host)
         if not items:
@@ -186,23 +202,39 @@ class RunAllFlow(QObject):
     def _show(self, text: str):
         self.state = RunState(True, 0, None, text)
         page = self.window.tests_page
-        page.watch(lambda: self.state, lambda: None)
-        page.stop_btn.setEnabled(False)         # an installer that is running is not cut off
+        page.watch(lambda: self.state, self._stop)
+
+    def _stop(self):
+        """Stop (owner, 2026-10-22): a model download ends at once; an installer that is running is not cut off
+        (it finishes); nothing after it starts, and no test runs."""
+        self.stop_event.set()
+        self.state = RunState(True, self.state.done, self.state.total,
+                              "Stopping: a model download ends now; an installer that is running finishes first...")
 
     def _end(self, text: str):
         self.state = RunState(False, 0, None, text)
 
     def _on_checked(self, items: List[Item]):
+        if self.stop_event.is_set():
+            self._end("Stopped; nothing was downloaded or run.")
+            return
         good = [i for i in items if not i.problem]
         text = question(items, self.steam_missing, self.install_only)
+        warned = [i.entry.name for i in good if i.warning]
+        extra = {"without": " and ".join(warned)} if warned else {}
         if self.install_only and not good:
             self._end("Nothing was installed: " + " ".join(i.line()[2:] for i in items))
             return
         if self.confirmed:
             choice = INSTALL                # answered on the remote page
         else:
-            choice = (self.ask(self.window, text, install_only=True) if self.install_only
-                      else self.ask(self.window, text))
+            choice = (self.ask(self.window, text, install_only=True, **extra) if self.install_only
+                      else self.ask(self.window, text, **extra))
+        if choice == INSTALL_FITTING:
+            good, choice = [i for i in good if not i.warning], INSTALL
+            if self.install_only and not good:
+                self._end("Nothing was installed (only models that most likely do not fit were selected).")
+                return
         if self.install_only and choice != INSTALL:
             self._end("Cancelled; nothing was downloaded.")
             return
@@ -219,6 +251,9 @@ class RunAllFlow(QObject):
     def _install(self, items: List[Item]) -> List[str]:
         lines = []
         for n, item in enumerate(items):
+            if self.stop_event.is_set():
+                lines.append(f"{item.entry.name}: not installed (stopped).")
+                continue
             self.state = RunState(True, n, len(items), f"Installing {item.entry.name} "
                                                        f"(accept the system prompt if one appears)...")
             try:
@@ -226,7 +261,7 @@ class RunAllFlow(QObject):
                     lines.append(self.install_zip(item).message)
                 elif item.plan["kind"] == "lmstudio":
                     from app.ai.model_set import install
-                    lines.append(install(item.plan["test_id"]).message)
+                    lines.append(install(item.plan["test_id"], stop=self.stop_event).message)
                 elif item.package is not None:
                     out = self.install_fn(item.package)
                     lines.append(out.message)
@@ -262,6 +297,9 @@ class RunAllFlow(QObject):
         self.window.start_scan()
 
     def _after_scan(self):
+        if self.stop_event.is_set():
+            self._end("Stopped: " + " ".join(self.lines) + " No test was run.")
+            return
         if self.install_only:
             self._end("Installs done: " + " ".join(self.lines) + " Tick the tests and run them when you want.")
             return

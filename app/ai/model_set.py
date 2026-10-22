@@ -151,15 +151,28 @@ def unload_command(lms: str, ident: str) -> List[str]:
     return [lms, "unload", ident]
 
 
-def _run(argv: List[str], timeout: float) -> Tuple[int, str]:
+STOPPED = "stopped by user"
+
+
+def _run(argv: List[str], timeout: float, stop=None) -> Tuple[int, str]:
+    """`stop` (threading.Event): the Stop button ends the command (a download: lms keeps the part it has)."""
     try:
-        done = subprocess.run(argv, capture_output=True, timeout=timeout, stdin=subprocess.DEVNULL)
-    except subprocess.TimeoutExpired:
-        return -1, f"no answer after {timeout:g} s"
+        proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL)
     except OSError as e:
         return -1, str(e)
-    text = ANSI.sub("", (done.stdout + done.stderr).decode("utf-8", "replace"))
-    return done.returncode, text.strip()
+    end = time.monotonic() + timeout
+    while True:
+        try:
+            out, err = proc.communicate(timeout=0.5)
+            break
+        except subprocess.TimeoutExpired:
+            stopped = stop is not None and stop.is_set()
+            if stopped or time.monotonic() > end:
+                proc.kill()
+                proc.communicate()
+                return -1, STOPPED if stopped else f"no answer after {timeout:g} s"
+    text = ANSI.sub("", (out + err).decode("utf-8", "replace"))
+    return proc.returncode, text.strip()
 
 
 def list_models(lms: Optional[Path], run: Callable = _run, now: Callable[[], float] = time.monotonic) -> list:
@@ -213,20 +226,26 @@ def installed(models: list, key: str, quant: str) -> Tuple[bool, str]:
     return True, ""
 
 
+def fit_warning(test_id: str, fit: Optional[Callable[[str], str]] = None) -> str:
+    """'' or why the model most likely does not fit on this computer (app/ai/model_fit.py)."""
+    from app.ai import model_fit
+    return (fit or model_fit.warning_here)(all_models()[test_id][3])
+
+
 def install_text(test_id: str, fit: Optional[Callable[[str], str]] = None) -> str:
     """The question before the download; a model that most likely does not fit here says so first (the owner
     decides: app/ai/model_fit.py)."""
-    from app.ai import model_fit
     title, key, quant, size = all_models()[test_id]
-    warning = (fit or model_fit.warning_here)(size)
+    warning = fit_warning(test_id, fit)
     return ((warning + "\n\n" if warning else "")
             + f"Download {title} ({quant}, about {size} as LM Studio lists it) with LM Studio's own command:\n\n"
             f"lms {' '.join(get_command('', key, quant)[1:])}\n\nIt comes from LM Studio's model catalog (Hugging "
             "Face) into LM Studio's models folder. The model's own license applies (shown on lmstudio.ai/models).")
 
 
-def install(test_id: str, progress=lambda text: None, lms: Optional[Path] = None, run: Callable = _run):
-    """The Install button (winget.Outcome): lms get, then the model must be listed."""
+def install(test_id: str, progress=lambda text: None, lms: Optional[Path] = None, run: Callable = _run, stop=None):
+    """The Install button (winget.Outcome): lms get, then the model must be listed. `stop` (threading.Event): the
+    Stop button ends the download (owner, 2026-10-22)."""
     from app.install import winget
     title, key, quant, _size = all_models()[test_id]
     lms = lms or lmstudio.lms_path()
@@ -235,7 +254,11 @@ def install(test_id: str, progress=lambda text: None, lms: Optional[Path] = None
     for attempt in range(1, GET_ATTEMPTS + 1):
         progress(f"Downloading {title} {quant} with LM Studio (several GB, this can take a while)..."
                  + (f" Resuming after a dropped download (try {attempt} of {GET_ATTEMPTS})." if attempt > 1 else ""))
-        code, text = run(get_command(str(lms), key, quant), GET_SECONDS)
+        code, text = (run(get_command(str(lms), key, quant), GET_SECONDS) if stop is None
+                      else run(get_command(str(lms), key, quant), GET_SECONDS, stop))
+        if stop is not None and stop.is_set():
+            return winget.Outcome(False, f"{title}: the download was stopped (LM Studio keeps the part it has and "
+                                         "resumes it at the next Install).")
         _LS.clear()
         ok, why = installed(list_models(lms, run), key, quant)
         if ok:

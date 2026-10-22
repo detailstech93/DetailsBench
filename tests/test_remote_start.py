@@ -467,6 +467,9 @@ def test_the_page_keeps_install_buttons_out_of_the_grey_and_follows_the_newest_r
     # several tests: each finished test's report shows while the run goes on (owner, 2026-10-21)
     assert "(s.running ? s.newest_report : (s.report_name || s.newest_report))" in PAGE
     assert "newest && !s.running" not in PAGE
+    # owner, 2026-10-22: while a test, an install or a scan goes on, every choice is greyed out until it ends
+    assert "freeze(!!(s.running || s.scanning));" in PAGE and 'id="busyNote"' in PAGE
+    assert '#tests button.act, #installMany, #all, #none' in PAGE and "freeze(frozen);" in PAGE
 
 
 def test_a_download_moves_the_bar():
