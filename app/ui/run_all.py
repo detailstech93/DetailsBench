@@ -24,7 +24,7 @@ from PySide6.QtWidgets import QMessageBox
 from app.catalog import MISSING, TestEntry
 from app.install import direct, plans, winget
 from app.ui.install_flow import QUEUE_KINDS
-from app.ui.tests_page import RunState, install_plan, with_install_dot
+from app.ui.tests_page import RunState, install_plan, text_share, with_install_dot
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +45,9 @@ def ask_choice(parent, text: str, install_only: bool = False, without: str = "")
 def install_key(item) -> tuple:
     """What an install puts on the computer: tests that share a program (PassMark's marks, Cinebench's two runs,
     HandBrake's two encoders) have the same key."""
-    p = item.plan
-    return (p["kind"], p.get("winget") or p.get("folder") or p.get("package") or p.get("test_id") or item.entry.id)
+    from app.ui.tests_page import program_key
+    return program_key(item.plan, item.entry.id)
+
 
 class Item:
     """One missing test and what installing it means."""
@@ -407,8 +408,9 @@ class RunAllFlow(QObject):
         if outcome.ok and then:
             name = item.entry.name
 
-            def progress(text):
-                self.state = RunState(True, self.state.done, self.state.total, f"{name}: {text}")
+            def progress(text):         # "Downloading Blender 5.2.0... 70 %" moves the bar too (Fedora, 2026-10-22)
+                self.state = RunState(True, self.state.done, self.state.total, f"{name}: {text}",
+                                      fraction=text_share(text) or 0.0)
             outcome = then[1](direct.target_folder(item.plan) / item.plan["exe"], progress)
         return outcome
 

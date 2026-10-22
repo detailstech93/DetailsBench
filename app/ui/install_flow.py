@@ -337,7 +337,8 @@ class InstallFlow(QObject):
             QMessageBox.warning(self.window, "Install", text)
 
     def _progress(self, text: str):
-        self.state = RunState(True, 0, None, text)     # read by the Tests screen's timer
+        from app.ui.tests_page import text_share
+        self.state = RunState(True, 0, None, text, share=text_share(text))     # read by the Tests screen's timer
 
     def _safe(self, fn, failed):
         try:

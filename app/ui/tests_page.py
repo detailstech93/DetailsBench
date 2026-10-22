@@ -1,6 +1,7 @@
 """Tests: every test this PC can run, grouped, with an installed mark, how it runs and a download link
 for the ones that are missing. Ticking tests and pressing Run hands them to `run_requested`."""
 
+import re
 import time
 from dataclasses import dataclass, replace
 from typing import Callable, Dict, List, Optional
@@ -60,6 +61,19 @@ def install_plan(entry: TestEntry, host=None) -> Optional[dict]:
     from app.install.plans import plan_for
     ref = entry.ref if isinstance(entry.ref, dict) else {}
     return plan_for(entry.id, entry.source, ref.get("app_id", ref.get("appid")), host)
+
+
+def text_share(text: str) -> Optional[float]:
+    """The part done that a step's text ends with ("Downloading Blender 5.2.0... 70 %"), or None."""
+    found = re.search(r"(\d{1,3}(?:\.\d+)?)\s*%\s*$", text or "")
+    return min(1.0, float(found.group(1)) / 100) if found else None
+
+
+def program_key(plan: dict, test_id: str) -> tuple:
+    """What an install puts on the computer: tests that share a program (PassMark's marks, Cinebench's two runs,
+    HandBrake's two encoders, Blender CPU and GPU) have the same key."""
+    return (plan["kind"], plan.get("winget") or plan.get("folder") or plan.get("package") or plan.get("test_id")
+            or test_id)
 
 
 LMSTUDIO_URL = "https://lmstudio.ai/download"
@@ -294,6 +308,12 @@ class TestsPage(QWidget):
     def set_entries(self, entries: List[TestEntry]):
         keep = set(self.selected_ids())
         self.entries = list(entries)
+        groups: Dict[tuple, List[str]] = {}
+        for e in self.entries:              # tests of one program show its line and its dot together (Fedora,
+            plan = install_plan(e, self.host) if e.state == MISSING and e.source != "steam" else None
+            if plan:                        # 2026-10-22: only Blender CPU said "In line", Blender GPU still "Install")
+                groups.setdefault(program_key(plan, e.id), []).append(e.id)
+        self.siblings = {tid: ids for ids in groups.values() for tid in ids}
         self.fill(keep)
         self._summary()
 
@@ -468,14 +488,19 @@ class TestsPage(QWidget):
             self.queue_requested.emit(entry)
 
     def show_queue(self, ids: List[str]):
-        """The downloads waiting in line: their Install button says "In line (n)" and is greyed out."""
+        """The downloads waiting in line: their Install button says "In line (n)" and is greyed out (with every
+        other test of the same program)."""
+        place = {}
+        for n, test_id in enumerate(ids, 1):
+            for other in getattr(self, "siblings", {}).get(test_id, [test_id]):
+                place.setdefault(other, n)
         for test_id, item in self.items.items():
             button = self.tree.itemWidget(item, 5)
             if not isinstance(button, QPushButton) or not (button.text() == "Install"
                                                            or button.text().startswith("In line")):
                 continue
-            if test_id in ids:
-                button.setText(f"In line ({ids.index(test_id) + 1})")
+            if test_id in place:
+                button.setText(f"In line ({place[test_id]})")
                 button.setEnabled(False)
             else:
                 button.setText("Install")
@@ -581,7 +606,8 @@ class TestsPage(QWidget):
         line = busy and self.can_queue()            # an install that takes more downloads in line
         for test_id, item in self.items.items():
             button = self.tree.itemWidget(item, 5)
-            if isinstance(button, QPushButton) and button.text().startswith("In line") and not busy:
+            if isinstance(button, QPushButton) and not busy and (button.text().startswith("In line")
+                                                                 or button.text() == "Installing..."):
                 button.setText("Install")
             if isinstance(button, QPushButton) and button.text() == "Install":
                 entry = self.entry(test_id)
@@ -602,10 +628,23 @@ class TestsPage(QWidget):
         if marks is None:
             return
         self.marks = dict(marks)
+        for test_id, mark in list(marks.items()):
+            if mark == "installing":
+                for other in getattr(self, "siblings", {}).get(test_id, []):
+                    self.marks.setdefault(other, mark)
         lit = int(time.monotonic() * 2) % 2 == 0
         for test_id, item in self.items.items():
             mark = self.marks.get(test_id)
             blinks = mark in ("running", "installing")
+            button = self.tree.itemWidget(item, 5)
+            if isinstance(button, QPushButton) and self.busy:      # its program is downloading: no second Install
+                if mark == "installing" and button.text() == "Install":
+                    button.setText("Installing...")
+                    button.setEnabled(False)
+                elif mark != "installing" and button.text() == "Installing...":
+                    button.setText("Install")
+                    entry = self.entry(test_id)
+                    button.setEnabled(entry is not None and self.can_queue(entry))
             color = MARK_COLOR.get(mark) if not blinks or lit else None
             item.setIcon(0, _dot(color) if color else _dot(None) if blinks else QIcon())
             if mark:

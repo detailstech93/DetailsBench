@@ -740,3 +740,34 @@ def test_a_skipped_download_says_skipped_and_the_rest_install(qapp, monkeypatch)
              Item(entry("handbrake_x264_1080p"), {"kind": "zip", "folder": "h"})]
     flow.pending, flow.installing = items, True
     assert flow._install(items) == ["cinebench_2026: skipped, not installed.", "handbrake_x264_1080p installed."]
+
+
+def test_tests_of_one_program_show_its_line_and_dot_together(qapp, monkeypatch):
+    # Fedora, 2026-10-22: Blender CPU said "In line" / had the dot, Blender GPU still offered Install
+    from app.ui import tests_page as tp
+    page = TestsPage(open_url=lambda url: None)
+    page.host = WIN_X64
+    page.can_queue = lambda e=None: True
+    page.set_entries([entry("passmark_cpu"), entry("passmark_memory"), entry("diskspd"), entry("fio")])
+    assert page.siblings["passmark_cpu"] == ["passmark_cpu", "passmark_memory"]
+    page.set_busy(True)
+    page.show_queue(["passmark_cpu", "fio"])
+    text = lambda tid: page.tree.itemWidget(page.items[tid], 5).text()
+    assert text("passmark_cpu") == text("passmark_memory") == "In line (1)" and text("fio") == "In line (2)"
+    page.show_queue([])
+    state = [RunState(True, 0, None, "Installing PassMark"), "passmark_cpu"]
+    page.watch(lambda: tp.with_install_dot(state[0], state[1]), lambda: None, skip_what="download")
+    page.busy = True
+    monkeypatch.setattr(tp.time, "monotonic", lambda: 0.1)
+    page.refresh_progress()
+    assert page.items["passmark_memory"].icon(0).cacheKey() == tp._dot("#1e88e5").cacheKey()
+    assert text("passmark_memory") == "Installing..." and text("diskspd") == "Install"
+    state[:] = [RunState(True, 1, 2, "Installing DiskSpd"), "diskspd"]
+    page.refresh_progress()
+    assert text("passmark_memory") == "Install"
+    page.timer.stop()
+
+
+def test_a_steps_percent_moves_the_bar():
+    from app.ui.tests_page import text_share
+    assert text_share("Downloading Blender 5.2.0... 70 %") == 0.7 and text_share("Extracting...") is None
