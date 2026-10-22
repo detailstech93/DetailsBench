@@ -38,8 +38,37 @@ def test_linux_cli_comes_from_the_package(monkeypatch):
     run = lambda argv: (ran.append(argv), "done")[1]
     out = hb.install_cli(None, commands=commands, run=run, family="arch")
     assert out.ok and ran == [[["/usr/bin/pkexec", "/usr/bin/pacman", "-S", "handbrake-cli"]]]
-    out = hb.install_cli(None, commands=commands, run=run, family="fedora")
-    assert not out.ok and "install it yourself" in out.message
+    no_flatpak = lambda n: "/usr/bin/pkexec" if n == "pkexec" else None
+    out = hb.install_cli(None, commands=commands, run=run, family="fedora", which=no_flatpak)
+    assert not out.ok and "install it yourself" in out.message and "flatpak is not installed" in out.message
+
+
+def test_fedora_gets_handbrakes_flatpak(monkeypatch, tmp_path):
+    # Fedora has no HandBrakeCLI package (RPM Fusion only): HandBrake's Flatpak from Flathub, as root
+    monkeypatch.setattr(hb, "_os_key", lambda: "linux")
+    exe = tmp_path / "app" / hb.FLATPAK_ID / "current" / "active" / "files" / "bin" / "HandBrakeCLI"
+    assert hb.flatpak_cli(roots=[tmp_path]) is None
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b"")
+    assert hb.flatpak_cli(roots=[tmp_path]) == exe
+    assert hb.cli_path(which=lambda n: None, flatpak=lambda: exe) == exe and hb.is_flatpak(exe)
+    assert not hb.is_flatpak("/usr/bin/HandBrakeCLI")
+    monkeypatch.setattr(hb, "cli_path", lambda *a, **k: None)
+    which = {"flatpak": "/usr/bin/flatpak", "pkexec": "/usr/bin/pkexec"}.get
+    ran = []
+    out = hb.install_cli(None, run=lambda argv: (ran.append(argv), "done")[1], family="fedora", which=which)
+    assert out.ok and ran == [[["/usr/bin/pkexec", "/usr/bin/flatpak", "install", "-y", "--noninteractive",
+                                "flathub", "fr.handbrake.ghb"]]]
+    out = hb.install_cli(None, run=lambda argv: "cancelled (password prompt declined)", family="fedora", which=which)
+    assert not out.ok and "password prompt declined" in out.message
+
+
+def test_the_flatpak_command_may_read_the_clip_and_write_the_run_folder():
+    exe = "/var/lib/flatpak/app/fr.handbrake.ghb/current/active/files/bin/HandBrakeCLI"
+    assert hb.build_command(exe, "/home/u/tools/bbb/clip.mp4", "/home/u/runs/1/out.mkv", "H.265 MKV 1080p30") == [
+        "flatpak", "run", "--filesystem=/home/u/tools/bbb:ro", "--filesystem=/home/u/runs/1",
+        "--command=HandBrakeCLI", "fr.handbrake.ghb", "-i", "/home/u/tools/bbb/clip.mp4",
+        "-o", "/home/u/runs/1/out.mkv", "--preset", "H.265 MKV 1080p30"]
 
 
 def test_the_command_and_the_speed_line():

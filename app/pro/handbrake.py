@@ -8,8 +8,10 @@ What is downloaded, all by the same Install button (data/installers.py), after t
   Suite's video encoding tests use the same file.
 - HandBrakeCLI (GPL, handbrake.fr): on Windows the zip from HandBrake's own GitHub release (x64 and ARM64; size and
   SHA-256 as GitHub lists them, checked on a download here), on Linux the distribution's package through pkexec
-  (Debian/Ubuntu and Arch have one; Fedora and openSUSE only in third-party repositories, which the app does not
-  add). The Linux version is the distribution's, so it can differ from Windows' (the run notes it).
+  (Debian/Ubuntu and Arch have one). Fedora and openSUSE have it only in third-party repositories, which the app does
+  not add: there it is HandBrake's own Flatpak from Flathub (fr.handbrake.ghb, which carries HandBrakeCLI), installed
+  as root through pkexec and run with "flatpak run --command=HandBrakeCLI" (owner, 2026-10-22: on Fedora the clip
+  came but HandBrakeCLI never did). The Linux version can differ from Windows' (the run notes it).
 
 Command (HandBrakeCLI --help): HandBrakeCLI -i <clip> -o <run folder>/<file> --preset "<preset>". At the end
 HandBrake prints "average encoding speed for job is <fps> fps" (its libhb work loop): that is the score, higher is
@@ -36,6 +38,9 @@ UNIT = "fps"
 SPEED = re.compile(r"average encoding speed for job is\s+([0-9]+(?:\.[0-9]+)?)\s*fps", re.I)
 VERSION = re.compile(r"\bHandBrake\s+(\d+\.\d+\.\d+)")
 CLIP = "Big Buck Bunny 1080p 30 fps (10:34)"
+FLATPAK_ID = "fr.handbrake.ghb"
+# where a system / per-user Flatpak puts the app's files; HandBrakeCLI is in its bin folder
+FLATPAK_ROOTS = (Path("/var/lib/flatpak"), Path.home() / ".local/share/flatpak")
 
 
 def _os_key() -> str:
@@ -68,11 +73,26 @@ def cli_plan(arch: Optional[str] = None) -> Optional[dict]:
     return HANDBRAKE_CLI["windows"].get(arch)
 
 
-def cli_path(data_dir: Optional[Path] = None, which: Callable = shutil.which) -> Optional[Path]:
-    """Windows: the CLI in the app's tools folder. Linux: HandBrakeCLI from the distribution's package."""
+def flatpak_cli(roots=FLATPAK_ROOTS) -> Optional[Path]:
+    """HandBrakeCLI inside an installed HandBrake Flatpak (never run here: only the file is looked for)."""
+    for root in roots:
+        exe = Path(root) / "app" / FLATPAK_ID / "current" / "active" / "files" / "bin" / "HandBrakeCLI"
+        if exe.is_file():
+            return exe
+    return None
+
+
+def is_flatpak(cli) -> bool:
+    return f"/app/{FLATPAK_ID}/" in Path(cli).as_posix()
+
+
+def cli_path(data_dir: Optional[Path] = None, which: Callable = shutil.which,
+             flatpak: Callable = flatpak_cli) -> Optional[Path]:
+    """Windows: the CLI in the app's tools folder. Linux: HandBrakeCLI from the distribution's package, else from
+    HandBrake's Flatpak."""
     if _os_key() == "linux":
         found = which("HandBrakeCLI")
-        return Path(found) if found else None
+        return Path(found) if found else flatpak()
     plan = cli_plan()
     if not plan:
         return None
@@ -100,11 +120,40 @@ def cli_install_text() -> str:
     if package:
         return (f"Then the {package} package with your distribution's package manager; the system asks for your "
                 "password (pkexec).")
+    if shutil.which("flatpak"):
+        return (f"Then HandBrake's own Flatpak from Flathub ({FLATPAK_ID}, about 45 MB, it carries HandBrakeCLI): "
+                "the system asks for your password (pkexec).")
     return ("HandBrakeCLI is not in this distribution's own repositories: install it yourself (HandBrake's site "
             "lists the ways), then press 'I installed something: check again'.")
 
 
-def install_cli(clip, progress=lambda text: None, commands=None, run=None, family=None):
+def flatpak_commands(which: Callable = shutil.which) -> Tuple[list, Optional[str]]:
+    """([argv], None) or ([], why not): HandBrake's Flatpak from the system's Flathub remote, as root (pkexec)."""
+    flatpak = which("flatpak")
+    if not flatpak:
+        return [], "flatpak is not installed"
+    from app.install.linux_admin import admin_prefix
+    root, why = admin_prefix(which)
+    if why:
+        return [], why
+    return [root + [flatpak, "install", "-y", "--noninteractive", "flathub", FLATPAK_ID]], None
+
+
+def _install_flatpak(progress, run, which):
+    from app.install import winget
+    argv, problem = flatpak_commands(which)
+    if problem:
+        return winget.Outcome(False, "The test clip was downloaded, but HandBrakeCLI is not in this distribution's "
+                                     f"own repositories and HandBrake's Flatpak could not be installed ({problem}): "
+                                     "install it yourself.")
+    progress("Installing HandBrake's Flatpak from Flathub (enter your password in the system prompt)...")
+    text = run(argv)
+    if text != "done":
+        return winget.Outcome(False, f"The test clip was downloaded; HandBrake's Flatpak was not installed: {text}")
+    return winget.Outcome(True, "The test clip and HandBrake (Flatpak) are ready.")
+
+
+def install_cli(clip, progress=lambda text: None, commands=None, run=None, family=None, which=shutil.which):
     """After the clip: HandBrakeCLI (winget.Outcome). Windows: HandBrake's zip; Linux: the package via pkexec."""
     from app.install import winget
     if cli_path():
@@ -123,13 +172,12 @@ def install_cli(clip, progress=lambda text: None, commands=None, run=None, famil
     from data.installers import HANDBRAKE_CLI
     family = family or this_host().family or ""
     package = HANDBRAKE_CLI["linux"].get(family)
-    if not package:
-        return winget.Outcome(False, "The test clip was downloaded, but HandBrakeCLI is not in this "
-                                     "distribution's own repositories: install it yourself.")
-    if commands is None:
-        from app.install.plans import linux_commands as commands
     if run is None:
         from app.ui.frame_capture_panel import run_commands as run
+    if not package:
+        return _install_flatpak(progress, run, which)
+    if commands is None:
+        from app.install.plans import linux_commands as commands
     argv, problem = commands(family, package)
     if problem:
         return winget.Outcome(False, f"The test clip was downloaded; {package} was not installed: {problem}")
@@ -141,7 +189,13 @@ def install_cli(clip, progress=lambda text: None, commands=None, run=None, famil
 
 
 def build_command(cli: str, clip: str, output: str, preset: str) -> list:
-    return [cli, "-i", clip, "-o", output, "--preset", preset]
+    """The Flatpak's HandBrakeCLI runs through "flatpak run", which is let read the clip's folder and write the
+    run folder."""
+    args = ["-i", clip, "-o", output, "--preset", preset]
+    if is_flatpak(cli):
+        return (["flatpak", "run", f"--filesystem={Path(clip).parent.as_posix()}:ro",
+                 f"--filesystem={Path(output).parent.as_posix()}", "--command=HandBrakeCLI", FLATPAK_ID] + args)
+    return [cli] + args
 
 
 def parse_speed(text: str) -> Tuple[Optional[float], Optional[str]]:
@@ -179,8 +233,9 @@ class HandBrakeWorkload(Workload):
         return True, str(self.cli)
 
     def executable(self) -> Tuple[Optional[str], str]:
-        return (str(self.cli) if self.cli else None), ("the app's tools folder" if _os_key() == "windows"
-                                                       else "the distribution's package")
+        where = ("the app's tools folder" if _os_key() == "windows" else
+                 "HandBrake's Flatpak (Flathub)" if self.cli and is_flatpak(self.cli) else "the distribution's package")
+        return (str(self.cli) if self.cli else None), where
 
     def version(self) -> Optional[str]:
         plan = cli_plan()
