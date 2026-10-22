@@ -718,3 +718,25 @@ def test_install_selected_shows_the_download_in_mb_and_on_the_bar(qapp, monkeypa
     item = SimpleNamespace(entry=entry("cinebench_2024"), plan={"kind": "zip"})
     assert flow.install_zip(item).ok
     assert seen == [("Downloading cinebench_2024: 50 of 200 MB", 31)]      # (1 + 0.25) of 4 tests
+
+
+def test_a_skipped_download_says_skipped_and_the_rest_install(qapp, monkeypatch):
+    # Windows ARM, 2026-10-22: Skip on Cinebench read "stopped by user", as if everything had stopped
+    from app.install import direct
+    from app.ui.install_flow import Stopped
+    from app.ui.run_all import Item
+    flow, win, asked = run_all_for(qapp, "install", [entry("cinebench_2026")])
+
+    def install(name, plan, progress):
+        if name == "cinebench_2026":
+            flow._skip()
+            try:
+                progress(1, 10)
+            except Stopped as e:                    # as direct.install reports it
+                return winget.Outcome(False, f"{name} was not installed: download failed: {e}")
+        return winget.Outcome(True, f"{name} installed.")
+    monkeypatch.setattr(direct, "install", install)
+    items = [Item(entry("cinebench_2026"), {"kind": "zip", "folder": "c"}),
+             Item(entry("handbrake_x264_1080p"), {"kind": "zip", "folder": "h"})]
+    flow.pending, flow.installing = items, True
+    assert flow._install(items) == ["cinebench_2026: skipped, not installed.", "handbrake_x264_1080p installed."]

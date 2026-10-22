@@ -330,7 +330,10 @@ class RunAllFlow(QObject):
                                                            f"(accept the system prompt if one appears)...")
             try:
                 if item.plan["kind"] == "zip":
-                    lines.append(self.install_zip(item).message)
+                    outcome = self.install_zip(item)
+                    skipped = not outcome.ok and self.item_cancel.is_set() and not self.stop_event.is_set()
+                    # Skip read as "stopped by user" and looked like the whole install had stopped (owner, 2026-10-22)
+                    lines.append(f"{item.entry.name}: skipped, not installed." if skipped else outcome.message)
                 elif item.plan["kind"] == "lmstudio":
                     from app.ai.model_set import install
                     lines.append(install(item.plan["test_id"], stop=self.item_cancel).message)
