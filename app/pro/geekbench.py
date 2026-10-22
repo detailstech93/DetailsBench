@@ -208,8 +208,9 @@ class GeekbenchWorkload(Workload):
         self.verified = self.major == MAJOR
         # Geekbench 6.7.1 on Linux prints no score, even in a terminal, and its result page sits behind a browser
         # check (owner, 2026-10-21): it runs alone, once, the app opens the result's page and the owner types the
-        # score there (app/ui/run_tests.py, typed_followup)
-        self.typed_score = self.major == 6 and sys.platform.startswith("linux")
+        # score there (app/ui/run_tests.py, typed_followup). The same on Windows: 6.4.0 on the Windows ARM board printed
+        # only the result link too (owner, 2026-10-22)
+        self.typed_score = self.major == 6
         # its page shows two scores: Multi-Core is the score, Single-Core is typed beside it as a metric (owner)
         self.typed_metric = ("single_core_score", "Single-Core") if self.typed_score and not self.gpu else None
         if exe is None:

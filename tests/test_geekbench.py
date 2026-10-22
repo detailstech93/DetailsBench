@@ -299,8 +299,10 @@ def test_geekbench_6_on_linux_waits_for_a_typed_score_and_runs_alone(monkeypatch
     assert gb6.typed_score and not gb7.typed_score
     assert gb6.typed_metric == ("single_core_score", "Single-Core")     # its page shows Single- and Multi-Core
     assert gb.GeekbenchWorkload("geekbench6_gpu_vulkan", exe="gb6").typed_metric is None
+    # Windows too: 6.4.0 on the Windows ARM board printed only the result link (owner, 2026-10-22)
     monkeypatch.setattr(sys, "platform", "win32")
-    assert not gb.GeekbenchWorkload("geekbench6_cpu", exe="gb6").typed_score
+    assert gb.GeekbenchWorkload("geekbench6_cpu", exe="gb6").typed_score
+    assert not gb.GeekbenchWorkload("geekbench7_cpu", exe="gb7").typed_score
 
     def entry(w):
         return TestEntry(id=w.id, name=w.display_name, group="cpu", mode="automatic", state="installed",
