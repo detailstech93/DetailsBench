@@ -354,9 +354,13 @@ class RunAllFlow(QObject):
         from app.ui.install_flow import THEN, Stopped
         cancel = self.item_cancel
 
-        def downloaded(done: int, total: int):
-            if cancel.is_set():
+        def downloaded(done: int, total: int):     # the bar and the line follow the download (Windows ARM, 2026-10-22:
+            if cancel.is_set():                    # Cinebench's download sat at 0% with no MB)
                 raise Stopped()
+            if total > 0:
+                self.state = RunState(True, self.state.done, self.state.total,
+                                      f"Downloading {item.entry.name}: {done / 1e6:,.0f} of {total / 1e6:,.0f} MB",
+                                      fraction=min(1.0, done / total))
         outcome = direct.install(item.entry.name, item.plan, progress=downloaded)
         then = THEN.get(item.plan.get("then", ""))
         if outcome.ok and then:

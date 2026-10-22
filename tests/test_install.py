@@ -48,6 +48,13 @@ def test_show_output_is_read_and_checked_against_the_vendor_host():
     assert winget.parse_show(plain, "x", "7zip.7zip", ["www.7-zip.org"]).problem       # https only
     other_repo = SHOW.replace("https://www.7-zip.org/a/7z2604-x64.msi", "https://github.com/someone/fio/x.msi")
     assert winget.parse_show(other_repo, "x", "7zip.7zip", ["github.com"], "/axboe/fio/").problem
+    github = SHOW.replace("https://www.7-zip.org/a/7z2604-x64.msi",                 # 7-Zip 26.05 on winget
+                          "https://github.com/ip7z/7zip/releases/download/26.05/7z2605-arm64.exe")
+    entry = INSTALLERS["sevenzip_benchmark"]["windows"]
+    assert winget.parse_show(github, "x", "7zip.7zip", entry["hosts"], entry["path_prefix"]).problem is None
+    assert winget.parse_show(SHOW, "x", "7zip.7zip", entry["hosts"], entry["path_prefix"]).problem is None
+    assert "github.com/ip7z/7zip/" in winget.parse_show(other_repo, "x", "7zip.7zip", entry["hosts"],
+                                                         entry["path_prefix"]).problem
     two = SHOW + "  Installer Url: https://www.7-zip.org/a/7z2604-arm64.msi\n"
     assert "expected exactly one" in winget.parse_show(two, "x", "7zip.7zip", ["www.7-zip.org"]).problem
     nosha = SHOW.replace("Installer SHA256", "Installer Hash")
@@ -691,3 +698,23 @@ def test_one_program_for_several_tests_is_installed_once(qapp):
     flow.ask = lambda parent, text, install_only=False: "install"
     assert flow.start(entries, install_only=True)
     assert installed == [pkg] and flow.state.text.count("PassMark installed.") == 1
+
+
+def test_install_selected_shows_the_download_in_mb_and_on_the_bar(qapp, monkeypatch):
+    # Windows ARM, 2026-10-22: Cinebench's download in Install selected sat at 0% with no MB
+    import threading
+    from app.install import direct
+    from app.ui.tests_page import progress_percent
+    flow, win, asked = run_all_for(qapp, "install", [entry("cinebench_2024")])
+    flow.item_cancel = threading.Event()
+    flow.state = RunState(True, 1, 4, "Installing Cinebench...")
+    seen = []
+
+    def install(name, plan, progress):
+        progress(50_000_000, 200_000_000)
+        seen.append((flow.state.text, progress_percent(flow.state)))
+        return winget.Outcome(True, "Cinebench installed.")
+    monkeypatch.setattr(direct, "install", install)
+    item = SimpleNamespace(entry=entry("cinebench_2024"), plan={"kind": "zip"})
+    assert flow.install_zip(item).ok
+    assert seen == [("Downloading cinebench_2024: 50 of 200 MB", 31)]      # (1 + 0.25) of 4 tests

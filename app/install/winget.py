@@ -62,9 +62,10 @@ def _field(text: str, label: str) -> str:
     return m.group(1).strip() if m else ""
 
 
-def parse_show(text: str, test_id: str, package_id: str, hosts: List[str], path_prefix: str = "") -> Package:
+def parse_show(text: str, test_id: str, package_id: str, hosts: List[str], path_prefix="") -> Package:
     """Read `winget show` output. Several installers (one per architecture) are not handled: the first listed
-    is the one winget picks for this PC only when it is the only one, so more than one is refused."""
+    is the one winget picks for this PC only when it is the only one, so more than one is refused. path_prefix is
+    one prefix for every host, or {host: prefix} where a host left out may use any path."""
     pkg = Package(test_id, package_id)
     found = re.search(r"^Found (.+?) \[(.+?)\]\s*$", text, re.MULTILINE)
     if not found or found.group(2).lower() != package_id.lower():
@@ -82,9 +83,11 @@ def parse_show(text: str, test_id: str, package_id: str, hosts: List[str], path_
         return pkg
     pkg.url, pkg.sha256 = urls[0], shas[0].lower()
     parsed = urlparse(pkg.url)
-    if parsed.scheme != "https" or parsed.hostname not in hosts or not parsed.path.startswith(path_prefix or "/"):
-        pkg.problem = (f"the installer is not on the vendor's site ({pkg.url}); expected https on "
-                       + ", ".join(hosts) + (f" under {path_prefix}" if path_prefix else ""))
+    prefix = path_prefix.get(parsed.hostname, "") if isinstance(path_prefix, dict) else path_prefix
+    if parsed.scheme != "https" or parsed.hostname not in hosts or not parsed.path.startswith(prefix or "/"):
+        where = (", ".join(h + path_prefix.get(h, "") for h in hosts) if isinstance(path_prefix, dict)
+                 else ", ".join(hosts) + (f" under {path_prefix}" if path_prefix else ""))
+        pkg.problem = f"the installer is not on the vendor's site ({pkg.url}); expected https on {where}"
     return pkg
 
 

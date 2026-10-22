@@ -23,17 +23,24 @@ on Windows and Linux. A test with no entry for this OS keeps its "Official downl
 
 from typing import Dict
 
+# 7-Zip 26.05 (winget, 2026-10-22): its installers moved to 7-Zip's own GitHub releases (www.7-zip.org/download.html
+# links there: github.com/ip7z/7zip/releases/download/26.05/7z2605-arm64.exe); older ones were on 7-zip.org
+_SEVENZIP_HOSTS = ["www.7-zip.org", "7-zip.org", "github.com"]
+_SEVENZIP_PATHS = {"github.com": "/ip7z/7zip/"}
+
 INSTALLERS: Dict[str, dict] = {
     "sevenzip_benchmark": {
         # 7-Zip 26.04: https://www.7-zip.org/a/7z2604-x64.msi (arm64: 7z2604-arm64.exe)
-        "windows": {"winget": "7zip.7zip", "hosts": ["www.7-zip.org", "7-zip.org"], "arch": ["x64", "arm64", "x86"]},
+        "windows": {"winget": "7zip.7zip", "hosts": _SEVENZIP_HOSTS, "path_prefix": _SEVENZIP_PATHS,
+                    "arch": ["x64", "arm64", "x86"]},
         # the tool spec runs 7z or 7za: p7zip-full gives 7z (Debian/Ubuntu); Fedora 43-45 ship 7-Zip 26.04 as "7zip"
         # with /usr/bin/7z (p7zip is gone from Fedora 44, packages.fedoraproject.org 2026-10-22); Arch's 7zip gives
         # 7z and 7za
         "linux": {"packages": {"debian": "p7zip-full", "fedora": "7zip", "arch": "7zip", "suse": "7zip"}},
     },
     "sevenzip_fm_benchmark": {          # 7-Zip's window (7zFM.exe): Windows only
-        "windows": {"winget": "7zip.7zip", "hosts": ["www.7-zip.org", "7-zip.org"], "arch": ["x64", "arm64", "x86"]},
+        "windows": {"winget": "7zip.7zip", "hosts": _SEVENZIP_HOSTS, "path_prefix": _SEVENZIP_PATHS,
+                    "arch": ["x64", "arm64", "x86"]},
     },
     "diskspd": {
         # DiskSpd 2.3 (Microsoft): one zip with amd64, x86 and arm64 builds
