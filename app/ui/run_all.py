@@ -23,6 +23,7 @@ from PySide6.QtWidgets import QMessageBox
 
 from app.catalog import MISSING, TestEntry
 from app.install import direct, plans, winget
+from app.ui.install_flow import QUEUE_KINDS
 from app.ui.tests_page import RunState, install_plan
 
 logger = logging.getLogger(__name__)
@@ -171,6 +172,10 @@ class RunAllFlow(QObject):
         self.install_only = self.confirmed = False
         self.lines: List[str] = []
         self.stop_event = threading.Event()
+        self.item_cancel = threading.Event()        # the item going on: Stop or Skip ends its download
+        self.pending: List[Item] = []               # what is being installed, in order (more can join: enqueue)
+        self.position = 0
+        self.installing = False
         self.checked.connect(self._on_checked)
         self.installed.connect(self._on_installed)
 
@@ -184,6 +189,7 @@ class RunAllFlow(QObject):
             return False
         self.install_only, self.confirmed = install_only or confirmed, confirmed
         self.stop_event = threading.Event()
+        self.pending, self.position, self.installing = [], 0, False
         install_only = self.install_only
         items, self.steam_missing = collect(entries, page.host)
         if not items:
@@ -202,14 +208,59 @@ class RunAllFlow(QObject):
     def _show(self, text: str):
         self.state = RunState(True, 0, None, text)
         page = self.window.tests_page
-        page.watch(lambda: self.state, self._stop)
+        page.watch(lambda: self.state, self._stop, self._skip)
 
     def _stop(self):
-        """Stop (owner, 2026-10-22): a model download ends at once; an installer that is running is not cut off
-        (it finishes); nothing after it starts, and no test runs."""
+        """Stop (owner, 2026-10-22): a download ends at once; an installer that is running is not cut off (it
+        finishes); nothing after it starts, and no test runs."""
         self.stop_event.set()
+        self.item_cancel.set()
         self.state = RunState(True, self.state.done, self.state.total,
-                              "Stopping: a model download ends now; an installer that is running finishes first...")
+                              "Stopping: a download ends now; an installer that is running finishes first...")
+        self._mark()
+
+    def _current(self) -> Optional[Item]:
+        return self.pending[self.position] if self.installing and self.position < len(self.pending) else None
+
+    def _skip(self):
+        """Skip (owner, 2026-10-22): the download going on ends and the next one starts."""
+        item = self._current()
+        if item is None:
+            return
+        if item.plan["kind"] not in QUEUE_KINDS:
+            self.state = RunState(True, self.state.done, self.state.total, f"{item.entry.name} is installing and "
+                                  "cannot be cut off: the next one starts when it ends.")
+            return
+        self.item_cancel.set()
+        self.state = RunState(True, self.state.done, self.state.total, f"Skipping {item.entry.name}...")
+
+    # ---- the line (owner, 2026-10-22: Install during an install puts the download in line) -----------------------
+    def queue_open(self) -> bool:
+        return self.installing and not self.stop_event.is_set()
+
+    def queued_ids(self) -> List[str]:
+        return [i.entry.id for i in self.pending[self.position + 1:]] if self.installing else []
+
+    def enqueue(self, entry: TestEntry, remote: bool = False) -> Tuple[bool, str]:
+        if not self.queue_open():
+            return False, "Nothing is installing now: press Install again."
+        if any(i.entry.id == entry.id for i in self.pending[self.position:]):
+            return False, f"{entry.name} is already in line."
+        plan = install_plan(entry, self.window.tests_page.host)
+        if plan is None or plan["kind"] not in QUEUE_KINDS:
+            return False, f"{entry.name} cannot wait in line (its installer needs a prompt at the PC)."
+        item = check_items([Item(entry, plan)], self.describe_fn, self.linux_commands)[0]
+        if item.problem:
+            return False, f"{entry.name} cannot be installed by the app ({item.problem})."
+        self.pending.append(item)
+        self._mark()
+        return True, f"{entry.name} is in line ({len(self.pending) - self.position - 1}): it downloads after the " \
+                     "ones before it."
+
+    def _mark(self):
+        mark = getattr(self.window.tests_page, "show_queue", None)
+        if mark is not None:
+            mark(self.queued_ids())
 
     def _end(self, text: str):
         self.state = RunState(False, 0, None, text)
@@ -246,22 +297,31 @@ class RunAllFlow(QObject):
             self._run_tests()
             return
         self.state = RunState(True, 0, len(good), f"Installing {len(good)} tests...")
-        self.start_thread(lambda: self.installed.emit(self._install(good)))
+        self.pending, self.position, self.installing = list(good), 0, True
+        self.window.tests_page.set_busy(True)          # Install works again for downloads that can wait in line
+        self._mark()
+        self.start_thread(lambda: self.installed.emit(self._install(self.pending)))
 
     def _install(self, items: List[Item]) -> List[str]:
+        """`items` is self.pending: Install pressed meanwhile adds to it (enqueue), so its length is read each time."""
         lines = []
-        for n, item in enumerate(items):
+        n = 0
+        while n < len(items):
+            item = items[n]
+            self.position = n
+            n += 1
             if self.stop_event.is_set():
                 lines.append(f"{item.entry.name}: not installed (stopped).")
                 continue
-            self.state = RunState(True, n, len(items), f"Installing {item.entry.name} "
-                                                       f"(accept the system prompt if one appears)...")
+            self.item_cancel = threading.Event()
+            self.state = RunState(True, n - 1, len(items), f"Installing {item.entry.name} "
+                                                           f"(accept the system prompt if one appears)...")
             try:
                 if item.plan["kind"] == "zip":
                     lines.append(self.install_zip(item).message)
                 elif item.plan["kind"] == "lmstudio":
                     from app.ai.model_set import install
-                    lines.append(install(item.plan["test_id"], stop=self.stop_event).message)
+                    lines.append(install(item.plan["test_id"], stop=self.item_cancel).message)
                 elif item.package is not None:
                     out = self.install_fn(item.package)
                     lines.append(out.message)
@@ -279,8 +339,13 @@ class RunAllFlow(QObject):
 
     def install_zip(self, item: Item) -> "winget.Outcome":
         from app.install import direct
-        from app.ui.install_flow import THEN
-        outcome = direct.install(item.entry.name, item.plan)
+        from app.ui.install_flow import THEN, Stopped
+        cancel = self.item_cancel
+
+        def downloaded(done: int, total: int):
+            if cancel.is_set():
+                raise Stopped()
+        outcome = direct.install(item.entry.name, item.plan, progress=downloaded)
         then = THEN.get(item.plan.get("then", ""))
         if outcome.ok and then:
             name = item.entry.name
@@ -291,6 +356,8 @@ class RunAllFlow(QObject):
         return outcome
 
     def _on_installed(self, lines: List[str]):
+        self.installing = False
+        self._mark()
         self.lines = list(lines)
         self.state = RunState(True, 0, None, " ".join(lines) + " Checking the installed tests again...")
         self.window.after_scan.append(self._after_scan)

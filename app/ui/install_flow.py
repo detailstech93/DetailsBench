@@ -10,12 +10,18 @@ the owner's Install there is the answer, so start(entry, confirmed=True) asks no
 message box there (what happened is in the progress text the page reads). A vendor zip, an LM Studio model, winget
 and Linux's package manager go this way (owner, 2026-10-21: apt and .deb from the phone too); Linux's password is
 still typed at the PC, in the system's own prompt (the page says so and never asks for it). Steam stays at the PC.
+
+Waiting in line (owner, 2026-10-22): while something installs, Install still works for the downloads that need no
+system prompt (a vendor zip, an LM Studio model: QUEUE_KINDS); the question is asked at once and the download waits
+in line, its button greyed out as "In line (n)". An installer that needs a prompt (UAC, the password) never waits:
+it could come up with nobody at the PC. Stop ends everything (a download at once; an installer that is running
+finishes first, it is never cut off) and empties the line; Skip ends the download going on and starts the next.
 """
 
 import logging
 import threading
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, List, Optional, Tuple
 
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QMessageBox
@@ -65,6 +71,25 @@ THEN = {"blender_content": (_blender_text, _blender_download),
 
 
 REMOTE_KINDS = ("zip", "lmstudio", "winget", "linux")
+QUEUE_KINDS = ("zip", "lmstudio")       # downloads with no system prompt: they can wait in line
+STOPPED = "stopped by user"
+
+
+class Stopped(Exception):
+    """Stop or Skip pressed during a download (raised from its progress callback)."""
+
+    def __init__(self):
+        super().__init__(STOPPED)
+
+
+def queueable(entry: TestEntry, host=None) -> bool:
+    """Can this install wait in line behind the one going on?"""
+    from app.ui import tests_page
+    try:
+        plan = install_plan(entry, host)
+        return plan is not None and plan.get("kind") in QUEUE_KINDS and not tests_page.needs_lmstudio(entry, host)
+    except Exception:
+        return False
 WINGET_NOTE = "\n\nWindows may show an administrator prompt on the PC during the install: someone must press Yes there."
 LINUX_NOTE = ("\n\nThe PC asks for your password during the install, in the system's own prompt: someone must type "
               "it at the PC. This page never asks for it or sends it.")
@@ -138,15 +163,23 @@ class InstallFlow(QObject):
         self.state = RunState()
         self.entry: Optional[TestEntry] = None
         self.remote = False                 # started from the remote page: answered there, no window at the PC
+        self.asked = False                  # waited in line: its question was answered when it was put there
         self.after_lmstudio: Optional[TestEntry] = None     # a model to download once LM Studio is installed
+        self.queue: List[Tuple[TestEntry, bool]] = []       # (entry, from the remote page), waiting in line
+        self.cancel = threading.Event()     # the download going on: Stop or Skip ends it
+        self.cancellable = False            # the step going on is such a download (not an installer)
+        self.stopping = False
+        self.lines: List[str] = []          # what each install of this line said
+        self.any_ok = False
         self.described.connect(self._on_described)
         self.finished.connect(self._on_finished)
 
     def busy(self) -> bool:
         return self.state.running
 
-    def start(self, entry: TestEntry, confirmed: bool = False) -> bool:
-        """`confirmed`: the owner already answered the question on the remote page."""
+    def start(self, entry: TestEntry, confirmed: bool = False, queued: bool = False, keep: bool = False) -> bool:
+        """`confirmed`: the owner already answered the question on the remote page. `queued`: it waited in line
+        (its question was answered then); the line and what it said so far are kept."""
         if self.busy():
             return False
         plan = install_plan(entry, self.window.tests_page.host)
@@ -154,7 +187,10 @@ class InstallFlow(QObject):
             return False
         if confirmed and plan.get("kind", "winget") not in REMOTE_KINDS:
             return False
-        self.entry, self.remote = entry, confirmed
+        if not (queued or keep):
+            self.queue, self.lines, self.stopping, self.any_ok = [], [], False, False
+        self.cancel = threading.Event()
+        self.entry, self.remote, self.asked = entry, confirmed, queued
         if plan["kind"] == "linux":
             return self._linux(entry, plan)
         if plan["kind"] == "steam":
@@ -210,10 +246,13 @@ class InstallFlow(QObject):
             if not self._ask("Install", text):
                 return False
         what = f"{plan['product']} {plan['version']}"
-        self._show(f"Downloading {what}...")
+        self._show(f"Downloading {what}...", cancellable=True)
         failed = winget.Outcome(False, "")
+        cancel = self.cancel
 
         def downloaded(done: int, total: int):     # the green bar (and the remote page) follow the download
+            if cancel.is_set():
+                raise Stopped()
             if total > 0:
                 self.state = RunState(True, 0, None, f"Downloading {what}: {done / 1e6:,.0f} of {total / 1e6:,.0f} MB",
                                       share=min(1.0, done / total))
@@ -244,12 +283,13 @@ class InstallFlow(QObject):
                 self.after_lmstudio = None
                 return False
             return True
-        if not self.remote and not self._ask("Install", model_set.install_text(plan["test_id"])):
+        if not self._ask("Install", model_set.install_text(plan["test_id"])):
             return False
-        self._show(f"Downloading {entry.name} with LM Studio...")
+        self._show(f"Downloading {entry.name} with LM Studio...", cancellable=True)
         failed = winget.Outcome(False, "")
+        cancel = self.cancel
         self.start_thread(lambda: self.finished.emit(self._safe(
-            lambda: model_set.install(plan["test_id"], self._progress), failed)))
+            lambda: model_set.install(plan["test_id"], self._progress, stop=cancel), failed)))
         return True
 
     def start_lmstudio(self, missing=None, install=None) -> bool:
@@ -272,7 +312,7 @@ class InstallFlow(QObject):
                 return False
         if not self._ask("Install", lmstudio_linux.question(first)):
             return False
-        self.entry, self.remote = None, False
+        self.entry, self.remote, self.asked = None, False, False
         self._show("Installing LM Studio (it downloads about 1 GB; enter your password if asked)...")
 
         def work():
@@ -286,10 +326,10 @@ class InstallFlow(QObject):
         return True
 
     def _ask(self, title: str, text: str) -> bool:
-        return True if self.remote else self.ask(self.window, title, text)
+        return True if self.remote or self.asked else self.ask(self.window, title, text)
 
     def _warn(self, text: str):
-        if self.remote:
+        if self.remote or self.asked:
             logger.warning("Remote install: %s", text)
         else:
             QMessageBox.warning(self.window, "Install", text)
@@ -308,11 +348,53 @@ class InstallFlow(QObject):
                 failed.problem = str(e)
             return failed
 
-    def _show(self, text: str):
+    def _show(self, text: str, cancellable: bool = False):
+        self.cancellable = cancellable
         self.state = RunState(True, 0, None, text)
-        page = self.window.tests_page
-        page.watch(lambda: self.state, lambda: None)
-        page.stop_btn.setEnabled(False)         # an installer that is running is not cut off
+        self.window.tests_page.watch(lambda: self.state, self._stop, self._skip)
+        self._mark()
+
+    # ---- the line (owner, 2026-10-22) ---------------------------------------------------------------------------
+    def queue_open(self) -> bool:
+        return self.busy() and not self.stopping
+
+    def queued_ids(self) -> List[str]:
+        return [e.id for e, _ in self.queue]
+
+    def enqueue(self, entry: TestEntry, remote: bool = False) -> Tuple[bool, str]:
+        """Put a download in line behind the install going on (its question was answered already)."""
+        if not self.queue_open():
+            return False, "Nothing is installing now: press Install again."
+        if entry.id in self.queued_ids() or (self.entry is not None and self.entry.id == entry.id):
+            return False, f"{entry.name} is already in line."
+        self.queue.append((entry, remote))
+        self._mark()
+        return True, f"{entry.name} is in line ({len(self.queue)}): it downloads after the one going on."
+
+    def _mark(self):
+        mark = getattr(self.window.tests_page, "show_queue", None)
+        if mark is not None:
+            mark(self.queued_ids())
+
+    def _stop(self):
+        """Stop: everything ends (a download at once, an installer that is running finishes) and the line empties."""
+        self.stopping = True
+        self.queue.clear()
+        self.cancel.set()
+        self._mark()
+        self.state = RunState(True, 0, None, "Stopping: a download ends now; an installer that is running "
+                                             "finishes first (it is never cut off)...")
+
+    def _skip(self):
+        """Skip: the download going on ends and the next in line starts."""
+        name = self.entry.name if self.entry is not None else "LM Studio"
+        if not self.cancellable:
+            self.state = RunState(True, 0, None, f"{name} is installing and cannot be cut off: the next in line "
+                                                 "starts when it ends.")
+            return
+        self.cancel.set()
+        self.state = RunState(True, 0, None, f"Skipping {name}" + (": the next in line starts..." if self.queue
+                                                                    else "..."))
 
     def _end(self, text: str):
         self.state = RunState(False, 0, None, text)
@@ -334,13 +416,24 @@ class InstallFlow(QObject):
     def _on_finished(self, outcome: "winget.Outcome"):
         if not outcome.ok and not outcome.message:
             outcome.message = "The install failed (see the log)."
+        cut = self.cancel.is_set()          # Stop or Skip: no message box for it
         model, self.after_lmstudio = self.after_lmstudio, None
-        if outcome.ok and model is not None:        # LM Studio is in: now the model it was installed for
+        if outcome.ok and model is not None and not self.stopping:   # LM Studio is in: now its model
             self._end(outcome.message)
-            if self.start(model):
+            if self.start(model, keep=True):
                 return
-        self._end(outcome.message + (" Checking the installed tests again..." if outcome.ok else ""))
-        if outcome.ok:
-            self.window.start_scan()
-        else:
+        self.lines.append(outcome.message)
+        self.any_ok = self.any_ok or outcome.ok
+        if not outcome.ok and not cut and not self.queue:
             self._warn(outcome.message)
+        while self.queue and not self.stopping:     # the next in line
+            entry, remote = self.queue.pop(0)
+            self._end(outcome.message)
+            if self.start(entry, confirmed=remote, queued=True):
+                return
+            self.lines.append(f"{entry.name} did not start.")
+        text = " ".join(self.lines)
+        self._mark()
+        self._end(text + (" Checking the installed tests again..." if self.any_ok else ""))
+        if self.any_ok:
+            self.window.start_scan()

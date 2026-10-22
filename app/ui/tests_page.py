@@ -100,6 +100,7 @@ class TestsPage(QWidget):
     rescan_requested = Signal()
     install_requested = Signal(object)      # TestEntry: missing, with a one-click install (app/install)
     lmstudio_install_requested = Signal()   # Linux: LM Studio itself, for the AI models
+    queue_requested = Signal(object)        # TestEntry: Install pressed during an install (it waits in line)
     install_many_requested = Signal(list)   # the ticked missing tests: installed one after the other (app/ui/run_all)
 
     def __init__(self, open_url: Optional[Callable[[str], object]] = None, parent=None):
@@ -267,6 +268,9 @@ class TestsPage(QWidget):
         self.record_fn: Optional[Callable[[], object]] = None
         self.report_fn: Optional[Callable[[], object]] = None
         self.busy = False
+        # during an install, Install still works for downloads that can wait in line (owner, 2026-10-22); the window
+        # sets this: can_queue(None) = an install is going on that takes more, can_queue(entry) = this one can wait
+        self.can_queue: Callable[..., bool] = lambda entry=None: False
         self.scanning = False
         self.started_at: Optional[float] = None
         self.timer = QTimer(self)
@@ -364,7 +368,7 @@ class TestsPage(QWidget):
             b.setToolTip("Download from the official source and install it (you are asked first)"
                          + (f"\nOfficial page: {e.official_url}" if e.official_url else ""))
             b.clicked.connect(lambda checked=False, x=e: self.request_install(x))
-            b.setEnabled(not self.busy)
+            b.setEnabled(not self.busy or self.can_queue(e))
             return b
         if e.compatible and e.state == MISSING and needs_lmstudio(e, self.host) and lmstudio_one_click(self.host):
             b = QPushButton("Install LM Studio")
@@ -446,6 +450,23 @@ class TestsPage(QWidget):
     def request_install(self, entry: TestEntry):
         if not self.busy:
             self.install_requested.emit(entry)
+        elif self.can_queue(entry):
+            self.queue_requested.emit(entry)
+
+    def show_queue(self, ids: List[str]):
+        """The downloads waiting in line: their Install button says "In line (n)" and is greyed out."""
+        for test_id, item in self.items.items():
+            button = self.tree.itemWidget(item, 5)
+            if not isinstance(button, QPushButton) or not (button.text() == "Install"
+                                                           or button.text().startswith("In line")):
+                continue
+            if test_id in ids:
+                button.setText(f"In line ({ids.index(test_id) + 1})")
+                button.setEnabled(False)
+            else:
+                button.setText("Install")
+                entry = self.entry(test_id)
+                button.setEnabled(not self.busy or (entry is not None and self.can_queue(entry)))
 
     def request_run(self, entries: List[TestEntry]):
         if not self.blocked():      # one test (or plan) at a time, never while the scan goes on
@@ -536,11 +557,15 @@ class TestsPage(QWidget):
         for widget in (self.all_btn, self.missing_btn, self.clear_btn, self.rescan_btn):
             widget.setEnabled(not busy)
         self.rescan_btn.setEnabled(not busy and not self.scanning)
-        for item in self.items.values():
+        line = busy and self.can_queue()            # an install that takes more downloads in line
+        for test_id, item in self.items.items():
             button = self.tree.itemWidget(item, 5)
+            if isinstance(button, QPushButton) and button.text().startswith("In line") and not busy:
+                button.setText("Install")
             if isinstance(button, QPushButton) and button.text() == "Install":
-                button.setEnabled(not busy)
-        self.tree.setEnabled(not busy)
+                entry = self.entry(test_id)
+                button.setEnabled(not busy or (line and entry is not None and self.can_queue(entry)))
+        self.tree.setEnabled(not busy or line)
         self._sync_run_buttons()
 
     def _sync_run_buttons(self):

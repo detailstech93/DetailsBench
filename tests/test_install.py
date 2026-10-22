@@ -237,7 +237,7 @@ def test_flow_asks_before_installing_then_scans_again(qapp, monkeypatch):
     assert flow.start(entry("sevenzip_benchmark"))
     assert "https://www.7-zip.org/a/7z2604-x64.msi" in asked[0] and installed == [pkg]
     assert win.scans == 1 and not flow.busy() and flow.state.text.startswith("7-Zip 26.04 installed.")
-    assert win.tests_page.stop_btn.isEnabled() is False and warned == []
+    assert win.tests_page.stop_btn.isEnabled() and warned == []      # Stop ends the line (owner, 2026-10-22)
 
     flow, win, asked, _ = flow_for(qapp, [False], lambda tid: pkg, lambda p: pytest.fail("must not install"))
     flow.start(entry("sevenzip_benchmark"))
@@ -525,3 +525,106 @@ def test_a_stopped_command_is_killed(tmp_path):
     code, text = model_set._run([sys.executable, "-c", "import time; time.sleep(30)"], 60, stop)
     assert (code, text) == (-1, model_set.STOPPED) and time.monotonic() - start < 10
     assert model_set._run([sys.executable, "-c", "print('hi')"], 30) == (0, "hi")
+
+
+# ---- downloads waiting in line, Skip and Stop during installs (owner, 2026-10-22) ---------------------------------
+def _line(qapp, monkeypatch, answers=None):
+    """An InstallFlow whose downloads finish only when the test says so (threads kept in `pending`)."""
+    from app.ai import model_set
+    from app.ui import install_flow, tests_page
+    monkeypatch.setattr(install_flow, "install_plan", lambda e, host=None: {"kind": "lmstudio", "test_id": e.id})
+    monkeypatch.setattr(tests_page, "needs_lmstudio", lambda e, host=None, **k: False)
+    monkeypatch.setattr(install_flow.QMessageBox, "warning", lambda *a: warned.append(a[2]))
+    warned, done = [], []
+
+    def install(tid, progress=None, stop=None):
+        done.append((tid, stop.is_set()))
+        return winget.Outcome(False, f"{tid}: the download was stopped.") if stop.is_set() else \
+            winget.Outcome(True, f"{tid} is ready.")
+    monkeypatch.setattr(model_set, "install", install)
+    monkeypatch.setattr(model_set, "install_text", lambda tid, fit=None: f"Download {tid}?")
+    pending = []
+    flow, win, asked, _ = flow_for(qapp, list(answers or [True]), None, None)
+    flow.start_thread = pending.append
+    return flow, win, asked, pending, done, warned
+
+
+def test_install_during_an_install_waits_in_line(qapp, monkeypatch):
+    flow, win, asked, pending, done, warned = _line(qapp, monkeypatch)
+    assert flow.start(entry("model_a")) and len(asked) == 1 and flow.queue_open()
+    assert flow.enqueue(entry("model_b")) == (True, "model_b is in line (1): it downloads after the one going on.")
+    assert flow.enqueue(entry("model_b"))[0] is False and flow.enqueue(entry("model_a"))[0] is False
+    assert flow.queued_ids() == ["model_b"]
+    pending.pop(0)()                                         # model_a done: model_b starts, not asked again
+    assert len(asked) == 1 and flow.busy() and flow.entry.id == "model_b" and win.scans == 0
+    pending.pop(0)()
+    assert done == [("model_a", False), ("model_b", False)] and not flow.busy() and win.scans == 1
+    assert flow.state.text == "model_a is ready. model_b is ready. Checking the installed tests again..."
+
+
+def test_skip_ends_the_download_and_starts_the_next(qapp, monkeypatch):
+    flow, win, asked, pending, done, warned = _line(qapp, monkeypatch)
+    flow.start(entry("model_a"))
+    flow.enqueue(entry("model_b"))
+    flow._skip()
+    pending.pop(0)()
+    assert flow.entry.id == "model_b" and flow.busy() and warned == []
+    pending.pop(0)()
+    assert done == [("model_a", True), ("model_b", False)] and win.scans == 1
+
+
+def test_stop_ends_the_download_and_empties_the_line(qapp, monkeypatch):
+    flow, win, asked, pending, done, warned = _line(qapp, monkeypatch)
+    flow.start(entry("model_a"))
+    flow.enqueue(entry("model_b"))
+    flow._stop()
+    assert flow.queued_ids() == [] and not flow.queue_open()
+    assert flow.enqueue(entry("model_c"))[0] is False
+    pending.pop(0)()
+    assert done == [("model_a", True)] and pending == [] and not flow.busy() and warned == [] and win.scans == 0
+
+
+def test_the_tests_screen_keeps_install_for_downloads_that_can_wait(qapp):
+    page = TestsPage(open_url=lambda url: None)
+    page.host = WIN_X64
+    page.set_entries([entry("sevenzip_benchmark"), entry("fio")])
+    page.can_queue = lambda e=None: e is None or e.id == "sevenzip_benchmark"
+    asked = []
+    page.queue_requested.connect(lambda e: asked.append(e.id))
+    page.install_requested.connect(lambda e: pytest.fail("not while busy"))
+    page.set_busy(True)
+    seven, fio = (page.tree.itemWidget(page.items[i], 5) for i in ("sevenzip_benchmark", "fio"))
+    assert page.tree.isEnabled() and seven.isEnabled() and not fio.isEnabled()
+    seven.click()
+    assert asked == ["sevenzip_benchmark"]
+    page.show_queue(["sevenzip_benchmark"])
+    assert seven.text() == "In line (1)" and not seven.isEnabled()
+    page.set_busy(False)
+    assert seven.text() == "Install" and seven.isEnabled() and fio.isEnabled()
+    page.can_queue = lambda e=None: False                  # a test run: everything stays greyed out
+    page.set_busy(True)
+    assert not page.tree.isEnabled() and not seven.isEnabled()
+
+
+def test_install_selected_takes_more_models_while_it_installs(qapp, monkeypatch):
+    from app.ai import model_set
+    from app.ui import run_all
+    entries = _models(monkeypatch, warn=())
+    monkeypatch.setattr(run_all, "install_plan", lambda e, host=None: {"kind": "lmstudio", "test_id": e.id})
+    monkeypatch.setattr(run_all, "check_items", lambda items, *a: items)
+    installed = []
+    flow = None
+
+    def install(tid, stop=None):
+        if tid == "llama_benchy_qwen35_4b":                  # pressed during the first download
+            assert flow.enqueue(entry("llama_benchy_gemma4_12b"))[0]
+            assert flow.queued_ids() == ["llama_benchy_qwen38_27b", "llama_benchy_gemma4_12b"]
+            assert flow.enqueue(entry("llama_benchy_qwen38_27b"))[1].endswith("is already in line.")
+        installed.append(tid)
+        return winget.Outcome(True, f"{tid} is ready.")
+    monkeypatch.setattr(model_set, "install", install)
+    flow, win, asked = run_all_for(qapp, None, entries)
+    flow.ask = lambda parent, text, install_only=False, **kw: run_all.INSTALL
+    assert flow.start(entries, install_only=True)
+    assert installed == ["llama_benchy_qwen35_4b", "llama_benchy_qwen38_27b", "llama_benchy_gemma4_12b"]
+    assert not flow.queue_open() and flow.queued_ids() == []

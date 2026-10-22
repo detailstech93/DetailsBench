@@ -182,7 +182,8 @@ def test_a_models_install_installs_lmstudio_first_then_the_model(qapp, monkeypat
     monkeypatch.setattr(lmstudio_linux, "libatomic_missing", lambda: False)
     monkeypatch.setattr(lmstudio_linux, "install", lambda: have.append(1) or winget.Outcome(True, "LM Studio installed."))
     got = []
-    monkeypatch.setattr(model_set, "install", lambda tid, progress=None: got.append(tid) or winget.Outcome(True, "ok"))
+    monkeypatch.setattr(model_set, "install", lambda tid, progress=None, stop=None: got.append(tid) or
+                        winget.Outcome(True, "ok"))
     e = TestEntry(id=model, name="model", group="ai", mode="automatic", state=MISSING, state_reason="",
                   compatible=True, compatibility_reason="", verified=False)
     asked = []

@@ -298,6 +298,11 @@ def plan_tests(panel, db, running: bool) -> List[dict]:
     return out
 
 
+def _queueable(entry, host) -> bool:
+    from app.ui.install_flow import queueable
+    return queueable(entry, host)
+
+
 class RemoteApi:
     """What the page asks (app/remote/server.py), answered on the Qt thread."""
 
@@ -317,6 +322,7 @@ class RemoteApi:
                   "section": "games" if e.group == "game" else "tests",
                   "minutes": e.expected_minutes, "verified": bool(e.verified), "can_start": not why,
                   "why": why, "warning": warning, "install": self._can_install(e),
+                  "queueable": self._can_install(e) and _queueable(e, w.tests_page.host),
                   "license": bool(e.can_run() and getattr(e.ref, "license", None) and not e.ref.license_ok())}
                  for e, why, warning in remote_listing(w.tests_page.entries)]
         profile = w.selected_profile()
@@ -388,10 +394,15 @@ class RemoteApi:
                     return False, f"The answer could not be saved: {e}"
                 logger.info("License of %s accepted from the remote page", lic[1])
                 return True, f"{lic[1]}: license accepted."
-            if self._busy():
-                return False, "Something is going on at the PC; wait for it first."
             if not self._can_install(entry):
                 return False, "This test cannot be installed from here."
+            if self._busy() and w.install_queue_open(entry):     # it waits in line (owner, 2026-10-22)
+                ok, text = w.queue_install(entry, remote=True)
+                if ok:
+                    logger.info("Install of %s put in line from the remote page", entry.id)
+                return ok, text
+            if self._busy():
+                return False, "Something is going on at the PC; wait for it first."
             if not w.install_flow.start(entry, confirmed=True):
                 return False, "The install did not start."
             logger.info("Install of %s started from the remote page", entry.id)
@@ -469,6 +480,8 @@ class RemoteApi:
         out["shutdown_pending"] = shutdown_after.pending()      # the 60 s countdown: the page offers to cancel it
         out["shutdown_left"] = shutdown_after.seconds_left()    # and shows it (owner, 2026-10-21)
         out["scanning"] = bool(getattr(page, "scanning", False)) and not running
+        out["queue_open"] = bool(w.install_queue_open()) if hasattr(w, "install_queue_open") else False
+        out["queued"] = list(w.queued_installs()) if hasattr(w, "queued_installs") else []
         if out["scanning"]:
             out["text"] = SCANNING_TEXT
         return out

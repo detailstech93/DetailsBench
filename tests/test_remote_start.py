@@ -470,6 +470,9 @@ def test_the_page_keeps_install_buttons_out_of_the_grey_and_follows_the_newest_r
     # owner, 2026-10-22: while a test, an install or a scan goes on, every choice is greyed out until it ends
     assert "freeze(!!(s.running || s.scanning));" in PAGE and 'id="busyNote"' in PAGE
     assert '#tests button.act, #installMany, #all, #none' in PAGE and "freeze(frozen);" in PAGE
+    # during an install, Install stays for downloads that can wait in line (owner, 2026-10-22)
+    assert 'if (what === "install" && t.queueable) b.dataset.queue = t.id;' in PAGE
+    assert '"In line (" + (n + 1) + ")"' in PAGE and "queueOpen = !!s.queue_open" in PAGE
 
 
 def test_a_download_moves_the_bar():
@@ -660,3 +663,19 @@ def test_stop_on_the_phone_cancels_the_shutdown_countdown(monkeypatch):
 def test_the_page_shows_the_shutdown_countdown():
     from app.remote.page import PAGE
     assert 'id="shutdownNote"' in PAGE and "s.shutdown_left" in PAGE and "Cancel the shutdown" in PAGE
+
+
+def test_install_from_the_phone_during_an_install_waits_in_line(monkeypatch):
+    from app.ui.remote_control import MainThread, RemoteApi
+    queued = []
+    window = SimpleNamespace(tests_page=SimpleNamespace(entries=[_entry("model_b", state="missing")], host=None,
+                                                        busy=True),
+                             automation_panel=SimpleNamespace(is_running=lambda: False),
+                             install_flow=SimpleNamespace(busy=lambda: True), run_all_flow=SimpleNamespace(busy=lambda: False),
+                             install_queue_open=lambda e=None: True,
+                             queue_install=lambda e, remote=False: queued.append((e.id, remote)) or (True, "in line (1)"))
+    api = RemoteApi(window, MainThread())
+    monkeypatch.setattr(RemoteApi, "_can_install", lambda self, e: True)
+    assert api.act("model_b", "install") == (True, "in line (1)") and queued == [("model_b", True)]
+    window.install_queue_open = lambda e=None: False          # a test run, or an installer that needs a prompt
+    assert api.act("model_b", "install") == (False, "Something is going on at the PC; wait for it first.")

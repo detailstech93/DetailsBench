@@ -480,6 +480,8 @@ class MainWindow(QMainWindow):
         from app.ui.run_all import RunAllFlow
         self.run_all_flow = RunAllFlow(self)
         self.tests_page.run_all_requested.connect(self.run_all_flow.start)
+        self.tests_page.can_queue = self.install_queue_open
+        self.tests_page.queue_requested.connect(lambda entry: self.queue_install(entry))
         from app.ui import admin_restart as _admin
         self.tests_page.install_many_requested.connect(lambda entries: _admin.install_selected(self, entries))
         install_ids = elevation.install_requested()
@@ -495,6 +497,47 @@ class MainWindow(QMainWindow):
             self.pages.addWidget(widget)
         main_layout.addWidget(self.pages, 1)
         self.show_page("this_pc")
+
+    # ---- installs waiting in line (owner, 2026-10-22; app/ui/install_flow.py) ------------------------------------
+    def _queueing_flow(self):
+        """The install going on that takes more downloads in line, or None (never during a test run)."""
+        if self.automation_panel.is_running():
+            return None
+        for flow in (getattr(self, "install_flow", None), getattr(self, "run_all_flow", None)):
+            if flow is not None and flow.queue_open():
+                return flow
+        return None
+
+    def install_queue_open(self, entry=None) -> bool:
+        from app.ui.install_flow import queueable
+        if self._queueing_flow() is None:
+            return False
+        return entry is None or queueable(entry, self.tests_page.host)
+
+    def queue_install(self, entry, remote: bool = False):
+        """Install pressed during an install: asked now (at the PC; on the phone it was asked there), then in line."""
+        from app.ui.install_flow import ask_yes, question_text
+        if not self.install_queue_open(entry):
+            return False, f"{entry.name} cannot wait in line: wait for the install going on."
+        if not remote:
+            text, why = question_text(entry, self.tests_page.host)
+            if text is None:
+                QMessageBox.warning(self, "Install", f"{entry.name} cannot be installed by the app: {why}.")
+                return False, why
+            if not ask_yes(self, "Install", text + "\n\nSomething is installing now: this download waits in line "
+                                                  "and starts after it."):
+                return False, "Not put in line."
+        flow = self._queueing_flow()
+        if flow is None:                    # it ended while the question was open
+            return False, "The install going on has ended: press Install again."
+        ok, text = flow.enqueue(entry, remote)
+        if not ok and not remote:
+            QMessageBox.information(self, "Install", text)
+        return ok, text
+
+    def queued_installs(self):
+        flow = self._queueing_flow()
+        return flow.queued_ids() if flow is not None else []
 
     def set_theme(self, mode: str):
         """Show the app in the chosen look now and keep the choice."""
