@@ -269,6 +269,20 @@ INSTALLERS["speedometer"] = INSTALLERS["jetstream"] = {"linux": {"chrome_deb": T
                                                                  "packages": {"fedora": "chromium", "arch": "chromium"}}}
 INSTALLERS["vkmark"] = {"linux": {"packages": {"debian": "vkmark", "fedora": "vkmark", "arch": "vkmark"}}}
 INSTALLERS["glmark2"] = {"linux": {"packages": {"debian": "glmark2-x11", "fedora": "glmark2", "arch": "glmark2"}}}
+# MLPerf Client 2.0.1 (owner, 2026-10-22: every test installs with one click): MLCommons' own GitHub release zip
+# (mlperf-windows.exe at its root, read from the zip's list); size and SHA-256 as GitHub lists them (2026-10-22). x64
+# only: the ARM64 build's configs are Qualcomm's, which app/ai/mlperf_client.py does not run yet.
+_MLPERF = {"windows": {"arch": ["x64"], "zip": {
+    "product": "MLPerf Client (Windows x64)", "version": "2.0.1",
+    "url": "https://github.com/mlcommons/mlperf_client/releases/download/v2.0.1/"
+           "mlperf-client-2.0.1-f0dbab3-windows-x64.zip",
+    "hosts": ["github.com"], "size": 118950866,
+    "sha256": "61a15974da2de21816fbe6682b868ad695d0e7f32b868d527a45de15be53dd11",
+    "folder": "mlperf-client-2.0.1-x64", "exe": "mlperf-windows.exe",
+    "note": "Its license and EULA (MLCommons) are in the EULA folder inside; each scenario downloads its model on "
+            "its first run."}}}
+for _id in ("mlperf_client", "mlperf_client_llama31", "mlperf_client_phi4reason", "mlperf_client_qwen3"):
+    INSTALLERS[_id] = _MLPERF
 INSTALLERS["ycruncher_pi_2_5b"] = INSTALLERS["ycruncher_pi_1b"]
 INSTALLERS["handbrake_x265_1080p"] = INSTALLERS["handbrake_x264_1080p"]
 

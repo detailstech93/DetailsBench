@@ -46,7 +46,12 @@ def test_parse_failures_never_score():
 
 
 def test_mlperf_path(tmp_path):
-    assert mlperf_client.mlperf_path({"USERPROFILE": str(tmp_path)}) is None
+    data = tmp_path / "appdata"
+    assert mlperf_client.mlperf_path({"USERPROFILE": str(tmp_path)}, data) is None
+    installed = data / "tools" / "mlperf-client-2.0.1-x64" / "mlperf-windows.exe"     # where Install puts it
+    installed.parent.mkdir(parents=True)
+    installed.write_bytes(b"")
+    assert mlperf_client.mlperf_path({"USERPROFILE": str(tmp_path)}, data) == installed
     exe = tmp_path / "Tools" / "MLPerfClient" / "mlperf-windows.exe"
     exe.parent.mkdir(parents=True)
     exe.write_bytes(b"")

@@ -48,14 +48,19 @@ WARNING = ("The first run of a config downloads its model (several GB) into the 
            "for anything else during the run (for example LM Studio or a local coding agent).")
 
 
-def mlperf_path(env: Optional[Mapping[str, str]] = None) -> Optional[Path]:
-    """PCBM_MLPERF_CLIENT (the exe), else ~/Tools/MLPerfClient/mlperf-windows.exe."""
+def mlperf_path(env: Optional[Mapping[str, str]] = None, data_dir: Optional[Path] = None) -> Optional[Path]:
+    """PCBM_MLPERF_CLIENT (the exe), else ~/Tools/MLPerfClient/mlperf-windows.exe, else the one Install put in the
+    app's tools folder (data/installers.py)."""
     env = os.environ if env is None else env
     home = env.get("USERPROFILE") or env.get("HOME")
     for p in (env.get("PCBM_MLPERF_CLIENT"), home and str(Path(home) / "Tools" / "MLPerfClient" / "mlperf-windows.exe")):
         if p and Path(p).is_file():
             return Path(p)
-    return None
+    from app.install import direct
+    from data.installers import INSTALLERS
+    plan = INSTALLERS["mlperf_client"]["windows"]["zip"]
+    exe = direct.target_folder(plan, data_dir) / plan["exe"]
+    return exe if exe.is_file() else None
 
 
 def gpu_names() -> List[str]:
