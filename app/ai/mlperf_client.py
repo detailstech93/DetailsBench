@@ -168,6 +168,15 @@ class MlperfClientWorkload(Workload):
         if test_id == "mlperf_client_phi4reason":
             self.timeout_seconds = 2 * 3600      # a reasoning model writes long answers
 
+    def system_blocks(self, host=None) -> Optional[str]:
+        """Windows ARM (owner, 2026-10-22: hide it there): MLPerf Client's ARM64 build has Qualcomm NPU configs only
+        (for Snapdragon X), and NPU configs are not run by the app."""
+        from app.install.plans import this_host
+        host = host or this_host()
+        if host.os == "windows" and host.arch == "arm64":
+            return "MLPerf Client on Windows ARM has Qualcomm NPU configs only, which the app does not run"
+        return None
+
     @property
     def config(self) -> Optional[str]:
         """The config given, else the one for this PC's graphics card (picked when first needed)."""

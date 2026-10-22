@@ -138,3 +138,11 @@ def test_mlperf_has_its_own_report_section():
     html = _mlperf_section(export)
     assert "<h2>MLPerf Client</h2>" in html and "151.2 <span>tok/s</span>" in html and "llama-cpp CUDA" in html
     assert _mlperf_section({"runs": []}) == ""
+
+
+def test_windows_arm_hides_mlperf_client():
+    # owner, 2026-10-22: its ARM64 build has Qualcomm NPU configs only
+    from app.install.plans import Host
+    w = mlperf_client.MlperfClientWorkload(exe=None)
+    assert "Qualcomm NPU" in w.system_blocks(Host("windows", "arm64"))
+    assert w.system_blocks(Host("windows", "x64")) is None
