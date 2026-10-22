@@ -24,6 +24,8 @@ if len(sys.argv) > 1 and sys.argv[1] == "--askpass":
 
 def main():
     """Main entry point."""
+    from app.system_certs import use_system_certificates
+    use_system_certificates()       # downloads check certificates the way Windows does (app/system_certs.py)
     # Import system information first to populate global data
     from app.system_info import get_system_summary
     

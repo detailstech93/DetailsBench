@@ -679,3 +679,15 @@ def test_the_app_downloading_now_has_a_blue_dot(qapp, monkeypatch):
     page.refresh_progress()
     assert page.items["fio"].icon(0).isNull()
     page.timer.stop()
+
+
+def test_one_program_for_several_tests_is_installed_once(qapp):
+    # Windows ARM, 2026-10-22: PassMark was installed (and reported) once per PassMark test
+    pkg = winget.Package("passmark_cpu", "PassMark.PerformanceTest")
+    installed = []
+    entries = [entry("passmark_cpu"), entry("passmark_memory"), entry("passmark_2d")]
+    flow, win, asked = run_all_for(qapp, "install", entries, describe=lambda tid: pkg,
+                                   install=lambda p: installed.append(p) or winget.Outcome(True, "PassMark installed."))
+    flow.ask = lambda parent, text, install_only=False: "install"
+    assert flow.start(entries, install_only=True)
+    assert installed == [pkg] and flow.state.text.count("PassMark installed.") == 1

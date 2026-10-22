@@ -4,4 +4,5 @@ pefile>=2024.8.26
 psutil>=5.9.0
 numpy>=1.24
 wgpu==0.31.0
+truststore>=0.10.5     # HTTPS checks certificates with the system's store (app/system_certs.py)
 llama-benchy==0.4.0     # AI tests through LM Studio (app/ai/llama_benchy.py)

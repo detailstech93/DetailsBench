@@ -42,6 +42,12 @@ def ask_choice(parent, text: str, install_only: bool = False, without: str = "")
                        + [("Run only installed tests", INSTALLED_ONLY), ("Cancel", None)])
 
 
+def install_key(item) -> tuple:
+    """What an install puts on the computer: tests that share a program (PassMark's marks, Cinebench's two runs,
+    HandBrake's two encoders) have the same key."""
+    p = item.plan
+    return (p["kind"], p.get("winget") or p.get("folder") or p.get("package") or p.get("test_id") or item.entry.id)
+
 class Item:
     """One missing test and what installing it means."""
 
@@ -306,11 +312,16 @@ class RunAllFlow(QObject):
     def _install(self, items: List[Item]) -> List[str]:
         """`items` is self.pending: Install pressed meanwhile adds to it (enqueue), so its length is read each time."""
         lines = []
-        n = 0
+        done = set()            # one program for several tests is installed once (Windows ARM, 2026-10-22: PassMark
+        n = 0                   # was installed four times, once per PassMark test, and said so four times)
         while n < len(items):
             item = items[n]
             self.position = n
             n += 1
+            key = install_key(item)
+            if key in done:
+                continue
+            done.add(key)
             if self.stop_event.is_set():
                 lines.append(f"{item.entry.name}: not installed (stopped).")
                 continue
