@@ -87,6 +87,10 @@ def state_text(entry: TestEntry) -> str:
     return STATE_TEXT.get(entry.state, entry.state)
 
 
+SKIP_TIPS = {"test": "Ends only the test going on (the report says how far it got); the other tests go on.",
+             "download": "Ends only the download going on; the next one in line starts."}
+
+
 class TestsPage(QWidget):
     __test__ = False        # not a pytest class
     run_requested = Signal(list)      # [TestEntry], all can_run()
@@ -249,8 +253,8 @@ class TestsPage(QWidget):
         self.stop_btn.setStyleSheet("QPushButton:enabled { color: white; background: #b91c1c; padding: 4px 18px; }")
         self.stop_btn.clicked.connect(self._stop)
         self.skip_btn = QPushButton("Skip this test")
-        self.skip_btn.setToolTip("Ends only the test going on (the report says how far it got); "
-                                 "the other tests go on.")
+        self.skip_what = "test"             # "download" during installs (owner, 2026-10-22)
+        self.skip_btn.setToolTip(SKIP_TIPS["test"])
         self.skip_btn.setVisible(False)
         self.skip_btn.clicked.connect(self.skip)
         bar_row.addWidget(self.progress_bar, 1)
@@ -484,9 +488,13 @@ class TestsPage(QWidget):
 
     # ---- progress ------------------------------------------------------------------
     def watch(self, get_state: Callable[[], RunState], stop: Callable[[], object],
-              skip: Optional[Callable[[], object]] = None):
-        """Follow a run started from this screen until it ends (skip: the Skip button of a plan of several tests)."""
+              skip: Optional[Callable[[], object]] = None, skip_what: str = "test"):
+        """Follow a run started from this screen until it ends (skip: the Skip button of a plan of several tests,
+        or of downloads in line: skip_what "download" names it so)."""
         self.get_state, self.stop_fn, self.skip_fn = get_state, stop, skip
+        self.skip_what = skip_what
+        self.skip_btn.setText(f"Skip this {skip_what}")
+        self.skip_btn.setToolTip(SKIP_TIPS[skip_what])
         self.skip_btn.setVisible(skip is not None)
         self.skip_btn.setEnabled(True)
         self.report_fn = None

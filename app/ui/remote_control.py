@@ -461,7 +461,8 @@ class RemoteApi:
             s = page.get_state()
             running = s.running
             percent = progress_percent(s)
-            out.update(running=s.running, text=s.text, percent=percent, can_skip=s.running and page.can_skip())
+            out.update(running=s.running, text=s.text, percent=percent, can_skip=s.running and page.can_skip(),
+                       skip_what=getattr(page, "skip_what", "test"))
             if s.running and s.total:
                 out["step"] = f"Run {min(s.done + 1, s.total)} of {s.total}"
         started = getattr(panel, "plan_started_at", None)
@@ -510,6 +511,8 @@ class RemoteApi:
             page = self.window.tests_page
             if not page.skip():
                 return "Nothing to skip: Skip works while a plan of several tests runs."
+            if getattr(page, "skip_what", "test") == "download":
+                return "Skipping the download going on; the next one in line starts."
             return "Skipping the test going on; the other tests go on."
         return self.main.run(skip)
 

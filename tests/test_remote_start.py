@@ -473,6 +473,7 @@ def test_the_page_keeps_install_buttons_out_of_the_grey_and_follows_the_newest_r
     # during an install, Install stays for downloads that can wait in line (owner, 2026-10-22)
     assert 'if (what === "install" && t.queueable) b.dataset.queue = t.id;' in PAGE
     assert '"In line (" + (n + 1) + ")"' in PAGE and "queueOpen = !!s.queue_open" in PAGE
+    assert '$("skip").textContent = "Skip this " + skipWhat;' in PAGE and "Skip the download going on?" in PAGE
 
 
 def test_a_download_moves_the_bar():

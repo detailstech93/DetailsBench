@@ -534,6 +534,8 @@ function showState(s) {
   $("shutdownNote").classList.toggle("hidden", !s.shutdown_pending);   // the PC's 60 s countdown, here too
   $("shutdownNote").textContent = s.shutdown_pending ? "The PC shuts down in " + s.shutdown_left + " s." : "";
   $("skip").classList.toggle("hidden", !s.can_skip);
+  skipWhat = s.skip_what || "test";                    // "download" during installs (owner, 2026-10-22)
+  $("skip").textContent = "Skip this " + skipWhat;
   $("start").disabled = s.running || !!s.scanning;   // nothing starts while the PC scans for tests
   queueOpen = !!s.queue_open && !s.scanning;
   queued = s.queued || [];
@@ -625,8 +627,11 @@ $("start").onclick = async () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   } catch (e) { if (e.message !== "code") $("message").textContent = "The PC does not answer."; }
 };
+let skipWhat = "test";
 $("skip").onclick = async () => {
-  if (!confirm("Skip the test going on? Only this test ends; the report says how far it got. The other tests go on.")) return;
+  if (!confirm(skipWhat === "download"
+      ? "Skip the download going on? Only this download ends; the next one in line starts."
+      : "Skip the test going on? Only this test ends; the report says how far it got. The other tests go on.")) return;
   try { $("message").textContent = (await (await call("/api/skip", {})).json()).text || ""; refresh(); }
   catch (e) {}
 };

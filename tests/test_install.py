@@ -566,6 +566,8 @@ def test_skip_ends_the_download_and_starts_the_next(qapp, monkeypatch):
     flow, win, asked, pending, done, warned = _line(qapp, monkeypatch)
     flow.start(entry("model_a"))
     flow.enqueue(entry("model_b"))
+    page = win.tests_page                                    # owner, 2026-10-22: it says what it skips
+    assert page.skip_btn.text() == "Skip this download" and page.skip_what == "download"
     flow._skip()
     pending.pop(0)()
     assert flow.entry.id == "model_b" and flow.busy() and warned == []

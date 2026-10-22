@@ -351,7 +351,7 @@ class InstallFlow(QObject):
     def _show(self, text: str, cancellable: bool = False):
         self.cancellable = cancellable
         self.state = RunState(True, 0, None, text)
-        self.window.tests_page.watch(lambda: self.state, self._stop, self._skip)
+        self.window.tests_page.watch(lambda: self.state, self._stop, self._skip, skip_what="download")
         self._mark()
 
     # ---- the line (owner, 2026-10-22) ---------------------------------------------------------------------------

@@ -208,7 +208,7 @@ class RunAllFlow(QObject):
     def _show(self, text: str):
         self.state = RunState(True, 0, None, text)
         page = self.window.tests_page
-        page.watch(lambda: self.state, self._stop, self._skip)
+        page.watch(lambda: self.state, self._stop, self._skip, skip_what="download")
 
     def _stop(self):
         """Stop (owner, 2026-10-22): a download ends at once; an installer that is running is not cut off (it
