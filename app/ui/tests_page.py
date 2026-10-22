@@ -113,6 +113,7 @@ class TestsPage(QWidget):
         self.entries: List[TestEntry] = []
         self.items: Dict[str, QTreeWidgetItem] = {}
         self.marks: Dict[str, str] = {}      # the dots of the last plan (show_marks)
+        self.scrolled_to: Optional[str] = None   # the running test the list last scrolled to
         from app.ui.links import open_link
         self.open_url = open_url or open_link
         self.host = None            # app/install/plans.Host; None: this computer (tests set one)
@@ -504,6 +505,7 @@ class TestsPage(QWidget):
         self.report_btn.setVisible(False)
         self.started_at = time.monotonic()
         self.marks = {}
+        self.scrolled_to = None
         self.show_marks({})
         self.stop_btn.setEnabled(True)
         self.stop_btn.setText("Stop")
@@ -601,6 +603,9 @@ class TestsPage(QWidget):
             item.setIcon(0, _dot(color) if color else _dot(None) if mark == "running" else QIcon())
             if mark:
                 item.setToolTip(0, MARK_TEXT[mark])
+            if mark == "running" and test_id != self.scrolled_to:
+                self.tree.scrollToItem(item)       # follow the run once per test; the owner can still scroll away
+                self.scrolled_to = test_id
 
     def refresh_progress(self):
         state = self.get_state()
@@ -656,7 +661,9 @@ def _dot(color: Optional[str]) -> QIcon:
             painter.setPen(Qt.NoPen)
             painter.drawEllipse(1, 1, 10, 10)
             painter.end()
-        _DOTS[color] = QIcon(pix)
+        icon = QIcon(pix)
+        icon.addPixmap(pix, QIcon.Disabled)     # the rows are locked during a run; keep the colour, not grey
+        _DOTS[color] = icon
     return _DOTS[color]
 
 

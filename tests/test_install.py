@@ -646,6 +646,9 @@ def test_a_plan_shows_a_dot_by_each_test(qapp, monkeypatch):
     icon = lambda i: page.items[i].icon(0)
     assert icon("fio").cacheKey() == tp._dot("#2e7d32").cacheKey()
     assert icon("diskspd").cacheKey() == tp._dot("#2e7d32").cacheKey() and icon("cinebench").isNull()
+    assert page.scrolled_to == "diskspd"                   # the list follows the running test
+    green = tp._dot("#2e7d32").pixmap(12, 12, tp.QIcon.Disabled).toImage().pixelColor(6, 6)
+    assert green.green() > green.red() + 40                # still green on the locked rows, not grey
     clock[0] = 0.6                                         # half a second later: the running dot is off
     page.refresh_progress()
     assert icon("diskspd").cacheKey() == tp._dot(None).cacheKey()
