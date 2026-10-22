@@ -202,3 +202,16 @@ def test_a_linux_release_without_ncurses_5_hides_passmark(tmp_path, monkeypatch)
     assert not passmark.ncurses5_unavailable({"ID": "linuxmint", "ID_LIKE": "ubuntu debian", "UBUNTU_CODENAME": "jammy"})
     assert not passmark.ncurses5_unavailable({"ID": "fedora", "VERSION_ID": "41"})
     assert passmark.ncurses5_unavailable({"ID": "arch"})
+
+
+def test_windows_arm_uses_passmarks_arm64_program(tmp_path):
+    # Snapdragon, 2026-10-22: PerformanceTest installed but its tests stayed "not installed" (no PerformanceTest64.exe)
+    folder = tmp_path / "PerformanceTest"
+    folder.mkdir()
+    (folder / "PerformanceTestARM64.exe").write_bytes(b"")
+    env = {"ProgramFiles": str(tmp_path)}
+    assert passmark.program_path("win32", "ARM64", env) == folder / "PerformanceTestARM64.exe"
+    assert passmark.program_path("win32", "AMD64", env) is None
+    (folder / "PerformanceTest64.exe").write_bytes(b"")
+    assert passmark.program_path("win32", "AMD64", env) == folder / "PerformanceTest64.exe"
+    assert passmark.program_path("linux", "ARM64", env) is None

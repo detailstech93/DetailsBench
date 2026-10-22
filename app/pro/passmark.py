@@ -55,6 +55,7 @@ MODES = {
 }
 UNIT = "points"
 EXE_NAME = "PerformanceTest64.exe"          # the x64 program (seen in PerformanceTest 11.1, 2026-10-19)
+ARM64_EXE_NAME = "PerformanceTestARM64.exe" # the same install on Windows ARM has no x64 one (Snapdragon, 2026-10-22)
 SW_SHOWNORMAL = 1                           # its 2D and 3D tests draw in its windows: shown normally
 WARNING = ("PassMark PerformanceTest's free version may send the results to PassMark by itself (turning that "
            "off needs a PassMark license). Windows asks once for administrator permission when the run starts; "
@@ -196,11 +197,14 @@ def parse_linux_results(key: str, text: str) -> Tuple[Optional[float], Optional[
     return value, None
 
 
-def program_path() -> Optional[Path]:
-    if sys.platform != "win32":
+def program_path(platform: str = sys.platform, machine: Optional[str] = None, env=os.environ) -> Optional[Path]:
+    if platform != "win32":
         return None
-    for root in {os.environ.get("ProgramFiles"), os.environ.get("ProgramW6432")} - {None}:
-        exe = Path(root) / "PerformanceTest" / EXE_NAME
+    machine = (machine or env.get("PROCESSOR_ARCHITEW6432") or env.get("PROCESSOR_ARCHITECTURE")
+               or "").upper()
+    name = ARM64_EXE_NAME if machine == "ARM64" else EXE_NAME
+    for root in sorted({env.get("ProgramFiles"), env.get("ProgramW6432")} - {None}):
+        exe = Path(root) / "PerformanceTest" / name
         if exe.is_file():
             return exe
     return None

@@ -190,7 +190,7 @@ BENCHMARK_DEFINITIONS: List[BenchmarkDefinition] = [
         category="synthetic",
         official_url="https://www.passmark.com/products/performancetest/",
         # its uninstall entry and folder are named "PerformanceTest 11" / "PerformanceTest" (11.1, 2026-10-18)
-        name_patterns=['PassMark\\s+PerformanceTest', 'PerformanceTest(64)?\\.exe$', '^PerformanceTest(\\s+\\d+)?$'],
+        name_patterns=['PassMark\\s+PerformanceTest', 'PerformanceTest(64|ARM64)?\\.exe$', '^PerformanceTest(\\s+\\d+)?$'],
         exclusion_patterns=['BurnInTest'],
         version_source="pe_version_info",
         version_normalization="commas_to_dots",
