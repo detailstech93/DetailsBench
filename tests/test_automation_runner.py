@@ -269,3 +269,23 @@ def test_after_skips_the_last_step_reaches_the_end(db, tmp_path):
     holder["runner"] = runner
     assert not runner.run().stopped
     assert steps[-1][0] == steps[-1][1]
+
+
+def test_marks_follow_each_test_for_its_dot(db, tmp_path):
+    # owner, 2026-10-22: a dot by each test of the plan, green blinking while it runs, then green or red
+    database, sid = db
+    seen = []
+    first = Scripted("tool_a", [ok(1.0), ok(2.0)])
+    broken = Scripted("tool_b", [bad(), bad()])
+    last = Scripted("tool_c", [ok(3.0)])
+    plan = [PlanItem(first, repetitions=2, warmup_runs=0), PlanItem(broken, repetitions=2, warmup_runs=0),
+            PlanItem(last, repetitions=1, warmup_runs=0)]
+    runner = AutomationRunner(database, sid, plan, tmp_path / "o")
+    for wl in (first, broken, last):
+        wl.on_run = lambda ctx: seen.append(runner.marks())
+    assert runner.marks() == {}
+    runner.run()
+    assert seen[0] == {"tool_a": "running"} and seen[1] == {"tool_a": "running"}
+    assert seen[2] == {"tool_a": "ok", "tool_b": "running"}
+    assert seen[-1] == {"tool_a": "ok", "tool_b": "failed", "tool_c": "running"}
+    assert runner.marks() == {"tool_a": "ok", "tool_b": "failed", "tool_c": "ok"}     # solid after the run

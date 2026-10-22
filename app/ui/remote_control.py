@@ -287,7 +287,8 @@ def plan_tests(panel, db, running: bool) -> List[dict]:
         elif running and now.startswith(name + ":"):
             state = "running"
         elif running:
-            state = "waiting" if not mine else "running" if len(measured) < item.repetitions else "done"
+            state = ("waiting" if not mine else "running" if len(measured) < item.repetitions
+                     else "done" if good else "failed")       # red as soon as it is over (owner, 2026-10-22)
         else:
             state = "done" if good else "failed" if measured else "not run"
         scores = [float(r["score"]) for r in good]

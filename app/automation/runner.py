@@ -146,6 +146,35 @@ class AutomationRunner:
         self.skip_event = threading.Event()
         self.current_id: Optional[str] = None       # the test going on (or next, during a pause)
         self.skip_target: Optional[str] = None
+        self.running_id: Optional[str] = None       # set while the plan runs (current_id stays after it)
+        self._live: Tuple[list, int, Optional["RunSummary"]] = ([], -1, None)
+
+    def marks(self) -> Dict[str, str]:
+        """Each test the plan has reached, for the dot on the Tests screen (owner, 2026-10-22): "running" (the test
+        going on, or next during a pause), then "ok" (it has a score), "failed" (no score) or "skipped". Tests not
+        reached yet, or still to come, are left out."""
+        schedule, position, summary = self._live
+        if summary is None:
+            return {}
+        records, later = list(summary.records), list(schedule[position + 1:])
+        out = {}
+        for item in self.plan:
+            wid = item.workload.id
+            if wid == self.running_id:
+                out[wid] = "running"
+                continue
+            if any(s[0].workload.id == wid for s in later) and self.running_id is not None:
+                continue
+            rows = [r for r in records if r.workload_id == wid]
+            if not rows:
+                continue
+            if any(r.result.status == "completed" and r.result.score is not None for r in rows if not r.is_warmup):
+                out[wid] = "ok"
+            elif all(r.result.status == "skipped" for r in rows):
+                out[wid] = "skipped"
+            else:
+                out[wid] = "failed"
+        return out
 
     def stop(self):
         self.stop_event.set()
@@ -289,6 +318,12 @@ class AutomationRunner:
         retried: Dict[Tuple[str, int], int] = {}
         extra: Dict[str, int] = {}
         position = -1
+        try:
+            return self._run_loop(summary, schedule, stamp, retried, extra, position)
+        finally:
+            self.running_id = None              # every dot is solid now
+
+    def _run_loop(self, summary, schedule, stamp, retried, extra, position) -> RunSummary:
         while position + 1 < len(schedule):
             position += 1
             total = len(schedule)
@@ -297,7 +332,8 @@ class AutomationRunner:
                 summary.stopped = True
                 summary.not_started = len(schedule) - position
                 break
-            self.current_id = item.workload.id
+            self.current_id = self.running_id = item.workload.id
+            self._live = (schedule, position, summary)
             either = _RunStop(self.stop_event, self.skip_event)
             if position and self.cooldown_seconds > 0 and self.skip_target != item.workload.id:
                 self.on_progress(f"Cooling down {self.cooldown_seconds:g} s")

@@ -680,3 +680,17 @@ def test_install_from_the_phone_during_an_install_waits_in_line(monkeypatch):
     assert api.act("model_b", "install") == (True, "in line (1)") and queued == [("model_b", True)]
     window.install_queue_open = lambda e=None: False          # a test run, or an installer that needs a prompt
     assert api.act("model_b", "install") == (False, "Something is going on at the PC; wait for it first.")
+
+
+def test_the_phone_dot_blinks_green_and_turns_red_when_a_test_failed():
+    # owner, 2026-10-22: at a glance, during the run, which test passed and which failed
+    from app.remote.page import PAGE
+    from app.ui.remote_control import plan_tests
+    assert ".dot.running { background:var(--accent); animation:blink" in PAGE
+    plan = [SimpleNamespace(workload=SimpleNamespace(id="a", display_name="A"), repetitions=1, warmup_runs=0),
+            SimpleNamespace(workload=SimpleNamespace(id="b", display_name="B"), repetitions=1, warmup_runs=0)]
+    rows = [{"benchmark_name": "a", "is_warmup": 0, "score": None, "status": "failed"}]
+    panel = SimpleNamespace(worker=SimpleNamespace(runner=SimpleNamespace(plan=plan, session_id=3)),
+                            last_session_id=3, step=(1, 2, "B: run 1"))
+    db = SimpleNamespace(get_session=lambda sid: {"results": rows})
+    assert [t["state"] for t in plan_tests(panel, db, True)] == ["failed", "running"]

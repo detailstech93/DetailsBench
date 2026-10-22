@@ -48,7 +48,8 @@ button:disabled { opacity:.45; cursor:default; }
   border-bottom:1px solid var(--line); }
 .ptest:last-child { border-bottom:0; }
 .dot { width:12px; height:12px; border-radius:50%; background:var(--line); }
-.dot.running { background:var(--run); box-shadow:0 0 0 4px rgba(21,101,192,.18); }
+.dot.running { background:var(--accent); animation:blink 1s step-end infinite; }   /* green, blinking (owner) */
+@keyframes blink { 50% { opacity:.15; } }
 .dot.done { background:var(--accent); }
 .dot.failed { background:var(--stop); }
 .dot.skipped { background:var(--muted); }

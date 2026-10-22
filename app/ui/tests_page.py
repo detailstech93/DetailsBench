@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional
 
 from PySide6.QtCore import QTimer, QUrl, Qt, Signal
-from PySide6.QtGui import QDesktopServices, QFont
+from PySide6.QtGui import QDesktopServices, QFont, QIcon
 from PySide6.QtWidgets import (QCheckBox, QFrame, QHBoxLayout, QHeaderView, QLabel, QProgressBar, QPushButton,
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
@@ -32,6 +32,7 @@ class RunState:
     text: str = ""
     fraction: float = 0.0           # of the run going on now (a stress test knows it from its minutes)
     share: Optional[float] = None   # a download: the part done (0..1), with no runs
+    marks: Optional[Dict[str, str]] = None  # a plan: test id -> running / ok / failed / skipped (the dots)
 
 
 def progress_percent(state: RunState) -> Optional[int]:
@@ -111,6 +112,7 @@ class TestsPage(QWidget):
         super().__init__(parent)
         self.entries: List[TestEntry] = []
         self.items: Dict[str, QTreeWidgetItem] = {}
+        self.marks: Dict[str, str] = {}      # the dots of the last plan (show_marks)
         from app.ui.links import open_link
         self.open_url = open_url or open_link
         self.host = None            # app/install/plans.Host; None: this computer (tests set one)
@@ -359,6 +361,7 @@ class TestsPage(QWidget):
                     self.tree.setItemWidget(item, 5, button)
             top.setExpanded(True)
         self.tree.blockSignals(False)
+        self.show_marks(self.marks)
         self.update_run_button()
 
     def _action_button(self, e: TestEntry) -> Optional[QPushButton]:
@@ -500,6 +503,8 @@ class TestsPage(QWidget):
         self.report_fn = None
         self.report_btn.setVisible(False)
         self.started_at = time.monotonic()
+        self.marks = {}
+        self.show_marks({})
         self.stop_btn.setEnabled(True)
         self.stop_btn.setText("Stop")
         self.progress_box.setVisible(True)
@@ -583,8 +588,23 @@ class TestsPage(QWidget):
                 button.setEnabled(not self.blocked())
         self.update_run_button()
 
+    def show_marks(self, marks: Optional[Dict[str, str]]):
+        """A dot by each test of a plan (owner, 2026-10-22): green blinking while it runs, green when it has a score,
+        red when it failed, grey when skipped; the others have none. Kept after the run until the next one."""
+        if marks is None:
+            return
+        self.marks = dict(marks)
+        lit = int(time.monotonic() * 2) % 2 == 0
+        for test_id, item in self.items.items():
+            mark = self.marks.get(test_id)
+            color = MARK_COLOR.get(mark) if mark != "running" or lit else None
+            item.setIcon(0, _dot(color) if color else _dot(None) if mark == "running" else QIcon())
+            if mark:
+                item.setToolTip(0, MARK_TEXT[mark])
+
     def refresh_progress(self):
         state = self.get_state()
+        self.show_marks(state.marks)
         if self.started_at is not None:
             self.elapsed_label.setText(elapsed_text(time.monotonic() - self.started_at))
         if state.running:
@@ -615,6 +635,29 @@ class TestsPage(QWidget):
             self.request_run([e])
         elif e.compatible and e.state == MISSING and e.official_url:
             self.open_url(e.official_url)
+
+
+MARK_COLOR = {"running": "#2e7d32", "ok": "#2e7d32", "failed": "#c62828", "skipped": "#9e9e9e"}
+MARK_TEXT = {"running": "Running now", "ok": "Done: it has a score", "failed": "Failed: no score (see the report)",
+             "skipped": "Skipped"}
+_DOTS: Dict[Optional[str], QIcon] = {}
+
+
+def _dot(color: Optional[str]) -> QIcon:
+    """A round dot (None: an empty one of the same size, so the name does not jump while it blinks)."""
+    if color not in _DOTS:
+        from PySide6.QtGui import QColor, QPainter, QPixmap
+        pix = QPixmap(12, 12)
+        pix.fill(Qt.transparent)
+        if color:
+            painter = QPainter(pix)
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setBrush(QColor(color))
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(1, 1, 10, 10)
+            painter.end()
+        _DOTS[color] = QIcon(pix)
+    return _DOTS[color]
 
 
 def _brush(color: str):

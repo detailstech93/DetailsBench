@@ -440,7 +440,16 @@ def open_in_windows(path: Path, platform: Optional[str] = None, wsl=on_wsl, run=
 
 
 def plan_state(panel, result: dict) -> RunState:
-    """Progress of the automation plan (also while LibreHardwareMonitor is being prepared before it)."""
+    """Progress of the automation plan (also while LibreHardwareMonitor is being prepared before it), with each
+    test's dot (RunState.marks)."""
+    state = _plan_state(panel, result)
+    worker = getattr(panel, "worker", None)
+    if worker is not None and result.get("started"):
+        state.marks = worker.runner.marks()
+    return state
+
+
+def _plan_state(panel, result: dict) -> RunState:
     if "final" in result:
         return RunState(False, *result["final"])
     if panel.is_running():

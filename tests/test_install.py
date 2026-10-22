@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication, QPushButton
 from app.catalog import INSTALLED, MISSING, TestEntry
 from app.install import winget
 from app.install.plans import Host, linux_commands, plan_for
-from app.ui.tests_page import TestsPage, installable
+from app.ui.tests_page import RunState, TestsPage, installable
 from data.installers import INSTALLERS
 
 SHOW = """\
@@ -630,3 +630,31 @@ def test_install_selected_takes_more_models_while_it_installs(qapp, monkeypatch)
     assert flow.start(entries, install_only=True)
     assert installed == ["llama_benchy_qwen35_4b", "llama_benchy_qwen38_27b", "llama_benchy_gemma4_12b"]
     assert not flow.queue_open() and flow.queued_ids() == []
+
+
+def test_a_plan_shows_a_dot_by_each_test(qapp, monkeypatch):
+    # owner, 2026-10-22: green blinking while it runs, green when done, red when it failed, none before
+    from app.ui import tests_page as tp
+    page = TestsPage(open_url=lambda url: None)
+    page.host = WIN_X64
+    page.set_entries([entry("fio", INSTALLED), entry("diskspd", INSTALLED), entry("cinebench", INSTALLED)])
+    marks = {"fio": "ok", "diskspd": "running"}
+    page.watch(lambda: RunState(True, 1, 3, "x", marks=marks), lambda: None)
+    clock = [0.1]
+    monkeypatch.setattr(tp.time, "monotonic", lambda: clock[0])
+    page.refresh_progress()
+    icon = lambda i: page.items[i].icon(0)
+    assert icon("fio").cacheKey() == tp._dot("#2e7d32").cacheKey()
+    assert icon("diskspd").cacheKey() == tp._dot("#2e7d32").cacheKey() and icon("cinebench").isNull()
+    clock[0] = 0.6                                         # half a second later: the running dot is off
+    page.refresh_progress()
+    assert icon("diskspd").cacheKey() == tp._dot(None).cacheKey()
+    marks.update(diskspd="failed")
+    page.refresh_progress()
+    assert icon("diskspd").cacheKey() == tp._dot("#c62828").cacheKey()
+    assert "Failed" in page.items["diskspd"].toolTip(0)
+    page.fill()                                            # a new scan keeps the dots of the last run
+    assert icon("fio").cacheKey() == tp._dot("#2e7d32").cacheKey()
+    page.watch(lambda: RunState(True, 0, 1, "y"), lambda: None)     # the next run starts clean
+    assert icon("fio").isNull()
+    page.timer.stop()
