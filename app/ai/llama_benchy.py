@@ -226,7 +226,7 @@ class LlamaBenchyWorkload(Workload):
                  read_models: Callable = lmstudio.read_models,
                  read_runtimes: Callable[[], Dict[str, str]] = lambda: lmstudio.read_runtimes(lmstudio.lms_path()),
                  concurrency: Sequence[int] = (1,), prefix_caching: bool = False, unload: Callable = None,
-                 unload_all: Callable = None):
+                 unload_all: Callable = None, start_server: Callable[[], Optional[str]] = None):
         self.model, self.base_url, self.pp, self.tg = model, base_url, pp, tg
         self.depths, self.runs = list(depths), runs
         self.concurrency, self.prefix_caching = list(concurrency), prefix_caching
@@ -234,6 +234,7 @@ class LlamaBenchyWorkload(Workload):
         self._read_models, self._read_runtimes = read_models, read_runtimes
         self._unload = unload or unload_model
         self._unload_all = unload_all or unload_all_models
+        self._start_server = start_server or lmstudio.start_server
 
     def configure(self, settings: Mapping):
         """Settings from the panel's dialog: model, pp, tg, depths, concurrency, prefix_caching."""
@@ -259,6 +260,22 @@ class LlamaBenchyWorkload(Workload):
         return build_command(str(self.exe), self.base_url, self.model or "<model>", self.pp, self.tg, self.depths,
                              self.runs, result_path, self.concurrency, self.prefix_caching)
 
+    def _ensure_server(self) -> Optional[str]:
+        """None when LM Studio's server answers (started here if needed, like the fixed models'), else why not. The
+        settings window starts it too, but a resumed or command-line run has no window (Fedora, 2026-10-23: "Cannot
+        connect to host localhost:1234")."""
+        try:
+            self._read_models(self.base_url)
+            return None
+        except (OSError, ValueError):
+            pass
+        why = self._start_server()
+        try:
+            self._read_models(self.base_url)
+            return None
+        except (OSError, ValueError):
+            return f"LM Studio's server does not answer on {self.base_url} (lms server start: {why or 'no answer'})"
+
     def _model_record(self) -> Dict[str, object]:
         try:
             models = self._read_models(self.base_url)
@@ -277,6 +294,9 @@ class LlamaBenchyWorkload(Workload):
         command = self._command(str(result_path))
         # every loaded model is unloaded first, on every system: nothing else shares the memory with the measured
         # model (owner, 2026-10-23; Fedora: Qwen3.5 4B stayed loaded, Gemma 4 12B came on top, out of memory)
+        problem = self._ensure_server()
+        if problem:
+            return WorkloadResult(status="failed", error=problem)
         if self.unload_all_first:
             self._unload_all()
         record = self._model_record()     # before the run: a JIT model may only be loaded by it

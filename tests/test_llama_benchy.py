@@ -86,6 +86,7 @@ class PyBenchy(llama_benchy.LlamaBenchyWorkload):
     def __init__(self, script, **kw):
         kw.setdefault("unload", lambda model: None)          # never LM Studio on the computer running the tests
         kw.setdefault("unload_all", lambda: None)
+        kw.setdefault("start_server", lambda: None)
         super().__init__("google/gemma-4-12b-qat", exe=Path(sys.executable), read_models=lambda url: MODELS,
                          read_runtimes=lambda: {"GGUF": "llama.cpp-cuda@2.60.0"}, **kw)
         self.script = script
@@ -175,3 +176,21 @@ def test_an_engine_that_dies_is_a_crash_and_not_run_again():
     r = WorkloadResult(status="failed", error=why, exit_code=1)
     assert crashed(r) and not should_retry(r)
     assert not crashed(WorkloadResult(status="failed", error="exit code 1", exit_code=1))
+
+
+def test_the_server_is_started_when_it_does_not_answer(tmp_path):
+    """Fedora, 2026-10-23: a run without the settings window found LM Studio's server stopped ("Cannot connect")."""
+    script = _fake(tmp_path, f"open(out, 'w').write({json.dumps(json.dumps(RESULT))})\n")
+    started = []
+
+    def models(url):
+        if not started:
+            raise OSError("connection refused")
+        return MODELS
+    w = PyBenchy(script, start_server=lambda: started.append(1))
+    w._read_models = models
+    assert w.run(RunContext(output_dir=tmp_path, timeout_seconds=60)).status == "completed" and started == [1]
+    w = PyBenchy(script, start_server=lambda: "lms not found")
+    w._read_models = lambda url: (_ for _ in ()).throw(OSError("refused"))
+    r = w.run(RunContext(output_dir=tmp_path, timeout_seconds=60))
+    assert r.status == "failed" and "does not answer" in r.error and "lms not found" in r.error
