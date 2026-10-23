@@ -11,7 +11,7 @@ Pure functions: callers pass the loaded objects and the environment profile dict
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
-from data.steam_benchmarks import STEAM_BENCHMARK_APPS
+from data.steam_benchmarks import DROPPED_GAMES, STEAM_BENCHMARK_APPS
 from data.test_catalog import STEAM_STORE_URL, TEST_INFO
 
 # how a test runs
@@ -196,7 +196,7 @@ def steam_entries(games: List[dict], environment: Optional[dict], covered_app_id
     left out."""
     installed = {str(g.get("app_id")): g for g in games or []
                  if g.get("store") == "steam" and g.get("installed") is True}
-    covered = {str(a) for a in covered_app_ids}
+    covered = {str(a) for a in covered_app_ids} | {str(a) for a in DROPPED_GAMES}
     entries = []
     listed = {str(app["appid"]) for app in STEAM_BENCHMARK_APPS}
     for app_id, game in installed.items():

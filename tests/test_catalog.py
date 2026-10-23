@@ -211,3 +211,11 @@ def test_a_missing_typed_copy_is_left_out_when_the_app_installs_and_runs_it():
     assert automated_copy(missing, {"cinebench_2026"}) and automated_copy(store, {"cinebench_2026"})
     assert not automated_copy(r23, {"cinebench_2026"})           # an older Cinebench here is still typed in
     assert not automated_copy(missing, set())                     # no automatic Cinebench here: the page stays
+
+
+def test_a_dropped_game_is_not_offered_even_when_installed():
+    """Rise of the Tomb Raider: too old for the tests (owner, 2026-10-23)."""
+    games = [{"store": "steam", "app_id": "391220", "name": "ROTTR", "installed": True, "kind": "game"},
+             {"store": "steam", "app_id": "750920", "name": "SotTR", "installed": True, "kind": "game"}]
+    ids = {e.id for e in steam_entries(games, WIN_X64, [], gameplay_captures=True)}
+    assert "steam_391220" not in ids and "steam_750920" in ids

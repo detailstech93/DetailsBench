@@ -679,7 +679,7 @@ class FrameCapturePanel(QGroupBox):
         self.game_settings_btn.setEnabled(bool(game) and not self.is_running())
         if not ok:
             self.game_settings_btn.setToolTip("Records the settings you set in this game (declared, not checked). "
-                                              "Forcing settings is supported for: Cyberpunk 2077, Borderlands 3, Rise of the Tomb Raider, Red Dead Redemption 2, The Witcher 3, Counter-Strike 2, DOOM (2016).")
+                                              "Forcing settings is supported for: Cyberpunk 2077, Borderlands 3, Red Dead Redemption 2, The Witcher 3, Counter-Strike 2, DOOM (2016).")
 
     def can_force(self, app_id) -> bool:
         """The game's settings can be forced here (Linux: through its Proton prefix; not the registry ones)."""

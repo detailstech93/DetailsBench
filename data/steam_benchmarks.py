@@ -26,8 +26,6 @@ STEAM_BENCHMARK_APPS: List[Dict[str, object]] = [
     {"appid": 750920, "store_name": "Shadow of the Tomb Raider: Definitive Edition", "kind": "game",
      "builtin_benchmark": "unverified", "appid_verified": "2026-10-17",
      "exe": "SOTTR.exe"},       # in the install folder (seen 2026-10-19); started directly for -nolauncher
-    {"appid": 391220, "store_name": "Rise of the Tomb Raider™", "kind": "game",
-     "builtin_benchmark": "unverified", "appid_verified": "2026-10-17"},
     {"appid": 397540, "store_name": "Borderlands 3", "kind": "game",
      "builtin_benchmark": "unverified", "appid_verified": "2026-10-17"},
     {"appid": 2369390, "store_name": "Far Cry® 6", "kind": "game",
@@ -39,6 +37,11 @@ STEAM_BENCHMARK_APPS: List[Dict[str, object]] = [
 ]
 
 STEAM_BENCHMARK_APPS_BY_ID = {int(a["appid"]): a for a in STEAM_BENCHMARK_APPS}
+
+# Games left out of the tests even when installed (not offered as a gameplay capture either)
+DROPPED_GAMES = {
+    391220: "Rise of the Tomb Raider: too old for the tests (owner, 2026-10-23)",
+}
 
 # Games the app starts by a file in their install folder, with no arguments, instead of through Steam:
 # - Steam would open a launcher first (CD Projekt RED's REDprelauncher; launcher-configuration.json of The
