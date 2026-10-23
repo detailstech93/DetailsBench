@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Mapping, Optional
 
-from app.games import (borderlands3, counter_strike2, cyberpunk2077, doom2016, red_dead_redemption2,
+from app.games import (borderlands3, counter_strike2, cyberpunk2077, doom2016, far_cry6, red_dead_redemption2,
                        rise_tomb_raider, witcher3)
 
 INDICES_FILENAME = "game_settings_indices.json"
@@ -268,6 +268,7 @@ ADAPTERS: Dict[str, Adapter] = {
     str(witcher3.APP_ID): Adapter(witcher3, os.path.join("The Witcher 3", "dx12user.settings"), "documents"),
     str(counter_strike2.APP_ID): Adapter(counter_strike2, "", "launch"),
     str(doom2016.APP_ID): Adapter(doom2016, "", "launch"),
+    str(far_cry6.APP_ID): Adapter(far_cry6, os.path.join("My Games", "Far Cry 6", "gamerprofile.xml"), "documents"),
 }
 
 
@@ -511,3 +512,49 @@ def saved_choice(settings: Mapping, app_id) -> Dict[str, object]:
     every = settings.get(SAVED_KEY)
     chosen = every.get(str(app_id)) if isinstance(every, dict) else None
     return dict(chosen) if isinstance(chosen, dict) else {}
+
+
+# ---- test conditions for the game report (owner, 2026-10-23: resolution, upscaler, frame generation, ray tracing) --
+CONDITION_LABELS = {"resolution": "Resolution", "window_mode": "Window mode", "preset": "Quality preset",
+                    "quality": "Quality", "upscaler": "Upscaler", "upscaler_mode": "Upscaler mode",
+                    "dlss": "DLSS", "dlss_mode": "DLSS mode", "fsr": "FSR", "frame_gen": "Frame generation",
+                    "dlss_frame_gen": "DLSS frame generation", "multi_frame_gen": "Multi frame generation",
+                    "ray_tracing": "Ray tracing", "dxr_reflections": "Ray traced reflections",
+                    "dxr_shadows": "Ray traced shadows", "resolution_scale": "Resolution scale", "vsync": "V-Sync"}
+# the four the owner asked to always see: said "not read" when the game's file does not tell
+KEY_CONDITIONS = (("Resolution", ("resolution",)), ("Upscaler", ("upscaler", "dlss", "fsr")),
+                  ("Frame generation", ("frame_gen", "dlss_frame_gen", "multi_frame_gen")),
+                  ("Ray tracing", ("ray_tracing", "dxr_reflections", "dxr_shadows")))
+
+
+def _shown(value) -> str:
+    text = "On" if value is True else "Off" if value is False else str(value)
+    return text.replace("; ", " / ").replace(", ", " / ").strip() or "-"
+
+
+def game_conditions(app_id, display_mode: Optional[str] = None, env: Optional[Mapping[str, str]] = None,
+                    reg=None) -> List[str]:
+    """["label: value", ...] for the report: the screen's mode during the benchmark and the graphics settings the
+    game's own file holds after the run (read only; before a forced file is put back). Never raises."""
+    items = [f"Screen mode during the benchmark: {display_mode}"] if display_mode else []
+    adapter = adapter_for(app_id)
+    values: Dict[str, object] = {}
+    if adapter is not None and adapter.base != "launch":
+        try:
+            store = adapter.store(_env_for(app_id, env), reg)
+            if store.exists():
+                values = adapter.module.read_settings(store.read()) or {}
+        except Exception:
+            values = {}
+    names = getattr(adapter.module, "SHOWN", {}) if adapter is not None else {}
+    for key, value in values.items():
+        value = names.get(key, {}).get(str(value), value)
+        items.append(f"{CONDITION_LABELS.get(key, key.replace('_', ' ').capitalize())}: {_shown(value)}")
+    none_in_game = getattr(adapter.module, "NOT_IN_GAME", {}) if adapter is not None else {}
+    for label, keys in KEY_CONDITIONS:
+        if any(k in values for k in keys):
+            continue
+        why = next((none_in_game[k] for k in keys if k in none_in_game), None)
+        items.append(f"{label}: " + (why or ("not read (the app reads this game's settings file only for the "
+                                             "games it can set)" if adapter is None else "not in the game's file")))
+    return items

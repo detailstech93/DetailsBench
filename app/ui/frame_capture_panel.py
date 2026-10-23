@@ -195,6 +195,20 @@ def mark_unverified(capture, rec):
     capture.message += "; " + why
 
 
+def add_conditions(capture, conditions: List[str], forced: Optional[Dict[str, object]] = None) -> None:
+    """The test conditions on every completed window's note, for the game report (app/report.py)."""
+    parts = []
+    if conditions:
+        parts.append("Settings used: " + ", ".join(conditions))
+    if forced:
+        parts.append("Forced: " + ", ".join(f"{k} {v}" for k, v in forced.items()))
+    if not parts:
+        return
+    for w in getattr(capture, "windows", []):
+        if w.result.status == "completed":
+            w.result.note = "; ".join(x for x in [w.result.note] + parts if x)
+
+
 class GameBenchmarkWorker(QThread):
     """Records one game benchmark, then stores its windows through AutomationRunner (no GUI access)."""
     progress = Signal(str)
@@ -220,6 +234,14 @@ class GameBenchmarkWorker(QThread):
     def stop(self):
         self.stop_event.set()
 
+    def conditions(self, capture) -> List[str]:
+        from app.games.settings_file import game_conditions
+        try:
+            return game_conditions(self.spec.app_id, getattr(capture, "display_mode", None))
+        except Exception:
+            logger.exception("Could not read the game's settings for the report")
+            return []
+
     def run(self):
         from app.automation.runner import AutomationRunner
         from app.frames.game_benchmark import GameBenchmark, plan_for
@@ -240,14 +262,18 @@ class GameBenchmarkWorker(QThread):
                                             "was not started")
                     return
             factory = self.benchmark_factory or GameBenchmark
+            capture, conditions = None, []
             try:
                 capture = factory(self.spec, self.run_dir, self.stop_event, self.progress.emit,
                                   sampler_factory=self.telemetry).run()
+                # what the game ran with, read before a forced file is put back (owner, 2026-10-23)
+                conditions = self.conditions(capture)
             finally:
                 if self.forced is not None:          # the game is closed by now: check, then put the file back
                     self.forced.finish()
             if self.forced is not None:
                 mark_unverified(capture, self.forced.record)
+            add_conditions(capture, conditions, getattr(self.forced, "requested", None))
             if capture.status != "recorded":
                 self.finished_plan.emit(f"{capture.status}: {capture.message}; nothing was stored")
                 return
@@ -679,7 +705,7 @@ class FrameCapturePanel(QGroupBox):
         self.game_settings_btn.setEnabled(bool(game) and not self.is_running())
         if not ok:
             self.game_settings_btn.setToolTip("Records the settings you set in this game (declared, not checked). "
-                                              "Forcing settings is supported for: Cyberpunk 2077, Borderlands 3, Red Dead Redemption 2, The Witcher 3, Counter-Strike 2, DOOM (2016).")
+                                              "Forcing settings is supported for: Cyberpunk 2077, Borderlands 3, Red Dead Redemption 2, The Witcher 3, Far Cry 6, Counter-Strike 2, DOOM (2016).")
 
     def can_force(self, app_id) -> bool:
         """The game's settings can be forced here (Linux: through its Proton prefix; not the registry ones)."""

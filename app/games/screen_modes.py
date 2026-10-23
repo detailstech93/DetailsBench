@@ -19,33 +19,39 @@ def parse(value) -> Optional[Tuple[int, int]]:
     return (int(m.group(1)), int(m.group(2))) if m else None
 
 
+def _win32():
+    """(user32, DEVMODEW, DISPLAY_DEVICEW) for reading display modes."""
+    import ctypes
+    from ctypes import wintypes
+
+    class DEVMODEW(ctypes.Structure):
+        _fields_ = [("dmDeviceName", wintypes.WCHAR * 32), ("dmSpecVersion", wintypes.WORD),
+                    ("dmDriverVersion", wintypes.WORD), ("dmSize", wintypes.WORD),
+                    ("dmDriverExtra", wintypes.WORD), ("dmFields", wintypes.DWORD),
+                    ("dmPositionX", ctypes.c_long), ("dmPositionY", ctypes.c_long),
+                    ("dmDisplayOrientation", wintypes.DWORD), ("dmDisplayFixedOutput", wintypes.DWORD),
+                    ("dmColor", ctypes.c_short), ("dmDuplex", ctypes.c_short),
+                    ("dmYResolution", ctypes.c_short), ("dmTTOption", ctypes.c_short),
+                    ("dmCollate", ctypes.c_short), ("dmFormName", wintypes.WCHAR * 32),
+                    ("dmLogPixels", wintypes.WORD), ("dmBitsPerPel", wintypes.DWORD),
+                    ("dmPelsWidth", wintypes.DWORD), ("dmPelsHeight", wintypes.DWORD),
+                    ("dmDisplayFlags", wintypes.DWORD), ("dmDisplayFrequency", wintypes.DWORD)]
+
+    class DISPLAY_DEVICEW(ctypes.Structure):
+        _fields_ = [("cb", wintypes.DWORD), ("DeviceName", wintypes.WCHAR * 32),
+                    ("DeviceString", wintypes.WCHAR * 128), ("StateFlags", wintypes.DWORD),
+                    ("DeviceID", wintypes.WCHAR * 128), ("DeviceKey", wintypes.WCHAR * 128)]
+
+    return ctypes.windll.user32, DEVMODEW, DISPLAY_DEVICEW
+
+
 def resolutions() -> Optional[Set[Tuple[int, int]]]:
     """Every width x height an attached screen offers, or None when it cannot be read."""
     if sys.platform != "win32":
         return None
     try:
         import ctypes
-        from ctypes import wintypes
-
-        class DEVMODEW(ctypes.Structure):
-            _fields_ = [("dmDeviceName", wintypes.WCHAR * 32), ("dmSpecVersion", wintypes.WORD),
-                        ("dmDriverVersion", wintypes.WORD), ("dmSize", wintypes.WORD),
-                        ("dmDriverExtra", wintypes.WORD), ("dmFields", wintypes.DWORD),
-                        ("dmPositionX", ctypes.c_long), ("dmPositionY", ctypes.c_long),
-                        ("dmDisplayOrientation", wintypes.DWORD), ("dmDisplayFixedOutput", wintypes.DWORD),
-                        ("dmColor", ctypes.c_short), ("dmDuplex", ctypes.c_short),
-                        ("dmYResolution", ctypes.c_short), ("dmTTOption", ctypes.c_short),
-                        ("dmCollate", ctypes.c_short), ("dmFormName", wintypes.WCHAR * 32),
-                        ("dmLogPixels", wintypes.WORD), ("dmBitsPerPel", wintypes.DWORD),
-                        ("dmPelsWidth", wintypes.DWORD), ("dmPelsHeight", wintypes.DWORD),
-                        ("dmDisplayFlags", wintypes.DWORD), ("dmDisplayFrequency", wintypes.DWORD)]
-
-        class DISPLAY_DEVICEW(ctypes.Structure):
-            _fields_ = [("cb", wintypes.DWORD), ("DeviceName", wintypes.WCHAR * 32),
-                        ("DeviceString", wintypes.WCHAR * 128), ("StateFlags", wintypes.DWORD),
-                        ("DeviceID", wintypes.WCHAR * 128), ("DeviceKey", wintypes.WCHAR * 128)]
-
-        user32 = ctypes.windll.user32
+        user32, DEVMODEW, DISPLAY_DEVICEW = _win32()
         modes: Set[Tuple[int, int]] = set()
         for i in range(32):
             device = DISPLAY_DEVICEW()
@@ -61,6 +67,24 @@ def resolutions() -> Optional[Set[Tuple[int, int]]]:
                     break
                 modes.add((int(mode.dmPelsWidth), int(mode.dmPelsHeight)))
         return modes or None
+    except Exception:
+        return None
+
+
+def current_mode() -> Optional[str]:
+    """The main screen's mode now, "1920x1080 at 60 Hz" (a game in exclusive full screen sets it to its own
+    resolution while it runs: shown in the game report as a test condition), or None when unknown."""
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+        user32, DEVMODEW, _ = _win32()
+        mode = DEVMODEW()
+        mode.dmSize = ctypes.sizeof(mode)
+        if not user32.EnumDisplaySettingsW(None, -1, ctypes.byref(mode)):     # ENUM_CURRENT_SETTINGS
+            return None
+        hz = int(mode.dmDisplayFrequency)
+        return f"{int(mode.dmPelsWidth)}x{int(mode.dmPelsHeight)}" + (f" at {hz} Hz" if hz > 1 else "")
     except Exception:
         return None
 

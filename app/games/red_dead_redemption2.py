@@ -88,6 +88,7 @@ def choices(data, known):
 
 
 FULL_SCREEN = "0"           # video/windowed: 0 exclusive full screen, 1 windowed, 2 borderless
+SHOWN = {"window_mode": {"0": "Full screen", "1": "Windowed", "2": "Borderless"}}     # named in the game report
 NOT_FULL_SCREEN = ("the game is in windowed or borderless mode (video/windowed {mode}), which draws at the "
                    "screen's own resolution and resets this value (seen 2026-10-19: 2560x1440 asked, 1024x768 "
                    "after the run); drop the resolution from the forced settings, or force window mode 0 "

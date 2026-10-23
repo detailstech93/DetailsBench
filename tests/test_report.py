@@ -345,7 +345,7 @@ def test_game_section_whole_numbers_settings_and_readings():
 
 def test_game_section_without_settings_or_frames_and_only_for_games():
     page = render_session_report(_game_export(None, {}))
-    assert "did not report its settings" in page and "the whole run" in page
+    assert "kept no test conditions" in page and "the whole run" in page
     assert "1% low</div><div class=\"value\"><span>not measured" in page
     export = _game_export(None, {})
     export["runs"][0]["benchmark_type"] = "cpu"

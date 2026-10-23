@@ -139,6 +139,12 @@ GAME_TARGETS: Dict[str, Dict[str, Target]] = {
         "resolution": Target(("resolution",), _exact_text),
         "ray_tracing": Target(("ray_tracing",), _on_off),
     },
+    "2369390": {   # Far Cry 6: FSR 1.0 is its only upscaler; ray traced reflections and shadows; no frame generation
+        "resolution": Target(("resolution",), _exact_text),
+        "upscaler": Target(("upscaler",), _contains),
+        "ray_tracing": Target(("dxr_reflections", "dxr_shadows"), _on_off),
+        "quality": Target(("preset",), _exact_text),
+    },
     "730": {       # Counter-Strike 2
         "resolution": Target(("resolution",), _exact_text),
     },

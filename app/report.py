@@ -139,25 +139,35 @@ PROOF_MAX_BYTES = 6 * 1024 ** 2
 PROOF_ATTR = re.compile(r'(<img class="proof" alt="[^"<>]*" )data-proof="([A-Za-z0-9+/=]+)"')
 
 
+PROOF_SHOTS = {
+    # the game's own results screen, kept before the game is closed (owner, 2026-10-23)
+    "benchmark_result.png": ("The game's own result", "The game's results screen",
+                             "The result the game itself showed at the end of its benchmark, before the app closed "
+                             "it. The numbers above are the app's own measurement (PresentMon) of the same run."),
+    "benchmark_started.png": ("When the benchmark started", "The game's screen when its benchmark started",
+                              "The screen the app read when the game's own benchmark began; the measured windows "
+                              "count from this moment."),
+}
+
+
 def _proof_html(path: Any) -> str:
-    """The screen the app saw when the built-in benchmark started (menu steps), put into the report itself so it
-    still shows when the report is sent alone. Only a PNG the app wrote, and not a huge one."""
+    """The game's results screen (or, from older runs, the screen when its benchmark started), put into the report
+    itself so it still shows when the report is sent alone. Only a PNG the app wrote, and not a huge one."""
     if not path:
         return ""
     import base64
     from pathlib import Path
     p = Path(str(path))
     try:
-        data = p.read_bytes() if p.name == "benchmark_started.png" and p.stat().st_size <= PROOF_MAX_BYTES else b""
+        data = p.read_bytes() if p.name in PROOF_SHOTS and p.stat().st_size <= PROOF_MAX_BYTES else b""
     except OSError:
         data = b""
     if not data.startswith(b"\x89PNG\r\n\x1a\n"):
         return ""
-    return ("<h4>When the benchmark started</h4>"
-            f'<img class="proof" alt="The game\'s screen when its benchmark started" '
-            f'data-proof="{base64.b64encode(data).decode("ascii")}">'
-            '<p class="muted">The screen the app read when the game\'s own benchmark began; the measured windows '
-            "count from this moment.</p>")
+    heading, alt, text = PROOF_SHOTS[p.name]
+    return (f"<h4>{heading}</h4>"
+            f'<img class="proof" alt="{alt}" data-proof="{base64.b64encode(data).decode("ascii")}">'
+            f'<p class="muted">{text}</p>')
 
 
 def _game_runs(export: Mapping) -> dict:
@@ -204,7 +214,17 @@ STRESS_CHARTS = (
     ("Clock", ("tel_cpu_core_clock_avg", "tel_cpu_clock_avg", "tel_gpu0_sm_clock"), "MHz"),
     ("Load", ("tel_cpu_load", "tel_gpu0_load"), "%"),
 )
-SERIES_NAMES = {"cpu_work": "CPU", "gpu_work": "GPU", "tel_cpu_package_power": "CPU", "tel_gpu0_power": "GPU",
+# a game benchmark's charts (owner, 2026-10-23): its FPS over time, then how the CPU and GPU worked and how hot
+GAME_CHARTS = (
+    ("Frames per second", ("fps",), "FPS"),
+    ("Load", ("tel_cpu_load", "tel_gpu0_load"), "%"),
+    ("Temperature", ("tel_cpu_temperature_hottest", "tel_gpu0_temperature"), "°C"),
+    ("Power", ("tel_cpu_package_power", "tel_gpu0_power"), "W"),
+    ("Clock", ("tel_cpu_core_clock_avg", "tel_cpu_clock_avg", "tel_gpu0_sm_clock"), "MHz"),
+    ("Graphics card memory (VRAM) used", ("tel_gpu0_vram_used", "tel_gpumem0_dedicated"), "GiB"),
+    ("RAM used", ("tel_ram_used_gib",), "GiB"),
+)
+SERIES_NAMES = {"fps": "each second of the last measured run", "cpu_work": "CPU", "gpu_work": "GPU", "tel_cpu_package_power": "CPU", "tel_gpu0_power": "GPU",
                 "tel_cpu_temperature_hottest": "CPU (hottest core)", "tel_gpu0_temperature": "GPU",
                 "tel_cpu_core_clock_avg": "CPU", "tel_cpu_clock_avg": "CPU", "tel_gpu0_sm_clock": "GPU",
                 "tel_cpu_load": "CPU", "tel_gpu0_load": "GPU", "tel_gpu0_vram_used": "GPU",
@@ -356,11 +376,12 @@ def _game_section(export: Mapping) -> str:
                 for item in parts["Settings used"].split(", "))
             settings_html = ('<table class="kv">' + settings_rows + "</table>")
         else:
-            settings_html = "<p>The game did not report its settings for this run.</p>"
+            settings_html = "<p>Not recorded for this run (runs before 2026-10-23 kept no test conditions).</p>"
         if parts.get("Forced"):
             settings_html += f'<p class="muted">Set by the app before the run: {esc(parts["Forced"])}.</p>'
 
         rows = _readings_rows(extra)
+        charts = _series_charts(runs[-1], GAME_CHARTS)
         span = parts.get("Readings") or "the whole run (game start to close)"
         build = runs[-1].get("benchmark_version")
         if build:
@@ -369,12 +390,14 @@ def _game_section(export: Mapping) -> str:
             f'<div class="game"><h3 dir="auto">{title}</h3>'
             f'<div class="tiles">{tile_html}</div>'
             f'<p class="muted">{esc(runs_text)}.</p>'
+            + "<h4>Test conditions</h4>" + settings_html
             + _proof_html(parts.get("Proof screenshot"))
-            + "<h4>Settings used</h4>" + settings_html
             + "<h4>During the benchmark</h4>"
             f'<p class="muted">Readings over {esc(span)}.</p>'
             '<div class="table-wrap"><table><thead><tr><th>Reading</th><th>Average</th><th>Highest</th></tr>'
-            "</thead><tbody>" + "".join(rows) + "</tbody></table></div></div>")
+            "</thead><tbody>" + "".join(rows) + "</tbody></table></div>"
+            + ("<h4>Over time</h4>" + "".join(charts) if charts else "")
+            + "</div>")
     return "<section><h2>Game results</h2>" + "".join(blocks) + "</section>"
 
 

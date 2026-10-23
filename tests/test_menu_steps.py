@@ -327,7 +327,7 @@ def test_far_cry_6_path(tmp_path):
     from data.game_start_keys import benchmark_seconds_for
     assert benchmark_seconds_for(2369390) == 60
     timeline = [(0, ["Ubisoft"]), (20, ["The Government of Yara"]), (22, ["Loading"]),
-                (30, ["An original story"]), (32, ["Loading"]), (34, ["Remind me later"]), (36, ["Loading"]),
+                (30, ["An original story"]), (32, ["Loading"]), (34, ["Remind me later"]), (39, ["Loading"]),
                 (40, ["Continue", "Options", "Exit"]), (50, ["Video", "Quality"]), (60, ["Video Adapter"]),
                 (66, ["Texture Filtering"]), (72, ["Enable Framerate Lock"]), (80, ["Toggle UI"])]
     p, desk, clock = player(tmp_path, menu_steps_for(2369390), timeline)
@@ -341,7 +341,7 @@ def test_far_cry_6_path(tmp_path):
                     ("mouse", (40, 10)), ("button", True), ("button", False),
                     parse_chord("e"), parse_chord("e"), parse_chord("e"), ("down", f5), ("up", f5)]
     held = [e for e in desk.events if e[0] in ("down", "up")]
-    assert all(round(up[2] - down[2], 2) == 0.15 for down, up in zip(held[::2], held[1::2]))
+    assert [round(up[2] - down[2], 2) for down, up in zip(held[::2], held[1::2])] == [2, 2, 2, 0.15]
     assert "benchmark started ('toggle' seen at 8" in p.summary()
 
 
@@ -361,3 +361,40 @@ def test_borderlands_3_path(tmp_path):
                     parse_chord("e"), parse_chord("e"), parse_chord("e"),
                     ("mouse", (40, 10)), ("button", True), ("button", False)]
     assert "benchmark started ('fps' seen at 8" in p.summary()
+
+
+def test_the_games_results_screen_is_kept_and_the_screen_mode_read(tmp_path):
+    """Owner, 2026-10-23: the result the game showed (not its first frame) and the resolution it ran at."""
+    fakes = Fakes(tmp_path, game_frames=4000)
+    steps = FakeSteps(fakes, mark_after=40)
+    steps.started_shot = str(tmp_path / "run" / "benchmark_started.png")
+    reads = []
+
+    def reader(desktop, path):
+        reads.append(path)
+        path.write_bytes(b"\x89PNG\r\n\x1a\n")
+        return (["Loading"] if len(reads) < 3 else ["BENCHMARK RESULTS", "Average FPS 71"]), None
+
+    s = spec(install_path=str(fakes.install), steps=[{"see": "stop", "within": 60, "mark": True}])
+    cap = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=False, elevated_runner=fakes.elevated,
+                        launcher=fakes.launcher, snapshot=fakes.snapshot, clock=fakes.clock, sleep=fakes.sleep,
+                        folder_procs=fakes.folder_procs, closer=fakes.closer, desktop=object(),
+                        exe_lister=lambda folder: ["Game.exe"], step_player=lambda st: steps,
+                        screen_mode=lambda: "2560x1440 at 144 Hz", screen_reader=reader).run()
+    shot = tmp_path / "run" / "benchmark_result.png"
+    assert len(reads) == 3 and cap.display_mode == "2560x1440 at 144 Hz"
+    assert {w.result.note for w in cap.windows} == {f"Proof screenshot: {shot}"}
+    assert "results screen kept ('result' seen)" in cap.message
+    assert all(len(w.frames) > 100 for w in cap.windows if w.result.status == "completed")
+
+
+def test_fps_over_time_and_the_charts_a_game_run_stores(tmp_path):
+    from app.automation.workload import RunContext, WorkloadResult
+    from app.frames.game_benchmark import RecordedWindow, WindowOutcome, fps_over_time
+    assert fps_over_time([10.0] * 250) == [(1.0, 100.0), (2.0, 100.0)]          # the last half second left out
+    result = WorkloadResult("completed", score=100.0, unit="fps")
+    samples = [(0.0, {"gpu0_load": (90.0, "%")}), (1.0, {"gpu0_load": (95.0, "%")})]
+    w = RecordedWindow("game", "Game", [WindowOutcome(False, 1, result, samples, frames=[10.0] * 200)])
+    out = w.run(RunContext(output_dir=str(tmp_path)))
+    assert out.series["fps"] == ("FPS", [(1.0, 100.0), (2.0, 100.0)])
+    assert out.series["tel_gpu0_load"][1] == [(0.0, 90.0), (1.0, 95.0)]

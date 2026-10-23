@@ -50,6 +50,12 @@ REMOTE_TEXT = ("captured in a Remote Desktop session: the game drew to the remot
 
 MARK_SETTLE_SECONDS = 5           # after the benchmark's own start is seen, only its first seconds are skipped
 MIN_WINDOW_SECONDS = 20
+# after the measured time of a built-in benchmark: the game's own results screen is kept as a screenshot for the
+# report (owner, 2026-10-23: the result the game showed, not its first frame); words that tell it is there
+RESULT_WORDS = ("result", "average", "avg fps", "score")
+RESULT_WAIT_SECONDS = 60.0
+RESULT_LOOK_SECONDS = 2.0
+RESULT_SHOT = "benchmark_result.png"
 
 
 def steps_bound_seconds(steps) -> int:
@@ -155,6 +161,7 @@ class WindowOutcome:
     run_index: int
     result: WorkloadResult
     samples: list = field(default_factory=list)
+    frames: list = field(default_factory=list)    # frame times (ms) of the window: its FPS over time in the report
 
 
 @dataclass
@@ -165,6 +172,7 @@ class GameCapture:
     windows: List[WindowOutcome] = field(default_factory=list)
     command: Optional[list] = None
     telemetry_unavailable: dict = field(default_factory=dict)
+    display_mode: Optional[str] = None            # the screen's mode at the end of the benchmark ("1920x1080 at 60 Hz")
 
 
 def presentmon_text(out, ended_after: Optional[float]) -> str:
@@ -181,6 +189,11 @@ def presentmon_text(out, ended_after: Optional[float]) -> str:
     return " (" + "; ".join(parts) + ")" if parts else ""
 
 
+def _current_screen_mode() -> Optional[str]:
+    from app.games import screen_modes
+    return screen_modes.current_mode()
+
+
 class GameBenchmark:
     def __init__(self, spec: GameBenchmarkSpec, run_dir: Path, stop_event: Optional[threading.Event] = None,
                  on_progress: Callable[[str], None] = lambda m: None,
@@ -191,7 +204,8 @@ class GameBenchmark:
                  folder_procs: Optional[Callable[[], dict]] = None, closer: Optional[Callable[[dict], str]] = None,
                  exe_lister: Callable[[str], List[str]] = game_exe_names, desktop=None,
                  step_player: Optional[Callable] = None, remote_session: Optional[Callable[[], bool]] = None,
-                 linux: Optional[bool] = None, mangohud_hooks=None):
+                 linux: Optional[bool] = None, mangohud_hooks=None, screen_mode: Optional[Callable] = None,
+                 screen_reader: Optional[Callable] = None):
         self.spec = spec
         self.run_dir = Path(run_dir)
         self.stop_event = stop_event or threading.Event()
@@ -222,6 +236,39 @@ class GameBenchmark:
         self.remote_session = remote_session or is_remote_session
         self.linux = sys.platform.startswith("linux") if linux is None else linux
         self.mangohud_hooks = mangohud_hooks     # app/frames/mangohud_run.py Hooks (tests pass a fake)
+        self.screen_mode = screen_mode or _current_screen_mode
+        self.screen_reader = screen_reader      # app/frames/screen_text.read_screen (tests pass a fake)
+        self.display_mode: Optional[str] = None
+        self.result_shot: Optional[str] = None
+
+    def _keep_result_screen(self) -> None:
+        """The game's own results screen, kept for the report: looked for up to RESULT_WAIT_SECONDS by its words;
+        when they never show, the last screenshot is kept anyway (said in the notes)."""
+        reader = self.screen_reader
+        if reader is None:
+            from app.frames.screen_text import read_screen as reader
+        from app.frames.screen_text import find_word
+        path = self.run_dir / RESULT_SHOT
+        deadline = self.clock() + RESULT_WAIT_SECONDS
+        self.on_progress(f"{self.spec.game_name}: waiting for its results screen (up to {RESULT_WAIT_SECONDS:.0f} s) "
+                         "to keep it for the report...")
+        seen = None
+        while not self.stop_event.is_set():
+            try:
+                lines, error = reader(self._desk(), path)
+            except Exception as e:
+                lines, error = [], str(e)
+            if error and not path.is_file():       # no screenshot at all: nothing to wait for
+                self.key_notes.append(f"results screen not kept ({error})")
+                return
+            seen = None if error else find_word(lines, list(RESULT_WORDS))
+            if seen or self.clock() >= deadline:
+                break
+            self.sleep(RESULT_LOOK_SECONDS)
+        if path.is_file():
+            self.result_shot = str(path)
+            self.key_notes.append(f"results screen kept ({seen!r} seen)" if seen else
+                                  "results screen not recognized; the last screenshot was kept")
 
     def _desk(self):
         if self._desktop is None:
@@ -443,6 +490,13 @@ class GameBenchmark:
                     player.release_all()
                 except Exception as e:
                     player.problem = player.problem or f"keys could not be released: {e}"
+        if thread.is_alive() and not stopped:       # the game is still open: in its benchmark or its results
+            try:
+                self.display_mode = self.screen_mode()
+            except Exception:
+                self.display_mode = None
+            if steps is not None and t_mark is not None:
+                self._keep_result_screen()
 
         t_close = self.clock() - t0
         closed = end_presentmon()
@@ -487,7 +541,7 @@ class GameBenchmark:
         out = self._outcomes(frame_windows, windows, recorded, sample_windows, stopped, steps, command)
         return GameCapture("recorded", f"{recorded:.0f} s of {pick[0]} recorded" + closed, process=pick,
                            windows=out, command=command,
-                           telemetry_unavailable=dict(tel.unavailable) if tel else {})
+                           telemetry_unavailable=dict(tel.unavailable) if tel else {}, display_mode=self.display_mode)
 
     def _outcomes(self, frame_windows, windows, recorded, sample_windows, stopped, steps, command):
         """One WindowOutcome per window: a score only for a usable window of a local (not remote) session."""
@@ -518,9 +572,11 @@ class GameBenchmark:
                     metrics["window_start_s"] = (float(a), "s")
                     result = WorkloadResult(status="completed", score=stats.avg_fps, unit="fps",
                                             metrics=metrics, duration_seconds=float(b - a), **common)
-                    if getattr(steps, "started_shot", None):
-                        result.note = f"Proof screenshot: {steps.started_shot}"
-            out.append(WindowOutcome(is_warmup, run_index, result, sample_windows[k]))
+                    shot = self.result_shot or getattr(steps, "started_shot", None)
+                    if shot:
+                        result.note = f"Proof screenshot: {shot}"
+            out.append(WindowOutcome(is_warmup, run_index, result, sample_windows[k],
+                                     frames=list(frames) if frames else []))
         return out
 
     # ---- Linux: MangoHud (app/frames/mangohud_run.py) ------------------------------------------------
@@ -717,13 +773,32 @@ class RecordedWindow(Workload):
     def run(self, ctx: RunContext) -> WorkloadResult:
         outcome = self._outcomes.pop(0)
         result = outcome.result
+        series = {}
         if outcome.samples:
-            from app.telemetry.sampler import TelemetryResult, summarize, write_csv
+            from app.telemetry.sampler import TelemetryResult, chart_series, summarize, write_csv
             tel = TelemetryResult(samples=outcome.samples, unavailable=dict(self._unavailable))
             write_csv(tel, Path(ctx.output_dir) / "telemetry.csv")
             if result.status == "completed":
                 result.metrics = {**summarize(tel), **result.metrics}
+                series.update(chart_series(tel))
+        if result.status == "completed" and outcome.frames:
+            series["fps"] = ("FPS", fps_over_time(outcome.frames))
+        if series:
+            result.series = {**series, **(result.series or {})}
         return result
+
+
+def fps_over_time(frametimes_ms: List[float], step: float = 1.0) -> List[Tuple[float, float]]:
+    """(end of each second, frames shown in it per second) from a window's frame times; a last part second is
+    left out."""
+    out, t, start, count = [], 0.0, 0.0, 0
+    for ms in frametimes_ms:
+        t += ms / 1000.0
+        count += 1
+        if t - start >= step - 1e-9:
+            out.append((round(t, 3), round(count / (t - start), 2)))
+            start, count = t, 0
+    return out
 
 
 def plan_for(capture: GameCapture, spec: GameBenchmarkSpec, version: Optional[str] = None):
