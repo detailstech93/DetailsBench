@@ -10,7 +10,8 @@ Windows: winget (Microsoft's Windows Package Manager). `winget show` gives the i
 shows them and asks, refuses a URL whose host is not the vendor's ("hosts", optional "path_prefix"), and winget
 checks the SHA256 before it runs the installer. "arch" lists the machine architectures winget has an installer
 for, checked with `winget show --architecture <arch>` on 2026-10-18 (fio has no arm64 installer; PassMark none
-for x86). Another architecture gets the official download page instead.
+for x86). "emulated": {machine arch: installer arch} installs another architecture's build that Windows runs
+emulated (fio's x64 build on Windows on ARM). Another architecture gets the official download page instead.
 
 Linux: the distribution's own package manager through pkexec (the system asks for the password), the way MangoHud
 is installed (app/frames/linux_install.py). Families: debian (apt-get), fedora (dnf), arch (pacman), suse
@@ -49,7 +50,9 @@ INSTALLERS: Dict[str, dict] = {
     },
     "fio": {
         # fio 3.43: https://github.com/axboe/fio/releases/download/fio-3.43/fio-3.43-x64.msi (x64 only)
-        "windows": {"winget": "fio.fio", "hosts": ["github.com"], "path_prefix": "/axboe/fio/", "arch": ["x64"]},
+        # no arm64 build (fio 3.39-3.43, 2026-10-23): Windows on ARM runs the x64 one emulated (owner: Install there)
+        "windows": {"winget": "fio.fio", "hosts": ["github.com"], "path_prefix": "/axboe/fio/", "arch": ["x64"],
+                    "emulated": {"arm64": "x64"}},
         "linux": {"packages": {"debian": "fio", "fedora": "fio", "arch": "fio", "suse": "fio"}},
     },
     "passmark_performancetest": {

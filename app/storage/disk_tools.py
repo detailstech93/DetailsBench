@@ -284,9 +284,19 @@ class StorageWorkload(Workload):
             return WorkloadResult(status="invalid", error=f"output not usable: {rows[0][2] if rows else 'no tests'}",
                                   metrics=metrics, **common)
         metrics["tests_with_errors"] = ", ".join(t.label for t, _v, e in rows if e)
-        note = (f"the drive rested {rest:.0f} s before this run (its write cache empties after the previous disk "
-                "run)") if rest >= 1 else None
+        notes = [f"the drive rested {rest:.0f} s before this run (its write cache empties after the previous disk "
+                 "run)"] if rest >= 1 else []
+        if self.tool is FIO and windows_arm():
+            notes.append("fio's x64 build, run emulated by Windows on ARM (fio has no ARM build for Windows)")
+        note = "; ".join(notes) or None
         return WorkloadResult(status="completed", score=first, unit="MiB/s", metrics=metrics, note=note, **common)
+
+
+def windows_arm() -> bool:
+    if sys.platform != "win32":
+        return False
+    from app.frames.provision import native_arch
+    return native_arch() == "arm64"
 
 
 def storage_workloads() -> List[StorageWorkload]:

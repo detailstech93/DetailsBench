@@ -143,3 +143,12 @@ def test_stop_during_the_rest_cancels(tmp_path, monkeypatch):
     stop.set()
     r = FakeDiskSpd(READ_ONLY).run(RunContext(output_dir=tmp_path, timeout_seconds=60, stop_event=stop))
     assert r.status == "cancelled" and not (tmp_path / dt.REPORT_FILE).exists()
+
+
+def test_fio_on_windows_arm_says_it_ran_emulated(monkeypatch):
+    from app.frames import provision
+    monkeypatch.setattr(dt.sys, "platform", "win32")
+    monkeypatch.setattr(provision, "native_arch", lambda: "arm64")
+    assert dt.windows_arm()
+    monkeypatch.setattr(provision, "native_arch", lambda: "x64")
+    assert not dt.windows_arm()

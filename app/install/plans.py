@@ -64,7 +64,7 @@ def plan_for(test_id: str, source: str = "", app_id=None, host: Optional[Host] =
         z = entry["zip_by_arch"].get(host.arch)
         return {"kind": "zip", "test_id": test_id, **z} if z else None
     if host.os == "windows" and entry.get("winget"):
-        if host.arch not in entry.get("arch", []):
+        if host.arch not in entry.get("arch", []) and host.arch not in entry.get("emulated", {}):
             return None
         return {"kind": "winget", "test_id": test_id, "winget": entry["winget"], "hosts": list(entry["hosts"]),
                 "path_prefix": entry.get("path_prefix", "")}

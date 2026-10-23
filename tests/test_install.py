@@ -130,7 +130,7 @@ def test_every_installer_entry_is_well_formed():
 
 def test_the_install_fits_the_os_and_the_architecture():
     assert plan_for("fio", host=WIN_X64)["kind"] == "winget"
-    assert plan_for("fio", host=WIN_ARM) is None                    # winget has no arm64 fio: the page stays
+    assert plan_for("fio", host=WIN_ARM)["kind"] == "winget"           # no arm64 fio: the x64 one, emulated
     assert plan_for("passmark_performancetest", host=WIN_ARM)["winget"] == "PassMark.PerformanceTest"
     assert plan_for("passmark_performancetest", host=WIN_X86) is None
     assert plan_for("diskspd", host=WIN_ARM)["path_prefix"] == "/microsoft/diskspd/"
@@ -201,11 +201,11 @@ def test_missing_tests_get_install_or_the_download_page(qapp):
     texts["fio"].click()
     assert [e.id for e in asked] == ["fio"]
     assert installable(entry("fio"), WIN_X64) and not installable(entry("cinebench"), WIN_X64)
-    assert not installable(entry("fio"), WIN_ARM)
-    arm = TestsPage(open_url=lambda url: None)
-    arm.host = WIN_ARM
-    arm.set_entries([entry("fio")])
-    assert arm.tree.itemWidget(arm.items["fio"], 5).text() == "Official download page"
+    assert installable(entry("fio"), WIN_ARM) and not installable(entry("fio"), WIN_X86)   # ARM: x64 emulated
+    x86 = TestsPage(open_url=lambda url: None)
+    x86.host = WIN_X86
+    x86.set_entries([entry("fio")])
+    assert x86.tree.itemWidget(x86.items["fio"], 5).text() == "Official download page"
 
 
 class Window:
@@ -771,3 +771,25 @@ def test_tests_of_one_program_show_its_line_and_dot_together(qapp, monkeypatch):
 def test_a_steps_percent_moves_the_bar():
     from app.ui.tests_page import text_share
     assert text_share("Downloading Blender 5.2.0... 70 %") == 0.7 and text_share("Extracting...") is None
+
+
+def test_fio_on_windows_arm_installs_the_x64_build_emulated():
+    """fio has no arm64 build; Windows on ARM runs the x64 one (owner, 2026-10-23: Install on the ARM board)."""
+    entry = INSTALLERS["fio"]["windows"]
+    assert winget.emulated_arch(entry, "arm64") == "x64" and winget.emulated_arch(entry, "x64") == ""
+    assert winget.emulated_arch(INSTALLERS["sevenzip_benchmark"]["windows"], "arm64") == ""
+    calls = []
+
+    def run(args, **kw):
+        calls.append(args)
+        fio = SHOW.replace("[7zip.7zip]", "[fio.fio]").replace(
+            "https://www.7-zip.org/a/7z2604-x64.msi", "https://github.com/axboe/fio/releases/download/fio-3.43/fio-3.43-x64.msi")
+        return subprocess.CompletedProcess(args, 0, fio, "")
+    pkg = winget.describe("fio", run=run, size_of=lambda url: 1, host_arch="arm64")
+    assert pkg.problem is None and pkg.architecture == "x64"
+    assert calls[0][-2:] == ["--architecture", "x64"]
+    assert "emulated" in winget.confirm_text(pkg)
+    winget.install(pkg, run=run)
+    assert calls[-1][-2:] == ["--architecture", "x64"]
+    assert winget.describe("fio", run=run, size_of=lambda url: 1, host_arch="x64").architecture == ""
+    assert "--architecture" not in calls[-1]

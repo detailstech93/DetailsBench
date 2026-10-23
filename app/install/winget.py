@@ -44,6 +44,7 @@ class Package:
     license_url: str = ""
     size_bytes: Optional[int] = None
     problem: Optional[str] = None          # set: the install is refused, with the reason
+    architecture: str = ""                 # set: this architecture's build, run emulated (data/installers.py)
 
 
 @dataclass
@@ -91,8 +92,16 @@ def parse_show(text: str, test_id: str, package_id: str, hosts: List[str], path_
     return pkg
 
 
-def show_args(package_id: str) -> List[str]:
-    return ["winget", "show", "--id", package_id, "--exact", "--source", "winget", "--disable-interactivity"]
+def show_args(package_id: str, architecture: str = "") -> List[str]:
+    return (["winget", "show", "--id", package_id, "--exact", "--source", "winget", "--disable-interactivity"]
+            + (["--architecture", architecture] if architecture else []))
+
+
+def emulated_arch(entry: dict, host_arch: str) -> str:
+    """The installer architecture Windows runs emulated on this machine, or "" for its own (data/installers.py)."""
+    if host_arch in entry.get("arch", []):
+        return ""
+    return entry.get("emulated", {}).get(host_arch, "")
 
 
 def list_args(package_id: str) -> List[str]:
@@ -110,29 +119,35 @@ def is_installed(package_id: str, run: Runner = subprocess.run) -> bool:
                                         for ln in (done.stdout or "").splitlines())
 
 
-def install_args(package_id: str, version: str) -> List[str]:
+def install_args(package_id: str, version: str, architecture: str = "") -> List[str]:
     """The exact version the owner was shown (a newer one published meanwhile is not installed instead)."""
     args = ["winget", "install", "--id", package_id, "--exact", "--source", "winget", "--disable-interactivity",
             "--accept-package-agreements"]
-    return args + (["--version", version] if version else [])
+    return (args + (["--version", version] if version else [])
+            + (["--architecture", architecture] if architecture else []))
 
 
-def describe(test_id: str, run: Runner = subprocess.run, size_of: Optional[Callable[[str], Optional[int]]] = None
-             ) -> Package:
+def describe(test_id: str, run: Runner = subprocess.run, size_of: Optional[Callable[[str], Optional[int]]] = None,
+             host_arch: Optional[str] = None) -> Package:
     """Ask winget about the package for this test (reads only; nothing is downloaded except a HEAD request
     to the vendor's URL for the size)."""
     entry = (INSTALLERS.get(test_id) or {}).get("windows") or {}
     package_id = entry.get("winget")
     if not package_id:
         return Package(test_id, "", problem="no winget package is known for this test")
+    if host_arch is None:
+        from app.install.plans import this_host
+        host_arch = this_host().arch
+    architecture = emulated_arch(entry, host_arch)
     try:
-        done = run(show_args(package_id), capture_output=True, text=True, encoding="utf-8", errors="replace",
-                   timeout=SHOW_TIMEOUT_SECONDS, creationflags=NO_WINDOW)
+        done = run(show_args(package_id, architecture), capture_output=True, text=True, encoding="utf-8",
+                   errors="replace", timeout=SHOW_TIMEOUT_SECONDS, creationflags=NO_WINDOW)
     except FileNotFoundError:
         return Package(test_id, package_id, problem="winget (Windows Package Manager) is not installed")
     except subprocess.TimeoutExpired:
         return Package(test_id, package_id, problem=f"winget did not answer within {SHOW_TIMEOUT_SECONDS} s")
     pkg = parse_show(done.stdout or "", test_id, package_id, entry.get("hosts", []), entry.get("path_prefix", ""))
+    pkg.architecture = architecture
     if pkg.problem is None and done.returncode != 0:
         pkg.problem = f"winget show ended with code {done.returncode}"
     if pkg.problem is None:
@@ -164,6 +179,8 @@ def confirm_text(pkg: Package) -> str:
             f"Size: {size_text(pkg.size_bytes)}\n"
             f"SHA256 (winget checks it before installing): {pkg.sha256}\n"
             + (f"License: {pkg.license_url}\n" if pkg.license_url else "")
+            + (f"\nThere is no build for this computer's processor: Windows runs the {pkg.architecture} build "
+               "emulated.\n" if pkg.architecture else "")
             + "\nWindows Package Manager (winget) downloads it from that address and runs the vendor's installer. "
               "Windows may ask for administrator rights (UAC). By installing you accept the program's license.")
 
@@ -172,7 +189,8 @@ def install(pkg: Package, run: Runner = subprocess.run, on_line: Callable[[str],
     if pkg.problem:
         return Outcome(False, f"Not installed: {pkg.problem}")
     try:
-        done = run(install_args(pkg.package_id, pkg.version), capture_output=True, text=True, encoding="utf-8",
+        done = run(install_args(pkg.package_id, pkg.version, pkg.architecture), capture_output=True, text=True,
+                   encoding="utf-8",
                    errors="replace", timeout=INSTALL_TIMEOUT_SECONDS, creationflags=NO_WINDOW)
     except FileNotFoundError:
         return Outcome(False, "winget (Windows Package Manager) is not installed")
