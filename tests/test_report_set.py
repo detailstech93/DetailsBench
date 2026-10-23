@@ -206,3 +206,13 @@ def test_a_skipped_test_says_how_far_it_got(tmp_path):
     assert "1 <span>of 3 (2 skipped)</span>" in summary and 'class="tile good"' in summary
     own = next((tmp_path / "out").rglob("tool_b_*.html")).read_text(encoding="utf-8")
     assert "Skipped by the user before any result" in own
+
+
+def test_a_skipped_test_says_why_in_the_report():
+    """Owner, 2026-10-23: a test that was not run says "Skipped" and why, not FAILED."""
+    from app.report_set import test_outcome
+    runs = [{"benchmark_name": "m", "status": "skipped", "is_warmup": False,
+             "note": "not enough memory: Gemma 4 12B QAT needs about 8.6 GB"}]
+    out = test_outcome({"runs": runs, "summaries": {}}, "m")
+    assert out["result"] == "Skipped: not enough memory: Gemma 4 12B QAT needs about 8.6 GB"
+    assert out["skipped"] and not out["passed"]

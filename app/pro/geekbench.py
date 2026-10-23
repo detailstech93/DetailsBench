@@ -62,6 +62,13 @@ WARNING = ("Geekbench 7's free version uploads every result to the Geekbench Bro
            "the internet; you allowed this on 2026-10-20.")
 
 
+def windows_arm() -> bool:
+    if sys.platform != "win32":
+        return False
+    from app.frames.provision import native_arch
+    return native_arch() == "arm64"
+
+
 def warning_for(major: int) -> str:
     return WARNING.replace("Geekbench 7", f"Geekbench {major}")
 
@@ -209,8 +216,8 @@ class GeekbenchWorkload(Workload):
         # Geekbench 6.7.1 on Linux prints no score, even in a terminal, and its result page sits behind a browser
         # check (owner, 2026-10-21): it runs alone, once, the app opens the result's page and the owner types the
         # score there (app/ui/run_tests.py, typed_followup). The same on Windows: 6.4.0 on the Windows ARM board printed
-        # only the result link too (owner, 2026-10-22)
-        self.typed_score = self.major == 6
+        # only the result link too (owner, 2026-10-22); so did Geekbench 7.0.0 on that board (2026-10-23)
+        self.typed_score = self.major == 6 or windows_arm()
         # its page shows two scores: Multi-Core is the score, Single-Core is typed beside it as a metric (owner)
         self.typed_metric = ("single_core_score", "Single-Core") if self.typed_score and not self.gpu else None
         if exe is None:

@@ -371,3 +371,13 @@ def test_cuda_is_hidden_without_an_nvidia_driver():
     assert cuda.system_blocks(which=lambda name: "/usr/bin/nvidia-smi", exists=lambda path: False) is None
     assert cuda.system_blocks(which=lambda name: None, exists=lambda p: p == "/usr/lib/wsl/lib/libcuda.so.1") is None
     assert gb.GeekbenchWorkload("geekbench7_gpu_vulkan", exe="gb7").system_blocks(**none) is None
+
+
+def test_geekbench_7_waits_for_a_typed_score_on_windows_arm(monkeypatch):
+    """7.0.0 on the Windows ARM board printed only the result link (2026-10-23)."""
+    from app.frames import provision
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(provision, "native_arch", lambda: "arm64")
+    assert gb.GeekbenchWorkload("geekbench7_cpu", exe="gb7").typed_score
+    monkeypatch.setattr(provision, "native_arch", lambda: "x64")
+    assert not gb.GeekbenchWorkload("geekbench7_cpu", exe="gb7").typed_score

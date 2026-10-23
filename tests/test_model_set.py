@@ -80,7 +80,8 @@ def _workload(tmp_path, fake, test_id="llama_benchy_gemma4_12b"):
     exe = tmp_path / "llama-benchy.exe"
     exe.write_bytes(b"")
     return ms.FixedModelWorkload(test_id, exe=exe, lms=tmp_path / "lms.exe", run=fake,
-                                 read_models=lambda url: [], read_runtimes=lambda: {})
+                                 read_models=lambda url: [], read_runtimes=lambda: {},
+                                 free_gb=lambda: 64.0, card_gb=lambda: None)
 
 
 def test_a_run_loads_its_own_copy_and_always_unloads_it(tmp_path, monkeypatch):
@@ -281,3 +282,18 @@ def test_lm_studio_not_running_is_started_once_and_never_called_not_installed(tm
     ok, why = w.availability()
     assert not ok and "did not list its models" in why and "ECONNREFUSED" in why and "not installed" not in why
     assert [c[0] for c in fake.calls] == ["ls", "server", "ls"]
+
+
+def test_a_model_that_does_not_fit_the_free_shared_memory_is_skipped_with_why(tmp_path):
+    """Fedora, 2026-10-23: Gemma 4 12B on 16 GB of memory shared with the graphics ran the computer out of memory."""
+    fake = FakeLms()
+    w = _workload(tmp_path, fake)
+    w._free_gb = lambda: 6.0
+    r = w.run(RunContext(output_dir=tmp_path / "run", timeout_seconds=60))
+    assert r.status == "skipped" and r.score is None
+    assert r.error.startswith("not enough memory: Gemma 4 12B QAT needs about 8.6 GB") and "6.0 GB" in r.error
+    assert "load" not in [c[0] for c in fake.calls]
+    w._card_gb = lambda: 24.0           # a card with its own memory: LM Studio decides there
+    assert w.memory_short() is None
+    w._card_gb, w._free_gb = (lambda: None), (lambda: 12.0)
+    assert w.memory_short() is None

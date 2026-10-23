@@ -141,7 +141,10 @@ def test_outcome(export: Mapping, name: str) -> dict:
     else:
         last = measured[-1] if measured else (runs[-1] if runs else {})
         why = str(last.get("note") or last.get("status") or "no result").split("; ")[0]
-        result = f"FAILED ({last.get('status') or 'no run'}): {why}"
+        if last.get("status") == "skipped":      # not run, and why (owner, 2026-10-23)
+            result = skipped = f"Skipped: {why}"
+        else:
+            result = f"FAILED ({last.get('status') or 'no run'}): {why}"
     if skipped and done:
         result += f"; {skipped[0].lower()}{skipped[1:]}"
     count = f"{len(done)} of {len(measured)} measured run(s) completed" + (

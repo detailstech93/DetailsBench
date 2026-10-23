@@ -152,3 +152,29 @@ def test_lm_studio_refusing_the_model_says_why(tmp_path):
     body = f"print({log!r})\nsys.exit(1)\n"
     result = PyBenchy(_fake(tmp_path, body)).run(RunContext(output_dir=run_dir, timeout_seconds=60))
     assert result.status == "failed" and result.error.startswith("not enough memory") and result.score is None
+
+
+def test_a_model_lm_studio_loaded_for_the_run_is_unloaded_after_it(tmp_path):
+    """Fedora, 2026-10-23: the free test's model stayed loaded and the next AI test ran the computer out of memory."""
+    script = _fake(tmp_path, f"open(out, 'w').write({json.dumps(json.dumps(RESULT))})\n")
+    unloaded = []
+    for state, expected in (("not-loaded", ["google/gemma-4-12b-qat"]), ("loaded", [])):
+        unloaded.clear()
+        models = [dict(m, state=state) for m in MODELS]
+        w = PyBenchy(script, unload=unloaded.append)
+        w._read_models = lambda url: models
+        run_dir = tmp_path / state
+        run_dir.mkdir()
+        assert w.run(RunContext(output_dir=run_dir, timeout_seconds=60)).status == "completed"
+        assert unloaded == expected         # one the owner loaded before stays
+
+
+def test_an_engine_that_dies_is_a_crash_and_not_run_again():
+    """Windows ARM board, 2026-10-23: LM Studio's engine died at the first prompt every time."""
+    from app.automation.runner import crashed, should_retry
+    from app.automation.workload import WorkloadResult
+    why = llama_benchy.server_error('Warmup failed: HTTP 400: {"error":"terminated"}', "qwen/qwen3.5-4b")
+    assert why.startswith("LM Studio's engine crashed while running qwen/qwen3.5-4b")
+    r = WorkloadResult(status="failed", error=why, exit_code=1)
+    assert crashed(r) and not should_retry(r)
+    assert not crashed(WorkloadResult(status="failed", error="exit code 1", exit_code=1))

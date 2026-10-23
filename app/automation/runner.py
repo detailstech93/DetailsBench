@@ -56,10 +56,15 @@ RETRY_STATUSES = ("failed", "timed_out")
 NO_RETRY_ERRORS = ("could not start", "not enough memory")     # the memory does not grow by trying again
 
 
+# errors that say the program crashed although it ended normally (LM Studio's engine dies, its server answers)
+CRASH_ERRORS = ("LM Studio's engine crashed",)
+
+
 def crashed(result: WorkloadResult) -> bool:
     """The program was killed by a signal (exit code -11: SIGSEGV). Radxa Dragon Q8B, 2026-10-21: vkmark crashed
     twice and the board went off 2 s into its third start; a crash is never run again."""
-    return result.status == "failed" and isinstance(result.exit_code, int) and result.exit_code < 0
+    return result.status == "failed" and ((isinstance(result.exit_code, int) and result.exit_code < 0)
+                                          or str(result.error or "").startswith(CRASH_ERRORS))
 
 
 def should_retry(result: WorkloadResult) -> bool:

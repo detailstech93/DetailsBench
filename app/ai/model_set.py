@@ -282,10 +282,13 @@ def lms_error(text: str) -> str:
 class FixedModelWorkload(llama_benchy.LlamaBenchyWorkload):
     VERIFIED = ("llama_benchy_gemma4_12b",)     # a real run on this computer (2026-10-19, RTX 5090 Laptop GPU)
     asks_settings = False             # fixed model and settings: the free test's dialog is not shown
+    unload_jit = False                # its own copy is unloaded by run() below
     tokenizer = "gpt2"                # --tokenizer gpt2 on every PC (recorded in ai_run.json)
 
     def __init__(self, test_id: str, exe: Optional[Path] = None, lms: Optional[Path] = None,
-                 run: Callable = _run, model: Optional[Tuple[str, str, str, str]] = None, **kwargs):
+                 run: Callable = _run, model: Optional[Tuple[str, str, str, str]] = None,
+                 free_gb: Callable[[], Optional[float]] = None, card_gb: Callable[[], Optional[float]] = None,
+                 **kwargs):
         title, self.key, self.quant, self.size = model or all_models()[test_id]
         super().__init__(identifier(test_id), pp=PP, tg=TG, depths=(0,), runs=RUNS, exe=exe, **kwargs)
         self.id = test_id
@@ -294,6 +297,7 @@ class FixedModelWorkload(llama_benchy.LlamaBenchyWorkload):
         self.display_name = f"llama-benchy: {title} ({self.quant})"
         self.lms = lms if lms is not None else lmstudio.lms_path()
         self._lms_run = run
+        self._free_gb, self._card_gb = free_gb, card_gb
 
     def availability(self) -> Tuple[bool, str]:
         if self.lms is None:
@@ -306,6 +310,23 @@ class FixedModelWorkload(llama_benchy.LlamaBenchyWorkload):
         if not models and list_error():     # LM Studio did not answer: not a model to download
             return False, f"LM Studio did not list its models (lms ls): {list_error()}"
         return installed(models, self.key, self.quant)
+
+    def memory_short(self) -> Optional[str]:
+        """Why the model is not loaded now, or None. Where the graphics share the computer's memory (no card with its
+        own memory) the model must fit in the memory free right now (Fedora, 2026-10-23: Gemma 4 12B on 16 GB with
+        another model still loaded: the computer ran out of memory and the app was closed with it). A card with its
+        own memory: LM Studio itself refuses a model that does not fit there."""
+        from app.ai import model_fit
+        model = model_fit.size_gb(self.size)
+        if model is None or (self._card_gb or model_fit.card_gb)() is not None:
+            return None
+        free = (self._free_gb or free_memory_gb)()
+        need = model * model_fit.NEEDS
+        if free is None or need <= free:
+            return None
+        return (f"{llama_benchy.NOT_ENOUGH_MEMORY}: {self.title} needs about {need:.1f} GB with its context and "
+                f"{free:.1f} GB of memory is free now (the graphics use the computer's memory), so it was not "
+                "loaded and the computer does not run out of memory")
 
     def _command(self, result_path: str) -> List[str]:
         return super()._command(result_path) + ["--tokenizer", "gpt2"]
@@ -341,6 +362,9 @@ class FixedModelWorkload(llama_benchy.LlamaBenchyWorkload):
             return WorkloadResult(status="failed", error=problem)
         lms = str(self.lms)
         self._lms_run(unload_command(lms, self.model), 60)        # a copy left by a stopped run
+        short = self.memory_short()
+        if short:
+            return WorkloadResult(status="skipped", error=short)
         load = load_command(lms, self.key, self.model)
         code, text = self._lms_run(load, LOAD_SECONDS)
         folder = Path(ctx.output_dir)
@@ -360,6 +384,14 @@ class FixedModelWorkload(llama_benchy.LlamaBenchyWorkload):
                      ("Parallel", "1"), ("pp/tg", f"{PP}/{TG}"), ("Runs", str(RUNS))]
             result.note = "; ".join(f"{k}: {v}" for k, v in parts)
         return result
+
+
+def free_memory_gb() -> Optional[float]:
+    try:
+        import psutil
+        return psutil.virtual_memory().available / 1024 ** 3
+    except Exception:
+        return None
 
 
 def model_workloads() -> list:

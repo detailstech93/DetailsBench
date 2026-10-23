@@ -215,3 +215,17 @@ def test_windows_arm_uses_passmarks_arm64_program(tmp_path):
     (folder / "PerformanceTest64.exe").write_bytes(b"")
     assert passmark.program_path("win32", "AMD64", env) == folder / "PerformanceTest64.exe"
     assert passmark.program_path("linux", "ARM64", env) is None
+
+
+def test_passmark_3d_is_hidden_on_windows_arm(monkeypatch, tmp_path):
+    """The Snapdragon board: three tries of 15 minutes with no output (owner, 2026-10-23: hide it there)."""
+    monkeypatch.setattr(passmark.sys, "platform", "win32")
+    exe = tmp_path / "PerformanceTestARM64.exe"
+    exe.write_bytes(b"")
+    w = passmark.PassMarkWorkload("passmark_3d", exe=exe)
+    w._linux = False
+    assert "does not start on Windows ARM" in w.system_blocks(arch="arm64")
+    assert w.system_blocks(arch="x64") is None
+    cpu = passmark.PassMarkWorkload("passmark_cpu", exe=exe)
+    cpu._linux = False
+    assert cpu.system_blocks(arch="arm64") is None

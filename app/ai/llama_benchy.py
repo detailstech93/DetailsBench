@@ -161,6 +161,7 @@ def tokenizer_used(log_text: str, model: str) -> str:
 
 
 NOT_ENOUGH_MEMORY = "not enough memory"
+TERMINATED = re.compile(r'"error"\s*:\s*"terminated"')
 SERVER_ERROR = re.compile(r'"message"\s*:\s*"((?:[^"\\]|\\.)*)"')
 NEEDS_GB = re.compile(r"requires approximately ([0-9.]+ ?[GM]B)")
 
@@ -168,6 +169,10 @@ NEEDS_GB = re.compile(r"requires approximately ([0-9.]+ ?[GM]B)")
 def server_error(log: str, model: str) -> Optional[str]:
     """Why LM Studio answered with an error (llama-benchy prints its JSON), or None. Radxa Dragon Q8B, 2026-10-22: the
     27B model needs about 19.24 GB on a 15 GB board; LM Studio refused to load it and the report said "exit code 1"."""
+    if TERMINATED.search(log or ""):       # Windows ARM board, 2026-10-23: the engine died at "Prompt processing 0%"
+        from app.automation.runner import CRASH_ERRORS
+        return (f"{CRASH_ERRORS[0]} while running {model} (its server answered \"terminated\"); LM Studio's engine "
+                "does not work with this model on this computer, so it is not run again")
     found = SERVER_ERROR.search(log or "")
     if not found:
         return None
@@ -189,6 +194,17 @@ def parse_ints(text: str, minimum: int) -> Optional[List[int]]:
     return values if values and values[0] >= minimum else None
 
 
+def unload_model(model: str) -> None:
+    """`lms unload <model>` (LM Studio's own command); nothing happens when lms is missing or it fails."""
+    lms = lmstudio.lms_path()
+    if lms is None or not model:
+        return
+    try:
+        subprocess.run([str(lms), "unload", model], capture_output=True, timeout=60, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 class LlamaBenchyWorkload(Workload):
     id = "llama_benchy"
     display_name = "llama-benchy (LM Studio)"
@@ -196,17 +212,19 @@ class LlamaBenchyWorkload(Workload):
     timeout_seconds = 1800
     verified = True                   # checked with real runs on this computer (2026-10-18)
     warning = WARNING
+    unload_jit = True                 # a model LM Studio loaded for this run is unloaded after it
 
     def __init__(self, model: Optional[str], base_url: str = lmstudio.DEFAULT_URL, pp: int = 512, tg: int = 128,
                  depths: Sequence[int] = (0,), runs: int = 1, exe: Optional[Path] = None,
                  read_models: Callable = lmstudio.read_models,
                  read_runtimes: Callable[[], Dict[str, str]] = lambda: lmstudio.read_runtimes(lmstudio.lms_path()),
-                 concurrency: Sequence[int] = (1,), prefix_caching: bool = False):
+                 concurrency: Sequence[int] = (1,), prefix_caching: bool = False, unload: Callable = None):
         self.model, self.base_url, self.pp, self.tg = model, base_url, pp, tg
         self.depths, self.runs = list(depths), runs
         self.concurrency, self.prefix_caching = list(concurrency), prefix_caching
         self.exe = exe if exe is not None else benchy_path()
         self._read_models, self._read_runtimes = read_models, read_runtimes
+        self._unload = unload or unload_model
 
     def configure(self, settings: Mapping):
         """Settings from the panel's dialog: model, pp, tg, depths, concurrency, prefix_caching."""
@@ -232,6 +250,14 @@ class LlamaBenchyWorkload(Workload):
         return build_command(str(self.exe), self.base_url, self.model or "<model>", self.pp, self.tg, self.depths,
                              self.runs, result_path, self.concurrency, self.prefix_caching)
 
+    def _state(self) -> Optional[str]:
+        """LM Studio's "state" of the model ("loaded" / "not-loaded"), or None when it cannot be read."""
+        try:
+            models = self._read_models(self.base_url)
+        except (OSError, ValueError):
+            return None
+        return next((m.get("state") for m in models if m.get("id") == self.model), None)
+
     def _model_record(self) -> Dict[str, object]:
         try:
             models = self._read_models(self.base_url)
@@ -248,9 +274,17 @@ class LlamaBenchyWorkload(Workload):
         folder = Path(ctx.output_dir)
         result_path = folder / RESULT_FILE
         command = self._command(str(result_path))
+        state = self._state()             # "not-loaded": LM Studio loads it for this run (JIT)
         record = self._model_record()     # before the run: a JIT model may only be loaded by it
         out, err = folder / "stdout.txt", folder / "stderr.txt"
-        outcome = run_process(command, out, err, ctx.timeout_seconds, ctx.stop_event, cwd=str(folder))
+        try:
+            outcome = run_process(command, out, err, ctx.timeout_seconds, ctx.stop_event, cwd=str(folder))
+        finally:
+            # LM Studio loaded the model for this run (JIT): unloaded again, so the next AI test does not share the
+            # memory with it (Fedora, 2026-10-23: Qwen3.5 4B stayed loaded, Gemma 4 12B came on top and the computer
+            # ran out of memory). A model that was loaded before the run is the owner's and stays.
+            if self.unload_jit and state == "not-loaded":
+                self._unload(self.model)
         common = {"command": command, "exit_code": outcome.exit_code,
                   "duration_seconds": round(outcome.duration_seconds, 3),
                   "stdout_path": str(out), "stderr_path": str(err)}
