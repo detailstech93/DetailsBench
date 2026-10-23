@@ -12,8 +12,9 @@ DetailsBench is a desktop app (Python, PySide6, SQLite) that finds, installs, ru
 processor, graphics card, games, storage, AI and web. Every result is stored with the PC's specs, so runs on
 different computers can be compared, and each session ends with an HTML report.
 
-> **Beta.** Tests marked "not verified yet" on the Tests screen have not been checked on a real run, and Linux has
-> not been tried on a real PC yet. Please report what fails (Issues).
+> **Beta.** Tests marked "not verified yet" on the Tests screen have not been checked on a real run. Checked on
+> real PCs: Windows 11 x64, Windows 11 on ARM (Snapdragon) and Linux (Fedora, and WSL2). If something fails, press
+> **Report a problem** in the app: it saves a zip (personal details removed) and opens a GitHub issue to send it.
 
 ### What it does
 
@@ -118,8 +119,9 @@ must stay under the same license, with its source. The benchmark programs the ap
 بيشغّلها وبيسجّل نتائجها: المعالج، كرت الشاشة، الألعاب، التخزين، الذكاء الاصطناعي والويب. كل نتيجة بتنحفظ مع
 مواصفات الجهاز، لهيك فيك تقارن بين أجهزة مختلفة، وكل جلسة بتخلص بتقرير HTML.
 
-> **نسخة تجريبية (Beta).** الاختبارات المكتوب جنبها "not verified yet" ما انجرّبت لسا على تشغيل حقيقي، ولينكس ما
-> انجرّب لسا على جهاز حقيقي. إذا شي فشل معك، خبّرنا (Issues).
+> **نسخة تجريبية (Beta).** الاختبارات المكتوب جنبها "not verified yet" ما انجرّبت لسا على تشغيل حقيقي. انجرّب على أجهزة
+> حقيقية: ويندوز 11 x64، ويندوز 11 على ARM (Snapdragon)، ولينكس (Fedora و WSL2). إذا شي فشل معك، اكبس
+> **Report a problem** بالتطبيق: بيحفظ ملف zip (بدون معلوماتك الشخصية) وبيفتح issue على GitHub لتبعتو.
 
 ### شو بيعمل
 
