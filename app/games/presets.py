@@ -208,6 +208,32 @@ def plan_preset(app_id, preset: GamePreset, offered: Dict[str, list]) -> Tuple[D
     return requested, skipped
 
 
+def _fixed_values(app_id) -> Dict[str, list]:
+    """{adapter key: its values} for the game's fixed lists ("map" settings): known before its file is read."""
+    try:
+        from app.games.settings_file import adapter_for
+        settings = getattr(adapter_for(app_id).module, "SETTINGS", {})
+    except Exception:
+        return {}
+    return {k: [shown for shown, _ in s.values] for k, s in settings.items() if getattr(s, "kind", None) == "map"}
+
+
+def game_values(app_id, offered: Optional[Dict[str, list]], choice: str, candidates: Sequence[str]
+                ) -> Optional[List[str]]:
+    """The candidates this game has for a choice (owner, 2026-10-23: only the game's own options are offered, e.g.
+    no DLSS for Far Cry 6); None: the game has no such setting in the app. A value missing from the game's fixed
+    list is left out; a value the game may have but was never seen, or not read yet, stays (the summary says why)."""
+    if choice not in GAME_TARGETS.get(str(app_id), {}):
+        return None
+    offered = dict(_fixed_values(app_id), **(offered or {}))
+    out = []
+    for value in candidates:
+        why = None if value == KEEP else plan_preset(app_id, GamePreset(**{choice: value}), offered)[1].get(choice)
+        if why in (None, NOT_SEEN, NO_SETTING):
+            out.append(value)
+    return out
+
+
 def summary_lines(app_id, game_name: str, preset: GamePreset, offered: Optional[Dict[str, list]],
                   problem: Optional[str] = None) -> List[str]:
     """Plain lines for the dialog: what will be set and what will not, for one game."""

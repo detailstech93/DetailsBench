@@ -98,7 +98,9 @@ def last_preset(data_dir) -> "presets.GamePreset":
 class PresetBox(QGroupBox):
     """The games' preset (owner, 2026-10-20): mode (raw / upscaling / upscaling + frame generation), the upscaler
     and frame generation this PC's card runs (the best one marked "recommended", the others not offered), quality,
-    resolution and ray tracing; one preset for every game or one per game, with what each game will get."""
+    resolution and ray tracing; one preset for every game or one per game, with what each game will get. Each list
+    holds only what the game has (owner, 2026-10-23: no DLSS row value for Far Cry 6; a setting the game lacks has
+    no row); one preset for several games offers what any of them has."""
 
     KEYS = ("mode", "upscaler", "frame_gen", "quality", "resolution", "ray_tracing")
     NAMES = {"mode": "Mode", "upscaler": "Upscaler", "frame_gen": "Frame generation", "quality": "Quality",
@@ -130,7 +132,7 @@ class PresetBox(QGroupBox):
             form.addRow(label, combo)
             self.combos[key], self.rows[key] = combo, label
         if gpu:
-            card = QLabel(f"Graphics card: {gpu}. Only what it can run is offered.")
+            card = QLabel(f"Graphics card: {gpu}. Only what it can run and what the game has are offered.")
             card.setStyleSheet("color: palette(placeholder-text);")
             form.addRow(card)
         self.summary = QLabel()
@@ -145,15 +147,33 @@ class PresetBox(QGroupBox):
         self._load(initial)
         self._target_changed()
 
-    # ---- what the card runs ------------------------------------------------------------------------------
+    # ---- what the card runs and the game has --------------------------------------------------------------
+    def _one(self) -> bool:
+        return self.same.isChecked() or len(self.games) <= 1
+
+    def _allowed(self, choice: str, candidates: List[str]) -> Optional[List[str]]:
+        """The candidates the shown game(s) have (any of them for one preset); None: none has the setting."""
+        ids = [a for a, _ in self.games] if self._one() else [self.which.currentData()]
+        if not [a for a in ids if a is not None]:
+            return list(candidates)
+        found = [presets.game_values(a, (self.offered.get(a) or (None, None))[0], choice, candidates)
+                 for a in ids if a is not None]
+        if all(f is None for f in found):
+            return None
+        have = {v for f in found if f for v in f}
+        return [c for c in candidates if c in have]
+
     def _upscalers(self, with_frame_gen: bool) -> List[str]:
         out = presets.upscalers_for(self.gpu) if self.gpu else ["dlss", "fsr", "xess"]
+        out = self._allowed("upscaler", out) or []
         return [u for u in out if not with_frame_gen or self._frame_gens(u)]
 
     def _frame_gens(self, upscaler: str) -> List[str]:
         if not self.gpu:
-            return ["x2", "x3", "x4"] if upscaler == "dlss" else ["x2"]
-        return presets.frame_gens_for(self.gpu, upscaler)
+            out = ["x2", "x3", "x4"] if upscaler == "dlss" else ["x2"]
+        else:
+            out = presets.frame_gens_for(self.gpu, upscaler)
+        return self._allowed("frame_gen", out) or []
 
     def _fill(self, key: str, pairs: List[Tuple[str, str]], value: str):
         combo = self.combos[key]
@@ -162,13 +182,15 @@ class PresetBox(QGroupBox):
         for data, text in pairs:
             combo.addItem(text, data)
         index = combo.findData(value)
+        index = index if index >= 0 else combo.findData(presets.KEEP)     # a value this game lacks: its own
         combo.setCurrentIndex(index if index >= 0 else 0)
         combo.blockSignals(False)
 
     def _load(self, p: "presets.GamePreset"):
         """Show a preset in the boxes (the lists follow the mode and the upscaler)."""
         mode = presets.KEEP if p.upscaler == presets.KEEP and p.frame_gen == presets.KEEP else presets.mode_of(p)
-        modes = [m for m in presets.MODES if m != "upscaling_fg" or self._upscalers(True)]
+        has_upscaler = self._allowed("upscaler", ["off"]) is not None
+        modes = [m for m in presets.MODES if has_upscaler and (m == "raw" or self._upscalers(m == "upscaling_fg"))]
         self._fill("mode", [(presets.KEEP, "Keep the game's own")] +
                    [(m, presets.MODE_LABELS[m]) for m in modes], mode)
         mode = self.combos["mode"].currentData()
@@ -179,14 +201,17 @@ class PresetBox(QGroupBox):
         gens = self._frame_gens(self.combos["upscaler"].currentData() or "")
         self._fill("frame_gen", presets.choice_labels(gens, "x2" if "x2" in gens else None),
                    p.frame_gen if p.frame_gen in gens else "x2")
-        self._fill("quality", [(q, presets.LABELS[q]) for q in presets.QUALITIES[1:]] +
-                   [(presets.KEEP, "Keep the game's own")], p.quality)
+        keep = [(presets.KEEP, "Keep the game's own")]
+        quality = self._allowed("quality", list(presets.QUALITIES[1:]))
+        self._fill("quality", [(q, presets.LABELS[q]) for q in quality or []] + keep, p.quality)
         res = presets.resolutions_offered([o for o, _ in self.offered.values() if o])
-        self._fill("resolution", [(r, presets.LABELS.get(r, r)) for r in res[1:]] +
-                   [(presets.KEEP, "Keep the game's own")], p.resolution)
-        self._fill("ray_tracing", [("off", "Off"), ("on", "On"), (presets.KEEP, "Keep the game's own")],
-                   p.ray_tracing)
-        for key, shown in (("upscaler", mode in ("upscaling", "upscaling_fg")), ("frame_gen", mode == "upscaling_fg")):
+        res = self._allowed("resolution", res[1:])
+        self._fill("resolution", [(r, presets.LABELS.get(r, r)) for r in res or []] + keep, p.resolution)
+        rt = self._allowed("ray_tracing", ["off", "on"])
+        self._fill("ray_tracing", [(v, presets.LABELS[v]) for v in rt or []] + keep, p.ray_tracing)
+        for key, shown in (("mode", has_upscaler), ("upscaler", mode in ("upscaling", "upscaling_fg")),
+                           ("frame_gen", mode == "upscaling_fg"), ("quality", quality is not None),
+                           ("resolution", res is not None), ("ray_tracing", rt is not None)):
             self.combos[key].setVisible(shown)
             self.rows[key].setVisible(shown)
 
@@ -194,17 +219,23 @@ class PresetBox(QGroupBox):
         c = {k: self.combos[k].currentData() for k in self.KEYS}
         if c["mode"] == presets.KEEP:
             return presets.GamePreset(resolution=c["resolution"], quality=c["quality"], ray_tracing=c["ray_tracing"])
-        return presets.game_preset(c["mode"], c["upscaler"] or "off", c["frame_gen"] or "off", c["quality"],
-                                   c["resolution"], c["ray_tracing"])
+        p = presets.game_preset(c["mode"], c["upscaler"] or "off", c["frame_gen"] or "off", c["quality"],
+                                c["resolution"], c["ray_tracing"])
+        if self._allowed("frame_gen", ["x2"]) is None:     # a game without frame generation: nothing to turn off
+            p = dataclasses.replace(p, frame_gen=presets.KEEP)
+        return p
 
     # ---- one preset for all, or one per game --------------------------------------------------------------
     def _target_changed(self, *_):
-        one = self.same.isChecked() or len(self.games) <= 1
+        one = self._one()
         self.which.setEnabled(not one)
         if one:
             self._load(self.all_preset)
+            self.all_preset = self._read()          # a value no game has becomes the game's own
+            self.per_game = {app_id: self.all_preset for app_id, _ in self.games}
         elif self.which.currentData() is not None:
             self._load(self.per_game[self.which.currentData()])
+            self.per_game[self.which.currentData()] = self._read()
         self.update_summary()
 
     def _changed(self, key: str):

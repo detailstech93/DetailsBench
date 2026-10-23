@@ -265,13 +265,43 @@ def test_preset_box_offers_what_the_card_runs_and_a_preset_per_game(qapp):
     assert box.combos["upscaler"].currentData() == "dlss"
     box.same.setChecked(False)
     box.which.setCurrentIndex(1)
-    box.combos["mode"].setCurrentIndex(box.combos["mode"].findData("raw"))
+    assert box.combos["mode"].isHidden()                   # Red Dead Redemption 2: no upscaler the app can set
     box.combos["resolution"].setCurrentIndex(box.combos["resolution"].findData("1920x1080"))
     got = box.presets()
     assert got["1091500"] == GamePreset(upscaler="dlss", frame_gen="x2", quality="high")
-    assert got["1174180"] == GamePreset(resolution="1920x1080", upscaler="off", frame_gen="off", quality="high")
+    assert got["1174180"] == GamePreset(resolution="1920x1080", quality="high")
     box.which.setCurrentIndex(0)
     assert box.combos["mode"].currentData() == "upscaling_fg"        # each game shows its own preset
+
+
+
+def test_preset_box_offers_only_what_the_game_has(qapp):
+    """Owner, 2026-10-23: Far Cry 6 has no DLSS and no frame generation, so they are not offered at all; its
+    quality is High or Ultra, its upscaler FSR 1.0."""
+    from app.games.presets import GamePreset
+    from app.ui.run_tests import PresetBox
+
+    def data(box, key):
+        c = box.combos[key]
+        return [c.itemData(i) for i in range(c.count())]
+    fc6 = {"2369390": ({"upscaler": ["Off", "FSR 1.0"], "preset": ["High", "Ultra"],
+                        "dxr_reflections": [True, False], "dxr_shadows": [True, False]}, None)}
+    box = PresetBox([("2369390", "Far Cry 6")], fc6, GamePreset(quality="low", frame_gen="x2", upscaler="dlss"),
+                    "NVIDIA GeForce RTX 5080")
+    assert data(box, "mode") == ["keep", "raw", "upscaling"]           # no frame generation in the game
+    assert data(box, "quality") == ["high", "ultra", "keep"]
+    assert box.preset().quality == "keep"                               # Low: the game's preset has none
+    box.combos["mode"].setCurrentIndex(box.combos["mode"].findData("upscaling"))
+    assert data(box, "upscaler") == ["fsr"] and box.combos["frame_gen"].isHidden()
+    assert box.preset() == GamePreset(upscaler="fsr")
+    assert "not set" not in box.summary.text()
+    cs2 = PresetBox([("730", "Counter-Strike 2")], {"730": ({"resolution": ["1920x1080"]}, None)}, GamePreset())
+    assert [k for k in cs2.KEYS if not cs2.combos[k].isHidden()] == ["resolution"]
+    both = PresetBox([("2369390", "Far Cry 6"), ("1091500", "Cyberpunk 2077")], dict(fc6, **OFFERED), GamePreset(),
+                     "NVIDIA GeForce RTX 5080")
+    assert "low" in data(both, "quality")                               # one preset: what any of them has
+    both.same.setChecked(False)
+    assert data(both, "quality") == ["high", "ultra", "keep"]           # Far Cry 6's own
 
 
 def test_one_game_from_the_tests_screen_asks_counts_and_preset_then_starts_without_the_settings_window(
