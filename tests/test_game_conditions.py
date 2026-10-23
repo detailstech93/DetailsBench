@@ -19,20 +19,20 @@ PROFILE = ('<GamerProfile>\n<RenderProfile GPU="0" VideoModeProfile="1" Quality=
 
 def test_far_cry_6_reads_and_changes_only_its_values():
     assert fc6.read_settings(PROFILE) == {
-        "resolution": "1920x1080", "window_mode": "1", "preset": "high", "dxr_reflections": False,
+        "resolution": "1920x1080", "window_mode": "1", "preset": "High", "dxr_reflections": False,
         "dxr_shadows": False, "upscaler": "Off", "resolution_scale": "1", "vsync": "off"}
     wanted = GamePreset(ray_tracing="on", quality="ultra", upscaler="fsr", frame_gen="x2")
-    # "ultra" written by guess made the game fall back to Low (2026-10-23): only a value the game wrote is offered
+    # the game's Ultra is "ultrahigh" (seen 2026-10-23; a guessed "ultra" made it fall back to Low)
     requested, skipped = plan_preset(2369390, wanted, fc6.choices(PROFILE, {}))
-    assert "preset" not in requested and "quality" in skipped
-    known = {"preset": {"ultra": 0}}                    # the game was seen writing it
-    requested, skipped = plan_preset(2369390, wanted, fc6.choices(PROFILE, known))
-    assert requested == {"dxr_reflections": True, "dxr_shadows": True, "preset": "ultra", "upscaler": "FSR 1.0"}
-    assert "frame_gen" in skipped
+    assert requested == {"dxr_reflections": True, "dxr_shadows": True, "preset": "Ultra", "upscaler": "FSR 1.0"}
+    assert skipped == {"frame_gen": "the game has none"}
+    dlss = plan_preset(2369390, GamePreset(upscaler="dlss"), fc6.choices(PROFILE, {}))[1]
+    assert dlss == {"upscaler": "the game has no such value; it offers: FSR 1.0, Off"}
+    known = {}
     changes, refused = fc6.plan(PROFILE, requested, known)
     new = fc6.apply(PROFILE, changes)
     assert refused == {} and fc6.verify(new, requested) == {}
-    assert new == (PROFILE.replace('Quality="high" ', 'Quality="ultra" ', 1).replace('Reflections="0"', 'Reflections="1"')
+    assert new == (PROFILE.replace('Quality="high" ', 'Quality="ultrahigh" ', 1).replace('Reflections="0"', 'Reflections="1"')
                    .replace('DxrShadows="0"', 'DxrShadows="1"').replace('SuperResolutionEnabled="0"',
                                                                          'SuperResolutionEnabled="1"'))
     assert 'ShadowQuality="high"' in new                # the custom quality's own "Quality" names are not touched
@@ -52,7 +52,7 @@ def test_the_conditions_come_from_the_games_file_and_the_screen(tmp_path):
     (folder / "gamerprofile.xml").write_text(PROFILE.replace('DxrShadows="0"', 'DxrShadows="1"'), encoding="utf-8")
     items = game_conditions(2369390, "1920x1080 at 60 Hz", env={"PCBM_DOCUMENTS": str(tmp_path)})
     assert items[:4] == ["Screen mode during the benchmark: 1920x1080 at 60 Hz", "Resolution: 1920x1080",
-                         "Window mode: Full screen", "Quality preset: high"]
+                         "Window mode: Full screen", "Quality preset: High"]
     assert "Ray traced shadows: On" in items and "Upscaler: Off" in items
     assert "Frame generation: the game has none" in items
     unknown = game_conditions(750920, None, env={})
@@ -111,8 +111,8 @@ def test_the_games_own_report_is_read_and_compared(tmp_path):
     assert report == {"Average FPS": "129", "Window Mode": "Fullscreen", "Display Resolution": "1920 x 1080",
                       "Graphics Quality": "Low"}
     assert fc6.game_report(folder / "gamerprofile.xml", since=4102444800) is None     # older than the run
-    assert fc6.report_mismatches(report, {"preset": "ultra", "resolution": "1920x1080", "window_mode": "1",
-                                          "dxr_shadows": True}) == {"preset": ("ultra", "Low")}
+    assert fc6.report_mismatches(report, {"preset": "Ultra", "resolution": "1920x1080", "window_mode": "1",
+                                          "dxr_shadows": True}) == {"preset": ("Ultra", "Low")}
 
 
 def test_a_setting_the_game_ignored_fails_the_check_after_the_run(tmp_path):
@@ -120,14 +120,13 @@ def test_a_setting_the_game_ignored_fails_the_check_after_the_run(tmp_path):
     _game_folder(tmp_path)
     data = tmp_path / "data"
     data.mkdir()
-    (data / "game_settings_indices.json").write_text('{"2369390": {"preset": {"ultra": 0}}}', encoding="utf-8")
     from app.games.settings_file import ForcedSettings
-    forced = ForcedSettings(2369390, {"preset": "ultra"}, tmp_path / "run", data,
+    forced = ForcedSettings(2369390, {"preset": "Ultra"}, tmp_path / "run", data,
                             env={"PCBM_DOCUMENTS": str(tmp_path)})
     forced.apply()
     forced.started = 0                                   # the report above counts as this run's
     rec = forced.finish()
-    assert rec.mismatch_after_run == {"preset": ["ultra", "Low"]} and not rec.verified and rec.restored
+    assert rec.mismatch_after_run == {"preset": ["Ultra", "Low"]} and not rec.verified and rec.restored
 
 
 def test_the_conditions_come_from_the_games_own_report(tmp_path):

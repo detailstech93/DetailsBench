@@ -155,6 +155,30 @@ NOT_SEEN = ("the game was never seen using this value: choose it once in the gam
             "game), and the app learns it")
 
 
+def _not_in_game(app_id, choice: str) -> Optional[str]:
+    """The adapter's own word that the game has no such option at all (far_cry6.NOT_IN_GAME)."""
+    try:
+        from app.games.settings_file import adapter_for
+        return getattr(adapter_for(app_id).module, "NOT_IN_GAME", {}).get(choice)
+    except Exception:
+        return None
+
+
+def _not_offered(app_id, keys, offered: Dict[str, list]) -> str:
+    """Why a choice is not set: a fixed list the game has (it has no such value, owner 2026-10-23: Far Cry 6
+    "DLSS" said "never seen" though the game has only FSR 1.0) or values learned from the game (never seen)."""
+    try:
+        from app.games.settings_file import adapter_for
+        settings = getattr(adapter_for(app_id).module, "SETTINGS", {})
+        fixed = [k for k in keys if k in offered and getattr(settings.get(k), "kind", None) == "map"]
+    except Exception:
+        fixed = []
+    if fixed and len(fixed) == len([k for k in keys if k in offered]):
+        values = sorted({str(v) for k in fixed for v in offered[k]})
+        return "the game has no such value; it offers: " + ", ".join(values)
+    return NOT_SEEN
+
+
 def plan_preset(app_id, preset: GamePreset, offered: Dict[str, list]) -> Tuple[Dict[str, object], Dict[str, str]]:
     """(settings to force {adapter key: value}, choices not applied {choice: reason}) for one game.
     offered: the adapter's choices for the game (settings_file.read_for_dialog)."""
@@ -164,7 +188,7 @@ def plan_preset(app_id, preset: GamePreset, offered: Dict[str, list]) -> Tuple[D
     for choice, value in preset.chosen().items():
         target = targets.get(choice)
         if target is None or not any(k in offered for k in target.keys):
-            skipped[choice] = NO_SETTING
+            skipped[choice] = _not_in_game(app_id, choice) or NO_SETTING
             continue
         found = {}
         for key in target.keys:
@@ -178,7 +202,7 @@ def plan_preset(app_id, preset: GamePreset, offered: Dict[str, list]) -> Tuple[D
                 break
             found[key] = match
         if not found:
-            skipped[choice] = NOT_SEEN
+            skipped[choice] = _not_offered(app_id, target.keys, offered)
             continue
         requested.update(found)
     return requested, skipped

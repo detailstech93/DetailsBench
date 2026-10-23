@@ -10,7 +10,7 @@ written the same way, and the check after the run shows whether the game kept th
 
 2026-10-23: "ultra" was written and the game ran every quality setting at Low (its own report said so) while the
 file still read "ultra": the game does not rewrite the file, so the file cannot show what it used. The preset is
-now "learned" (only values the game itself wrote are offered), and the check after the run reads the report the
+now offered only with values the game itself wrote ("ultrahigh" is its Ultra), and the check after the run reads the report the
 game writes at the end of its benchmark (benchmarks/benchmark <date>/result.html next to gamerprofile.xml).
 """
 
@@ -31,7 +31,9 @@ SHOWN = {"window_mode": {"1": "Full screen"}}       # file values named in the g
 SETTINGS = {
     "resolution": Setting("resolution", ("VideoModeProfileFullscreen@width", "VideoModeProfileFullscreen@height")),
     "window_mode": Setting("learned", ("RenderProfile@VideoModeProfile",)),
-    "preset": Setting("learned", ("RenderProfile@Quality",)),
+    # both seen on this PC: "high" (2026-10-23 morning) and "ultrahigh" after the owner chose Ultra in the game's
+    # menu (14:41; the game's report then said Ultra). Low/Medium were never seen, so they are not offered.
+    "preset": Setting("map", ("RenderProfile@Quality",), (("High", "high"), ("Ultra", "ultrahigh"))),
     "dxr_reflections": Setting("map", ("RenderProfile@DxrReflections",), ON_OFF),
     "dxr_shadows": Setting("map", ("RenderProfile@DxrShadows",), ON_OFF),
     "upscaler": Setting("map", ("ResolutionConfig@FidelityFxSuperResolutionEnabled",),
