@@ -375,6 +375,18 @@ class ForcedSettings:
             pending.pop(self.app_id)
             _write_pending(self.data_dir, pending)
 
+    def _plan(self, mod, data, known):
+        """The adapter's plan, plus a resolution the screens do not offer now refused (app/games/screen_modes.py)."""
+        changes, refused = mod.plan(data, self.requested, known)
+        refused = dict(refused)
+        if "resolution" in self.requested and "resolution" not in refused:
+            from app.games import screen_modes
+            why = screen_modes.refusal(self.requested["resolution"], screen_modes.resolutions())
+            if why:
+                refused["resolution"] = why
+                changes = [c for c in changes if c.key != "resolution"]
+        return changes, refused
+
     def apply(self) -> SettingsRecord:
         """Back up and write the settings. Raises OSError/ValueError when they cannot be read or written;
         the caller then calls finish() (puts back anything written) and does not launch the game."""
@@ -387,7 +399,7 @@ class ForcedSettings:
         data = self.store.read()
         self.record.before = mod.read_settings(data)
         known = learn_indices(self.data_dir, self.app_id, self.adapter, data)
-        changes, refused = mod.plan(data, self.requested, known)
+        changes, refused = self._plan(mod, data, known)
         self.record.refused = dict(refused)
         self.record.changed = [c.key for c in changes]
         self.backup.parent.mkdir(parents=True, exist_ok=True)
@@ -407,7 +419,7 @@ class ForcedSettings:
         data = self.store.read() if self.store.exists() else mod.parse({})
         self.record.before = mod.read_settings(data)
         known = learn_indices(self.data_dir, self.app_id, self.adapter, data)
-        changes, refused = mod.plan(data, self.requested, known)
+        changes, refused = self._plan(mod, data, known)
         self.record.refused = dict(refused)
         self.record.changed = [c.key for c in changes if c.old != c.new or type(c.old) is not type(c.new)]
         self.record.launch_args = mod.launch_args({c.key: c.new for c in changes})

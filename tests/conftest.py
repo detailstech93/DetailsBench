@@ -50,6 +50,17 @@ def _no_real_conditions_check(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _screen_modes_unknown(monkeypatch, request):
+    """A forced game resolution is checked against this PC's screens (app/games/screen_modes.py). Tests must not
+    depend on this computer's screen: here the modes are unknown (nothing refused); tests/test_screen_modes.py
+    passes its own."""
+    if request.module.__name__.endswith("test_screen_modes"):
+        return
+    from app.games import screen_modes
+    monkeypatch.setattr(screen_modes, "resolutions", lambda: None)
+
+
+@pytest.fixture(autouse=True)
 def _no_real_plan_files(monkeypatch, tmp_path):
     """Every run from the Tests screen saves its plan file (app/experiment.py) in the data folder: in tests it goes
     to the test's own temporary folder, never this PC's data."""
