@@ -65,15 +65,17 @@ GAME_MENU_STEPS: Dict[int, dict] = {
     2369390: {      # Far Cry 6: main menu -> Options -> Video -> (E) Quality -> (E E) Advanced -> F5 Benchmark
         # Steam starts it through Ubisoft Connect (signed in by the owner); MarkBench's deprecated harness,
         # read 2026-10-19: Space skips the logos and the intro, Esc closes a "later" popup
-        # keys pressed in an instant were not seen on 2026-10-23 (Space in the intro, F5): F5 is held 0.15 s;
-        # Space held 0.15 s did not skip the intro either (owner): it is held 2 s
+        # keys pressed in an instant were not seen on 2026-10-23 (Space in the intro, F5): F5 is held 0.15 s.
+        # Space held 0.15 s, then 2 s, did not skip the intro (owner): now pressed twice (owner's idea; the first
+        # press may only show a "skip" prompt), each held 0.15 s
         "steps": [
             # Space skips the intro (owner, 2026-10-23); its first words come at about 30 s
             {"see": ["government", "original", "starring"], "within": 120, "optional": True,
-             "hold": "space", "seconds": 2, "wait": 2},
+             "press": "space, space", "tap": 0.15, "wait": 2},
             {"see": "options", "within": 300,
-             "dismiss": {"government": "space", "original": "space", "starring": "space", "later": "esc"},
-             "tap": 2, "settle": 2, "click": "options", "wait": 3},
+             "dismiss": {"government": "space, space", "original": "space, space", "starring": "space, space",
+                         "later": "esc"},
+             "tap": 0.15, "settle": 2, "click": "options", "wait": 3},
             {"see": "video", "within": 30, "settle": 1, "click": "video", "wait": 3},
             # the Video page has the Video Adapter setting; E moves one tab to the right
             {"see": "adapter", "within": 30, "settle": 1, "press": "e", "wait": 2},

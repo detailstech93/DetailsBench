@@ -3,7 +3,7 @@ the step expects was read on the screen (app/frames/screen_text.py), and only in
 
     {"see": "settings", "within": 300, "press": "z", "dismiss": {"strange": "enter"}}
         wait up to `within` s until a word is on screen, then press. While waiting, a "dismiss" word (a popup)
-        gets its own key. "settle": 2 waits that long after the word is seen before pressing (a menu that has
+        gets its own key (or keys: "space, space" presses it twice). "settle": 2 waits that long after the word is seen before pressing (a menu that has
         just appeared may drop keys).
     {"see": "graphics", "within": 30, "again": {"press": "z", "every": 5}}
         while the word is not there yet, press the previous step's key again every 5 s (it was dropped).
@@ -54,7 +54,7 @@ def step_problems(steps) -> List[str]:
             continue
         chords = [c.strip() for c in str(s.get("press", "")).split(",") if c.strip()]
         chords += [str(s["hold"])] if "hold" in s else []
-        chords += [str(k) for k in (s.get("dismiss") or {}).values()]
+        chords += [c.strip() for k in (s.get("dismiss") or {}).values() for c in str(k).split(",") if c.strip()]
         again = s.get("again")
         if again is not None:
             if not (isinstance(again, dict) and (again.get("press") or again.get("hold"))
@@ -169,7 +169,10 @@ class StepPlayer:
                     return found
                 popup = find_word(lines, list(dismiss))
                 if popup:
-                    self._press(str(dismiss[popup]), step.get("tap"))
+                    for n, chord in enumerate(c.strip() for c in str(dismiss[popup]).split(",") if c.strip()):
+                        if n:
+                            self.sleep(PAUSE_SECONDS)
+                        self._press(chord, step.get("tap"))
                     self.notes.append(f"closed a popup ({popup!r})")
                     self.sleep(DISMISS_PAUSE_SECONDS)   # one key per popup: a second Enter would hit the menu
                 elif again and self.clock() >= next_again and (not again.get("while")
