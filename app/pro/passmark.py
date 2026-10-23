@@ -296,16 +296,11 @@ class PassMarkWorkload(Workload):
             self.needs_admin = False
             self.warning = LINUX_WARNING
 
-    def system_blocks(self, release=None, arch: Optional[str] = None) -> Optional[str]:
-        """Why this system cannot run it at all, Install or not (owner, 2026-10-20: such tests are hidden)."""
+    def system_blocks(self, release=None) -> Optional[str]:
+        """Why this system cannot run it at all, Install or not (owner, 2026-10-20: such tests are hidden).
+        PassMark 3D stays on Windows ARM: it did not start on the test board (Snapdragon 8cx Gen 3, 2026-10-22), most
+        likely that board's graphics, not Windows ARM (owner, 2026-10-23)."""
         if not self._linux:
-            if self.id == "passmark_3d" and sys.platform == "win32":
-                if arch is None:
-                    from app.frames.provision import native_arch
-                    arch = native_arch()
-                if arch == "arm64":     # owner, 2026-10-23: hide it there
-                    return ("PassMark's 3D test does not start on Windows ARM (the Snapdragon board: three tries of "
-                            "15 minutes, no output)")
             return None
         if self.id not in LINUX_MODES:
             return "PassMark's Linux program has the CPU and Memory tests only"
