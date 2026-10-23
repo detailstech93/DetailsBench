@@ -334,10 +334,14 @@ def test_far_cry_6_path(tmp_path):
     p.run()
     assert p.problem is None and 80 <= p.mark_time < 82
     keys = [e[1] if e[0] == "press" else (e[0], e[1]) for e in desk.events]
-    assert keys == [parse_chord("space"), parse_chord("space"), parse_chord("esc"),
+    space, esc, f5 = parse_chord("space"), parse_chord("esc"), parse_chord("f5")
+    # Space (the intro), then Space, Esc for the popups and F5: held, not pressed in an instant (2026-10-23)
+    assert keys == [("down", space), ("up", space), ("down", space), ("up", space), ("down", esc), ("up", esc),
                     ("mouse", (40, 110)), ("button", True), ("button", False),
                     ("mouse", (40, 10)), ("button", True), ("button", False),
-                    parse_chord("e"), parse_chord("e"), parse_chord("e"), parse_chord("f5")]
+                    parse_chord("e"), parse_chord("e"), parse_chord("e"), ("down", f5), ("up", f5)]
+    held = [e for e in desk.events if e[0] in ("down", "up")]
+    assert all(round(up[2] - down[2], 2) == 0.15 for down, up in zip(held[::2], held[1::2]))
     assert "benchmark started ('toggle' seen at 8" in p.summary()
 
 

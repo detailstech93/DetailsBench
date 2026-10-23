@@ -15,6 +15,9 @@ the step expects was read on the screen (app/frames/screen_text.py), and only in
     {"press": "up, up, left, left, down, enter"}      chords one after another (PAUSE_SECONDS apart)
     {"hold": "x", "seconds": 1.5}                    hold a key (some menus need a long press)
     {"wait": 3}                                      let the menu open
+    {"see": "lock", "within": 30, "press": "f5", "tap": 0.15}
+        every key of this step (press, dismiss, again) is held that long by scan code: a game that reads the
+        keyboard once a frame misses an instant press (Far Cry 6's F5 and Space, 2026-10-23)
     {"see": "stop", "within": 120, "mark": True}     the benchmark is running: measuring starts here
 
 A "see" with "optional": True goes on when the word does not come. Anything else that goes wrong (the word
@@ -138,7 +141,7 @@ class StepPlayer:
             if "click" in step:
                 self._click(i, str(step["click"]))
         for chord in [c.strip() for c in str(step.get("press", "")).split(",") if c.strip()]:
-            self._press(chord)
+            self._press(chord, step.get("tap"))
             self.sleep(PAUSE_SECONDS)
         if "hold" in step:
             self._hold(str(step["hold"]), float(step.get("seconds", 1.0)))
@@ -166,7 +169,7 @@ class StepPlayer:
                     return found
                 popup = find_word(lines, list(dismiss))
                 if popup:
-                    self._press(str(dismiss[popup]))
+                    self._press(str(dismiss[popup]), step.get("tap"))
                     self.notes.append(f"closed a popup ({popup!r})")
                     self.sleep(DISMISS_PAUSE_SECONDS)   # one key per popup: a second Enter would hit the menu
                 elif again and self.clock() >= next_again and (not again.get("while")
@@ -175,7 +178,7 @@ class StepPlayer:
                         self._hold(str(again["hold"]), float(again.get("seconds", 1.0)))
                         self.notes[-1] += " again"
                     if again.get("press"):
-                        self._press(str(again["press"]))
+                        self._press(str(again["press"]), step.get("tap"))
                         self.notes[-1] += " again"
                     next_again = self.clock() + float(again["every"])
             if self.clock() >= deadline:
@@ -198,7 +201,10 @@ class StepPlayer:
                 raise _Stop(f"{what} not sent: the game was not in front")
             self.sleep(0.5)
 
-    def _press(self, chord: str) -> None:
+    def _press(self, chord: str, tap: Optional[float] = None) -> None:
+        if tap:
+            self._hold(chord, float(tap))           # its note says "held"
+            return
         from app.simulation.desktop import parse_chord
         self._check_front(chord)
         self.desktop.press(parse_chord(chord))

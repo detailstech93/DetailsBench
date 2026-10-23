@@ -63,10 +63,20 @@ def direct_exe(appid, install_path: str, args: Sequence[str] = ()) -> Optional[s
     return path
 
 
-def start_exe(command: List[str]) -> None:
+def steam_env(appid) -> dict:
+    """The environment for a game started directly: SteamAppId / SteamGameId tell its Steam API which game it is.
+    Without them Shadow of the Tomb Raider asked Steam to start it again (the "custom arguments" dialog) and
+    showed "Failed to initialize Steam" (owner, 2026-10-23)."""
+    env = dict(os.environ)
+    if appid is not None:
+        env["SteamAppId"] = env["SteamGameId"] = str(int(str(appid).strip()))
+    return env
+
+
+def start_exe(command: List[str], appid=None) -> None:
     """Start the game executable (argument list, no shell); it is closed later like a Steam-started game."""
     subprocess.Popen(command, cwd=os.path.dirname(command[0]), stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+                     stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, env=steam_env(appid))
 
 
 def open_url(url: str) -> None:
@@ -117,7 +127,7 @@ def launch_and_confirm(appid, install_path: str, discovered_appids: Iterable[str
                        timeout: float = 60.0, poll: float = 2.0,
                        sleep: Callable[[float], None] = time.sleep,
                        clock: Callable[[], float] = time.monotonic, args: Sequence[str] = (),
-                       starter: Callable[[List[str]], None] = start_exe) -> dict:
+                       starter: Optional[Callable[[List[str]], None]] = None) -> dict:
     """Launch one discovered game and report {status, message, url}.
 
     status: "launched" (new process seen in the install folder),
@@ -132,7 +142,7 @@ def launch_and_confirm(appid, install_path: str, discovered_appids: Iterable[str
     before = snapshot()
     try:
         if exe:
-            starter([exe] + list(args))
+            (starter or (lambda command: start_exe(command, appid)))([exe] + list(args))
             url = f"{os.path.basename(exe)} {' '.join(args)}"
         else:
             opener(url)

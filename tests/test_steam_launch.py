@@ -154,3 +154,14 @@ def test_a_game_with_a_launcher_is_started_directly_without_args(tmp_path):
     exe.parent.mkdir(parents=True)
     exe.write_bytes(b"")
     assert direct_exe(292030, str(tmp_path), []) == os.path.normpath(str(exe))
+
+
+def test_a_game_started_directly_is_told_its_steam_app_id(monkeypatch):
+    from app.steam import launch
+    monkeypatch.setenv("PATH", "x")
+    env = launch.steam_env(" 750920")
+    assert env["SteamAppId"] == env["SteamGameId"] == "750920" and env["PATH"] == "x"
+    started = []
+    monkeypatch.setattr(launch.subprocess, "Popen", lambda cmd, **kw: started.append((cmd, kw["env"])))
+    launch.start_exe([r"C:\g\SOTTR.exe", "-nolauncher"], 750920)
+    assert started[0][0] == [r"C:\g\SOTTR.exe", "-nolauncher"] and started[0][1]["SteamAppId"] == "750920"

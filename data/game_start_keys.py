@@ -65,18 +65,23 @@ GAME_MENU_STEPS: Dict[int, dict] = {
     2369390: {      # Far Cry 6: main menu -> Options -> Video -> (E) Quality -> (E E) Advanced -> F5 Benchmark
         # Steam starts it through Ubisoft Connect (signed in by the owner); MarkBench's deprecated harness,
         # read 2026-10-19: Space skips the logos and the intro, Esc closes a "later" popup
+        # keys pressed in an instant were not seen on 2026-10-23 (Space in the intro, F5): those are held 0.15 s
         "steps": [
+            # Space skips the intro (owner, 2026-10-23); its first words come at about 30 s
+            {"see": ["government", "original", "starring"], "within": 120, "optional": True,
+             "press": "space", "tap": 0.15, "wait": 2},
             {"see": "options", "within": 300,
-             "dismiss": {"government": "space", "original": "space", "later": "esc"},
-             "settle": 2, "click": "options", "wait": 3},
+             "dismiss": {"government": "space", "original": "space", "starring": "space", "later": "esc"},
+             "tap": 0.15, "settle": 2, "click": "options", "wait": 3},
             {"see": "video", "within": 30, "settle": 1, "click": "video", "wait": 3},
             # the Video page has the Video Adapter setting; E moves one tab to the right
             {"see": "adapter", "within": 30, "settle": 1, "press": "e", "wait": 2},
             {"see": "filtering", "within": 30, "press": "e, e", "wait": 2},
             # the Advanced page (Enable Framerate Lock): F5 starts the benchmark
-            {"see": "lock", "within": 30, "press": "f5", "wait": 3},
+            {"see": "lock", "within": 30, "settle": 1, "press": "f5", "tap": 0.15, "wait": 3},
             # "Toggle UI" shows in the lower right while it runs
-            {"see": "toggle", "within": 90, "mark": True, "again": {"press": "f5", "every": 10, "while": "lock"}},
+            {"see": "toggle", "within": 90, "mark": True, "tap": 0.15,
+             "again": {"press": "f5", "every": 10, "while": "lock"}},
         ],
         "benchmark_seconds": 60,        # MarkBench waits 60 s after "toggle", then for its results screen
         # FarCry6.exe ends after about 5 s and Ubisoft Connect starts it again (2026-10-23): the first exit is not
