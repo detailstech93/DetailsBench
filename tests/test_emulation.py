@@ -69,3 +69,20 @@ def test_the_manifest_keeps_the_architecture_and_the_emulation():
     b = m["benchmarks"][0]
     assert b["architecture"] == "x64" and b["comparable_to_native"] is False
     assert m["comparability"]["any_emulated"] is True
+
+
+def test_inside_the_report_the_name_says_emulated():
+    """Owner, 2026-10-23: not only the file name; the title, the summary card and the runs table too."""
+    from app.report import render_session_report
+    export = {"session": {"id": 4, "name": "Automated", "created_at": "2026-10-23 09:15"},
+              "manifest": {"benchmarks": [{"name": "fio", "comparable_to_native": False},
+                                          {"name": "diskspd", "comparable_to_native": True}]},
+              "runs": [{"benchmark_name": "fio", "run_index": 1, "status": "completed", "score": 3109.36,
+                        "unit": "MiB/s", "is_warmup": False},
+                       {"benchmark_name": "diskspd", "run_index": 1, "status": "completed", "score": 3000.0,
+                        "unit": "MiB/s", "is_warmup": False}],
+              "summaries": {"fio": {"stats": {"median": 3109.36}, "unit": "MiB/s"}}}
+    page = render_session_report(export)
+    assert 'class="tested">fio (emulated) · diskspd<' in page
+    assert "<td>fio (emulated)</td>" in page and "<td>diskspd</td>" in page
+    assert "diskspd (emulated)" not in page

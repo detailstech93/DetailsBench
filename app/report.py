@@ -842,6 +842,17 @@ def _session_name(session: Any) -> str:
     return esc("Untitled session")
 
 
+def _emulated(export: Mapping) -> set:
+    """Tests whose program ran emulated (the session manifest says so; app/emulation.py)."""
+    used = (_mapping(export.get("manifest")) or {}).get("benchmarks") or []
+    return {str(b.get("name")) for b in used if isinstance(b, Mapping) and b.get("comparable_to_native") is False}
+
+
+def _label(name: str, emulated: set) -> str:
+    """The test's name with "(emulated)" next to it when it ran emulated (owner, 2026-10-23: inside the report too)."""
+    return f"{name} (emulated)" if name in emulated else name
+
+
 def _tested_names(export: Mapping) -> list:
     """The benchmarks of the session in run order (real runs only), each once."""
     runs = export.get("runs") if isinstance(export.get("runs"), list) else []
@@ -856,7 +867,8 @@ def _tested_names(export: Mapping) -> list:
 
 def _tested_title(export: Mapping) -> str:
     """What was tested, for the big title (owner, 2026-10-19: not "Automated <date>"); "" when no run."""
-    names = _tested_names(export)
+    emulated = _emulated(export)
+    names = [_label(n, emulated) for n in _tested_names(export)]
     if len(names) > 4:
         names = names[:3] + [f"and {len(names) - 3} more"]
     return esc(" · ".join(names))
@@ -920,6 +932,7 @@ def _each_run(export: Mapping, name: Any) -> str:
 def _summary_section(export: Mapping) -> str:
     """One card per benchmark, readable on a phone: each run on its own line, then the average (mean) and the
     other numbers under it."""
+    emulated = _emulated(export)
     summaries = _mapping(export.get("summaries"))
     if summaries is None or not summaries:
         return (
@@ -960,7 +973,7 @@ def _summary_section(export: Mapping) -> str:
         stat_rows = "".join(f"<tr><th>{k}</th><td>{v}</td></tr>" for k, v in numbers)
         cards.append(
             '<div class="sum-card">'
-            f'<h3 dir="auto">{esc(name)}</h3>'
+            f'<h3 dir="auto">{esc(_label(name, emulated))}</h3>'
             '<table class="sum">'
             f"<tbody>{run_rows}{average}{stat_rows}</tbody>"
             "</table>"
@@ -978,6 +991,7 @@ def _summary_section(export: Mapping) -> str:
 
 
 def _runs_section(export: Mapping) -> str:
+    emulated = _emulated(export)
     runs = export.get("runs")
     if not isinstance(runs, list) or not runs:
         return (
@@ -991,7 +1005,7 @@ def _runs_section(export: Mapping) -> str:
     for run in runs:
         mapping = _mapping(run) or {}
 
-        benchmark = _text(mapping.get("benchmark_name"), "-")
+        benchmark = _text(_label(str(mapping.get("benchmark_name") or ""), emulated) or None, "-")
         run_index = _text(mapping.get("run_index"), "-")
         status = mapping.get("status")
         status_text = _text(status, "-")
