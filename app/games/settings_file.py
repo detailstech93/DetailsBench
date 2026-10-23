@@ -24,6 +24,7 @@ picked the value once in the game's menu) and kept in game_settings_indices.json
 import json
 import os
 import shutil
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Mapping, Optional
@@ -392,6 +393,7 @@ class ForcedSettings:
         """Back up and write the settings. Raises OSError/ValueError when they cannot be read or written;
         the caller then calls finish() (puts back anything written) and does not launch the game."""
         mod = self.adapter.module
+        self.started = time.time()          # a report the game writes after this is this run's (far_cry6)
         if self.adapter.base == "launch":
             return self._apply_launch(mod)
         if not self.store.exists():
@@ -451,6 +453,21 @@ class ForcedSettings:
             self.record.notes.append("the game saved these forced values in its own settings, which the app "
                                      "only reads; set them back in the game's menu if needed: " + ", ".join(kept))
 
+    def _check_game_report(self, mod) -> None:
+        """Games that do not write their settings back (Far Cry 6): the game's own end-of-benchmark report decides
+        what it ran with, since the file still holds what was written even when the game ignored it."""
+        if not hasattr(mod, "game_report") or not self.record.changed:
+            return
+        report = mod.game_report(self.store.where, getattr(self, "started", None))
+        if report is None:
+            self.record.notes.append("the game wrote no report of its own for this run, so what it used "
+                                     "could not be checked")
+            self.record.mismatch_after_run = None
+            return
+        accepted = {k: v for k, v in self.requested.items() if k not in self.record.refused}
+        if self.record.mismatch_after_run is not None:
+            self.record.mismatch_after_run.update(_mismatches(mod.report_mismatches(report, accepted)))
+
     def finish(self, restore: bool = True) -> SettingsRecord:
         """Read what the game left, then put the backup back (only if we wrote anything)."""
         mod = self.adapter.module
@@ -464,6 +481,7 @@ class ForcedSettings:
                 learn_indices(self.data_dir, self.app_id, self.adapter, data)
             except (OSError, ValueError) as e:
                 self.record.notes.append(f"could not read the settings after the run: {e}")
+        self._check_game_report(mod)
         if restore and self._written:
             try:
                 self.store.restore(self.backup)
@@ -533,9 +551,10 @@ def _shown(value) -> str:
 
 
 def game_conditions(app_id, display_mode: Optional[str] = None, env: Optional[Mapping[str, str]] = None,
-                    reg=None) -> List[str]:
+                    reg=None, since: Optional[float] = None) -> List[str]:
     """["label: value", ...] for the report: the screen's mode during the benchmark and the graphics settings the
-    game's own file holds after the run (read only; before a forced file is put back). Never raises."""
+    game's own file holds after the run (read only; before a forced file is put back). A game that writes its own
+    report (Far Cry 6) is shown from that report for the settings it shows. Never raises."""
     items = [f"Screen mode during the benchmark: {display_mode}"] if display_mode else []
     adapter = adapter_for(app_id)
     values: Dict[str, object] = {}
@@ -544,6 +563,11 @@ def game_conditions(app_id, display_mode: Optional[str] = None, env: Optional[Ma
             store = adapter.store(_env_for(app_id, env), reg)
             if store.exists():
                 values = adapter.module.read_settings(store.read()) or {}
+            report = adapter.module.game_report(store.where, since) if hasattr(
+                adapter.module, "game_report") else None
+            if report:
+                values = {k: v for k, v in values.items() if k not in adapter.module.REPORT_KEYS}
+                items += adapter.module.report_conditions(report)
         except Exception:
             values = {}
     names = getattr(adapter.module, "SHOWN", {}) if adapter is not None else {}

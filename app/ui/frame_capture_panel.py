@@ -19,6 +19,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
@@ -237,7 +238,8 @@ class GameBenchmarkWorker(QThread):
     def conditions(self, capture) -> List[str]:
         from app.games.settings_file import game_conditions
         try:
-            return game_conditions(self.spec.app_id, getattr(capture, "display_mode", None))
+            return game_conditions(self.spec.app_id, getattr(capture, "display_mode", None),
+                                   since=getattr(self, "started", None))
         except Exception:
             logger.exception("Could not read the game's settings for the report")
             return []
@@ -263,6 +265,7 @@ class GameBenchmarkWorker(QThread):
                     return
             factory = self.benchmark_factory or GameBenchmark
             capture, conditions = None, []
+            self.started = time.time()          # the game's own report is the one written after this
             try:
                 capture = factory(self.spec, self.run_dir, self.stop_event, self.progress.emit,
                                   sampler_factory=self.telemetry).run()

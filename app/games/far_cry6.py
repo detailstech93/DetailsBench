@@ -7,10 +7,17 @@ game's menu showing Fullscreen, VideoModeProfileFullscreen width/height 1920x108
 "0" (ray tracing off), ResolutionConfig FidelityFxSuperResolutionEnabled "0" (FSR 1.0 off). The game has no DLSS
 and no frame generation. Only "high" was seen for the preset; low/medium/ultra are the game's own preset names
 written the same way, and the check after the run shows whether the game kept them.
+
+2026-10-23: "ultra" was written and the game ran every quality setting at Low (its own report said so) while the
+file still read "ultra": the game does not rewrite the file, so the file cannot show what it used. The preset is
+now "learned" (only values the game itself wrote are offered), and the check after the run reads the report the
+game writes at the end of its benchmark (benchmarks/benchmark <date>/result.html next to gamerprofile.xml).
 """
 
+import os
 import re
-from typing import List, Optional
+from pathlib import Path
+from typing import Dict, List, Optional
 
 from app.games import text_settings as ts
 from app.games.text_settings import Change, Setting  # noqa: F401  (Change is used by callers)
@@ -24,8 +31,7 @@ SHOWN = {"window_mode": {"1": "Full screen"}}       # file values named in the g
 SETTINGS = {
     "resolution": Setting("resolution", ("VideoModeProfileFullscreen@width", "VideoModeProfileFullscreen@height")),
     "window_mode": Setting("learned", ("RenderProfile@VideoModeProfile",)),
-    "preset": Setting("map", ("RenderProfile@Quality",),
-                      (("Low", "low"), ("Medium", "medium"), ("High", "high"), ("Ultra", "ultra"))),
+    "preset": Setting("learned", ("RenderProfile@Quality",)),
     "dxr_reflections": Setting("map", ("RenderProfile@DxrReflections",), ON_OFF),
     "dxr_shadows": Setting("map", ("RenderProfile@DxrShadows",), ON_OFF),
     "upscaler": Setting("map", ("ResolutionConfig@FidelityFxSuperResolutionEnabled",),
@@ -100,3 +106,50 @@ def apply(data, changes):
 
 def verify(data, desired):
     return ts.verify(SETTINGS, get, data, desired)
+
+
+REPORT_DIR = "benchmarks"           # next to gamerprofile.xml; the game writes "benchmark <date>/result.html"
+REPORT_NAME = "result.html"
+REPORT_KEYS = {"preset": "Graphics Quality", "resolution": "Display Resolution", "window_mode": "Window Mode"}
+REPORT_SHOWN = ("Window Mode", "Display Resolution", "Refresh Rate", "Graphics Quality", "Anti-Aliasing",
+                "V-SYNC", "Framerate Lock", "Resolution Scale")
+_OPTION = re.compile(r'option_name">\s*([^<]*?):?\s*</div>\s*<div class\s*=\s*"option_value[^"]*">\s*([^<]*?)\s*<')
+
+
+def game_report(settings_path, since: Optional[float] = None) -> Optional[Dict[str, str]]:
+    """{"Graphics Quality": "Low", "Average FPS": "129", ...} from the newest report the game wrote at or after
+    since (seconds, time.time()); None when there is none. Read only."""
+    folder = Path(settings_path).parent / REPORT_DIR
+    try:
+        found = [f for f in folder.glob("*/" + REPORT_NAME)
+                 if since is None or os.path.getmtime(f) >= since - 1]
+        if not found:
+            return None
+        text = max(found, key=os.path.getmtime).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    report: Dict[str, str] = {}
+    for name, value in _OPTION.findall(text):
+        report.setdefault(name.strip(), value.strip())
+    return report or None
+
+
+def _same(a, b) -> bool:
+    return str(a).lower().replace(" ", "") == str(b).lower().replace(" ", "")
+
+
+def report_mismatches(report: Dict[str, str], desired) -> Dict[str, tuple]:
+    """{key: (wanted, what the game's report says)} for the settings the report shows."""
+    out = {}
+    for key, wanted in (desired or {}).items():
+        label = REPORT_KEYS.get(key)
+        if label is None or label not in report:
+            continue
+        shown = SHOWN.get(key, {}).get(str(wanted), wanted)
+        if not _same(shown, report[label]):
+            out[key] = (wanted, report[label])
+    return out
+
+
+def report_conditions(report: Dict[str, str]) -> List[str]:
+    return [f"{name} (the game's report): {report[name]}" for name in REPORT_SHOWN if name in report]
