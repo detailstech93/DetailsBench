@@ -30,7 +30,7 @@ different computers can be compared, and each session ends with an HTML report.
 - **Reports**: one HTML report per session, with its own section per test and a chart per run. Export and backup
   of the database.
 - **Games**: frame capture with PresentMon (Windows) or MangoHud (Linux), forced graphics settings and built-in
-  benchmark scripts (Cyberpunk 2077).
+  benchmark scripts (Cyberpunk 2077). (Under development.)
 - **Remote mode**: an on/off switch on the Tests screen. When it is on, a phone or another computer on the same
   local network opens the address the app shows, types its one-time code, sees every test, starts them, follows
   each test and run with its scores and the time left, stops them and reads the report right there. Off by
@@ -135,7 +135,7 @@ must stay under the same license, with its source. The benchmark programs the ap
 - **التقارير**: تقرير HTML لكل جلسة، كل اختبار إلو قسمه الخاص ورسم بياني لكل تشغيل. مع تصدير ونسخ احتياطي لقاعدة
   البيانات.
 - **الألعاب**: قياس الفريمات بـ PresentMon (ويندوز) أو MangoHud (لينكس)، فرض إعدادات الغرافيك، وسكربتات للبنشمارك
-  المدمج بالألعاب (Cyberpunk 2077).
+  المدمج بالألعاب (Cyberpunk 2077). (قيد التطوير)
 - **وضع التحكم عن بعد**: زر تشغيل/إطفاء بشاشة الاختبارات. لما يكون شغّال، الموبايل أو أي كمبيوتر تاني عنفس الشبكة
   المحلية بيفتح العنوان يلي بيعرضه التطبيق، بيكتب الكود المؤقت، وبيشوف كل الاختبارات، بيشغّلها، بيتابع كل اختبار وتشغيل مع النتائج والوقت الباقي، بيوقفها وبيقرأ التقرير عنده.
 - **مجلد التقارير**: التطبيق بيسألك مرة وحدة أول مرة وين بدك تنحفظ التقارير، وكل التقارير بتنحفظ فيه.
