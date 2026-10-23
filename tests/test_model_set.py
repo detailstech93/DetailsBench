@@ -101,7 +101,10 @@ def test_a_run_loads_its_own_copy_and_always_unloads_it(tmp_path, monkeypatch):
     assert r.status == "completed" and r.score == 61.25 and r.unit == "tok/s"
     assert seen["command"][seen["command"].index("--model") + 1] == "pcbm-llama_benchy_gemma4_12b"
     assert ["--runs", "3"] == seen["command"][seen["command"].index("--runs"):][:2]
-    assert [c[0] for c in fake.calls if c[0] != "ls"] == ["unload", "load", "unload"]
+    assert [c for c in fake.calls if c[0] != "ls"] == [
+        ["unload", "--all"], ["load", "google/gemma-4-12b-qat", "--identifier", "pcbm-llama_benchy_gemma4_12b", "-c",
+                              "4096", "--gpu", "max", "--parallel", "1", "-y"],
+        ["unload", "pcbm-llama_benchy_gemma4_12b"]]
     assert "Context: 4096" in r.note and "google/gemma-4-12b-qat Q4_0" in r.note
     assert (tmp_path / "run" / "lms_load.txt").is_file() and seen["command"][-2:] == ["--tokenizer", "gpt2"]
     assert json.loads((tmp_path / "run" / "ai_run.json").read_text(encoding="utf-8"))["tokenizer"] == "gpt2"

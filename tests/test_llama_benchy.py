@@ -84,6 +84,8 @@ def _fake(tmp_path: Path, body: str) -> Path:
 
 class PyBenchy(llama_benchy.LlamaBenchyWorkload):
     def __init__(self, script, **kw):
+        kw.setdefault("unload", lambda model: None)          # never LM Studio on the computer running the tests
+        kw.setdefault("unload_all", lambda: None)
         super().__init__("google/gemma-4-12b-qat", exe=Path(sys.executable), read_models=lambda url: MODELS,
                          read_runtimes=lambda: {"GGUF": "llama.cpp-cuda@2.60.0"}, **kw)
         self.script = script
@@ -154,19 +156,14 @@ def test_lm_studio_refusing_the_model_says_why(tmp_path):
     assert result.status == "failed" and result.error.startswith("not enough memory") and result.score is None
 
 
-def test_a_model_lm_studio_loaded_for_the_run_is_unloaded_after_it(tmp_path):
-    """Fedora, 2026-10-23: the free test's model stayed loaded and the next AI test ran the computer out of memory."""
+def test_every_model_is_unloaded_before_the_run_and_its_own_after_it(tmp_path):
+    """Owner, 2026-10-23: nothing else in memory while a model is measured, on every system (Fedora: the free
+    test's model stayed loaded and the next AI test ran the computer out of memory)."""
     script = _fake(tmp_path, f"open(out, 'w').write({json.dumps(json.dumps(RESULT))})\n")
-    unloaded = []
-    for state, expected in (("not-loaded", ["google/gemma-4-12b-qat"]), ("loaded", [])):
-        unloaded.clear()
-        models = [dict(m, state=state) for m in MODELS]
-        w = PyBenchy(script, unload=unloaded.append)
-        w._read_models = lambda url: models
-        run_dir = tmp_path / state
-        run_dir.mkdir()
-        assert w.run(RunContext(output_dir=run_dir, timeout_seconds=60)).status == "completed"
-        assert unloaded == expected         # one the owner loaded before stays
+    calls = []
+    w = PyBenchy(script, unload=lambda m: calls.append(("unload", m)), unload_all=lambda: calls.append(("all",)))
+    assert w.run(RunContext(output_dir=tmp_path, timeout_seconds=60)).status == "completed"
+    assert calls == [("all",), ("unload", "google/gemma-4-12b-qat")]
 
 
 def test_an_engine_that_dies_is_a_crash_and_not_run_again():

@@ -194,15 +194,21 @@ def parse_ints(text: str, minimum: int) -> Optional[List[int]]:
     return values if values and values[0] >= minimum else None
 
 
-def unload_model(model: str) -> None:
-    """`lms unload <model>` (LM Studio's own command); nothing happens when lms is missing or it fails."""
+def unload_model(model: Optional[str]) -> None:
+    """`lms unload <model>`, or `lms unload --all` for None (LM Studio's own command); nothing happens when lms is
+    missing or it fails."""
     lms = lmstudio.lms_path()
-    if lms is None or not model:
+    if lms is None:
         return
     try:
-        subprocess.run([str(lms), "unload", model], capture_output=True, timeout=60, stdin=subprocess.DEVNULL)
+        subprocess.run([str(lms), "unload"] + ([model] if model else ["--all"]), capture_output=True, timeout=60,
+                       stdin=subprocess.DEVNULL)
     except (OSError, subprocess.SubprocessError):
         pass
+
+
+def unload_all_models() -> None:
+    unload_model(None)
 
 
 class LlamaBenchyWorkload(Workload):
@@ -213,18 +219,21 @@ class LlamaBenchyWorkload(Workload):
     verified = True                   # checked with real runs on this computer (2026-10-18)
     warning = WARNING
     unload_jit = True                 # a model LM Studio loaded for this run is unloaded after it
+    unload_all_first = True           # `lms unload --all` before the run
 
     def __init__(self, model: Optional[str], base_url: str = lmstudio.DEFAULT_URL, pp: int = 512, tg: int = 128,
                  depths: Sequence[int] = (0,), runs: int = 1, exe: Optional[Path] = None,
                  read_models: Callable = lmstudio.read_models,
                  read_runtimes: Callable[[], Dict[str, str]] = lambda: lmstudio.read_runtimes(lmstudio.lms_path()),
-                 concurrency: Sequence[int] = (1,), prefix_caching: bool = False, unload: Callable = None):
+                 concurrency: Sequence[int] = (1,), prefix_caching: bool = False, unload: Callable = None,
+                 unload_all: Callable = None):
         self.model, self.base_url, self.pp, self.tg = model, base_url, pp, tg
         self.depths, self.runs = list(depths), runs
         self.concurrency, self.prefix_caching = list(concurrency), prefix_caching
         self.exe = exe if exe is not None else benchy_path()
         self._read_models, self._read_runtimes = read_models, read_runtimes
         self._unload = unload or unload_model
+        self._unload_all = unload_all or unload_all_models
 
     def configure(self, settings: Mapping):
         """Settings from the panel's dialog: model, pp, tg, depths, concurrency, prefix_caching."""
@@ -250,14 +259,6 @@ class LlamaBenchyWorkload(Workload):
         return build_command(str(self.exe), self.base_url, self.model or "<model>", self.pp, self.tg, self.depths,
                              self.runs, result_path, self.concurrency, self.prefix_caching)
 
-    def _state(self) -> Optional[str]:
-        """LM Studio's "state" of the model ("loaded" / "not-loaded"), or None when it cannot be read."""
-        try:
-            models = self._read_models(self.base_url)
-        except (OSError, ValueError):
-            return None
-        return next((m.get("state") for m in models if m.get("id") == self.model), None)
-
     def _model_record(self) -> Dict[str, object]:
         try:
             models = self._read_models(self.base_url)
@@ -274,16 +275,16 @@ class LlamaBenchyWorkload(Workload):
         folder = Path(ctx.output_dir)
         result_path = folder / RESULT_FILE
         command = self._command(str(result_path))
-        state = self._state()             # "not-loaded": LM Studio loads it for this run (JIT)
+        # every loaded model is unloaded first, on every system: nothing else shares the memory with the measured
+        # model (owner, 2026-10-23; Fedora: Qwen3.5 4B stayed loaded, Gemma 4 12B came on top, out of memory)
+        if self.unload_all_first:
+            self._unload_all()
         record = self._model_record()     # before the run: a JIT model may only be loaded by it
         out, err = folder / "stdout.txt", folder / "stderr.txt"
         try:
             outcome = run_process(command, out, err, ctx.timeout_seconds, ctx.stop_event, cwd=str(folder))
         finally:
-            # LM Studio loaded the model for this run (JIT): unloaded again, so the next AI test does not share the
-            # memory with it (Fedora, 2026-10-23: Qwen3.5 4B stayed loaded, Gemma 4 12B came on top and the computer
-            # ran out of memory). A model that was loaded before the run is the owner's and stays.
-            if self.unload_jit and state == "not-loaded":
+            if self.unload_jit:           # LM Studio loaded it for this run (JIT): unloaded again after it
                 self._unload(self.model)
         common = {"command": command, "exit_code": outcome.exit_code,
                   "duration_seconds": round(outcome.duration_seconds, 3),

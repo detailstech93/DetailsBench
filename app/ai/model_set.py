@@ -15,8 +15,9 @@ variant selected is named, never measured as if it were the fixed one).
 Run: LM Studio's server must answer on localhost:1234 (`lms server start` when it does not; it stays on this PC).
 The app loads its own copy, `lms load <key> --identifier pcbm-<test id> -c 4096 --gpu max --parallel 1 -y`
 (context 4096, every layer on the graphics card, one request at a time), runs llama-benchy against that identifier
-(pp 512, tg 128, depth 0, concurrency 1, 3 runs) and always unloads only that identifier afterwards (`lms unload`).
-Other loaded models are not touched, but they share the graphics card: the warning says so. A model that does not
+(pp 512, tg 128, depth 0, concurrency 1, 3 runs) and always unloads that identifier afterwards (`lms unload`).
+Every other loaded model is unloaded before the load (`lms unload --all`, owner 2026-10-23: nothing else shares the
+memory with the measured model). A model that does not
 fit with every layer on the card fails to load and the run says so (no score). llama-benchy counts tokens with the
 gpt2 tokenizer on every PC (--tokenizer gpt2: the identifier is not a Hugging Face name, and the same tokenizer
 everywhere keeps the counts comparable). Real runs on this computer 2026-10-19 (Gemma 4 12B): first with the NVIDIA
@@ -151,6 +152,10 @@ def unload_command(lms: str, ident: str) -> List[str]:
     return [lms, "unload", ident]
 
 
+def unload_all_command(lms: str) -> List[str]:
+    return [lms, "unload", "--all"]
+
+
 STOPPED = "stopped by user"
 
 
@@ -283,6 +288,7 @@ class FixedModelWorkload(llama_benchy.LlamaBenchyWorkload):
     VERIFIED = ("llama_benchy_gemma4_12b",)     # a real run on this computer (2026-10-19, RTX 5090 Laptop GPU)
     asks_settings = False             # fixed model and settings: the free test's dialog is not shown
     unload_jit = False                # its own copy is unloaded by run() below
+    unload_all_first = False          # run() below unloads every model before it loads its own
     tokenizer = "gpt2"                # --tokenizer gpt2 on every PC (recorded in ai_run.json)
 
     def __init__(self, test_id: str, exe: Optional[Path] = None, lms: Optional[Path] = None,
@@ -361,7 +367,7 @@ class FixedModelWorkload(llama_benchy.LlamaBenchyWorkload):
         if problem:
             return WorkloadResult(status="failed", error=problem)
         lms = str(self.lms)
-        self._lms_run(unload_command(lms, self.model), 60)        # a copy left by a stopped run
+        self._lms_run(unload_all_command(lms), 60)        # every model, a copy left by a stopped run too
         short = self.memory_short()
         if short:
             return WorkloadResult(status="skipped", error=short)
