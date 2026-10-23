@@ -252,3 +252,18 @@ def test_a_model_that_does_not_fit_is_marked_in_the_llama_benchy_list(qapp):
     unknown = [{"id": "x", "type": "llm"}]
     automation_panel.mark_fit(unknown, dict)
     assert unknown == [{"id": "x", "type": "llm"}]
+
+
+def test_main_window_offers_a_problem_report_after_a_failure(qapp, tmp_path):
+    """Owner, 2026-10-23: a "Report a problem" button, and the offer when a test did not complete or on an error."""
+    with patch.object(MainWindow, "start_scan"):
+        w = MainWindow(Database(str(tmp_path / "w.db")), {})
+    try:
+        assert w.problem_btn.text() == "Report a problem" and w.problem_bar.isHidden()
+        assert w.automation_panel.on_failures == w.offer_problem_report
+        w.offer_problem_report("Did not complete: fio.", 3)
+        assert not w.problem_bar.isHidden() and w.problem_session == 3
+        w.error_seen.emit("Traceback")
+        assert "The app hit an error." in w.problem_bar.label.text()
+    finally:
+        w.close()

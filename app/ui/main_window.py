@@ -312,6 +312,7 @@ def _game_is_open(app_id) -> bool:
 
 class MainWindow(QMainWindow):
     """Main application window for DetailsBench."""
+    error_seen = Signal(str)        # an error the app did not catch, from any thread (app/app_log.py)
     
     def __init__(self, db: Any, system_info: dict):
         super().__init__()
@@ -407,11 +408,20 @@ class MainWindow(QMainWindow):
         header_layout.addWidget(QLabel("Theme:"))
         header_layout.addWidget(self.theme_box)
         header_layout.addWidget(self.rescan_btn)
+        self.problem_btn = QPushButton("Report a problem")      # owner, 2026-10-23 (app/problem_report.py)
+        self.problem_btn.setToolTip("Make a problem report (a zip) and open a GitHub issue to send it to us")
+        self.problem_btn.clicked.connect(lambda: self.report_problem())
+        header_layout.addWidget(self.problem_btn)
         
         main_layout.addWidget(header_frame)
         from app.ui.update_ui import UpdateBar
         self.update_bar = UpdateBar()          # shown when a newer version is out (app/ui/update_ui.py)
         main_layout.addWidget(self.update_bar)
+        from app.ui.problem_report_ui import ProblemBar
+        self.problem_bar = ProblemBar(lambda: self.report_problem(self.problem_session))
+        self.problem_session: Optional[int] = None
+        main_layout.addWidget(self.problem_bar)
+        self.error_seen.connect(lambda _text: self.offer_problem_report("The app hit an error."))
 
         # --- Main Tabbed Views ---
         self.tabs = QTabWidget()
@@ -538,6 +548,31 @@ class MainWindow(QMainWindow):
     def queued_installs(self):
         flow = self._queueing_flow()
         return flow.queued_ids() if flow is not None else []
+
+    def offer_problem_report(self, text: str, session_id: Optional[int] = None):
+        """The bar under the header: a test did not complete or the app hit an error. Never a window that waits:
+        an unattended run (shut down after finishing) must go on."""
+        self.problem_session = session_id
+        self.problem_bar.offer(text)
+
+    def report_problem(self, session_id: Optional[int] = None):
+        from app.ui.problem_report_ui import ProblemDialog
+        if session_id is None:
+            session_id = getattr(self.automation_panel, "last_session_id", None) if hasattr(
+                self, "automation_panel") else None
+        if session_id is None:
+            try:
+                sessions = self.db.get_sessions(include_test=True)
+                session_id = max((s.get("id") for s in sessions if isinstance(s.get("id"), int)), default=None)
+            except Exception:
+                session_id = None
+        try:
+            runs = self.db.get_runs(session_id, include_test=True) if session_id is not None else []
+        except Exception:
+            logger.exception("Could not read the session's runs for the problem report")
+            runs = []
+        self.problem_bar.hide()
+        ProblemDialog(self, session_id, runs, self.system_info).exec()
 
     def set_theme(self, mode: str):
         """Show the app in the chosen look now and keep the choice."""
@@ -1111,6 +1146,7 @@ class MainWindow(QMainWindow):
             self.db, self.selected_profile,
             lambda: self.environment_profile.to_dict() if self.environment_profile else None,
             on_session_changed=self.refresh_history_screen, parent=tab)
+        self.automation_panel.on_failures = self.offer_problem_report
         layout.addWidget(self.automation_panel)
         from app.ui.frame_capture_panel import FrameCapturePanel
         self.frame_panel = FrameCapturePanel(

@@ -40,6 +40,10 @@ def main():
 
     db_path, db_notes = resolve_database_path()
     db = Database(str(db_path))
+    # the app's log file and errors nobody caught, for problem reports (app/app_log.py)
+    from app import app_log
+    errors = []                         # the window is not there yet: it is told through its signal later
+    app_log.setup(db_path.resolve().parent, on_error=lambda text: errors[0](text) if errors else None)
 
     print("DetailsBench v0.1.0")
     print("=" * 50)
@@ -64,6 +68,7 @@ def main():
         from app.ui import theme
         theme.apply(theme.saved())          # Light / Dark / System, as last chosen
         window = MainWindow(db, system_info)
+        errors.append(window.error_seen.emit)       # queued to the window's thread, from any thread
         window.show()           # on every system (it was Windows only: Linux ran with no window)
         from PySide6.QtCore import QTimer
         QTimer.singleShot(8000, window.update_flow.at_start)   # a newer version? (at most once a day, can be off)

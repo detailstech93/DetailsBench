@@ -190,6 +190,7 @@ class AutomationPanel(QGroupBox):
         self.last_summary = None
         self.reports: list = []
         self.on_plan_finished: Optional[Callable[[int, str], None]] = None    # set by the Tests screen
+        self.on_failures: Optional[Callable[[str, int], None]] = None    # a test did not complete: offer a report
         self.on_step_report: Optional[Callable[[int, int, str], None]] = None  # each step (a test's report)
         self.asking = False          # the "start these runs?" question is open (after the sensors were prepared)
         self.step: Tuple[int, int, str] = (0, 0, "")                          # progress of the running plan
@@ -600,3 +601,8 @@ class AutomationPanel(QGroupBox):
         if self.on_plan_finished is not None and self.last_session_id is not None:
             callback, self.on_plan_finished = self.on_plan_finished, None     # one plan, one callback
             callback(self.last_session_id, text)
+        if isinstance(summary, RunSummary) and self.on_failures is not None:
+            from app.problem_report import FAILED
+            failed = sorted({rec.workload_id for rec in summary.records if rec.result.status in FAILED})
+            if failed:
+                self.on_failures(f"Did not complete: {', '.join(failed)}.", self.last_session_id)
