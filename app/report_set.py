@@ -46,10 +46,14 @@ def tested_names(export: Mapping) -> List[str]:
     return sorted(first, key=first.get)
 
 
+EMULATED = " (emulated)"     # next to a test that ran emulated (owner, 2026-10-23)
+
+
 def display_names(export: Mapping) -> dict:
     used = (export.get("manifest") or {}).get("benchmarks") or []
-    return {str(b.get("name")): str(b.get("display_name")) for b in used
-            if isinstance(b, Mapping) and b.get("name") and b.get("display_name")}
+    return {str(b.get("name")): str(b.get("display_name")) + (EMULATED if b.get("comparable_to_native") is False
+                                                               else "")
+            for b in used if isinstance(b, Mapping) and b.get("name") and b.get("display_name")}
 
 
 def one_test(export: Mapping, name: str) -> dict:

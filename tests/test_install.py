@@ -793,3 +793,14 @@ def test_fio_on_windows_arm_installs_the_x64_build_emulated():
     assert calls[-1][-2:] == ["--architecture", "x64"]
     assert winget.describe("fio", run=run, size_of=lambda url: 1, host_arch="x64").architecture == ""
     assert "--architecture" not in calls[-1]
+
+
+def test_an_emulated_test_has_its_own_colour(qapp):
+    from app.ui.tests_page import EMULATED_COLOR
+    e = entry("fio")
+    e.state, e.emulated = INSTALLED, True
+    page = TestsPage(open_url=lambda url: None)
+    page.set_entries([e])
+    item = page.items["fio"]
+    assert item.foreground(0).color().name().lower() == EMULATED_COLOR.lower()
+    assert item.toolTip(0).startswith("Runs emulated")

@@ -18,6 +18,8 @@ COLUMNS = ["Test", "Installed", "How it runs", "Verified", "Time", ""]
 MODE_TEXT = {AUTOMATIC: "Automatic", ASSISTED: "Assisted (you start it)", "manual": "Manual (you type the score)"}
 STATE_TEXT = {INSTALLED: "✔ installed", MISSING: "⬇ not installed", "unusable": "⚠ cannot run"}
 STATE_COLOR = {INSTALLED: "#15803d", MISSING: "#757575", "unusable": "#B26A00"}
+EMULATED_COLOR = "#8E24AA"      # the name of a test that runs emulated (owner, 2026-10-23)
+EMULATED_TIP = "Runs emulated: there is no build of it for this computer's processor, Windows runs another one"
 
 
 BAR_STYLE = ("QProgressBar { border: 1px solid #3f3f46; border-radius: 5px; text-align: center; height: 22px; "
@@ -372,6 +374,9 @@ class TestsPage(QWidget):
                                         f"~{e.expected_minutes:g} min" if e.expected_minutes else "", ""])
                 item.setData(0, Qt.UserRole, e.id)
                 item.setToolTip(0, e.state_reason or "")
+                if e.emulated:
+                    item.setForeground(0, _brush(EMULATED_COLOR))
+                    item.setToolTip(0, EMULATED_TIP + (f"\n{e.state_reason}" if e.state_reason else ""))
                 item.setToolTip(1, e.compatibility_reason or e.state_reason or "")
                 item.setForeground(1, self.palette().text() if not e.compatible else
                                    _brush(STATE_COLOR.get(e.state, "#757575")))

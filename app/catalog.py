@@ -51,6 +51,7 @@ class TestEntry:
     expected_minutes: Optional[float] = None
     source: str = ""            # "workload" | "library" | "steam"
     ref: object = None          # the workload, BenchmarkInfo or game dict it came from
+    emulated: bool = False      # its program is another processor's build, run emulated (app/emulation.py)
 
     def can_run(self) -> bool:
         return self.compatible and self.state == INSTALLED
@@ -222,7 +223,20 @@ def steam_entries(games: List[dict], environment: Optional[dict], covered_app_id
     return entries
 
 
-def build_catalog(workloads, benchmarks, games, environment: Optional[dict]) -> List[TestEntry]:
+def mark_emulated(entries: List[TestEntry], environment: Optional[dict], read=None) -> None:
+    """Sets .emulated on installed tests whose program is an x64/x86 build on an ARM computer."""
+    from app import emulation
+    f = (environment or {}).get("native_arch")
+    native = f.get("value") if isinstance(f, dict) else f
+    if native not in emulation.EMULATED_ON:
+        return
+    for e in entries:
+        if e.state == INSTALLED and e.source in ("workload", "library"):
+            arch = emulation.program_arch(e.ref, read or emulation.exe_arch)
+            e.emulated = emulation.is_emulated(native, arch)
+
+
+def build_catalog(workloads, benchmarks, games, environment: Optional[dict], read_arch=None) -> List[TestEntry]:
     """Every test, in group order then name. Ids are unique: a later source never repeats an id."""
     wl = workload_entries(workloads, environment)
     covered = [w.ref.script.get("steam_app") for w in wl
@@ -234,6 +248,7 @@ def build_catalog(workloads, benchmarks, games, environment: Optional[dict]) -> 
         if e.id not in seen:
             seen.add(e.id)
             out.append(e)
+    mark_emulated(out, environment, read_arch)
     order = {g: i for i, (g, _) in enumerate(GROUPS)}
     return sorted(out, key=lambda e: (order.get(e.group, len(order)), e.name.lower()))
 

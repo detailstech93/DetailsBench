@@ -108,6 +108,12 @@ def mark_fit(models: list, sizes=None, ram=..., card=...):
             m["fit"] = model_fit.warning(f"{sizes[m['id']]:.1f} GB", ram, card).replace(" Download it anyway?", "")
 
 
+def _arch_fields(native: str, arch: str) -> dict:
+    """The program's architecture and whether it ran emulated, for the session manifest (the report reads it)."""
+    from app.emulation import is_emulated
+    return {"architecture": arch, "compatibility": {"comparable_to_native": not is_emulated(native, arch)}}
+
+
 def language_models(parent, read_models=None, start_server=None, sizes=None) -> Optional[list]:
     """LM Studio's language models (loaded ones first); None (with a message) when there are none to measure.
     Reads LM Studio's local server once (5 s limit)."""
@@ -413,6 +419,9 @@ class AutomationPanel(QGroupBox):
 
     def _create_session(self, workloads, profile, conditions: Optional[dict] = None) -> int:
         from app.manifest import build_manifest, git_commit
+        from app.emulation import program_arch
+        from app.frames.provision import native_arch
+        native = native_arch()
         name = f"Automated {datetime.now().strftime('%Y-%m-%d %H:%M')}"
         is_test = all(wl.is_test for wl in workloads)
         sid = self.db.create_session(name, "Automated command-line runs", is_test=is_test, is_manual=False)
@@ -422,6 +431,7 @@ class AutomationPanel(QGroupBox):
             benchmarks_used=[{"name": wl.id, "display_name": wl.display_name, "version": wl.version(),
                               "executable_path": wl.executable()[0],
                               "detection_method": "tool spec " + wl.executable()[1],
+                              **_arch_fields(native, program_arch(wl)),
                               **({"model": wl.model} if getattr(wl, "model", None) else {})}
                              for wl in workloads],
             commit=git_commit(), conditions=conditions)
