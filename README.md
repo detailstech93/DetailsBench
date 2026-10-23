@@ -55,8 +55,8 @@ Some tests are Windows only; the Tests screen hides what this PC cannot run and 
 
 ### Requirements
 
-- Windows 10/11 (x64 or ARM64) or Linux (x64 or ARM64: Debian/Ubuntu, Fedora, Arch, openSUSE; not every test is
-  checked on Linux yet). On ARM64 fewer tests run: many benchmark programs have no ARM build (the Tests screen says
+- Windows 10/11 (x64 or ARM64) or Linux (x64 or ARM64: Debian/Ubuntu, Fedora, Arch, openSUSE; the app has not
+  been tested on every Linux distribution yet). On ARM64 fewer tests run: many benchmark programs have no ARM build (the Tests screen says
   which).
 - Python 3.10 or newer.
 
@@ -158,8 +158,8 @@ must stay under the same license, with its source. The benchmark programs the ap
 
 ### المتطلبات
 
-- ويندوز 10/11 (x64 أو ARM64) أو لينكس (x64 أو ARM64: Debian/Ubuntu و Fedora و Arch و openSUSE؛ مش كل الاختبارات
-  تم اختبارها عاللينكس لسا). عـ ARM64 في اختبارات أقل: كتير برامج اختبار ما إلها نسخة ARM (شاشة الاختبارات بتقلك أيّا).
+- ويندوز 10/11 (x64 أو ARM64) أو لينكس (x64 أو ARM64: Debian/Ubuntu و Fedora و Arch و openSUSE؛ لم يتم اختبار الأداة
+  على كل توزيعات لينكس بعد). عـ ARM64 في اختبارات أقل: كتير برامج اختبار ما إلها نسخة ARM (شاشة الاختبارات بتقلك أيّا).
 - Python 3.10 أو أحدث.
 
 ### التثبيت والتشغيل
