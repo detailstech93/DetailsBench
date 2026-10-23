@@ -339,3 +339,21 @@ def test_far_cry_6_path(tmp_path):
                     ("mouse", (40, 10)), ("button", True), ("button", False),
                     parse_chord("e"), parse_chord("e"), parse_chord("e"), parse_chord("f5")]
     assert "benchmark started ('toggle' seen at 8" in p.summary()
+
+
+def test_borderlands_3_path(tmp_path):
+    from data.game_start_keys import benchmark_seconds_for
+    assert benchmark_seconds_for(397540) == 110
+    timeline = [(0, ["Gearbox"]), (20, ["Press any key"]), (24, ["Loading"]),
+                (30, ["Play", "Options", "Social", "Quit"]), (40, ["Visuals", "Sound", "Gameplay"]),
+                (50, ["Basic", "Display Mode"]), (60, ["Start Benchmark"]), (70, ["Loading"]), (80, ["FPS 140"])]
+    p, desk, clock = player(tmp_path, menu_steps_for(397540), timeline)
+    p.run()
+    assert p.problem is None and 80 <= p.mark_time < 82
+    keys = [e[1] if e[0] == "press" else (e[0], e[1]) for e in desk.events]
+    assert keys == [parse_chord("enter"),
+                    ("mouse", (40, 110)), ("button", True), ("button", False),
+                    ("mouse", (40, 10)), ("button", True), ("button", False),
+                    parse_chord("e"), parse_chord("e"), parse_chord("e"),
+                    ("mouse", (40, 10)), ("button", True), ("button", False)]
+    assert "benchmark started ('fps' seen at 8" in p.summary()

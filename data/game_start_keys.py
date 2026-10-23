@@ -83,6 +83,26 @@ GAME_MENU_STEPS: Dict[int, dict] = {
         "note": "Options, Video, two tabs right, F5 for the benchmark; measuring starts when 'Toggle UI' shows. "
                 "The benchmark takes about a minute.",
     },
+    397540: {       # Borderlands 3: main menu -> Options -> Visuals -> Benchmark (third tab) -> Start Benchmark
+        # no launch argument starts it (AnandTech); the path is PCGamingWiki's "List of games with built-in
+        # benchmarks" (read 2026-10-23). Not in MarkBench. The tab keys (E) are a guess until watched here.
+        "steps": [
+            {"see": "options", "within": 300, "dismiss": {"press any": "enter"}, "settle": 2, "click": "options",
+             "wait": 3},
+            {"see": "visuals", "within": 30, "again": {"press": "enter", "every": 5, "while": "options"},
+             "settle": 1, "click": "visuals", "wait": 3},
+            # the Visuals page opens on its first tab: E moves one tab to the right until the Benchmark tab shows
+            {"see": "start benchmark", "within": 40, "again": {"press": "e", "every": 4}, "settle": 1,
+             "click": "start", "wait": 3},
+            # the benchmark shows its frame rate while it runs (Notebookcheck)
+            {"see": "fps", "within": 180, "dismiss": {"are you sure": "enter"}, "mark": True,
+             "again": {"press": "enter", "every": 10, "while": "start benchmark"}},
+        ],
+        "benchmark_seconds": 110,       # "nearly two minutes" (Notebookcheck), then its results screen
+        "verified": False,
+        "note": "Options, Visuals, the Benchmark tab, Start Benchmark; measuring starts when its FPS shows. "
+                "The benchmark takes about 2 min.",
+    },
 }
 
 
