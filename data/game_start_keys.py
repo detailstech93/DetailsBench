@@ -79,6 +79,9 @@ GAME_MENU_STEPS: Dict[int, dict] = {
             {"see": "toggle", "within": 90, "mark": True, "again": {"press": "f5", "every": 10, "while": "lock"}},
         ],
         "benchmark_seconds": 60,        # MarkBench waits 60 s after "toggle", then for its results screen
+        # FarCry6.exe ends after about 5 s and Ubisoft Connect starts it again (2026-10-23): the first exit is not
+        # the game closing
+        "relaunches": True,
         "verified": False,
         "note": "Options, Video, two tabs right, F5 for the benchmark; measuring starts when 'Toggle UI' shows. "
                 "The benchmark takes about a minute.",
@@ -130,6 +133,11 @@ def benchmark_seconds_for(app_id) -> Optional[int]:
     """About how long the game's built-in benchmark runs after the step marked as its start, or None."""
     value = _menu_entry(app_id).get("benchmark_seconds")
     return int(value) if isinstance(value, (int, float)) and value > 0 else None
+
+
+def relaunches_for(app_id) -> bool:
+    """The game's first process ends and its launcher starts it again: its exit does not end the capture."""
+    return bool(_menu_entry(app_id).get("relaunches"))
 
 
 def start_keys_for(app_id) -> List[Tuple[float, str]]:

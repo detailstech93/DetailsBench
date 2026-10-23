@@ -60,16 +60,17 @@ def capture_args(output_file: str, seconds: int, process_name: Optional[str] = N
                      *OWN_SESSION]
 
 
-def capture_game_args(output_file: str, exe_names: List[str], seconds: int) -> List[str]:
+def capture_game_args(output_file: str, exe_names: List[str], seconds: int, until_exit: bool = True) -> List[str]:
     """Every exe of a game's folder (--process_name repeated), started BEFORE the game. PresentMon ends by
     itself when the game's processes have exited (--terminate_on_proc_exit), which writes the whole CSV;
     --timed is only the upper limit. (PresentMon keeps its CSV locked while it writes, so it cannot be
-    read live.) Flags checked in PresentMon 2.6.0 --help on 2026-10-17."""
+    read live.) Flags checked in PresentMon 2.6.0 --help on 2026-10-17. until_exit=False: a game whose first
+    process ends and is started again by its launcher (Far Cry 6); the app stops PresentMon after closing it."""
     args = []
     for name in exe_names:
         args += ["--process_name", name]
-    return args + ["--output_file", output_file, "--terminate_on_proc_exit", "--timed", str(int(seconds)),
-                   "--terminate_after_timed", *OWN_SESSION]
+    return args + ["--output_file", output_file] + (["--terminate_on_proc_exit"] if until_exit else []) + [
+        "--timed", str(int(seconds)), "--terminate_after_timed", *OWN_SESSION]
 
 
 def workload_id_for(process_name: str) -> str:

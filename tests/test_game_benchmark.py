@@ -326,3 +326,12 @@ def test_keys_wait_for_the_game_window_of_a_slow_loading_game(tmp_path):
     assert desk.pressed[0][0] >= 205
     assert "the game came to the front 200 s after the launch" in cap.message
     assert s.max_record_seconds() > spec().max_record_seconds()
+
+
+def test_a_game_that_restarts_itself_does_not_end_the_capture():
+    """Far Cry 6 (2026-10-23): FarCry6.exe ends after about 5 s and Ubisoft Connect starts it again."""
+    from app.frames.presentmon import capture_game_args
+    from data.game_start_keys import relaunches_for
+    assert "--terminate_on_proc_exit" in capture_game_args("x.csv", ["Game.exe"], 60)
+    assert "--terminate_on_proc_exit" not in capture_game_args("x.csv", ["Game.exe"], 60, until_exit=False)
+    assert relaunches_for(2369390) and not relaunches_for(1174180) and not relaunches_for("x")

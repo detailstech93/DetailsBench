@@ -816,8 +816,9 @@ class FrameCapturePanel(QGroupBox):
                 logger.warning("Menu steps for %s not used: %s", spec.app_id, step_problems(steps))
             else:
                 spec.steps = steps
-                from data.game_start_keys import benchmark_seconds_for
+                from data.game_start_keys import benchmark_seconds_for, relaunches_for
                 spec.benchmark_seconds = benchmark_seconds_for(spec.app_id)
+                spec.relaunches = relaunches_for(spec.app_id)
         route = route_for(spec.app_id)
         if route:
             from app.frames.route import route_problems

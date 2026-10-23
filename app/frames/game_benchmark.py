@@ -123,6 +123,7 @@ class GameBenchmarkSpec:
     steps: Optional[list] = None        # checked menu steps to a built-in benchmark: app/frames/menu_steps.py
     benchmark_seconds: Optional[int] = None     # the built-in benchmark's length after its start mark
     version: Optional[str] = None       # the game's build: Steam's buildid from its appmanifest (app/steam/library)
+    relaunches: bool = False            # its first process ends and its launcher starts it again (Far Cry 6)
 
     @property
     def count(self) -> int:
@@ -296,7 +297,7 @@ class GameBenchmark:
         exes = self.exe_lister(spec.install_path)
         if not exes:
             return GameCapture("failed", f"no .exe file found in {spec.install_path}; the game was not started")
-        args = capture_game_args(str(self.csv_path), exes, spec.max_record_seconds())
+        args = capture_game_args(str(self.csv_path), exes, spec.max_record_seconds(), until_exit=not spec.relaunches)
         command = [spec.presentmon_path] + args
         halt = threading.Event()        # ends our elevated PresentMon by force (only if it does not end itself)
         running = threading.Event()     # set once the UAC prompt was accepted
@@ -313,8 +314,8 @@ class GameBenchmark:
         def end_presentmon() -> str:
             """Close the game; PresentMon then ends by itself (--terminate_on_proc_exit) and writes its CSV."""
             closed = self._close_game()
-            if not self._started:
-                halt.set()              # no game process: nothing would end PresentMon
+            if not self._started or spec.relaunches:
+                halt.set()              # nothing would end PresentMon: no game process, or not told to end with it
             thread.join(30)
             if thread.is_alive():
                 halt.set()
