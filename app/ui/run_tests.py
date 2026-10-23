@@ -791,6 +791,30 @@ def record_and_report(window, entry: TestEntry, opener=None, count: int = 1) -> 
     return path
 
 
+def game_report(window, session_id: Optional[int], summary, opener=None) -> Optional[Path]:
+    """A Steam game run from the Tests screen: its report, written and opened like a plan's (owner, 2026-10-23:
+    Shadow of the Tomb Raider ran and no report came). Nothing when no run was stored."""
+    from app.automation.runner import RunSummary
+    from app.ui import reports_folder
+    if session_id is None or not isinstance(summary, RunSummary) or not summary.records:
+        return None
+    folder = reports_folder.folder(window)
+    if folder is None:
+        return None
+    try:
+        path = write_report(window.db, session_id, folder)
+    except Exception as e:
+        logger.exception("Could not write the report")
+        window.status_label.setText(f"Session #{session_id} done; the report could not be written: {e}")
+        return None
+    opener = opener or open_report
+    window.last_report_path = path
+    window.status_label.setText(f"Session #{session_id} done. Report: {path}")
+    window.tests_page.offer_report(lambda: opener(path))
+    opener(path)
+    return path
+
+
 def start_other(window, entry: TestEntry, choice: Optional[RunChoice] = None) -> bool:
     """One assisted or manual test: hand it to the flow that already runs it. With a choice from the run
     dialog, a Steam game uses its counts and the preset saved for it (no settings window)."""
@@ -806,6 +830,7 @@ def start_other(window, entry: TestEntry, choice: Optional[RunChoice] = None) ->
         if not frame.select_game(game["app_id"]):
             QMessageBox.information(window, "Run tests", f"{game['name']} is not fully installed.")
             return False
+        frame.on_game_finished = lambda sid, summary: game_report(window, sid, summary)
         if choice is None:
             frame.benchmark_game()
         else:
@@ -816,6 +841,8 @@ def start_other(window, entry: TestEntry, choice: Optional[RunChoice] = None) ->
                 return RunState(running, 0, None, frame.status_label.text(),
                                 marks={entry.id: "running"} if running else {})
             window.tests_page.watch(game_state, frame.emergency_stop)
+        else:
+            frame.on_game_finished = None      # it never started: a later game must not open this report
         return True
     if entry.source == "library":
         count = ask_count(window, entry.name)

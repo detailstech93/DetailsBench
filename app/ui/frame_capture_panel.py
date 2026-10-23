@@ -297,6 +297,7 @@ class FrameCapturePanel(QGroupBox):
         self._list_worker: Optional[ProcessListWorker] = None
         self.last_session_id: Optional[int] = None
         self.last_summary = None
+        self.on_game_finished: Optional[Callable[[Optional[int], object], None]] = None   # set by the Tests screen
         self.games = games
         self._after_tool: Optional[Callable[[], object]] = None
         self.benchmark_factory = None                    # tests swap in a fake GameBenchmark
@@ -1134,3 +1135,6 @@ class FrameCapturePanel(QGroupBox):
                     else str(summary))
         self.status_label.setText(text)
         self.on_session_changed()
+        if self.on_game_finished is not None and isinstance(self.worker, GameBenchmarkWorker):
+            callback, self.on_game_finished = self.on_game_finished, None      # one game, one callback
+            callback(self.last_session_id, summary)
