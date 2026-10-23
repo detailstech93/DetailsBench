@@ -49,9 +49,9 @@ def _int(data, name) -> Optional[int]:
     return v if isinstance(v, int) and not isinstance(v, bool) else None
 
 
-def read_settings(data) -> Dict[str, object]:
+def read_settings(data, spec=None) -> Dict[str, object]:
     out: Dict[str, object] = {}
-    for key, (kind, names) in SETTINGS.items():
+    for key, (kind, names) in (spec or SETTINGS).items():
         values = [_int(data, n) for n in names]
         if None in values:
             continue
@@ -66,10 +66,10 @@ def read_settings(data) -> Dict[str, object]:
     return out
 
 
-def observed_indices(data) -> Dict[str, Dict[str, int]]:
+def observed_indices(data, spec=None) -> Dict[str, Dict[str, int]]:
     """Learned numbers and resolutions, as {key: {text: 0}} (JSON keys are text)."""
-    now = read_settings(data)
-    return {k: {str(now[k]): 0} for k, (kind, _) in SETTINGS.items()
+    now = read_settings(data, spec)
+    return {k: {str(now[k]): 0} for k, (kind, _) in (spec or SETTINGS).items()
             if kind in ("learned", "resolution") and k in now}
 
 
@@ -88,10 +88,10 @@ def _seen(known, key) -> List[str]:
     return list(inner) if isinstance(inner, dict) else []
 
 
-def choices(data, known) -> Dict[str, list]:
-    now = read_settings(data)
+def choices(data, known, spec=None) -> Dict[str, list]:
+    now = read_settings(data, spec)
     out: Dict[str, list] = {}
-    for key, (kind, _) in SETTINGS.items():
+    for key, (kind, _) in (spec or SETTINGS).items():
         if key not in now:
             continue
         if kind == "bool":
@@ -105,15 +105,16 @@ def choices(data, known) -> Dict[str, list]:
     return out
 
 
-def plan(data, desired: Dict[str, object], known) -> Tuple[List[Change], Dict[str, str]]:
-    now = read_settings(data)
+def plan(data, desired: Dict[str, object], known, spec=None) -> Tuple[List[Change], Dict[str, str]]:
+    spec = spec or SETTINGS
+    now = read_settings(data, spec)
     changes: List[Change] = []
     refused: Dict[str, str] = {}
     for key, want in (desired or {}).items():
-        if key not in SETTINGS:
+        if key not in spec:
             refused[key] = "unknown setting"
             continue
-        kind = SETTINGS[key][0]
+        kind = spec[key][0]
         if key not in now:
             refused[key] = "not in the settings"
             continue
@@ -132,10 +133,10 @@ def plan(data, desired: Dict[str, object], known) -> Tuple[List[Change], Dict[st
     return changes, refused
 
 
-def apply(data, changes: List[Change]) -> Dict[str, int]:
+def apply(data, changes: List[Change], spec=None) -> Dict[str, int]:
     out = copy.deepcopy(data)
     for c in changes:
-        kind, names = SETTINGS[c.key]
+        kind, names = (spec or SETTINGS)[c.key]
         if kind == "bool":
             out[names[0]] = 1 if c.new else 0
         elif kind == "api":
@@ -148,7 +149,7 @@ def apply(data, changes: List[Change]) -> Dict[str, int]:
     return out
 
 
-def verify(data, desired: Dict[str, object]) -> Dict[str, Tuple[object, object]]:
-    now = read_settings(data)
+def verify(data, desired: Dict[str, object], spec=None) -> Dict[str, Tuple[object, object]]:
+    now = read_settings(data, spec)
     return {k: (v, now.get(k)) for k, v in (desired or {}).items()
             if now.get(k) != v or type(now.get(k)) is not type(v)}

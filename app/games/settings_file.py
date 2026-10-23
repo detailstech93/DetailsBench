@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Dict, List, Mapping, Optional
 
 from app.games import (borderlands3, counter_strike2, cyberpunk2077, doom2016, far_cry6, red_dead_redemption2,
-                       rise_tomb_raider, witcher3)
+                       rise_tomb_raider, shadow_tomb_raider, witcher3)
 
 INDICES_FILENAME = "game_settings_indices.json"
 BACKUP_NAME = "game_settings_backup"      # + the store's own extension
@@ -264,6 +264,7 @@ ADAPTERS: Dict[str, Adapter] = {
     str(borderlands3.APP_ID): Adapter(borderlands3, os.path.join(
         "My Games", "Borderlands 3", "Saved", "Config", "WindowsNoEditor", "GameUserSettings.ini"), "documents"),
     str(rise_tomb_raider.APP_ID): Adapter(rise_tomb_raider, rise_tomb_raider.REGISTRY_KEY, "registry"),
+    str(shadow_tomb_raider.APP_ID): Adapter(shadow_tomb_raider, shadow_tomb_raider.REGISTRY_KEY, "registry"),
     str(red_dead_redemption2.APP_ID): Adapter(red_dead_redemption2, os.path.join(
         "Rockstar Games", "Red Dead Redemption 2", "Settings", "system.xml"), "documents"),
     str(witcher3.APP_ID): Adapter(witcher3, os.path.join("The Witcher 3", "dx12user.settings"), "documents"),
@@ -535,12 +536,12 @@ def saved_choice(settings: Mapping, app_id) -> Dict[str, object]:
 # ---- test conditions for the game report (owner, 2026-10-23: resolution, upscaler, frame generation, ray tracing) --
 CONDITION_LABELS = {"resolution": "Resolution", "window_mode": "Window mode", "preset": "Quality preset",
                     "quality": "Quality", "upscaler": "Upscaler", "upscaler_mode": "Upscaler mode",
-                    "dlss": "DLSS", "dlss_mode": "DLSS mode", "fsr": "FSR", "frame_gen": "Frame generation",
+                    "dlss": "DLSS", "dlss_mode": "DLSS mode", "fsr": "FSR", "xess": "XeSS", "frame_gen": "Frame generation",
                     "dlss_frame_gen": "DLSS frame generation", "multi_frame_gen": "Multi frame generation",
                     "ray_tracing": "Ray tracing", "dxr_reflections": "Ray traced reflections",
                     "dxr_shadows": "Ray traced shadows", "resolution_scale": "Resolution scale", "vsync": "V-Sync"}
 # the four the owner asked to always see: said "not read" when the game's file does not tell
-KEY_CONDITIONS = (("Resolution", ("resolution",)), ("Upscaler", ("upscaler", "dlss", "fsr")),
+KEY_CONDITIONS = (("Resolution", ("resolution",)), ("Upscaler", ("upscaler", "dlss", "fsr", "xess")),
                   ("Frame generation", ("frame_gen", "dlss_frame_gen", "multi_frame_gen")),
                   ("Ray tracing", ("ray_tracing", "dxr_reflections", "dxr_shadows")))
 

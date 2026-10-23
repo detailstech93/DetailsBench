@@ -135,6 +135,9 @@ GAME_TARGETS: Dict[str, Dict[str, Target]] = {
     "391220": {    # Rise of the Tomb Raider
         "resolution": Target(("resolution",), _exact_text),
     },
+    "750920": {    # Shadow of the Tomb Raider: its DLSS, XeSS, ray tracing and quality are unnamed numbers (learned)
+        "resolution": Target(("resolution",), _exact_text),
+    },
     "292030": {    # The Witcher 3
         "resolution": Target(("resolution",), _exact_text),
         "ray_tracing": Target(("ray_tracing",), _on_off),

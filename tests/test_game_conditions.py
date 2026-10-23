@@ -55,7 +55,7 @@ def test_the_conditions_come_from_the_games_file_and_the_screen(tmp_path):
                          "Window mode: Full screen", "Quality preset: High"]
     assert "Ray traced shadows: On" in items and "Upscaler: Off" in items
     assert "Frame generation: the game has none" in items
-    unknown = game_conditions(750920, None, env={})
+    unknown = game_conditions(286690, None, env={})            # Metro 2033 Redux: its benchmark has its own window
     assert unknown[0].startswith("Resolution: not read") and len(unknown) == 4
 
 
