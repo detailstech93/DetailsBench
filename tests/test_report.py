@@ -330,8 +330,10 @@ def test_game_section_whole_numbers_settings_and_readings():
     page = render_session_report(export)
     game = page[page.index("Game results"):page.index("<h2>Summary")]
     assert "Cyberpunk 2077 built-in benchmark</h3>" in game
-    for number in ("76 <span>FPS", "58 <span>FPS", "40 <span>FPS", "66 <span>FPS", "104 <span>FPS"):
+    for number in ("76 <span>FPS", "58 <span>FPS", "40 <span>FPS"):
         assert number in game
+    assert "Lowest" not in game and "104 <span>" not in game     # no single-frame numbers (owner, 2026-10-23)
+    assert "the game's own" not in game.lower()                  # this game wrote no result of its own
     assert "76.43" not in game and "57.8" not in game
     assert "<tr><th>Frame generation</th><td>Off</td></tr>" in game
     assert "Set by the app before the run" in game and "benchmark scene only (66 s)" in game
@@ -430,3 +432,15 @@ def test_the_big_title_says_what_was_tested():
             "</title>") in html_text
     many = [{"benchmark_name": f"t{i}", "status": "completed", "score": 1.0} for i in range(6)]
     assert '>t0 · t1 · t2 · and 3 more</h1>' in render_session_report({"session": {"name": "s"}, "runs": many})
+
+
+def test_the_games_own_numbers_go_next_to_the_apps():
+    export = _game_export("Measured: the game's whole benchmark (60 s from its start), the game started anew, "
+                          "1 warm-up run(s) before were not counted",
+                          {"low_1pct_fps": (101.0, "FPS"), "game_avg_fps": (129.0, "fps"),
+                           "game_min_fps": (109.0, "fps"), "game_max_fps": (175.0, "fps")})
+    game = render_session_report(export)
+    assert "The app&#x27;s numbers and the game&#x27;s own" in game or "The app's numbers and the game's own" in game
+    assert "<td>Average</td><td>76 FPS</td><td>129 FPS</td>" in game
+    assert "<td>101 FPS (1% low)</td><td>109 FPS (slowest second)</td>" in game
+    assert "Each run&#58; the game&#x27;s whole benchmark (60 s from its start)" in game

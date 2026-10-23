@@ -62,6 +62,9 @@ def _screen_modes_unknown(monkeypatch, request):
     # nor read this computer's screen for a game's results screen (tests pass a screen_reader when they need one)
     from app.frames import screen_text
     monkeypatch.setattr(screen_text, "read_screen", lambda desktop, path, run=None: ([], "no screen in tests"))
+    # nor this computer's game reports (Far Cry 6 writes its own result; tests pass own_result when they need one)
+    from app.frames import game_benchmark
+    monkeypatch.setattr(game_benchmark, "_own_result", lambda app_id, since: None)
 
 
 @pytest.fixture(autouse=True)

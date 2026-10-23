@@ -151,5 +151,20 @@ def report_mismatches(report: Dict[str, str], desired) -> Dict[str, tuple]:
     return out
 
 
+OWN_NUMBERS = {"avg": "Average FPS", "min": "Minimum FPS", "max": "Maximum FPS", "frames": "Frames Rendered"}
+
+
+def own_numbers(report: Dict[str, str]) -> Dict[str, float]:
+    """The game's own result: average FPS over its benchmark; its minimum and maximum are per second (checked
+    against PresentMon on 2026-10-23: per-second counts 109-175 for its 109 and 175)."""
+    out = {}
+    for key, label in OWN_NUMBERS.items():
+        try:
+            out[key] = float(report[label])
+        except (KeyError, ValueError):
+            continue
+    return out
+
+
 def report_conditions(report: Dict[str, str]) -> List[str]:
     return [f"{name} (the game's report): {report[name]}" for name in REPORT_SHOWN if name in report]

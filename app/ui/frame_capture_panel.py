@@ -861,7 +861,8 @@ class FrameCapturePanel(QGroupBox):
         if linux and (spec.steps or spec.start_keys or spec.route) and not self.linux_steps_ready(spec):
             return False
         fitted = None
-        if spec.steps and spec.benchmark_seconds:
+        whole = spec.whole_benchmark and not linux      # Windows: measured whole, once per launch
+        if spec.steps and spec.benchmark_seconds and not whole:
             from app.frames.game_benchmark import fit_to_benchmark
             fitted = fit_to_benchmark(spec, spec.benchmark_seconds)
         total = spec.settle_seconds + spec.seconds * spec.count
@@ -887,18 +888,25 @@ class FrameCapturePanel(QGroupBox):
                 f"2. {launch_url_text(spec)} is opened."
                 + (" The arguments apply to this launch only; Steam may ask you to allow them."
                    if spec.launch_args else "") + "\n"
-                f"3. The app waits about {spec.wait_seconds():.0f} s. The first {spec.settle_seconds} s of the "
-                f"game (loading, menus) are not measured, then {spec.warmup_runs} warmup + {spec.repetitions} "
-                f"measured runs of {spec.seconds} s each (profile {profile.name!r}), {total} s of game time.\n"
+                + (f"3. The game is started {spec.count} times, and each time its whole benchmark (about "
+                   f"{spec.benchmark_seconds} s) is measured from its start, the span the game's own result covers. "
+                   f"The first run is the warm-up and is not counted (shaders and files load the first time); the "
+                   f"other {spec.repetitions} are averaged. The game's own numbers are shown next to the app's.\n"
+                   if whole else
+                   f"3. The app waits about {spec.wait_seconds():.0f} s. The first {spec.settle_seconds} s of the "
+                   f"game (loading, menus) are not measured, then {spec.warmup_runs} warmup + {spec.repetitions} "
+                   f"measured runs of {spec.seconds} s each (profile {profile.name!r}), {total} s of game time.\n")
                 + ("   The app goes through the game's menus to its built-in benchmark by itself: before each key "
                    "it reads the screen (Windows' own text recognition) and presses only when the expected word "
-                   "is there, and only into the game. Measuring starts when the benchmark starts; the "
-                   f"{spec.settle_seconds} s above count from then. If a word does not come, nothing is guessed: "
+                   "is there, and only into the game. Measuring starts when the benchmark starts"
+                   + ("." if whole else f"; the {spec.settle_seconds} s above count from then.")
+                   + " If a word does not come, nothing is guessed: "
                    "the run stops and the screenshot is kept. Keep the game in front and use borderless window "
                    "or windowed mode (an exclusive full screen may read as black). These steps are not checked "
                    "on a real run yet.\n"
                    + (f"   The game's benchmark runs about {spec.benchmark_seconds} s, then shows its results; "
-                      "every window ends before that."
+                      + ("its results screen is kept for the report each time." if whole else
+                         "every window ends before that.")
                       + (f" Changed for this game: {fitted}." if fitted else "") + "\n"
                       if spec.benchmark_seconds else "")
                    if spec.steps else

@@ -130,7 +130,7 @@ def _note_parts(note: Any) -> dict:
     out = {}
     for part in str(note or "").split("; "):
         key, sep, value = part.partition(": ")
-        if sep and key in ("Settings used", "Forced", "Readings", "Proof screenshot"):
+        if sep and key in ("Settings used", "Forced", "Readings", "Proof screenshot", "Measured"):
             out[key] = value
     return out
 
@@ -324,6 +324,27 @@ def _stress_section(export: Mapping) -> str:
     return "<section><h2>Stress tests</h2>" + "".join(blocks) + "</section>"
 
 
+def _own_result_html(app_avg, app_low, game_avg, game_min, game_max) -> str:
+    """The game's own numbers next to the app's (owner, 2026-10-23), with why they may differ."""
+    if _whole(game_avg) is None:
+        return ""
+
+    def cell(v):
+        return "-" if _whole(v) is None else f"{_whole(v):,} FPS"
+
+    rows = (f"<tr><td>Average</td><td>{cell(app_avg)}</td><td>{cell(game_avg)}</td></tr>"
+            f"<tr><td>Low</td><td>{cell(app_low)} (1% low)</td><td>{cell(game_min)} (slowest second)</td></tr>"
+            f"<tr><td>High</td><td>-</td><td>{cell(game_max)} (fastest second)</td></tr>")
+    return ("<h4>The app's numbers and the game's own</h4>"
+            '<div class="table-wrap"><table><thead><tr><th></th><th>The app (PresentMon)</th>'
+            "<th>The game's own result</th></tr></thead><tbody>" + rows + "</tbody></table></div>"
+            '<p class="muted">Both measure the same benchmark runs (averages of the measured runs). The app counts '
+            "every frame PresentMon saw from the benchmark's start for its length; the game counts its own frames "
+            "and its start and end may differ by a second or so, so a difference of 1-2 % is normal. The game's "
+            "low and high are its slowest and fastest whole second; the app's 1% low is the average of its "
+            "slowest 1% of frames, which shows short stutters a per-second number hides.</p>")
+
+
 def _game_section(export: Mapping) -> str:
     """Per game: big whole numbers (average, 1% and 0.1% low, min, max), the settings the game used and how the
     CPU and GPU behaved during the benchmark."""
@@ -348,15 +369,10 @@ def _game_section(export: Mapping) -> str:
         def mean_of(key):
             return (_mapping(extra.get(key)) or {}).get("mean")
 
-        def lowest(key):
-            return (_mapping(extra.get(key)) or {}).get("min")
-
-        def highest(key):
-            return (_mapping(extra.get(key)) or {}).get("max")
-
+        # no single-frame lowest / highest (owner, 2026-10-23): one frame says little; the 1% and 0.1% lows are
+        # the average of the slowest 1% and 0.1% of frames (app/frames/stats.py)
         tiles = [("Average", stats.get("mean")), ("1% low", mean_of("low_1pct_fps")),
-                 ("0.1% low", mean_of("low_01pct_fps")), ("Lowest", lowest("min_fps")),
-                 ("Highest", highest("max_fps"))]
+                 ("0.1% low", mean_of("low_01pct_fps"))]
         rendered = _whole(mean_of("rendered_fps"))
         if rendered is not None:
             tiles.append(("Rendered (no frame gen)", mean_of("rendered_fps")))
@@ -367,9 +383,13 @@ def _game_section(export: Mapping) -> str:
             for label, value in tiles)
         count = len(runs)
         runs_text = f"{count} measured run" + ("" if count == 1 else "s") + (
-            " (numbers are the average of the runs; lowest and highest over all of them)" if count > 1 else "")
+            " (numbers are the average of the runs)" if count > 1 else "")
 
         parts = _note_parts(runs[-1].get("note"))
+        if parts.get("Measured"):
+            runs_text += f". Each run: {parts['Measured']}"
+        own_html = _own_result_html(stats.get("mean"), mean_of("low_1pct_fps"), mean_of("game_avg_fps"),
+                                    mean_of("game_min_fps"), mean_of("game_max_fps"))
         if parts.get("Settings used"):
             settings_rows = "".join(
                 "<tr><th>{}</th><td>{}</td></tr>".format(*(esc(x) for x in item.partition(": ")[::2]))
@@ -390,6 +410,7 @@ def _game_section(export: Mapping) -> str:
             f'<div class="game"><h3 dir="auto">{title}</h3>'
             f'<div class="tiles">{tile_html}</div>'
             f'<p class="muted">{esc(runs_text)}.</p>'
+            + own_html
             + "<h4>Test conditions</h4>" + settings_html
             + _proof_html(parts.get("Proof screenshot"))
             + "<h4>During the benchmark</h4>"

@@ -136,3 +136,14 @@ def test_the_conditions_come_from_the_games_own_report(tmp_path):
     assert "Graphics Quality (the game's report): Low" in items
     assert "Display Resolution (the game's report): 1920 x 1080" in items
     assert not any(i.startswith("Quality preset:") for i in items)       # the file's value is not what it used
+
+
+def test_the_games_own_numbers_are_read_from_its_report(tmp_path):
+    from app.games.settings_file import game_own_result
+    _game_folder(tmp_path, report=GAME_REPORT.replace("Average FPS:</div>", "Average FPS:</div>") + (
+        '<div class = "option_name">Minimum FPS:</div> <div class = "option_value min">109</div>\n'
+        '<div class = "option_name">Maximum FPS:</div> <div class = "option_value">175</div>\n'))
+    assert game_own_result(2369390, 0, env={"PCBM_DOCUMENTS": str(tmp_path)}) == {
+        "avg": 129.0, "min": 109.0, "max": 175.0}
+    assert game_own_result(2369390, 4102444800, env={"PCBM_DOCUMENTS": str(tmp_path)}) is None
+    assert game_own_result(750920, 0, env={}) is None               # a game whose report the app cannot read

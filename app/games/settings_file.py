@@ -550,6 +550,18 @@ def _shown(value) -> str:
     return text.replace("; ", " / ").replace(", ", " / ").strip() or "-"
 
 
+def game_own_result(app_id, since: Optional[float] = None, env: Optional[Mapping[str, str]] = None,
+                    reg=None) -> Optional[Dict[str, float]]:
+    """The game's own numbers ({"avg", "min", "max", "frames"}) from the report it wrote at or after since, for a
+    game whose adapter reads one (Far Cry 6); None otherwise. Read only."""
+    adapter = adapter_for(app_id)
+    if adapter is None or not hasattr(adapter.module, "own_numbers") or adapter.base == "launch":
+        return None
+    store = adapter.store(_env_for(app_id, env), reg)
+    report = adapter.module.game_report(store.where, since)
+    return adapter.module.own_numbers(report) or None if report else None
+
+
 def game_conditions(app_id, display_mode: Optional[str] = None, env: Optional[Mapping[str, str]] = None,
                     reg=None, since: Optional[float] = None) -> List[str]:
     """["label: value", ...] for the report: the screen's mode during the benchmark and the graphics settings the

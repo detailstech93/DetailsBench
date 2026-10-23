@@ -398,3 +398,96 @@ def test_fps_over_time_and_the_charts_a_game_run_stores(tmp_path):
     out = w.run(RunContext(output_dir=str(tmp_path)))
     assert out.series["fps"] == ("FPS", [(1.0, 100.0), (2.0, 100.0)])
     assert out.series["tel_gpu0_load"][1] == [(0.0, 90.0), (1.0, 95.0)]
+
+
+class PassFakes:
+    """A game started once per run (pid 100, 101, ...): 30 s of menus at 100 FPS, then its benchmark at
+    1000 / (20 + run) FPS until it is closed."""
+
+    def __init__(self, tmp_path):
+        self.install = tmp_path / "steamapps" / "common" / "Game"
+        self.now, self.run, self.up, self.closed, self.launches = [0.0], -1, False, [], 0
+        self.halted = None
+
+    def clock(self):
+        return self.now[0]
+
+    def sleep(self, s):
+        self.now[0] += s
+
+    def folder_procs(self):
+        from app.frames.game_close import ProcInfo
+        return {100 + self.run: ProcInfo(100 + self.run, 1.0, str(self.install / "Game.exe"))} if self.up else {}
+
+    def launcher(self, *a, **kw):
+        self.run, self.up, self.launches = self.run + 1, True, self.launches + 1
+        return {"status": "launched", "message": "ok"}
+
+    def closer(self, started):
+        self.closed.append(sorted(started))
+        self.up = False
+        return "game closed"
+
+    def elevated(self, exe, args, cwd, timeout, halt, on_started=None):
+        from app.frames.elevated import ElevatedOutcome
+        self.args = list(args)
+        on_started()
+        halt.wait(10)
+        rows = []
+        for r in range(self.run + 1):
+            rows += [f"Game.exe,{100 + r},10.0"] * 3000 + [f"Game.exe,{100 + r},{20.0 + r}"] * (60000 // (20 + r))
+        with open(args[args.index("--output_file") + 1], "w", encoding="utf-8") as f:
+            f.write("Application,ProcessID,MsBetweenPresents\n" + "\n".join(rows) + "\n")
+        return ElevatedOutcome("stopped", exit_code=1, terminated=True)
+
+
+def test_a_built_in_benchmark_is_measured_whole_once_per_launch(tmp_path):
+    """Owner, 2026-10-23: each run is the game's whole benchmark (the span its own result covers), the game is
+    started anew for each, the first run is the warm-up, and the game's own numbers go next to the app's."""
+    fakes = PassFakes(tmp_path)
+    desk = SimpleNamespace(foreground_pid=lambda: 100 + fakes.run)
+    own = []
+
+    def own_result(app_id, since):
+        own.append(app_id)
+        return {"avg": 48.0, "min": 45.0, "max": 55.0}
+
+    s = spec(install_path=str(fakes.install), steps=[{"see": "stop", "within": 60, "mark": True}],
+             benchmark_seconds=60)
+    assert s.whole_benchmark and s.max_record_seconds() > 3 * 60
+    cap = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=False, elevated_runner=fakes.elevated,
+                        launcher=fakes.launcher, snapshot=lambda: [], clock=fakes.clock, sleep=fakes.sleep,
+                        folder_procs=fakes.folder_procs, closer=fakes.closer, desktop=desk,
+                        exe_lister=lambda folder: ["Game.exe"],
+                        step_player=lambda st: FakeSteps(fakes, mark_after=30), own_result=own_result).run()
+    assert cap.status == "recorded", cap.message
+    assert "--terminate_on_proc_exit" not in fakes.args                # PresentMon outlives each run's game
+    assert fakes.launches == 3 and fakes.closed == [[100], [101], [102]] and own == ["123"] * 3
+    assert [(w.is_warmup, w.run_index) for w in cap.windows] == [(True, 0), (False, 1), (False, 2)]
+    for r, w in enumerate(cap.windows):
+        assert w.result.status == "completed", w.result.error
+        assert abs(w.result.score - 1000 / (20 + r)) < 0.2                # the benchmark only, not its menus
+        assert abs(w.result.metrics["duration_seconds"][0] - 60) < 0.1
+        assert w.result.metrics["game_avg_fps"] == (48.0, "fps")
+        assert "Measured: the game's whole benchmark (60 s" in w.result.note
+        assert "Game's own result: Average 48, Minimum 45, Maximum 55 FPS" in w.result.note
+
+
+def test_a_run_that_does_not_reach_the_benchmark_ends_the_runs(tmp_path):
+    fakes = PassFakes(tmp_path)
+    desk = SimpleNamespace(foreground_pid=lambda: 100 + fakes.run)
+    made = []
+
+    def player(st):
+        made.append(FakeSteps(fakes, mark_after=30) if not made else FakeSteps(fakes, problem="no 'stop' seen"))
+        return made[-1]
+
+    s = spec(install_path=str(fakes.install), steps=[{"see": "stop", "within": 60, "mark": True}],
+             benchmark_seconds=60)
+    cap = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=False, elevated_runner=fakes.elevated,
+                        launcher=fakes.launcher, snapshot=lambda: [], clock=fakes.clock, sleep=fakes.sleep,
+                        folder_procs=fakes.folder_procs, closer=fakes.closer, desktop=desk,
+                        exe_lister=lambda folder: ["Game.exe"], step_player=player).run()
+    assert fakes.launches == 2 and [w.result.status for w in cap.windows] == ["completed", "invalid", "invalid"]
+    assert "did not reach the game's benchmark" in cap.windows[1].result.error
+    assert "earlier run did not complete" in cap.windows[2].result.error
