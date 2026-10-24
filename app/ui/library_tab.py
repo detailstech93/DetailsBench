@@ -1,17 +1,20 @@
 """Advanced > Results library: where this PC's results go (this PC, a NAS share or a synced cloud folder), and the
 library itself by part (phase 4): devices, processors, graphics cards, memory, storage; each part's results with
-their driver, accuracy and the PC they ran on; delete with a reason and restore; a name for an unnamed device."""
+their driver, accuracy and the PC they ran on; delete with a reason and restore; a name for an unnamed device.
+Phase 5: two or more parts side by side (Compare), saved as an HTML report."""
 
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QFileDialog, QHBoxLayout, QHeaderView, QInputDialog,
-                               QLabel, QPushButton, QSplitter, QTreeWidget,
+                               QLabel, QPushButton, QSplitter, QTabWidget, QTreeWidget,
                                QTreeWidgetItem, QVBoxLayout, QWidget)
 
-from app.library import store, sync, view
+from app.library import compare, store, sync, view
 from app.library.index import LibraryIndex
 
 logger = logging.getLogger(__name__)
@@ -24,12 +27,17 @@ def _ask_text(parent, title: str, label: str, text: str = "") -> Optional[str]:
 
 
 class LibraryTab(QWidget):
-    def __init__(self, data_dir: Callable[[], Path], pick=None, window=None, ask_text=None):
+    def __init__(self, data_dir: Callable[[], Path], pick=None, window=None, ask_text=None, save_as=None, opener=None):
         super().__init__()
         self.data_dir = data_dir
         self.window = window
         self.pick = pick or (lambda start: QFileDialog.getExistingDirectory(self, "Results library folder", start))
         self.ask_text = ask_text or (lambda title, label, text="": _ask_text(self, title, label, text))
+        self.save_as = save_as or (lambda start: QFileDialog.getSaveFileName(
+            self, "Save the comparison", start, "HTML report (*.html)")[0])
+        self.opener = opener
+        self.compared = None
+        self.report_path = None
         self.results = []
         self.names = {}
         self._fitted = False
@@ -73,8 +81,19 @@ class LibraryTab(QWidget):
         self.tree.header().setSectionResizeMode(QHeaderView.Interactive)
         self.tree.setColumnWidth(0, 250)
         self.tree.setMinimumWidth(260)
+        self.tree.setSelectionMode(QAbstractItemView.ExtendedSelection)      # Ctrl+click: parts to compare
         self.tree.currentItemChanged.connect(lambda *_: self.show_part())
-        split.addWidget(self.tree)
+        self.tree.itemSelectionChanged.connect(self._buttons)
+        left = QWidget()
+        ll = QVBoxLayout(left)
+        ll.setContentsMargins(0, 0, 0, 0)
+        ll.addWidget(self.tree)
+        self.compare_btn = QPushButton("Compare selected parts")
+        self.compare_btn.setToolTip("Choose two or more parts with Ctrl+click (two devices, two graphics cards...).")
+        self.compare_btn.clicked.connect(self.compare)
+        ll.addWidget(self.compare_btn)
+        split.addWidget(left)
+        self.pages = QTabWidget()
         right = QWidget()
         rl = QVBoxLayout(right)
         rl.setContentsMargins(0, 0, 0, 0)
@@ -107,11 +126,38 @@ class LibraryTab(QWidget):
             bar.addWidget(w)
         bar.addStretch()
         rl.addLayout(bar)
-        split.addWidget(right)
+        self.pages.addTab(right, "Part results")
+        self.pages.addTab(self._compare_page(), "Compare")
+        split.addWidget(self.pages)
         split.setStretchFactor(1, 3)
         split.setSizes([340, 1000])
         layout.addWidget(split, 1)
         self._buttons()
+
+    def _compare_page(self) -> QWidget:
+        page = QWidget()
+        cl = QVBoxLayout(page)
+        cl.setContentsMargins(0, 0, 0, 0)
+        self.compare_title = QLabel("Choose two or more parts on the left (Ctrl+click), then \"Compare selected "
+                                    "parts\". Each part shows its result on the newest driver it was tested with; "
+                                    "Windows is compared with Windows, Linux with Linux.")
+        self.compare_title.setWordWrap(True)
+        cl.addWidget(self.compare_title)
+        self.compare_table = QTreeWidget()
+        self.compare_table.setRootIsDecorated(False)
+        self.compare_table.header().setSectionResizeMode(QHeaderView.Interactive)
+        self.compare_table.header().setStretchLastSection(True)
+        cl.addWidget(self.compare_table)
+        cbar = QHBoxLayout()
+        self.save_btn = QPushButton("Save HTML report...")
+        self.save_btn.clicked.connect(self.save_report)
+        self.open_btn = QPushButton("Open the report")
+        self.open_btn.clicked.connect(self.open_report)
+        for b in (self.save_btn, self.open_btn):
+            cbar.addWidget(b)
+        cbar.addStretch()
+        cl.addLayout(cbar)
+        return page
 
     # ── settings and sending ──
     def showEvent(self, event):
@@ -188,11 +234,12 @@ class LibraryTab(QWidget):
             logger.exception("Results library: index not read")
             self.results, self.names = [], {}
         current = self._current_key()
+        selected = {p["key"] for p in self._selected_parts()}
         shown = self.results if self.show_deleted.isChecked() else [p for p in self.results if not p.get("deleted")]
         grouped = view.parts(shown, self.names)
         self.tree.blockSignals(True)
         self.tree.clear()
-        pick = None
+        pick, again = None, []
         for kind, title in view.KINDS:
             top = QTreeWidgetItem([title, str(sum(p["results"] for p in grouped[kind]))])
             self.tree.addTopLevelItem(top)
@@ -203,11 +250,81 @@ class LibraryTab(QWidget):
                 top.addChild(item)
                 if part["key"] == current:
                     pick = item
+                if part["key"] in selected:
+                    again.append(item)
             top.setExpanded(True)
         self.tree.blockSignals(False)
         if pick is not None:
             self.tree.setCurrentItem(pick)
+        for item in again:                              # the parts chosen to compare stay chosen
+            item.setSelected(True)
         self.show_part()
+
+    def _selected_parts(self) -> list:
+        return [d for d in (i.data(0, Qt.UserRole) for i in self.tree.selectedItems()) if d]
+
+    def compare(self) -> None:
+        parts = self._selected_parts()
+        if len(parts) < 2:
+            return
+        self.compared = compare.compare(self.results, [p["key"] for p in parts], self.names)
+        self.report_path = None
+        names = [p["name"] for p in self.compared["parts"]]
+        self.compare_title.setText(" vs ".join(names) + f": {len(self.compared['rows'])} test(s). The difference "
+                                   f"is against {names[0]}; the best result is bold.")
+        t = self.compare_table
+        t.clear()
+        t.setColumnCount(len(names) + 3)
+        t.setHeaderLabels(["Test", "OS"] + names + ["Notes"])
+        bold = QFont()
+        bold.setBold(True)
+        for row in self.compared["rows"]:
+            texts = [row["test"] + (" (lower is better)" if row["lower_is_better"] else ""), row["os"] or "-"]
+            for cell in row["cells"]:
+                texts.append("-" if cell is None else f"{cell['text']} {row['unit']}".strip()
+                             + ("" if cell["diff"] is None else f" ({cell['diff']:+.1f}%)"))
+            item = QTreeWidgetItem(texts + ["; ".join(row["notes"])])
+            for i, cell in enumerate(row["cells"]):
+                if cell:
+                    item.setToolTip(i + 2, "\n".join(x for x in (cell["accuracy"], cell["software"], cell["variant"],
+                                                                 cell["date"]) if x and x != "-"))
+                if row["best"] == i:
+                    item.setFont(i + 2, bold)
+            item.setToolTip(len(texts), item.text(len(texts)))
+            t.addTopLevelItem(item)
+        for c in range(t.columnCount()):
+            t.resizeColumnToContents(c)
+            t.setColumnWidth(c, min(t.columnWidth(c), 360))
+        self.pages.setCurrentIndex(1)
+        self._buttons()
+
+    def save_report(self) -> None:
+        if not self.compared:
+            return
+        stamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+        start = Path.home() / "Desktop"
+        start = (start if start.is_dir() else Path.home()) / f"DetailsBench compare {stamp}.html"
+        path = self.save_as(str(start))
+        if not path:
+            return
+        try:
+            Path(path).write_text(compare.report_html(self.compared), encoding="utf-8")
+        except OSError as e:
+            self.compare_title.setText(f"Not saved: {e}")
+            return
+        self.report_path = Path(path)
+        logger.info("Results library: comparison saved to %s", path)
+        self.compare_title.setText(self.compare_title.text().split("\nSaved:")[0] + f"\nSaved: {path}")
+        self._buttons()
+
+    def open_report(self) -> None:
+        if self.report_path is None:
+            return
+        if self.opener is not None:
+            self.opener(self.report_path)
+            return
+        from app.ui.links import open_link
+        open_link(self.report_path.resolve().as_uri())
 
     def _current_part(self) -> Optional[dict]:
         item = self.tree.currentItem()
@@ -282,6 +399,9 @@ class LibraryTab(QWidget):
         self.name_btn.setEnabled(bool(part and part["kind"] == "system" and has_folder))
         self.delete_btn.setEnabled(bool(row and not row["deleted"] and has_folder))
         self.restore_btn.setEnabled(bool(row and row["deleted"] and has_folder))
+        self.compare_btn.setEnabled(len(self._selected_parts()) >= 2)
+        self.save_btn.setEnabled(bool(self.compared and self.compared["rows"]))
+        self.open_btn.setEnabled(self.report_path is not None)
 
     def _unit(self) -> str:
         hw = getattr(getattr(self.window, "environment_profile", None), "hardware", None) or {}
