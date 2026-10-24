@@ -34,6 +34,8 @@ from data.benchmark_definitions import (
 logger = logging.getLogger(__name__)
 
 
+SHOW_SESSION_COMPARE = False   # the old two-session Compare Results tab (owner, 2026-10-25)
+
 class BenchmarkWorker(QThread):
     """Background worker thread for running BenchmarkManager.scan().
 
@@ -446,9 +448,10 @@ class MainWindow(QMainWindow):
         self.history_tab = self._create_history_tab()
         self.tabs.addTab(self.history_tab, "Session History")
 
-        # 5. Compare Results View
+        # 5. Compare Results View: kept but not shown, the Results library compares now (owner, 2026-10-25)
         self.compare_tab = self._create_compare_tab()
-        self.tabs.addTab(self.compare_tab, "Compare Results")
+        if SHOW_SESSION_COMPARE:
+            self.tabs.addTab(self.compare_tab, "Compare Results")
 
         # 6. Steam View
         self.steam_tab = self._create_steam_tab()
@@ -457,12 +460,12 @@ class MainWindow(QMainWindow):
         # 7. Updates of the app itself
         from app.ui.update_ui import UpdatesTab
         self.updates_tab = UpdatesTab()
-        self.tabs.addTab(self.updates_tab, "Updates")
 
         # 8. Results library (hardware library, phase 3): its folder and what waits to be sent
         from app.ui.library_tab import LibraryTab
         self.results_library_tab = LibraryTab(lambda: self.frame_panel.data_dir, window=self)
         self.tabs.addTab(self.results_library_tab, "Results library")
+        self.tabs.addTab(self.updates_tab, "Updates")                     # the last tab (owner, 2026-10-25)
         
         from app.ui.this_pc_page import ThisPcPage
         from app.ui.tests_page import TestsPage

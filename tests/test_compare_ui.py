@@ -64,3 +64,11 @@ def test_needs_two_sessions(qapp, tmp_path):
     w.run_comparison()
     assert w.compare_note.text() == "Pick two sessions first."
     w.close()
+
+
+def test_tab_hidden_and_updates_last(window):
+    """Owner, 2026-10-25: Compare Results not shown (the Results library compares); Updates is the last tab."""
+    w, _, _ = window
+    names = [w.tabs.tabText(i) for i in range(w.tabs.count())]
+    assert "Compare Results" not in names and w.tabs.indexOf(w.compare_tab) == -1
+    assert names[-1] == "Updates" and names[-2] == "Results library"
