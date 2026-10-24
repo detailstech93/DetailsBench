@@ -320,3 +320,31 @@ def test_library_screen_names_a_device(qapp, tmp_path):
     assert tab.name_btn.isEnabled()
     tab.name_part()
     assert tab.tree.topLevelItem(0).child(0).text(0) == "Test bench" and tab.part_title.text() == "Test bench"
+
+
+def test_keep_finished_writes_only_the_tests_over_to_the_outbox(tmp_path):
+    data = tmp_path / "data"
+    data.mkdir()
+    assert sync.keep_finished(export(), ["blender_benchmark"], data) == 1
+    assert [p.name for p in store.waiting(data / sync.OUTBOX)] == ["blender_benchmark.json"]
+    assert sync.keep_finished(export(), ["blender_benchmark"], data) == 0          # written once
+    assert sync.keep_finished({"bad": 1}, ["x"], data) == 0                         # never raises
+    from app.paths import save_setting
+    save_setting(data, sync.FOLDER_KEY, str(tmp_path))
+    save_setting(data, sync.AUTO_KEY, False)                                       # the owner adds by hand
+    assert sync.keep_finished(export(), ["stress_cpu"], data) == 0
+
+
+def test_send_at_start_only_with_a_folder_and_something_waiting(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    data, lib = _library(tmp_path)
+    calls = []
+    monkeypatch.setattr(sync, "send_waiting", lambda d: calls.append(d) or "")
+    window = SimpleNamespace(frame_panel=SimpleNamespace(data_dir=data))
+    sync.send_at_start(window)                       # nothing waits: no thread
+    store.to_outbox(data / sync.OUTBOX, pk.build_packages(export(runs=[run("stress_gpu", "stress", 1.0)]))[0])
+    import threading
+    started = []
+    monkeypatch.setattr(threading, "Thread", lambda target, **kw: SimpleNamespace(start=lambda: started.append(target())))
+    sync.send_at_start(window)
+    assert calls == [data] and len(started) == 1

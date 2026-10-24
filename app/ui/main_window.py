@@ -1428,6 +1428,12 @@ class MainWindow(QMainWindow):
         if hasattr(self, "automation_panel"):
             self.automation_panel.reload()        # "check again" also finds newly installed command-line tools
         self.refresh_tests_page()
+        if not getattr(self, "_library_sent", False):   # once per app start: results a cut-short run left waiting
+            self._library_sent = True
+            from app.ui.run_tests import running
+            if not running(self):
+                from app.library.sync import send_at_start
+                send_at_start(self)
         self._run_after_scan()
 
     def _run_after_scan(self):

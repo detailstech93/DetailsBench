@@ -129,3 +129,46 @@ def add_earlier(db, data_dir: Path, runs_root: Optional[Path] = None) -> str:
         return ("No earlier session has the record of the PC's parts (sessions from before 0.1.3, or run before "
                 "the app was restarted after the update): nothing to add.")
     return f"{sessions} session(s) read. " + send_waiting(data_dir)
+
+
+def _wanted(data_dir: Path) -> bool:
+    """Added on its own unless a folder is chosen with "after each run" unticked."""
+    return folder_setting(data_dir) is None or auto_setting(data_dir)
+
+
+def keep_finished(export, test_ids, data_dir: Path, runs_root: Optional[Path] = None) -> int:
+    """Owner, 2026-10-24: each test, once over, kept on this PC at once (the outbox, a few KB on the local disk),
+    so a run cut short loses nothing; sending to the library (NAS / cloud) waits until the run is over, so no
+    network or sync work runs while a test measures. Never raises; how many packages are new."""
+    try:
+        if not _wanted(Path(data_dir)):
+            return 0
+        session_id = (export.get("session") or {}).get("id")
+        packages, _ = pk.build_packages(export, ai_run_reader(runs_root, session_id))
+        wanted = set(test_ids)
+        return store.to_outbox(Path(data_dir) / OUTBOX, [p for p in packages if p["test"]["id"] in wanted])
+    except Exception:
+        logger.exception("Results library: finished tests not kept")
+        return 0
+
+
+def send_at_start(window) -> None:
+    """When the app opens: what waits on this PC (a run cut short, the NAS away last time) goes to the library,
+    in a background thread, and only while no test runs. Never raises."""
+    try:
+        data_dir = Path(window.frame_panel.data_dir)
+        if folder_setting(data_dir) is None or not auto_setting(data_dir):
+            return
+        if not store.waiting(data_dir / OUTBOX):
+            return
+    except Exception:
+        logger.exception("Results library: waiting results not sent")
+        return
+    import threading
+
+    def work():
+        try:
+            logger.info("Results library (app start): %s", send_waiting(data_dir))
+        except Exception:
+            logger.exception("Results library: waiting results not sent")
+    threading.Thread(target=work, name="results-library-start", daemon=True).start()

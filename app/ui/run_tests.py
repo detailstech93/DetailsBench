@@ -838,14 +838,19 @@ def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_re
         now = test_of_step(text)
         if len(getattr(panel, "plan_workloads", automatic)) < 2:
             return                              # one test (until one is queued): only the final report
-        if folder is None or panel.last_session_id is None or now == seen["now"] or text.startswith("Pause"):
+        if panel.last_session_id is None or now == seen["now"] or text.startswith("Pause"):
             return                              # the same test still going on: nothing new is over
         seen["now"] = now
         export = build_session_export(window.db, panel.last_session_id)
-        for name in finished_tests(export, text):
-            if name not in written:
+        over = [name for name in finished_tests(export, text) if name not in written]
+        for name in over:
+            if folder is not None:
                 write_test_report(export, folder, name)
-                written.add(name)
+            written.add(name)
+        data_dir = getattr(getattr(window, "frame_panel", None), "data_dir", None)
+        if over and data_dir:                   # kept on this PC now; sent to the library when the run is over
+            from app.library.sync import keep_finished
+            keep_finished(export, over, data_dir, getattr(panel, "output_root", None))
 
     def finished(session_id: int, text: str):
         report = written_report(session_id, text)
