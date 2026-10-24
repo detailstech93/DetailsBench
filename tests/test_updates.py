@@ -110,7 +110,8 @@ def test_a_clean_git_copy_moves_fast_forward_to_the_tag_and_installs_its_librari
     out = updater.update(RELEASE, root=_root(tmp_path), python="py", run=git)
     assert out.ok and out.previous == "abc123" and "Updated to 0.2.0" in out.message
     assert git.calls[0] == ["git", "status", "--porcelain", "--untracked-files=no"]
-    assert ["git", "fetch", "--tags", "origin"] in git.calls
+    assert ["git", "fetch", "--no-tags", "https://github.com/detailstech93/DetailsBench.git",
+            f"+refs/tags/{RELEASE.tag}:refs/tags/{RELEASE.tag}"] in git.calls        # not "origin" (2026-10-24)
     assert ["git", "merge", "--ff-only", "refs/tags/v0.2.0"] in git.calls
     assert git.calls[-1][:3] == ["py", "-m", "pip"] and git.calls[-1][-1].endswith("requirements.txt")
 

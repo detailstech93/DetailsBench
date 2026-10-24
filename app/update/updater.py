@@ -12,7 +12,7 @@ Updates > "Check now". Never while tests run (app/ui/update_ui.py). A version th
 ("update_skip").
 
 Update: only on the user's click, and only for a git copy (install.sh on Linux and WSL, a git clone on Windows):
-  git status (no changes of its own) -> git fetch --tags origin -> git merge --ff-only <tag> (the copy moves to the
+  git status (no changes of its own) -> git fetch <the project's GitHub> <tag> -> git merge --ff-only <tag> (the copy moves to the
   release; a copy with commits of its own, such as a development copy, is never changed) -> pip install -r
   requirements.txt with the app's own Python -> restart. The commit it came from is kept ("update_previous") to go
   back with git. The data folder (database, settings, reports) is not touched. A copy that is not a git copy (a
@@ -183,7 +183,10 @@ def update(release: Release, root: Path = ROOT, python: str = sys.executable, ru
     code, previous = step(["git", "rev-parse", "HEAD"], 60)
     previous = previous.strip() if code == 0 else None
     progress("Downloading the new version...")
-    code, text = step(["git", "fetch", "--tags", "origin"], 600)
+    # the tag itself, from the project's GitHub: a copy whose "origin" is elsewhere (copied from another PC) got
+    # nothing from "git fetch origin" (owner, 2026-10-24, Fedora: "refs/tags/v0.1.1-beta - not something we can merge")
+    code, text = step(["git", "fetch", "--no-tags", f"https://github.com/{REPO}.git",
+                       f"+refs/tags/{release.tag}:refs/tags/{release.tag}"], 600)
     if code != 0:
         return Outcome(False, f"Downloading failed (git fetch): {last_line(text)}", log=log)
     progress(f"Moving to {release.tag}...")
