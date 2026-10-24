@@ -173,6 +173,15 @@ class TestsPage(QWidget):
         self.rescan_btn.clicked.connect(self.rescan_requested.emit)
         self.show_all = QCheckBox("Show tests this PC cannot run")
         self.show_all.toggled.connect(lambda _: self.fill())
+        # owner, 2026-10-24: ticked or not at any time, also in the middle of a run; read when the run ends
+        from app.ui import shutdown_after
+        self.shutdown_box = QCheckBox("Shut down the computer when the run ends")
+        self.shutdown_box.setToolTip("When the run going on and every test in line after it are over: only once "
+                                     "every result and report is saved, with 60 s to cancel.")
+        not_offered = shutdown_after.why_not_offered()
+        if not_offered:
+            self.shutdown_box.setEnabled(False)
+            self.shutdown_box.setToolTip(not_offered.capitalize() + ".")
         bar.addWidget(self.all_btn)
         bar.addWidget(self.missing_btn)
         bar.addWidget(self.clear_btn)
@@ -180,6 +189,7 @@ class TestsPage(QWidget):
         bar.addWidget(self.rescan_btn)
         bar.addStretch(1)
         bar.addWidget(self.show_all)
+        bar.addWidget(self.shutdown_box)
         layout.addLayout(bar)
 
         # owner, 2026-10-20: while the app scans the PC for tests nothing starts, and the screen says so

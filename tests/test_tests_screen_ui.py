@@ -537,19 +537,32 @@ def test_a_test_with_its_own_settings_queued_while_a_game_runs_asks_them_at_once
     assert run_tests.prepare_one(window, entry("puget", source="library")) is None
 
 
-def test_shut_down_after_the_run_waits_for_the_tests_in_line(qapp):
+def test_shut_down_after_the_run_waits_for_the_tests_in_line(qapp, monkeypatch):
+    """Owner, 2026-10-24: a box on the Tests screen, next to Show tests this PC cannot run, ticked at any time."""
     from types import SimpleNamespace
     from PySide6.QtWidgets import QLabel
-    from app.ui import run_tests
-    window = SimpleNamespace(status_label=QLabel("Session #1 done."))
-    assert run_tests.shutdown_later(window) is False                     # nothing in line: shut down now
-    tool = run_tests.Prepared([entry("tool_a")], [], run_tests.RunChoice(1, 0, 0))
-    window.run_line = [run_tests.Waiting(entry("tool_a"), tool)]
-    assert run_tests.shutdown_later(window) is True and tool.choice.shutdown_after is True
-    assert "shuts down after the tests in line (tool_a last)" in window.status_label.text()
-    game = run_tests.Prepared([], [entry("g", source="steam")], run_tests.RunChoice(1, 0, 0))
-    window.run_line.append(run_tests.Waiting(entry("g", source="steam"), game))
-    assert run_tests.shutdown_later(window) is True and "not shut down: a game is in line" in window.status_label.text()
+    from app.ui import run_tests, shutdown_after
+    monkeypatch.setattr(shutdown_after, "why_not_offered", lambda *a, **k: None)
+    calls = []
+    monkeypatch.setattr(shutdown_after, "after_run", lambda w, sid, summary, report: calls.append(sid) or True)
+    page = TestsPage()
+    assert page.shutdown_box.text() == "Shut down the computer when the run ends" and not page.shutdown_box.isChecked()
+    window = SimpleNamespace(status_label=QLabel("Session #1 done."), tests_page=page, run_line=[])
+    assert not run_tests.wants_shutdown(window, run_tests.RunChoice(1, 0, 0, shutdown_after=True))  # box rules
+    page.shutdown_box.setChecked(True)                                   # ticked in the middle of the run
+    assert run_tests.wants_shutdown(window, run_tests.RunChoice(1, 0, 0))
+    window.run_line = [run_tests.Waiting(entry("tool_a"), "p")]
+    assert run_tests.shutdown_when_done(window, 1, None, None) is False and calls == []
+    assert "shuts down after the tests in line" in window.status_label.text() and page.shutdown_box.isChecked()
+    window.run_line = []                                                 # the last test in line is over
+    assert run_tests.shutdown_when_done(window, 2, None, None) is True and calls == [2]
+    assert not page.shutdown_box.isChecked()                             # once: not for the next run
+    run_tests.tick_shutdown(window)                                      # the run dialog's box ticks it
+    assert page.shutdown_box.isChecked()
+    monkeypatch.setattr(shutdown_after, "why_not_offered", lambda *a, **k: "not offered in WSL")
+    off = TestsPage()
+    assert not off.shutdown_box.isEnabled() and off.shutdown_box.toolTip() == "Not offered in wsl."
+    assert not run_tests.wants_shutdown(SimpleNamespace(tests_page=off))
 
 
 def test_double_click_on_the_test_running_queues_nothing(qapp):

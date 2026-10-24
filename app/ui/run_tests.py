@@ -767,20 +767,36 @@ def line_next(window, stopped: bool = False, start=None):
     when_free(window, start or start_waiting)
 
 
-def shutdown_later(window) -> bool:
-    """Shut down when the run ends, with tests in line after it: the computer shuts down after the last of them
-    instead (a game, which cannot, leaves it on). True when the shutdown is not for now."""
-    line = getattr(window, "run_line", [])
-    if not line:
+def _shutdown_box(window):
+    return getattr(getattr(window, "tests_page", None), "shutdown_box", None)
+
+
+def tick_shutdown(window, on: bool = True) -> None:
+    """The run dialog's (or the phone's) "shut down when it ends" ticks the box on the Tests screen."""
+    box = _shutdown_box(window)
+    if box is not None and box.isEnabled():
+        box.setChecked(on)
+
+
+def wants_shutdown(window, choice=None) -> bool:
+    """The box on the Tests screen as it is when the run ends (owner, 2026-10-24: ticked in the middle of a
+    run, or unticked); without that screen, the run's own choice."""
+    box = _shutdown_box(window)
+    if box is None:
+        return bool(getattr(choice, "shutdown_after", False))
+    return box.isChecked() and box.isEnabled()
+
+
+def shutdown_when_done(window, session_id, summary, report) -> bool:
+    """The box is ticked and a run is over: with tests in line the last of them decides (the box is read again
+    then); else the shutdown (once every result and report is saved, 60 s to cancel). True when handed on."""
+    if getattr(window, "run_line", []):
+        window.status_label.setText(f"{window.status_label.text()}  The computer shuts down after the tests in "
+                                    f"line.")
         return False
-    last = line[-1].prepared
-    if last.automatic:
-        last.choice = dataclasses.replace(last.choice, shutdown_after=True)
-        note = f"The computer shuts down after the tests in line ({line[-1].entry.name} last)."
-    else:
-        note = "The computer was not shut down: a game is in line after it."
-    window.status_label.setText(f"{window.status_label.text()}  {note}")
-    return True
+    tick_shutdown(window, False)                # once: the next run does not shut down unless ticked again
+    from app.ui import shutdown_after
+    return shutdown_after.after_run(window, session_id, summary, report)
 
 
 def when_free(window, start, tries: int = 120):
@@ -810,6 +826,8 @@ def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_re
     from app.ui import reports_folder
     folder = reports_folder.folder(window)
     result: dict = {}
+    if getattr(choice, "shutdown_after", False):
+        tick_shutdown(window)
 
     written, seen = set(), {"now": None}
 
@@ -839,10 +857,8 @@ def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_re
                 go_on(False)                    # no score to type: the line goes on
         else:
             go_on(stopped)
-        if getattr(choice, "shutdown_after", False):
-            if not shutdown_later(window):
-                from app.ui import shutdown_after
-                shutdown_after.after_run(window, session_id, panel.last_summary, report)
+        if wants_shutdown(window, choice):
+            shutdown_when_done(window, session_id, panel.last_summary, report)
 
     def written_report(session_id: int, text: str) -> Optional[Path]:
         panel.on_step_report = None
@@ -1046,8 +1062,10 @@ def start_other(window, entry: TestEntry, choice: Optional[RunChoice] = None, af
             QMessageBox.information(window, "Run tests", f"{game['name']} is not fully installed.")
             return False
         def game_over(sid, summary):
-            game_report(window, sid, summary)
+            report = game_report(window, sid, summary)
             (after or (lambda s: line_next(window, s)))(bool(getattr(summary, "stopped", False)))
+            if wants_shutdown(window, choice):
+                shutdown_when_done(window, sid, summary, report)
         frame.on_game_finished = game_over
         if choice is None:
             frame.benchmark_game()
