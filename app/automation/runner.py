@@ -97,6 +97,7 @@ class RunSummary:
 
 
 SKIPPED_BY_USER = "Skipped by the user"
+DROPPED_BY_USER = "Skipped by the user before it started (taken out of the line)"
 
 
 class _RunStop:
@@ -149,6 +150,7 @@ class AutomationRunner:
         self.interrupted = interrupted      # resumed plan: the run the crash ended
         self.stamp = stamp                  # resumed plan: the same run folder
         self.skip_event = threading.Event()
+        self.dropped: set = set()           # tests taken out of the line before they started (drop)
         self.current_id: Optional[str] = None       # the test going on (or next, during a pause)
         self.skip_target: Optional[str] = None
         self.running_id: Optional[str] = None       # set while the plan runs (current_id stays after it)
@@ -173,6 +175,9 @@ class AutomationRunner:
             out[wid] = "queued"
         for item in self.plan:
             wid = item.workload.id
+            if wid in self.dropped and not any(r.workload_id == wid for r in records):
+                out[wid] = "skipped"                # taken out of the line: it will not run
+                continue
             if wid == self.running_id:
                 out[wid] = "running"
                 continue
@@ -181,6 +186,8 @@ class AutomationRunner:
                 out[wid] = "queued"                 # queued and taken into the plan, not started yet
                 continue
             if any(s[0].workload.id == wid for s in later) and self.running_id is not None:
+                if not any(r.workload_id == wid for r in records):
+                    out[wid] = "queued"             # still to come: in line, it can be skipped (2026-10-24)
                 continue
             rows = [r for r in records if r.workload_id == wid]
             if not rows:
@@ -215,6 +222,27 @@ class AutomationRunner:
             self._queued += taken
             self.queued_ids += [p.workload.id for p in taken]
         return taken, refused
+
+    def drop(self, wid: str) -> Optional[str]:
+        """Skip on a test in line (owner, 2026-10-24): it is taken out before it starts and stored as skipped.
+        None when it is out, else why not (the test going on has Skip this test)."""
+        with self._queue_lock:
+            if self._closed or self.stop_event.is_set():
+                return "the run has ended"
+            waiting = [p for p in self._queued if p.workload.id == wid]
+            if waiting:
+                self._queued = [p for p in self._queued if p.workload.id != wid]
+                self.queued_ids = [q for q in self.queued_ids if q != wid]
+                return None                     # never reached the plan: nothing to store
+            if wid == self.running_id:
+                return "it is running: use Skip this test"
+            if not any(p.workload.id == wid for p in self.plan):
+                return "not in this run"
+            schedule, _, summary = self._live
+            if summary is not None and any(r.workload_id == wid for r in summary.records):
+                return "it has started: use Skip this test"
+            self.dropped.add(wid)
+        return None
 
     def _take_queued(self, schedule: list) -> None:
         """Move the queued tests into the plan and to the end of the schedule (the run still going on is not
@@ -257,8 +285,8 @@ class AutomationRunner:
             self.skip_event.clear()
         return len(rest)
 
-    def _store_skip(self, summary: "RunSummary", item, run_index: int) -> str:
-        result = WorkloadResult(status="skipped", error=self._skip_note(summary, item))
+    def _store_skip(self, summary: "RunSummary", item, run_index: int, note: Optional[str] = None) -> str:
+        result = WorkloadResult(status="skipped", error=note or self._skip_note(summary, item))
         record = RunRecord(item.workload.id, run_index, False, result, None, None)
         record.result_id = self.db.create_result(
             self.session_id, item.workload.id, item.workload.benchmark_type, None, unit="points",
@@ -408,6 +436,11 @@ class AutomationRunner:
                                                         for s in schedule[position:]):
                 self.skip_target = None             # that test was over already: nothing to skip
                 self.skip_event.clear()
+            if item.workload.id in self.dropped:
+                note = self._store_skip(summary, item, run_index, DROPPED_BY_USER)
+                self._drop_rest(schedule, position, item, skip=False)
+                self.on_step(position + 1, len(schedule), f"{item.workload.display_name}: {note}")
+                continue
             if self.skip_target == item.workload.id:
                 note = self._store_skip(summary, item, run_index)
                 self._drop_rest(schedule, position, item)       # the count shrinks: the bar must not stop short

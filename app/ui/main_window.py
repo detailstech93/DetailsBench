@@ -463,6 +463,8 @@ class MainWindow(QMainWindow):
         self.tests_page.rescan_requested.connect(self.start_scan)
         self.tests_page.run_requested.connect(self.run_tests)
         self.tests_page.queue_run_requested.connect(self.queue_tests)
+        self.tests_page.unqueue_requested.connect(
+            lambda entry: __import__("app.ui.run_tests", fromlist=["x"]).unqueue(self, entry))
         self.tests_page.run_plan_requested.connect(self.run_saved_plan)
         self.tests_page.ai_models_requested.connect(self.edit_ai_models)
         from app.ui.remote_control import RemoteControl

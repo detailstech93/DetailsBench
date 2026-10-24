@@ -738,6 +738,20 @@ def queue_tests(window, entries: List[TestEntry], licenses=check_licenses, ask=a
     return queued + later
 
 
+def unqueue(window, entry: TestEntry) -> Optional[str]:
+    """Skip on a test in line (owner, 2026-10-24): out of the line before it starts. None when done, else why."""
+    line = getattr(window, "run_line", [])
+    if any(w.entry.id == entry.id for w in line):
+        line[:] = [w for w in line if w.entry.id != entry.id]
+        why = None
+    else:
+        why = window.automation_panel.drop_queued(entry.id)
+    window.status_label.setText(f"{entry.name} was taken out of the line." if why is None
+                                else f"{entry.name} was not taken out: {why}.")
+    window.tests_page.refresh_progress()
+    return why
+
+
 def line_next(window, stopped: bool = False, start=None):
     """The run before is over: the next test in line starts (after the run's own callbacks are done). A stopped
     run ends the line: what you stop, the tests after it do not start."""

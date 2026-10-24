@@ -285,8 +285,9 @@ def test_marks_follow_each_test_for_its_dot(db, tmp_path):
         wl.on_run = lambda ctx: seen.append(runner.marks())
     assert runner.marks() == {}
     runner.run()
-    assert seen[0] == {"tool_a": "running"} and seen[1] == {"tool_a": "running"}
-    assert seen[2] == {"tool_a": "ok", "tool_b": "running"}
+    assert seen[0] == {"tool_a": "running", "tool_b": "queued", "tool_c": "queued"}   # still to come: in line
+    assert seen[1] == seen[0]
+    assert seen[2] == {"tool_a": "ok", "tool_b": "running", "tool_c": "queued"}
     assert seen[-1] == {"tool_a": "ok", "tool_b": "failed", "tool_c": "running"}
     assert runner.marks() == {"tool_a": "ok", "tool_b": "failed", "tool_c": "ok"}     # solid after the run
 
@@ -326,3 +327,29 @@ def test_a_test_queued_during_the_run_runs_after_the_planned_ones(db, tmp_path):
     assert [i["workload_id"] for i in json.loads((tmp_path / "plan.json").read_text())["items"]] == ["a", "later"]
     assert runner.marks()["later"] == "ok"
     assert runner.queue([PlanItem(Scripted("late", []), 1, 0)]) == ([], {"late": "the run has ended"})
+
+
+def test_skip_on_a_test_in_line_takes_it_out_before_it_starts(db, tmp_path):
+    """Owner, 2026-10-24: the grey Run of a test in line is Skip: it is taken out before the run reaches it."""
+    from app.automation.runner import DROPPED_BY_USER
+    database, sid = db
+    seen = {}
+    later, queued = Scripted("later", [ok(5.0)]), Scripted("extra", [ok(7.0)])
+
+    def act(ctx):
+        if not seen:
+            runner.queue([PlanItem(queued, 1, 0)])
+            seen["running"] = runner.drop("a")
+            seen["later"] = runner.drop("later")
+            seen["extra"] = runner.drop("extra")
+            seen["marks"] = runner.marks()
+    a = Scripted("a", [ok(1.0)], on_run=act)
+    runner = AutomationRunner(database, sid, [PlanItem(a, 1, 0), PlanItem(later, 2, 1)], tmp_path / "o")
+    summary = runner.run()
+    assert seen["running"] == "it is running: use Skip this test"
+    assert seen["later"] is None and seen["extra"] is None
+    assert seen["marks"] == {"a": "running", "later": "skipped"}
+    assert later.contexts == [] and queued.contexts == []
+    assert [(r.workload_id, r.result.status) for r in summary.records] == [("a", "completed"), ("later", "skipped")]
+    assert summary.records[1].result.error == DROPPED_BY_USER
+    assert runner.drop("a") == "the run has ended"

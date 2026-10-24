@@ -437,10 +437,17 @@ def test_queue_next_shows_while_tests_run_and_hands_the_ticked_tests_to_the_run(
     assert page.run_btn.text().startswith("Run selected") and not page.run_btn.isEnabled()   # never changes
     row["tool_b"].click()
     assert [[e.id for e in x] for x in asked] == [["tool_b"]] and ran == []
-    state.marks["tool_b"] = "queued"          # in line now: greyed like the test running (owner, 2026-10-24)
+    state.marks["tool_b"] = "queued"          # in line now: its button is Skip (owner, 2026-10-24)
     page.refresh_progress()
-    assert row["tool_b"].text() == "Run..." and not row["tool_b"].isEnabled()
+    assert row["tool_b"].text() == "Skip" and row["tool_b"].isEnabled()
+    out = []
+    page.unqueue_requested.connect(out.append)
+    row["tool_b"].click()
+    assert [e.id for e in out] == ["tool_b"] and [[e.id for e in x] for x in asked] == [["tool_b"]]
     taking["now"] = False
+    page.refresh_progress()
+    assert row["tool_b"].text() == "Skip"             # still in line: it can still be taken out
+    state.marks["tool_b"] = "running"
     page.refresh_progress()
     assert row["tool_b"].text() == "Run..." and not row["tool_b"].isEnabled()
 
@@ -556,3 +563,19 @@ def test_double_click_on_the_test_running_queues_nothing(qapp):
     page.request_run([page.entry("tool_a")])
     page.request_run([page.entry("tool_b")])
     assert [[e.id for e in x] for x in asked] == [["tool_b"]]
+
+
+def test_skip_takes_a_test_out_of_the_line(qapp):
+    from types import SimpleNamespace
+    from PySide6.QtWidgets import QLabel
+    from app.ui import run_tests
+    dropped = []
+    window = SimpleNamespace(status_label=QLabel(), tests_page=SimpleNamespace(refresh_progress=lambda: None),
+                             automation_panel=SimpleNamespace(drop_queued=lambda wid: dropped.append(wid) or None))
+    g = entry("g", source="steam")
+    window.run_line = [run_tests.Waiting(g, "p")]
+    assert run_tests.unqueue(window, g) is None and window.run_line == [] and dropped == []
+    assert run_tests.unqueue(window, entry("tool_b")) is None and dropped == ["tool_b"]
+    assert window.status_label.text() == "tool_b was taken out of the line."
+    window.automation_panel.drop_queued = lambda wid: "it is running: use Skip this test"
+    assert run_tests.unqueue(window, entry("tool_a")) == "it is running: use Skip this test"

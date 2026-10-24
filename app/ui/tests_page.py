@@ -128,6 +128,7 @@ class TestsPage(QWidget):
     lmstudio_install_requested = Signal()   # Linux: LM Studio itself, for the AI models
     queue_requested = Signal(object)        # TestEntry: Install pressed during an install (it waits in line)
     queue_run_requested = Signal(list)      # [TestEntry]: "Queue next" while tests run (added to that run)
+    unqueue_requested = Signal(object)      # TestEntry: "Skip" on a test in line (taken out before it starts)
     install_many_requested = Signal(list)   # the ticked missing tests: installed one after the other (app/ui/run_all)
 
     def __init__(self, open_url: Optional[Callable[[str], object]] = None, parent=None):
@@ -404,7 +405,8 @@ class TestsPage(QWidget):
         if e.can_run():
             b = QPushButton("Run alone..." if e.waits_for_typed_score() else "Run...")
             b.setProperty("run_text", b.text())
-            b.clicked.connect(lambda checked=False, x=e: self.request_run([x]))
+            b.clicked.connect(lambda checked=False, x=e, btn=b: self.unqueue_requested.emit(x)
+                              if btn.text() == "Skip" else self.request_run([x]))
             b.setEnabled(not self.blocked())
             return b
         if e.compatible and e.state == MISSING and installable(e, self.host):
@@ -658,9 +660,11 @@ class TestsPage(QWidget):
                 continue
             entry = self.entry(test_id)
             queue = self.adding and entry is not None and self.queueable(entry)
-            button.setText("Queue next" if queue else button.property("run_text"))
-            button.setEnabled(queue or not self.blocked())
-            button.setToolTip("Adds this test to the run going on: it runs after its tests, with its numbers of "
+            skip = self.busy and entry is not None and self.marks.get(test_id) == "queued"   # owner, 2026-10-24
+            button.setText("Skip" if skip else "Queue next" if queue else button.property("run_text"))
+            button.setEnabled(skip or queue or not self.blocked())
+            button.setToolTip("Takes this test out of the line before it starts (stored as skipped)." if skip else
+                              "Adds this test to the run going on: it runs after its tests, with its numbers of "
                               "runs, in the same report." if queue else "")
 
     def show_marks(self, marks: Optional[Dict[str, str]]):
@@ -711,8 +715,8 @@ class TestsPage(QWidget):
             self.progress_label.setText(runs + state.text)
             if self.can_add() != self.taking:
                 self.set_busy(True)             # the plan has started (or ended): ticking and Queue next follow
-            elif self.adding:
-                self._sync_run_buttons()        # a test reached by the run (or queued) is not queued again
+            else:
+                self._sync_run_buttons()        # a test reached by the run is not queued again; one in line: Skip
             return
         self.timer.stop()
         self.progress_bar.setRange(0, 100)

@@ -575,6 +575,12 @@ class AutomationPanel(QGroupBox):
             self.worker.stop()
             self.status_label.setText("Stopping: the current run is being terminated...")
 
+    def drop_queued(self, wid: str) -> Optional[str]:
+        """Skip on a test in line: out of the plan before it starts. None when done, else why not."""
+        if not self.is_running():
+            return "no run is going on"
+        return self.worker.runner.drop(wid)
+
     def skip_test(self):
         """Skip button: only the test going on ends (stored as skipped); the rest of the plan goes on."""
         if self.is_running():
