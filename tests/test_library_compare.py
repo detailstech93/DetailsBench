@@ -1,5 +1,8 @@
 """Phase 5: parts of the results library side by side, and the comparison as an HTML report."""
 
+import json
+from pathlib import Path
+
 import pytest
 
 from app.library import compare
@@ -99,3 +102,78 @@ def test_compare_screen_and_report(qapp, tmp_path):
     assert (tmp_path / "c.html").read_text(encoding="utf-8").startswith("<!doctype html>")
     tab.open_report()
     assert opened == [tmp_path / "c.html"]
+    tab.clear_compare()                                                   # owner: empty it when done
+    assert tab.compared is None and tab.compare_table.topLevelItemCount() == 0
+    assert len(tab._selected_parts()) <= 1 and not tab.compare_btn.isEnabled() and not tab.open_btn.isEnabled()
+
+
+# ── phase 6: sessions from before the parts record ──
+
+OLD_ENV = {"cpu": {"value": "Intel(R) Core(TM) Ultra 9 275HX"},
+           "gpu": {"value": ["Intel(R) Graphics", "NVIDIA GeForce RTX 5090 Laptop GPU"]},
+           "os_name": {"value": "Windows 11 Professional"}, "os_build": {"value": "26300.9711"},
+           "ram_gb": {"value": 95.4}}
+
+
+def test_an_old_session_of_this_pc_is_filed_under_its_parts_with_the_driver_unknown():
+    from app.library import legacy
+    from tests.test_library_store import HW
+    hw = legacy.hardware({"environment": OLD_ENV, "session": {"created_at": "2026-10-18T13:45:00"}}, HW)
+    assert hw["unit_id"] == HW["unit_id"] and hw["gpus"][0]["driver"] is None
+    assert hw["gpus"][0]["power_limit_w"] == 175.0                     # owner: always at 175 W
+    assert hw["os"]["name"] == "Windows 11 Professional" and HW["gpus"][0]["driver"] == "617.42"   # a copy
+
+
+def test_an_old_session_of_another_pc_is_a_build_of_its_parts():
+    from app.library import legacy
+    from tests.test_library_store import HW
+    env = dict(OLD_ENV, cpu={"value": "AMD Ryzen 9 9950X"}, gpu={"value": ["NVIDIA GeForce RTX 4090"]})
+    hw = legacy.hardware({"environment": env, "session": {"created_at": "2026-10-18T13:45:00"}}, HW)
+    assert hw["unit_id"].startswith("older-") and hw["gpus"] == [{"name": "NVIDIA GeForce RTX 4090",
+                                                                   "vendor_id": "10de"}]
+    assert legacy.hardware({"environment": {}}, HW) is None             # not even the processor: left out
+
+
+def test_add_earlier_takes_old_sessions_marked_driver_unknown(tmp_path, monkeypatch):
+    import app.export
+    from app.library import legacy, package as pk, store, sync
+    from tests.test_library_store import HW, export, run
+    gpu_runs = [run("vkmark", "gpu", 900.0), run("vkmark", "gpu", 910.0)]
+    monkeypatch.setattr(app.export, "build_session_export", lambda db, sid: export(hw=None, runs=gpu_runs))
+
+    class Db:
+        def get_sessions(self):
+            return [{"id": 7}]
+
+        def get_session_manifest(self, sid):
+            return {"environment": OLD_ENV, "session": {"created_at": "2026-10-18T13:45:00"}}
+    data = tmp_path / "data"
+    data.mkdir()
+    text = sync.add_earlier(Db(), data, this_pc=HW)
+    assert "1 of them from before the parts record (driver unknown)" in text
+    path, = store.waiting(data / sync.OUTBOX)
+    made = json.loads(Path(path).read_text(encoding="utf-8"))
+    assert pk.check(made) is None and made["old_session"]                # the hash is made again
+    a = made["attribution"]
+    assert a["variant"].endswith("@ 175 W") and a["context"]["driver"] is None
+    assert legacy.NOTE in a["guessed"]
+
+
+def test_compare_takes_an_old_result_only_where_nothing_newer_is_there():
+    old = dict(pkg("a", "bench", 90, date="2026-10-18T10:00:00"), old_session=True)
+    new = pkg("a", "bench", 100, driver="617.42", date="2026-10-01T10:00:00")
+    only_old = dict(pkg("a", "other", 50), old_session=True)
+    rows = compare.compare([old, new, only_old, pkg("b", "bench", 120), pkg("b", "other", 60)], ["a", "b"])["rows"]
+    bench = next(r for r in rows if r["test"] == "Bench")
+    other = next(r for r in rows if r["test"] == "Other")
+    assert bench["cells"][0]["mean"] == 100 and not any("driver unknown" in n for n in bench["notes"])
+    assert "driver unknown (older session): A" in other["notes"]
+
+
+def test_windows_against_linux_on_one_device():
+    results = [pkg("a", "gb", 1000), pkg("a", "gb", 1100, os="Ubuntu 24.04"), pkg("a", "only_win", 5)]
+    out = compare.os_compare(results, "a")
+    assert [p["name"] for p in out["parts"]] == ["A (Windows)", "A (Linux)"]
+    gb = next(r for r in out["rows"] if r["test"] == "Gb")
+    assert gb["os"] == "Windows vs Linux" and gb["cells"][1]["diff"] == pytest.approx(10.0) and gb["best"] == 1
+    assert "The same part on Windows and on Linux." in compare.report_html(out)

@@ -1,8 +1,9 @@
 """Compare parts of the results library (phase 5): two or more parts side by side, test by test.
 
 For each part and test the result shown is the one on the newest driver the part has a result for, the newest date
-on that driver (plan, "Compare rules"). Windows results line up with Windows ones and Linux with Linux. What does not
-compare cleanly is said, not hidden: another benchmark version or settings, one run only, a noisy result. Pure, so
+on that driver (plan, "Compare rules"). Windows results line up with Windows ones and Linux with Linux; one part's
+Windows results against its Linux ones is a comparison of its own (owner, 2026-10-24). What does not compare cleanly
+is said, not hidden: another benchmark version or settings, one run only, a noisy result. Pure, so
 the screen and the HTML report show the same thing.
 """
 
@@ -50,22 +51,52 @@ def _pick(pkgs: List[Mapping]) -> Mapping:
                                     p["session"].get("created_at") or p.get("created_at") or ""))
 
 
+def _scores(results: List[Mapping], key: str) -> List[Mapping]:
+    """The part's results that have a score to line up."""
+    return [p for p in results if p["attribution"]["part_key"] == key and not p.get("deleted")
+            and p["attribution"].get("kind") not in SKIP_KINDS and isinstance(p["result"].get("mean"), (int, float))]
+
+
+def _chosen(pkgs: List[Mapping], with_os: bool = True) -> Dict[tuple, Mapping]:
+    by_test: Dict[tuple, List[Mapping]] = {}
+    for p in pkgs:
+        k = _test_key(p)
+        by_test.setdefault(k if with_os else (k[0], "", k[2]), []).append(p)
+    return {k: _pick(v) for k, v in by_test.items()}
+
+
 def compare(results: List[Mapping], part_keys: List[str], names: Optional[Mapping[str, str]] = None) -> dict:
     """{"parts": [{key, name}], "rows": [...]}. Each row is one test on one OS: its result per part (None where the
     part has none), the % difference to the first part, the best part, and notes. Tests all parts have come first."""
     names = names or {}
     parts, chosen = [], {}
     for key in part_keys:
-        pkgs = [p for p in results if p["attribution"]["part_key"] == key and not p.get("deleted")
-                and p["attribution"].get("kind") not in SKIP_KINDS and isinstance(p["result"].get("mean"), (int, float))]
-        if not pkgs and not any(p["attribution"]["part_key"] == key for p in results):
+        mine = [p for p in results if p["attribution"]["part_key"] == key]
+        if not mine:
             continue
-        parts.append({"key": key, "name": view.part_name([p for p in results if p["attribution"]["part_key"] == key],
-                                                         names)})
-        by_test: Dict[tuple, List[Mapping]] = {}
-        for p in pkgs:
-            by_test.setdefault(_test_key(p), []).append(p)
-        chosen[key] = {k: _pick(v) for k, v in by_test.items()}
+        parts.append({"key": key, "name": view.part_name(mine, names)})
+        chosen[key] = _chosen(_scores(results, key))
+    return {"mode": "parts", "parts": parts, "rows": _rows(parts, chosen)}
+
+
+def os_compare(results: List[Mapping], part_key: str, names: Optional[Mapping[str, str]] = None) -> dict:
+    """One part's Windows results against its Linux ones, test by test (owner, 2026-10-24)."""
+    mine = [p for p in results if p["attribution"]["part_key"] == part_key]
+    if not mine:
+        return {"mode": "os", "parts": [], "rows": []}
+    name = view.part_name(mine, names or {})
+    parts, chosen = [], {}
+    for family in ("Windows", "Linux"):
+        key = f"{part_key}|{family}"
+        parts.append({"key": key, "name": f"{name} ({family})"})
+        chosen[key] = _chosen([p for p in _scores(results, part_key) if os_family(p) == family], with_os=False)
+    rows = _rows(parts, chosen)
+    for row in rows:
+        row["os"] = "Windows vs Linux"
+    return {"mode": "os", "parts": parts, "rows": rows}
+
+
+def _rows(parts: List[dict], chosen: Mapping[str, Mapping[tuple, Mapping]]) -> List[dict]:
     rows = []
     for test_key in {k for c in chosen.values() for k in c}:
         picked = [chosen[p["key"]].get(test_key) for p in parts]
@@ -73,7 +104,7 @@ def compare(results: List[Mapping], part_keys: List[str], names: Optional[Mappin
         lower = lower_is_better(test_key[2])
         means = [p["result"]["mean"] if p else None for p in picked]
         base = means[0]
-        cells, notes, one_run = [], [], []
+        cells, notes, one_run, old = [], [], [], []
         for part, p, mean in zip(parts, picked, means):
             if p is None:
                 cells.append(None)
@@ -89,10 +120,14 @@ def compare(results: List[Mapping], part_keys: List[str], names: Optional[Mappin
                 one_run.append(part["name"])
             if r.get("noisy"):
                 notes.append(f"{part['name']}: noisy (spread over 3%)")
+            if p.get("old_session"):
+                old.append(part["name"])
         present = [p for p in picked if p]
         if one_run:
             notes.insert(0, "low confidence: all of them (one run, or imported)" if len(one_run) == len(present) > 1
                          else "low confidence (one run, or imported): " + ", ".join(one_run))
+        if old:
+            notes.append("driver unknown (older session): " + ", ".join(old))
         if len({p["test"].get("version") for p in present if p["test"].get("version")}) > 1:
             notes.append("another benchmark version: not the same test")
         if len({p["test"].get("fingerprint") for p in present if p["test"].get("fingerprint")}) > 1:
@@ -106,7 +141,7 @@ def compare(results: List[Mapping], part_keys: List[str], names: Optional[Mappin
                      "group": first["test"].get("group") or "", "cells": cells, "best": best,
                      "all": len(valued) == len(parts), "notes": notes})
     rows.sort(key=lambda r: (not r["all"], r["test"].lower(), r["os"]))
-    return {"parts": parts, "rows": rows}
+    return rows
 
 
 def _e(value) -> str:
@@ -169,8 +204,9 @@ def report_html(result: Mapping, now: Optional[str] = None) -> str:
         ".detail,.none{grid-column:1/3}}"
         "</style></head><body><main>"
         f"<h1>{_e(title)}</h1>"
-        f'<p class="sub">DetailsBench results library, {_e(when)}. Each part shows its result on the newest '
-        f"driver it was tested with. Differences are against {first}. Windows results are compared with Windows, "
-        f"Linux with Linux.</p>"
+        f'<p class="sub">DetailsBench results library, {_e(when)}. Each column shows its result on the newest '
+        f"driver it was tested with. Differences are against {first}. "
+        + ("The same part on Windows and on Linux." if result.get("mode") == "os" else
+           "Windows results are compared with Windows, Linux with Linux.") + "</p>"
         + ("".join(blocks) or "<p>These parts have no results to compare.</p>")
         + "</main></body></html>")

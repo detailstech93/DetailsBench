@@ -110,26 +110,37 @@ def after_run(window, session_id: Optional[int]) -> None:
     threading.Thread(target=work, name="results-library", daemon=True).start()
 
 
-def add_earlier(db, data_dir: Path, runs_root: Optional[Path] = None) -> str:
-    """Every session on this PC whose record has the PC's parts (from 0.1.3 on) into the outbox, then sent.
-    A test already in the library stays as it is there."""
+def add_earlier(db, data_dir: Path, runs_root: Optional[Path] = None, this_pc: Optional[dict] = None) -> str:
+    """Every session on this PC into the outbox, then sent. A session with the PC's parts record (from 0.1.3 on) as
+    it is; an older one with a record made from the names it kept (phase 6, app/library/legacy.py), each result
+    marked "driver unknown". A test already in the library stays as it is there."""
     from app.export import build_session_export
-    count, sessions = 0, 0
+    from app.library import legacy
+    count, sessions, older = 0, 0, 0
     for s in db.get_sessions():
         manifest = db.get_session_manifest(s["id"]) or {}
-        if not ((manifest.get("environment") or {}).get("hardware") or {}).get("unit_id"):
+        old = not ((manifest.get("environment") or {}).get("hardware") or {}).get("unit_id")
+        hw = legacy.hardware(manifest, this_pc) if old else None
+        if old and hw is None:
             continue
         try:
-            packages, _ = pk.build_packages(build_session_export(db, s["id"]), ai_run_reader(runs_root, s["id"]))
+            export = build_session_export(db, s["id"])
+            if old:
+                export["manifest"] = dict(export.get("manifest") or {})
+                export["manifest"]["environment"] = dict(export["manifest"].get("environment") or {}, hardware=hw)
+            packages, _ = pk.build_packages(export, ai_run_reader(runs_root, s["id"]))
         except Exception:
             logger.exception("Results library: session %s not added", s["id"])
             continue
+        if old:
+            packages = [legacy.mark(p) for p in packages]
+            older += 1
         sessions += 1
         count += store.to_outbox(Path(data_dir) / OUTBOX, packages)
     if not sessions:
-        return ("No earlier session has the record of the PC's parts (sessions from before 0.1.3, or run before "
-                "the app was restarted after the update): nothing to add.")
-    return f"{sessions} session(s) read. " + send_waiting(data_dir)
+        return "No earlier session to add."
+    return (f"{sessions} session(s) read" + (f", {older} of them from before the parts record (driver unknown)"
+                                             if older else "") + ". " + send_waiting(data_dir))
 
 
 def _wanted(data_dir: Path) -> bool:

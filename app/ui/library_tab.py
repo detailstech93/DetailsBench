@@ -18,6 +18,9 @@ from app.library import compare, store, sync, view
 from app.library.index import LibraryIndex
 
 logger = logging.getLogger(__name__)
+COMPARE_HINT = ("Choose two or more parts on the left (Ctrl+click), then \"Compare selected parts\"; or one part, "
+                "then \"Windows vs Linux\". Each part shows its result on the newest driver it was tested with; "
+                "Windows is compared with Windows, Linux with Linux.")
 COLUMNS = ("Test", "Result", "Accuracy", "Driver / software", "Variant", "Tested on", "Date", "Notes")
 
 
@@ -57,8 +60,9 @@ class LibraryTab(QWidget):
         self.send_now = QPushButton("Send waiting results now")
         self.send_now.clicked.connect(self.send)
         self.earlier = QPushButton("Add earlier sessions")
-        self.earlier.setToolTip("Sessions of this PC that have the record of its parts (from 0.1.3 on). A test "
-                                "already in the library stays as it is there.")
+        self.earlier.setToolTip("Every session of this PC. Sessions from before 0.1.3 kept only the names of its "
+                                "parts: their results say \"driver unknown\". A test already in the library stays "
+                                "as it is there.")
         self.earlier.clicked.connect(self.add_earlier)
         self.reload = QPushButton("Refresh")
         self.reload.setToolTip("Reads what other PCs added to the library since the last look.")
@@ -92,6 +96,10 @@ class LibraryTab(QWidget):
         self.compare_btn.setToolTip("Choose two or more parts with Ctrl+click (two devices, two graphics cards...).")
         self.compare_btn.clicked.connect(self.compare)
         ll.addWidget(self.compare_btn)
+        self.os_btn = QPushButton("Windows vs Linux")
+        self.os_btn.setToolTip("The chosen part's (or device's) Windows results against its Linux ones.")
+        self.os_btn.clicked.connect(self.compare_os)
+        ll.addWidget(self.os_btn)
         split.addWidget(left)
         self.pages = QTabWidget()
         right = QWidget()
@@ -138,9 +146,7 @@ class LibraryTab(QWidget):
         page = QWidget()
         cl = QVBoxLayout(page)
         cl.setContentsMargins(0, 0, 0, 0)
-        self.compare_title = QLabel("Choose two or more parts on the left (Ctrl+click), then \"Compare selected "
-                                    "parts\". Each part shows its result on the newest driver it was tested with; "
-                                    "Windows is compared with Windows, Linux with Linux.")
+        self.compare_title = QLabel(COMPARE_HINT)
         self.compare_title.setWordWrap(True)
         cl.addWidget(self.compare_title)
         self.compare_table = QTreeWidget()
@@ -153,7 +159,10 @@ class LibraryTab(QWidget):
         self.save_btn.clicked.connect(self.save_report)
         self.open_btn = QPushButton("Open the report")
         self.open_btn.clicked.connect(self.open_report)
-        for b in (self.save_btn, self.open_btn):
+        self.clear_btn = QPushButton("Clear")
+        self.clear_btn.setToolTip("Empties the comparison and unticks the parts chosen on the left.")
+        self.clear_btn.clicked.connect(self.clear_compare)
+        for b in (self.save_btn, self.open_btn, self.clear_btn):
             cbar.addWidget(b)
         cbar.addStretch()
         cl.addLayout(cbar)
@@ -218,7 +227,8 @@ class LibraryTab(QWidget):
     def add_earlier(self) -> None:
         w = self.window
         try:
-            text = sync.add_earlier(w.db, self._data(), getattr(w.automation_panel, "output_root", None))
+            hw = getattr(getattr(w, "environment_profile", None), "hardware", None)
+            text = sync.add_earlier(w.db, self._data(), getattr(w.automation_panel, "output_root", None), hw)
         except Exception as e:
             logger.exception("Results library: earlier sessions not added")
             text = f"Not added: {e}"
@@ -267,7 +277,16 @@ class LibraryTab(QWidget):
         parts = self._selected_parts()
         if len(parts) < 2:
             return
-        self.compared = compare.compare(self.results, [p["key"] for p in parts], self.names)
+        self._show_compared(compare.compare(self.results, [p["key"] for p in parts], self.names))
+
+    def compare_os(self) -> None:
+        parts = self._selected_parts()
+        if len(parts) != 1:
+            return
+        self._show_compared(compare.os_compare(self.results, parts[0]["key"], self.names))
+
+    def _show_compared(self, result: dict) -> None:
+        self.compared = result
         self.report_path = None
         names = [p["name"] for p in self.compared["parts"]]
         self.compare_title.setText(" vs ".join(names) + f": {len(self.compared['rows'])} test(s). The difference "
@@ -296,6 +315,18 @@ class LibraryTab(QWidget):
             t.resizeColumnToContents(c)
             t.setColumnWidth(c, min(t.columnWidth(c), 360))
         self.pages.setCurrentIndex(1)
+        self._buttons()
+
+    def clear_compare(self) -> None:
+        """Owner, 2026-10-24: a way to empty the comparison when done."""
+        self.compared, self.report_path = None, None
+        self.compare_table.clear()
+        self.compare_table.setHeaderLabels([])
+        self.compare_title.setText(COMPARE_HINT)
+        current = self.tree.currentItem()
+        self.tree.clearSelection()
+        if current is not None:
+            current.setSelected(True)                   # the part shown stays shown
         self._buttons()
 
     def save_report(self) -> None:
@@ -400,8 +431,10 @@ class LibraryTab(QWidget):
         self.delete_btn.setEnabled(bool(row and not row["deleted"] and has_folder))
         self.restore_btn.setEnabled(bool(row and row["deleted"] and has_folder))
         self.compare_btn.setEnabled(len(self._selected_parts()) >= 2)
+        self.os_btn.setEnabled(len(self._selected_parts()) == 1)
         self.save_btn.setEnabled(bool(self.compared and self.compared["rows"]))
         self.open_btn.setEnabled(self.report_path is not None)
+        self.clear_btn.setEnabled(bool(self.compared) or len(self._selected_parts()) > 1)
 
     def _unit(self) -> str:
         hw = getattr(getattr(self.window, "environment_profile", None), "hardware", None) or {}

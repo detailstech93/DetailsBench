@@ -271,7 +271,7 @@ def test_add_earlier_only_sessions_with_the_parts(tmp_path, monkeypatch):
     class Old(Db):
         def get_session_manifest(self, sid):
             return {}
-    assert "nothing to add" in sync.add_earlier(Old(), tmp_path)
+    assert sync.add_earlier(Old(), tmp_path) == "No earlier session to add."
 
 
 def _line(tab, pick):

@@ -52,7 +52,8 @@ def _number(value: Optional[float]) -> str:
 
 def software(pkg: Mapping) -> str:
     ctx = pkg["attribution"].get("context") or {}
-    return "; ".join(f"{label} {ctx[k]}" for k, label in CONTEXT_KEYS if ctx.get(k)) or "-"
+    text = "; ".join(f"{label} {ctx[k]}" for k, label in CONTEXT_KEYS if ctx.get(k))
+    return text or ("driver unknown" if pkg.get("old_session") else "-")      # phase 6: an older session
 
 
 def stress_text(pkg: Mapping) -> str:
