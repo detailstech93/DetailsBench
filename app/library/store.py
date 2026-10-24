@@ -90,6 +90,11 @@ def waiting(outbox: Path) -> List[Path]:
     return sorted(p for p in Path(outbox).glob("packages/*/*/*.json")) if Path(outbox).is_dir() else []
 
 
+def _runs(pkg: Mapping) -> int:
+    runs = (pkg.get("result") or {}).get("runs")
+    return runs if isinstance(runs, int) else 0
+
+
 def send(outbox: Path, library: Path) -> Tuple[int, List[str]]:
     """Copies what waits in the outbox into the library. (sent, problems). Stops at the first copy that fails
     (the share went away): the rest waits for the next send."""
@@ -116,6 +121,11 @@ def send(outbox: Path, library: Path) -> Tuple[int, List[str]]:
             elif there.get("package_id") != pkg.get("package_id") or check(there):
                 problems.append(f"{rel}: the library has another file of that name (kept in the outbox)")
                 continue
+            elif _runs(pkg) > _runs(there):
+                # the same test of the same session from this PC, with more runs: the earlier one missed some
+                # (0df42f7 packaged llama-benchy after 2 of its 3 runs). Only this PC writes this path.
+                _write_once(dest, pkg)
+                sent += 1
             # else: this test of this session is in the library already (added again, e.g. "Add earlier
             # sessions"): the file there stays as it was written; this copy is not needed
             path.unlink()                   # the library holds it now

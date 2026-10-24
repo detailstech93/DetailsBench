@@ -14,7 +14,7 @@ import re
 from datetime import datetime
 from typing import Callable, List, Mapping, Optional, Tuple
 
-from app.library.attribution import attribute, flags_of
+from app.library.attribution import attribute, flags_of, system_part
 
 FORMAT = "detailsbench.library.package"
 FORMAT_VERSION = 1
@@ -118,7 +118,8 @@ def build_packages(export: Mapping, read_ai_run: Callable[[str], Optional[dict]]
             "package_id": package_id(hw["unit_id"], session.get("id"), test_id),
             "created_at": now or datetime.now().isoformat(timespec="seconds"),
             "app": export.get("app"),
-            "pc": {"unit_id": hw["unit_id"], "device": hw.get("device"), "os": hw.get("os")},
+            "pc": {"unit_id": hw["unit_id"], "device": hw.get("device"), "os": hw.get("os"),
+                   "system_key": (system_part(hw) or {}).get("part_key")},
             "session": {k: session.get(k) for k in ("id", "name", "created_at")},
             "test": {"id": test_id, "name": _display_name(manifest, test_id), "group": group, "version": measured[0].get("benchmark_version"),
                      "unit": units.pop() if len(units) == 1 else None, "settings": settings,

@@ -322,29 +322,77 @@ def test_library_screen_names_a_device(qapp, tmp_path):
     assert tab.tree.topLevelItem(0).child(0).text(0) == "Test bench" and tab.part_title.text() == "Test bench"
 
 
-def test_keep_finished_writes_only_the_tests_over_to_the_outbox(tmp_path):
-    data = tmp_path / "data"
-    data.mkdir()
-    assert sync.keep_finished(export(), ["blender_benchmark"], data) == 1
-    assert [p.name for p in store.waiting(data / sync.OUTBOX)] == ["blender_benchmark.json"]
-    assert sync.keep_finished(export(), ["blender_benchmark"], data) == 0          # written once
-    assert sync.keep_finished({"bad": 1}, ["x"], data) == 0                         # never raises
+def test_a_run_cut_short_is_added_at_the_next_app_start(tmp_path, monkeypatch):
+    """Owner, 2026-10-24: nothing lost when a run is cut short; packages built only from the whole run
+    (a test packaged mid-run kept 2 of llama-benchy's 3 runs)."""
+    from types import SimpleNamespace
+    import threading
+    import app.export
+    monkeypatch.setattr(app.export, "build_session_export", lambda db, sid: export())
+    monkeypatch.setattr(threading, "Thread", lambda target, **kw: SimpleNamespace(start=target))
+    data, lib = _library(tmp_path)
+    for f in (lib / "packages").rglob("*.json"):
+        f.unlink()                                  # scratch library of this test only
+    LibraryIndex(data / sync.INDEX).rebuild(lib)
+    sync.mark_running(data, 7)
+    sync.mark_running(data, 7)
+    assert sync.cut_short(data) == [7] and store.waiting(data / sync.OUTBOX) == []      # nothing packaged yet
+    window = SimpleNamespace(frame_panel=SimpleNamespace(data_dir=data), db=None,
+                             automation_panel=SimpleNamespace(output_root=None))
+    sync.send_at_start(window)                      # the app opens again
+    assert sync.cut_short(data) == [] and len(LibraryIndex(data / sync.INDEX).results()) == 2
+    sync.after_run(SimpleNamespace(frame_panel=window.frame_panel, automation_panel=window.automation_panel,
+                                   db=None), 7)
+    assert sync.cut_short(data) == []                # a run that ends removes its own marker too
     from app.paths import save_setting
-    save_setting(data, sync.FOLDER_KEY, str(tmp_path))
-    save_setting(data, sync.AUTO_KEY, False)                                       # the owner adds by hand
-    assert sync.keep_finished(export(), ["stress_cpu"], data) == 0
+    save_setting(data, sync.AUTO_KEY, False)        # the owner adds by hand: no marker
+    sync.mark_running(data, 8)
+    assert sync.cut_short(data) == []
 
 
 def test_send_at_start_only_with_a_folder_and_something_waiting(tmp_path, monkeypatch):
     from types import SimpleNamespace
-    data, lib = _library(tmp_path)
-    calls = []
-    monkeypatch.setattr(sync, "send_waiting", lambda d: calls.append(d) or "")
-    window = SimpleNamespace(frame_panel=SimpleNamespace(data_dir=data))
-    sync.send_at_start(window)                       # nothing waits: no thread
-    store.to_outbox(data / sync.OUTBOX, pk.build_packages(export(runs=[run("stress_gpu", "stress", 1.0)]))[0])
     import threading
-    started = []
+    data, lib = _library(tmp_path)
+    calls, started = [], []
+    monkeypatch.setattr(sync, "send_waiting", lambda d: calls.append(d) or "")
     monkeypatch.setattr(threading, "Thread", lambda target, **kw: SimpleNamespace(start=lambda: started.append(target())))
+    window = SimpleNamespace(frame_panel=SimpleNamespace(data_dir=data), db=None,
+                             automation_panel=SimpleNamespace(output_root=None))
+    sync.send_at_start(window)                       # nothing waits: no thread
+    assert started == []
+    store.to_outbox(data / sync.OUTBOX, pk.build_packages(export(runs=[run("stress_gpu", "stress", 1.0)]))[0])
     sync.send_at_start(window)
     assert calls == [data] and len(started) == 1
+
+
+def test_tested_on_shows_the_name_the_owner_gave_the_device(tmp_path):
+    from app.library import view
+    data, lib = _library(tmp_path)
+    results = LibraryIndex(data / sync.INDEX).results()
+    key = results[0]["pc"]["system_key"]
+    assert key == "system:dell-inc-xps-15" or key.startswith("system:")
+    cpu = results[0]["attribution"]["part_key"]
+    assert {r["pc"] for r in view.rows(results, cpu, {key: "Olares -1"})} == {"Olares -1"}
+    old = [dict(p, pc={k: v for k, v in p["pc"].items() if k != "system_key"}) for p in results]   # before 0.1.3's
+    device = dict(old[0], attribution=dict(old[0]["attribution"], part="system", part_key=key))   # system_key
+    assert {r["pc"] for r in view.rows(old + [device], cpu, {key: "Olares -1"})} == {"Olares -1"}
+    assert {r["pc"] for r in view.rows(results, cpu, {})} == {"Dell Inc. XPS 15"}
+
+
+def test_a_package_with_more_runs_replaces_the_one_that_missed_some(tmp_path):
+    (tmp_path / "lib").mkdir()
+    outbox, lib = tmp_path / "outbox", store.open_library(tmp_path / "lib", create=True)
+    pkgs = pk.build_packages(export())[0][:1]               # Blender: 2 measured runs
+    short = pk.build_packages(export(runs=[run("blender_benchmark", "cpu", 100.0)]))[0][0]
+    store.to_outbox(outbox, [short])
+    store.send(outbox, lib)
+    index = LibraryIndex(tmp_path / "i.db")
+    index.refresh(lib)
+    assert index.results()[0]["result"]["runs"] == 1
+    store.to_outbox(outbox, pkgs)
+    assert store.send(outbox, lib) == (1, [])
+    index.refresh(lib)
+    assert [r["result"]["runs"] for r in index.results()] == [2]
+    store.to_outbox(outbox, [short])                        # fewer runs never replace more
+    assert store.send(outbox, lib) == (0, []) and store.waiting(outbox) == []

@@ -32,6 +32,7 @@ class LibraryTab(QWidget):
         self.ask_text = ask_text or (lambda title, label, text="": _ask_text(self, title, label, text))
         self.results = []
         self.names = {}
+        self._fitted = False
         layout = QVBoxLayout(self)
         intro = QLabel("Every PC you test can add its results to one results library: a folder on this PC, on the "
                        "NAS, or in a synced cloud folder (Google Drive, OneDrive). Each finished test is one small "
@@ -69,8 +70,8 @@ class LibraryTab(QWidget):
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Part", "Results"])
         self.tree.header().setStretchLastSection(False)
-        self.tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.tree.header().setSectionResizeMode(QHeaderView.Interactive)
+        self.tree.setColumnWidth(0, 250)
         self.tree.setMinimumWidth(260)
         self.tree.currentItemChanged.connect(lambda *_: self.show_part())
         split.addWidget(self.tree)
@@ -86,7 +87,8 @@ class LibraryTab(QWidget):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)     # drag to resize
+        self.table.horizontalHeader().setStretchLastSection(True)
         self.table.verticalHeader().setVisible(False)
         self.table.itemSelectionChanged.connect(self._buttons)
         rl.addWidget(self.table)
@@ -224,8 +226,9 @@ class LibraryTab(QWidget):
             self._buttons()
             return
         self.part_title.setText(part["name"])
-        shown = self.results if self.show_deleted.isChecked() else [p for p in self.results if not p.get("deleted")]
-        self.rows = view.rows(shown, part["key"])
+        self.rows = view.rows(self.results, part["key"], self.names)
+        if not self.show_deleted.isChecked():
+            self.rows = [r for r in self.rows if not r["deleted"]]
         for r in self.rows:
             i = self.table.rowCount()
             self.table.insertRow(i)
@@ -239,6 +242,9 @@ class LibraryTab(QWidget):
                 if r["deleted"]:
                     cell.setForeground(Qt.gray)
                 self.table.setItem(i, c, cell)
+        if self.rows and not self._fitted:              # fitted to the text once; then the owner's widths stay
+            self.table.resizeColumnsToContents()
+            self._fitted = True
         self._buttons()
 
     def _selected_row(self) -> Optional[dict]:

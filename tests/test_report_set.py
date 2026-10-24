@@ -136,8 +136,8 @@ def test_a_plan_of_several_tests_saves_each_report_and_opens_only_the_summary(tm
     assert sorted(p.name for p in folder.iterdir()) == [f"Summary_{stamp}.html", f"a_{stamp}.html", f"b_{stamp}.html"]
 
 
-def test_each_test_over_is_kept_on_this_pc_at_once_even_without_a_reports_folder(tmp_path, monkeypatch):
-    """Owner, 2026-10-24: kept on this PC test by test; sent to the library only when the run is over."""
+def test_a_run_is_marked_until_it_ends_and_nothing_is_packaged_mid_run(tmp_path, monkeypatch):
+    """Owner, 2026-10-24: a run cut short is added at the next start; a run that ends is added then."""
     from types import SimpleNamespace
     from app.library import sync
     from app.ui import reports_folder, run_tests
@@ -148,15 +148,14 @@ def test_each_test_over_is_kept_on_this_pc_at_once_even_without_a_reports_folder
                              selected_profile=lambda: None, frame_panel=SimpleNamespace(data_dir=tmp_path))
     monkeypatch.setattr(reports_folder, "folder", lambda w: None)
     monkeypatch.setattr(run_tests, "plan_profile", lambda profile, choice: None)
-    kept, sent = [], []
-    monkeypatch.setattr(sync, "keep_finished", lambda export, ids, data, root=None: kept.append(list(ids)))
+    sent = []
     monkeypatch.setattr(sync, "after_run", lambda w, s: sent.append(s))
-    assert run_tests.launch(window, [SimpleNamespace(ref="a"), SimpleNamespace(ref="b")], SimpleNamespace(extra_runs=0),
-                            opener=lambda p: None)
+    assert run_tests.launch(window, [SimpleNamespace(ref="a", waits_for_typed_score=lambda: False)],
+                            SimpleNamespace(extra_runs=0), opener=lambda p: None, after=lambda s: None)
     db.create_result(sid, "a", "cpu", 5.0, unit="pts", run_index=1, duration_seconds=3)
-    panel.on_step_report(1, 2, "b: run 1")
-    panel.on_step_report(1, 2, "b: run 2")
-    assert kept == [["a"]] and sent == []                   # a kept once; nothing sent while b runs
+    panel.on_step_report(0, 3, "a: run 2")
+    assert sync.cut_short(tmp_path) == [sid] and sent == []
+    assert not (tmp_path / sync.OUTBOX / "packages").exists()          # nothing packaged while it runs
     panel.on_plan_finished(sid, "Session done.")
     assert sent == [sid]
 

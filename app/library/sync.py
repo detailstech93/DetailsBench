@@ -104,6 +104,7 @@ def after_run(window, session_id: Optional[int]) -> None:
     def work():
         try:
             logger.info("Results library: %s", add_session(db, session_id, data_dir, runs_root))
+            _done(data_dir, session_id)
         except Exception:
             logger.exception("Results library: session %s not added", session_id)
     threading.Thread(target=work, name="results-library", daemon=True).start()
@@ -136,39 +137,75 @@ def _wanted(data_dir: Path) -> bool:
     return folder_setting(data_dir) is None or auto_setting(data_dir)
 
 
-def keep_finished(export, test_ids, data_dir: Path, runs_root: Optional[Path] = None) -> int:
-    """Owner, 2026-10-24: each test, once over, kept on this PC at once (the outbox, a few KB on the local disk),
-    so a run cut short loses nothing; sending to the library (NAS / cloud) waits until the run is over, so no
-    network or sync work runs while a test measures. Never raises; how many packages are new."""
+RUNNING = "running"
+
+
+def _marker(data_dir: Path, session_id: int) -> Path:
+    return Path(data_dir) / OUTBOX / RUNNING / f"s{int(session_id)}.json"
+
+
+def mark_running(data_dir: Path, session_id: Optional[int]) -> None:
+    """Owner, 2026-10-24: a run cut short (power cut, app closed) must not lose its finished tests. Each run is in
+    the database once it ends; this marker says the session is not in the library yet, so the next app start adds
+    it. Packages are built only when the run is over (a test packaged mid-run could miss its last run: the
+    llama-benchy step between runs looked like the test's end, 0df42f7). Never raises."""
     try:
-        if not _wanted(Path(data_dir)):
-            return 0
-        session_id = (export.get("session") or {}).get("id")
-        packages, _ = pk.build_packages(export, ai_run_reader(runs_root, session_id))
-        wanted = set(test_ids)
-        return store.to_outbox(Path(data_dir) / OUTBOX, [p for p in packages if p["test"]["id"] in wanted])
+        if session_id is None:
+            return
+        path = _marker(data_dir, session_id)
+        if not path.exists() and _wanted(Path(data_dir)):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"session_id": int(session_id)}), encoding="utf-8")
     except Exception:
-        logger.exception("Results library: finished tests not kept")
-        return 0
+        logger.exception("Results library: run not marked")
+
+
+def _done(data_dir: Path, session_id: int) -> None:
+    try:
+        _marker(data_dir, session_id).unlink(missing_ok=True)
+    except OSError:
+        logger.exception("Results library: run marker not removed")
+
+
+def cut_short(data_dir: Path) -> list:
+    """Sessions whose run never reached its end (their marker is still there)."""
+    folder = Path(data_dir) / OUTBOX / RUNNING
+    out = []
+    for path in sorted(folder.glob("s*.json")) if folder.is_dir() else []:
+        try:
+            out.append(int(path.stem[1:]))
+        except ValueError:
+            continue
+    return out
 
 
 def send_at_start(window) -> None:
-    """When the app opens: what waits on this PC (a run cut short, the NAS away last time) goes to the library,
-    in a background thread, and only while no test runs. Never raises."""
+    """When the app opens: a run cut short is added from the database (every run it saved), and what waits on
+    this PC goes to the library, in a background thread, only while no test runs. Never raises."""
     try:
         data_dir = Path(window.frame_panel.data_dir)
-        if folder_setting(data_dir) is None or not auto_setting(data_dir):
+        if not _wanted(data_dir):
             return
-        if not store.waiting(data_dir / OUTBOX):
+        cut = cut_short(data_dir)
+        if not cut and (folder_setting(data_dir) is None or not store.waiting(data_dir / OUTBOX)):
             return
+        db, runs_root = window.db, getattr(window.automation_panel, "output_root", None)
     except Exception:
         logger.exception("Results library: waiting results not sent")
         return
     import threading
 
     def work():
+        for sid in cut:
+            try:
+                logger.info("Results library (run cut short, session %s): %s", sid,
+                            add_session(db, sid, data_dir, runs_root))
+                _done(data_dir, sid)
+            except Exception:
+                logger.exception("Results library: session %s not added", sid)
         try:
-            logger.info("Results library (app start): %s", send_waiting(data_dir))
+            if not cut:
+                logger.info("Results library (app start): %s", send_waiting(data_dir))
         except Exception:
             logger.exception("Results library: waiting results not sent")
     threading.Thread(target=work, name="results-library-start", daemon=True).start()

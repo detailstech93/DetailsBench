@@ -87,8 +87,20 @@ def _pc(device: Mapping) -> str:
     return " ".join(x for x in (maker, model if model != maker else None) if x)
 
 
-def rows(results: List[Mapping], part_key: str) -> List[dict]:
-    """One row per result of the part: newest driver first, then newest date."""
+def _device_keys(results: List[Mapping]) -> Dict[str, str]:
+    """unit id -> its device's part key, from its device results (packages before system_key was kept)."""
+    out: Dict[str, str] = {}
+    for p in sorted(results, key=lambda p: p.get("created_at") or ""):
+        if p["attribution"]["part"] == "system":
+            out[p["pc"]["unit_id"]] = p["attribution"]["part_key"]
+    return out
+
+
+def rows(results: List[Mapping], part_key: str, names: Optional[Mapping[str, str]] = None) -> List[dict]:
+    """One row per result of the part: newest driver first, then newest date. "Tested on" is the device's name
+    in the library when the owner gave one."""
+    names = names or {}
+    devices = _device_keys(results)
     pkgs = [p for p in results if p["attribution"]["part_key"] == part_key]
     pkgs.sort(key=lambda p: (_version_key((p["attribution"].get("context") or {}).get("driver")),
                              p["session"].get("created_at") or p.get("created_at") or ""), reverse=True)
@@ -103,7 +115,8 @@ def rows(results: List[Mapping], part_key: str) -> List[dict]:
                     "result": stress_text(p) if stress else f"{_number(r.get('mean'))} {p['test'].get('unit') or ''}".strip(),
                     "accuracy": "" if stress else r.get("accuracy") or "", "software": software(p),
                     "variant": a.get("variant") or "",
-                    "pc": _pc(device) or p["pc"]["unit_id"],
+                    "pc": names.get(p["pc"].get("system_key") or devices.get(p["pc"]["unit_id"], ""))
+                          or _pc(device) or p["pc"]["unit_id"],
                     "date": (p["session"].get("created_at") or p.get("created_at") or "")[:16].replace("T", " "),
                     "notes": ", ".join(flags), "stress": stress,
                     "deleted": p.get("deleted")})
