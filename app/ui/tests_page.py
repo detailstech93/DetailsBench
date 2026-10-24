@@ -301,7 +301,7 @@ class TestsPage(QWidget):
         # sets this: can_queue(None) = an install is going on that takes more, can_queue(entry) = this one can wait
         self.can_queue: Callable[..., bool] = lambda entry=None: False
         self.can_add: Callable[[], bool] = lambda: False        # the window: a run that takes queued tests
-        self.adding = False                 # Run buttons say "Queue next" (owner, 2026-10-24: the Run button itself)
+        self.adding = False     # each test's own Run button says "Queue next" (owner, 2026-10-24; not Run selected)
         self.taking = False
         self.scanning = False
         self.started_at: Optional[float] = None
@@ -482,13 +482,10 @@ class TestsPage(QWidget):
         self.install_btn.setEnabled(k > 0 and not self.blocked())
         self.install_btn.setText(f"Install selected ({k})..." if k else "Install selected...")
         self.adding = self.busy and self.can_add()
-        self.run_btn.setEnabled(n > 0 and (self.adding or not self.blocked()))
+        self.run_btn.setEnabled(n > 0 and not self.blocked())
         self.run_all_btn.setEnabled(bool(self.section_entries()) and not self.blocked())
         self.run_plan_btn.setEnabled(bool(self.entries) and not self.blocked())
-        word = "Queue next" if self.adding else "Run selected"
-        self.run_btn.setText(f"{word} ({n})..." if n else f"{word}...")
-        self.run_btn.setToolTip("Adds the ticked tests to the run going on: they run after its tests, with its "
-                                "numbers of runs, in the same report." if self.adding else "")
+        self.run_btn.setText(f"Run selected ({n})..." if n else "Run selected...")
 
     def queueable(self, e: TestEntry) -> bool:
         """Queue next takes an automatic test not in the run going on (games and typed-score tests run alone)."""
@@ -641,7 +638,7 @@ class TestsPage(QWidget):
                 entry = self.entry(test_id)
                 button.setEnabled(not busy or (line and entry is not None and self.can_queue(entry)))
         self.taking = busy and self.can_add()       # what the list was set up for (refresh_progress follows it)
-        self.tree.setEnabled(not busy or line or self.taking)
+        self.tree.setEnabled(not busy or line or self.taking)      # its Queue next buttons must be clickable
         self._sync_run_buttons()
 
     def _sync_run_buttons(self):
@@ -654,6 +651,8 @@ class TestsPage(QWidget):
             queue = self.adding and entry is not None and self.queueable(entry)
             button.setText("Queue next" if queue else button.property("run_text"))
             button.setEnabled(queue or not self.blocked())
+            button.setToolTip("Adds this test to the run going on: it runs after its tests, with its numbers of "
+                              "runs, in the same report." if queue else "")
 
     def show_marks(self, marks: Optional[Dict[str, str]]):
         """A dot by each test of a plan (owner, 2026-10-22): green blinking while it runs, green when it has a score,

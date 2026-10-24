@@ -418,20 +418,20 @@ def test_queue_next_shows_while_tests_run_and_hands_the_ticked_tests_to_the_run(
     row = {k: page.tree.itemWidget(page.items[k], 5) for k in ("tool_a", "tool_b")}
     assert page.run_btn.text().startswith("Run selected") and not page.tree.isEnabled()
     taking["now"] = True
-    page.refresh_progress()                    # the plan has started: Run means Queue next (owner, 2026-10-24)
+    page.refresh_progress()                    # the plan has started: a test's Run is Queue next (2026-10-24)
     assert page.tree.isEnabled()
     assert row["tool_b"].text() == "Queue next" and row["tool_b"].isEnabled()
     assert row["tool_a"].text() == "Run..." and not row["tool_a"].isEnabled()     # it is the test running
     asked, ran = [], []
     page.queue_run_requested.connect(asked.append)
     page.run_requested.connect(ran.append)
-    for e in ("tool_a", "game"):
-        page.set_checked(e, False)
     page.set_checked("tool_b", True)
-    assert page.run_btn.text() == "Queue next (1)..." and page.run_btn.isEnabled()
-    page.run_btn.click()
+    assert page.run_btn.text().startswith("Run selected") and not page.run_btn.isEnabled()   # never changes
     row["tool_b"].click()
-    assert [[e.id for e in x] for x in asked] == [["tool_b"], ["tool_b"]] and ran == []
+    assert [[e.id for e in x] for x in asked] == [["tool_b"]] and ran == []
+    state.marks["tool_b"] = "queued"          # in line now: greyed like the test running (owner, 2026-10-24)
+    page.refresh_progress()
+    assert row["tool_b"].text() == "Run..." and not row["tool_b"].isEnabled()
     taking["now"] = False
     page.refresh_progress()
     assert row["tool_b"].text() == "Run..." and not row["tool_b"].isEnabled()
