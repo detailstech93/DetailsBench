@@ -192,3 +192,22 @@ TEST_INFO: Dict[str, dict] = {
 }
 
 STEAM_STORE_URL = "https://store.steampowered.com/app/{app_id}/"
+
+
+# Which part a result is filed under in the hardware results library (owner, 2026-10-21; app/library/attribution.py).
+# A test not named here takes its group's part: cpu -> cpu, gpu -> gpu, storage -> storage, web -> cpu (the browser
+# is its "driver"), ai -> decided per run (where the model ran), game -> gpu, stress -> kept with the session only.
+# - linked: other parts that change the score, shown next to it (a game is CPU-bound at low settings)
+# - api "cuda": runs on an NVIDIA card only, so with two cards that one is meant
+TEST_PARTS: Dict[str, dict] = {
+    "passmark_memory": {"part": "memory", "linked": ["cpu"]},       # the CPU's memory controller matters
+    "pugetbench_photoshop": {"part": "cpu", "linked": ["gpu"]},
+    "pugetbench_premiere_pro": {"part": "system", "linked": ["cpu", "gpu"]},   # CPU and GPU together
+    "vray_benchmark_gpu": {"part": "gpu", "api": "cuda"},
+    "vray_benchmark_rtx": {"part": "gpu", "api": "cuda"},
+    "geekbench7_gpu_cuda": {"part": "gpu", "api": "cuda"},
+    "d3dmark": {"part": "gpu"},
+    "selftest_python": {"part": None},                              # the app's own check, never filed
+}
+GROUP_PARTS = {"cpu": "cpu", "gpu": "gpu", "storage": "storage", "web": "cpu", "game": "gpu", "ai": "ai",
+               "stress": None, "other": None}
