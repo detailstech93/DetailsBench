@@ -298,3 +298,31 @@ def test_not_enough_memory_is_not_tried_again(db, tmp_path):
                                    ok(1.0)])
     AutomationRunner(database, sid, [PlanItem(wl, repetitions=1, warmup_runs=0, retries=1)], tmp_path / "o").run()
     assert len(wl.contexts) == 1
+
+
+def test_a_test_queued_during_the_run_runs_after_the_planned_ones(db, tmp_path):
+    """Queue next (owner, 2026-10-23): added while a test runs, it runs last in the same session; a test already in
+    the run is not added twice; after the run nothing is queued."""
+    from app.automation.journal import PlanJournal
+    database, sid = db
+    later = Scripted("later", [ok(5.0), ok(6.0)])
+    seen = {}
+
+    def add(ctx):
+        if not seen:
+            seen["queued"] = runner.queue([PlanItem(later, 1, 1), PlanItem(Scripted("a", []), 1, 0)])
+            seen["marks"] = runner.marks()
+    a = Scripted("a", [ok(1.0), ok(2.0)], on_run=add)
+    journal = PlanJournal(tmp_path / "plan.json")
+    journal.finish = lambda: None                       # keep the file to read it here
+    runner = AutomationRunner(database, sid, [PlanItem(a, 2, 0)], tmp_path / "o", journal=journal)
+    summary = runner.run()
+    taken, refused = seen["queued"]
+    assert [p.workload.id for p in taken] == ["later"] and refused == {"a": "already in this run"}
+    assert seen["marks"]["later"] == "queued"
+    assert [(r.workload_id, r.run_index, r.is_warmup) for r in summary.records] == \
+        [("a", 1, False), ("a", 2, False), ("later", 0, True), ("later", 1, False)]
+    assert {r["benchmark_name"] for r in database.get_runs(sid)} == {"a", "later"}
+    assert [i["workload_id"] for i in json.loads((tmp_path / "plan.json").read_text())["items"]] == ["a", "later"]
+    assert runner.marks()["later"] == "ok"
+    assert runner.queue([PlanItem(Scripted("late", []), 1, 0)]) == ([], {"late": "the run has ended"})

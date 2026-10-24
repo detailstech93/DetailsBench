@@ -267,3 +267,25 @@ def test_main_window_offers_a_problem_report_after_a_failure(qapp, tmp_path):
         assert "The app hit an error." in w.problem_bar.label.text()
     finally:
         w.close()
+
+
+def test_a_test_queued_from_the_panel_joins_the_session_and_its_manifest(qapp, tmp_path):
+    """Queue next (owner, 2026-10-23): a test added while the plan runs gets the plan's counts, runs after it in
+    the same session and is named in the session's manifest; the manifest saved at the start is not rewritten."""
+    slow = workload("selftest_slow", "import time; time.sleep(2); print('SCORE=1')")
+    later = workload("selftest_later", "print('SCORE=2')")
+    panel, db = make_panel(tmp_path, [slow, later], profile=RunProfile(name="p", repetitions=1, warmup_runs=1,
+                                                                      cooldown_seconds=0))
+    assert panel.queue_workloads([later]) == ([], {"selftest_later": "no run is going on"})
+    panel.set_checked("selftest_slow")
+    assert panel.start_plan() is True and panel.can_queue()
+    assert panel.queue_workloads([later, slow]) == (["selftest_later"], {"selftest_slow": "already in this run"})
+    assert panel.step[1] == 4                          # 2 planned runs + the queued warm-up and run
+    finish(qapp, panel)
+    sid = panel.last_session_id
+    runs = db.get_runs(sid, include_test=True)
+    assert sorted((r["benchmark_name"], r["is_warmup"], r["score"]) for r in runs) == [
+        ("selftest_later", 0, 2.0), ("selftest_later", 1, 2.0), ("selftest_slow", 0, 1.0), ("selftest_slow", 1, 1.0)]
+    used = db.get_session_manifest(sid)["benchmarks"]
+    assert [b["name"] for b in used] == ["selftest_slow", "selftest_later"] and used[1]["queued"] is True
+    assert not panel.can_queue()

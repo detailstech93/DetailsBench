@@ -127,6 +127,7 @@ class TestsPage(QWidget):
     install_requested = Signal(object)      # TestEntry: missing, with a one-click install (app/install)
     lmstudio_install_requested = Signal()   # Linux: LM Studio itself, for the AI models
     queue_requested = Signal(object)        # TestEntry: Install pressed during an install (it waits in line)
+    queue_run_requested = Signal(list)      # [TestEntry]: "Queue next" while tests run (added to that run)
     install_many_requested = Signal(list)   # the ticked missing tests: installed one after the other (app/ui/run_all)
 
     def __init__(self, open_url: Optional[Callable[[str], object]] = None, parent=None):
@@ -250,6 +251,14 @@ class TestsPage(QWidget):
         row.addWidget(self.run_plan_btn)
         row.addWidget(self.run_all_btn)
         row.addWidget(self.run_btn)
+        # Queue next (owner, 2026-10-23): while tests run, the ticked tests join that run (same report)
+        self.queue_btn = QPushButton("Queue next...")
+        self.queue_btn.setMinimumHeight(40)
+        self.queue_btn.setToolTip("Adds the ticked tests to the run going on: they run after its tests, with its "
+                                  "numbers of runs, in the same report.")
+        self.queue_btn.clicked.connect(self.queue_selected)
+        self.queue_btn.setVisible(False)
+        row.addWidget(self.queue_btn)
         layout.addLayout(row)
 
         # progress while a test runs: green bar, percent, what is running, time, stop
@@ -299,6 +308,7 @@ class TestsPage(QWidget):
         # during an install, Install still works for downloads that can wait in line (owner, 2026-10-22); the window
         # sets this: can_queue(None) = an install is going on that takes more, can_queue(entry) = this one can wait
         self.can_queue: Callable[..., bool] = lambda entry=None: False
+        self.can_add: Callable[[], bool] = lambda: False        # the window: a run that takes queued tests
         self.scanning = False
         self.started_at: Optional[float] = None
         self.timer = QTimer(self)
@@ -480,6 +490,15 @@ class TestsPage(QWidget):
         self.run_all_btn.setEnabled(bool(self.section_entries()) and not self.blocked())
         self.run_plan_btn.setEnabled(bool(self.entries) and not self.blocked())
         self.run_btn.setText(f"Run selected ({n})..." if n else "Run selected...")
+        adding = self.busy and self.can_add()
+        self.queue_btn.setVisible(adding)
+        self.queue_btn.setEnabled(adding and n > 0)
+        self.queue_btn.setText(f"Queue next ({n})..." if n else "Queue next...")
+
+    def queue_selected(self):
+        chosen = self.selected()
+        if chosen and self.busy and self.can_add():
+            self.queue_run_requested.emit(chosen)
 
     def run_selected(self):
         chosen = self.selected()
@@ -593,6 +612,13 @@ class TestsPage(QWidget):
         self.stop_btn.setText("Stopping...")
         self.stop_fn()
 
+    def allow_skip(self, skip: Callable[[], object]):
+        """A test was queued into a run of one test: it now has a test to skip to."""
+        if self.busy and self.skip_fn is None:
+            self.skip_fn = skip
+            self.skip_btn.setVisible(True)
+            self.skip_btn.setEnabled(self.stop_btn.isEnabled())
+
     def can_skip(self) -> bool:
         return self.busy and self.skip_fn is not None and self.skip_btn.isEnabled()
 
@@ -617,7 +643,7 @@ class TestsPage(QWidget):
             if isinstance(button, QPushButton) and button.text() == "Install":
                 entry = self.entry(test_id)
                 button.setEnabled(not busy or (line and entry is not None and self.can_queue(entry)))
-        self.tree.setEnabled(not busy or line)
+        self.tree.setEnabled(not busy or line or self.can_add())
         self._sync_run_buttons()
 
     def _sync_run_buttons(self):
@@ -672,6 +698,8 @@ class TestsPage(QWidget):
                 self.progress_bar.setValue(percent)
             runs = f"Run {min(state.done + 1, state.total)} of {state.total}: " if state.total else ""
             self.progress_label.setText(runs + state.text)
+            if self.can_add() != self.queue_btn.isVisible():
+                self.set_busy(True)             # the plan has started (or ended): ticking and Queue next follow
             return
         self.timer.stop()
         self.progress_bar.setRange(0, 100)
@@ -693,9 +721,10 @@ class TestsPage(QWidget):
             self.open_url(e.official_url)
 
 
-MARK_COLOR = {"running": "#2e7d32", "installing": "#1e88e5", "ok": "#2e7d32", "failed": "#c62828", "skipped": "#9e9e9e"}
+MARK_COLOR = {"running": "#2e7d32", "installing": "#1e88e5", "ok": "#2e7d32", "failed": "#c62828", "skipped": "#9e9e9e",
+              "queued": "#f9a825"}
 MARK_TEXT = {"running": "Running now", "installing": "Downloading or installing now", "ok": "Done: it has a score", "failed": "Failed: no score (see the report)",
-             "skipped": "Skipped"}
+             "skipped": "Skipped", "queued": "In line: runs after the tests before it"}
 _DOTS: Dict[Optional[str], QIcon] = {}
 
 

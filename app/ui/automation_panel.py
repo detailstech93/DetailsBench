@@ -19,7 +19,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import QThread, Qt, Signal, Slot
 from PySide6.QtGui import QGuiApplication
@@ -329,6 +329,7 @@ class AutomationPanel(QGroupBox):
             return False
         sid = int(data["session_id"])
         self.last_session_id, self.last_summary = sid, None
+        self.plan_profile = None                # a resumed plan takes no queued tests (its counts are not known)
         self._start_worker(sid, plan, float(data.get("cooldown_seconds") or 0),
                            done=done, interrupted=interrupted, stamp=data["stamp"])
         self.status_label.setText(f"Resuming session #{sid}...")
@@ -418,23 +419,27 @@ class AutomationPanel(QGroupBox):
         from app.ui.long_question import ask_yes_no
         return ask_yes_no(self, "Run automated benchmarks?", text)
 
-    def _create_session(self, workloads, profile, conditions: Optional[dict] = None) -> int:
-        from app.manifest import build_manifest, git_commit
+    @staticmethod
+    def _benchmarks_used(workloads) -> List[dict]:
         from app.emulation import program_arch
         from app.frames.provision import native_arch
         native = native_arch()
+        return [{"name": wl.id, "display_name": wl.display_name, "version": wl.version(),
+                 "executable_path": wl.executable()[0],
+                 "detection_method": "tool spec " + wl.executable()[1],
+                 **_arch_fields(native, program_arch(wl)),
+                 **({"model": wl.model} if getattr(wl, "model", None) else {})}
+                for wl in workloads]
+
+    def _create_session(self, workloads, profile, conditions: Optional[dict] = None) -> int:
+        from app.manifest import build_manifest, git_commit
         name = f"Automated {datetime.now().strftime('%Y-%m-%d %H:%M')}"
         is_test = all(wl.is_test for wl in workloads)
         sid = self.db.create_session(name, "Automated command-line runs", is_test=is_test, is_manual=False)
         manifest = build_manifest(
             {"id": sid, "name": name, "is_test": is_test, "is_manual": False},
             run_settings=profile.settings(), environment=self.get_environment(),
-            benchmarks_used=[{"name": wl.id, "display_name": wl.display_name, "version": wl.version(),
-                              "executable_path": wl.executable()[0],
-                              "detection_method": "tool spec " + wl.executable()[1],
-                              **_arch_fields(native, program_arch(wl)),
-                              **({"model": wl.model} if getattr(wl, "model", None) else {})}
-                             for wl in workloads],
+            benchmarks_used=self._benchmarks_used(workloads),
             commit=git_commit(), conditions=conditions)
         try:
             self.db.save_session_manifest(sid, manifest)
@@ -503,9 +508,52 @@ class AutomationPanel(QGroupBox):
             return False
         sid = self._create_session(workloads, profile, now)
         self.last_session_id, self.last_summary = sid, None
+        self.plan_profile, self.plan_extra_runs = profile, extra_runs      # what a queued test gets (Queue next)
         self._start_worker(sid, plan, profile.cooldown_seconds)
         self.status_label.setText(f"Running in session #{sid} ({info['total_runs']} runs)...")
         return True
+
+    def can_queue(self) -> bool:
+        """A plan started from this panel runs: tests can be queued into it (not a resumed one: its counts are
+        not known here)."""
+        return (self.is_running() and getattr(self, "plan_profile", None) is not None
+                and not self.worker.stop_event.is_set())
+
+    def queue_workloads(self, workloads) -> Tuple[List[str], Dict[str, str]]:
+        """Queue next (owner, 2026-10-23): add tests to the plan going on, with its counts; they run after the
+        planned ones, in the same session and report. (names queued, {name: why not})."""
+        refused: Dict[str, str] = {}
+        if not self.can_queue():
+            return [], {wl.display_name: "no run is going on" for wl in workloads}
+        ready = []
+        for wl in workloads:
+            if not wl.availability()[0]:
+                refused[wl.display_name] = "not available"
+            elif hasattr(wl, "configure") and getattr(wl, "asks_settings", True):
+                settings = self.choose_settings(wl)
+                if not settings:
+                    refused[wl.display_name] = "no settings chosen"
+                    continue
+                wl.configure(settings)
+                ready.append((wl, settings))
+            else:
+                ready.append((wl, None))
+        plan = self.build_plan([wl for wl, _ in ready], self.plan_profile, self.plan_extra_runs)
+        for item, (_, settings) in zip(plan, ready):
+            item.settings = settings
+        taken, why = self.worker.runner.queue(plan)
+        names = {item.workload.id: item.workload.display_name for item in plan}
+        refused.update({names[wid]: text for wid, text in why.items()})
+        if taken:
+            self.plan_workloads += [item.workload for item in taken]
+            try:
+                self.db.add_manifest_benchmarks(self.last_session_id,
+                                                self._benchmarks_used([item.workload for item in taken]))
+            except Exception:
+                logger.exception("Could not store the queued tests in the session manifest")
+            done, total, text = self.step
+            self.step = (done, total + sum(item.repetitions + item.warmup_runs for item in taken), text)
+        return [item.workload.display_name for item in taken], refused
 
     def run_progress(self):
         """(fraction done, seconds left) of the run going on now, for a workload that knows it (a stress test

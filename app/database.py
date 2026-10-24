@@ -105,6 +105,17 @@ class Database:
                 )
             """)
 
+            # Tests queued into a running session (Queue next, 2026-10-24): the manifest stays as saved; these
+            # rows add the queued tests' entries to its benchmarks_used when it is read
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS session_manifest_additions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id INTEGER NOT NULL REFERENCES sessions(id),
+                    created_at TEXT NOT NULL,
+                    benchmark_json TEXT NOT NULL
+                )
+            """)
+
             # Run profiles (Phase 4B) - user-saved run settings; built-ins live in app/profiles.py
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS run_profiles (
@@ -539,12 +550,31 @@ class Database:
         finally:
             conn.close()
 
+    def add_manifest_benchmarks(self, session_id: int, benchmarks: list) -> None:
+        """Tests queued into the running session: kept beside its manifest (which is never rewritten)."""
+        conn = self._get_connection()
+        try:
+            conn.executemany(
+                "INSERT INTO session_manifest_additions (session_id, created_at, benchmark_json) VALUES (?, ?, ?)",
+                [(session_id, datetime.now().isoformat(), json.dumps(dict(b, queued=True), sort_keys=True))
+                 for b in benchmarks])
+            conn.commit()
+        finally:
+            conn.close()
+
     def get_session_manifest(self, session_id: int) -> Optional[dict]:
         conn = self._get_connection()
         row = conn.execute("SELECT manifest_json FROM session_manifests WHERE session_id = ?",
                            (session_id,)).fetchone()
+        added = conn.execute("SELECT benchmark_json FROM session_manifest_additions WHERE session_id = ? "
+                             "ORDER BY id", (session_id,)).fetchall()
         conn.close()
-        return json.loads(row[0]) if row else None
+        if not row:
+            return None
+        manifest = json.loads(row[0])
+        if added and isinstance(manifest.get("benchmarks"), list):
+            manifest["benchmarks"] += [json.loads(a[0]) for a in added]
+        return manifest
 
     @staticmethod
     def _snapshot_row(row) -> dict:

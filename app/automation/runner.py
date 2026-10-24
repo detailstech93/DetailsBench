@@ -153,6 +153,10 @@ class AutomationRunner:
         self.skip_target: Optional[str] = None
         self.running_id: Optional[str] = None       # set while the plan runs (current_id stays after it)
         self._live: Tuple[list, int, Optional["RunSummary"]] = ([], -1, None)
+        self._queue_lock = threading.Lock()
+        self._queued: List[PlanItem] = []           # Queue next: added while the plan runs, taken before each run
+        self.queued_ids: List[str] = []             # every test queued so (for its "In line" dot)
+        self._closed = False                        # the plan has ended: nothing more can be queued
 
     def marks(self) -> Dict[str, str]:
         """Each test the plan has reached, for the dot on the Tests screen (owner, 2026-10-22): "running" (the test
@@ -163,10 +167,18 @@ class AutomationRunner:
             return {}
         records, later = list(summary.records), list(schedule[position + 1:])
         out = {}
+        with self._queue_lock:
+            waiting = [p.workload.id for p in self._queued]
+        for wid in waiting:
+            out[wid] = "queued"
         for item in self.plan:
             wid = item.workload.id
             if wid == self.running_id:
                 out[wid] = "running"
+                continue
+            if wid in self.queued_ids and self.running_id is not None and not any(
+                    r.workload_id == wid for r in records):
+                out[wid] = "queued"                 # queued and taken into the plan, not started yet
                 continue
             if any(s[0].workload.id == wid for s in later) and self.running_id is not None:
                 continue
@@ -183,6 +195,41 @@ class AutomationRunner:
 
     def stop(self):
         self.stop_event.set()
+
+    def queue(self, items: List[PlanItem]) -> Tuple[List[PlanItem], Dict[str, str]]:
+        """Queue next (owner, 2026-10-23): tests added while the plan runs, run after the ones planned, in the same
+        session. (queued items, {workload id: why not queued}): a test already in this run is not added twice; once
+        the plan has ended or is stopping nothing is."""
+        refused: Dict[str, str] = {}
+        taken: List[PlanItem] = []
+        with self._queue_lock:
+            if self._closed or self.stop_event.is_set():
+                return [], {p.workload.id: "the run has ended" for p in items}
+            have = {p.workload.id for p in self.plan} | {p.workload.id for p in self._queued}
+            for item in items:
+                if item.workload.id in have:
+                    refused[item.workload.id] = "already in this run"
+                    continue
+                have.add(item.workload.id)
+                taken.append(item)
+            self._queued += taken
+            self.queued_ids += [p.workload.id for p in taken]
+        return taken, refused
+
+    def _take_queued(self, schedule: list) -> None:
+        """Move the queued tests into the plan and to the end of the schedule (the run still going on is not
+        touched)."""
+        with self._queue_lock:
+            items, self._queued = self._queued, []
+        if not items:
+            return
+        self.plan += items
+        for item in items:
+            schedule += [(item, i, True, "") for i in range(item.warmup_runs)]
+            schedule += [(item, i, False, "") for i in range(1, item.repetitions + 1)]
+            self.on_progress(f"{item.workload.display_name}: added to this run (queued)")
+        if self.journal is not None:
+            self.journal.add_items(items)
 
     def skip_test(self) -> Optional[str]:
         """Skip the test going on; the plan goes on with the next one. Its id, or None (nothing going on)."""
@@ -327,9 +374,19 @@ class AutomationRunner:
             return self._run_loop(summary, schedule, stamp, retried, extra, position)
         finally:
             self.running_id = None              # every dot is solid now
+            with self._queue_lock:
+                self._closed = True             # stopped or ended: a test queued now is refused, not lost
+                self._queued = []
 
     def _run_loop(self, summary, schedule, stamp, retried, extra, position) -> RunSummary:
-        while position + 1 < len(schedule):
+        while True:
+            self._take_queued(schedule)
+            if position + 1 >= len(schedule):
+                with self._queue_lock:
+                    if not self._queued:
+                        self._closed = True         # checked under the lock: a test queued now is not lost
+                        break
+                continue
             position += 1
             total = len(schedule)
             item, run_index, is_warmup, why = schedule[position]

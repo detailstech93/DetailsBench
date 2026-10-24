@@ -462,6 +462,7 @@ class MainWindow(QMainWindow):
         self.tests_page = TestsPage()
         self.tests_page.rescan_requested.connect(self.start_scan)
         self.tests_page.run_requested.connect(self.run_tests)
+        self.tests_page.queue_run_requested.connect(self.queue_tests)
         self.tests_page.run_plan_requested.connect(self.run_saved_plan)
         self.tests_page.ai_models_requested.connect(self.edit_ai_models)
         from app.ui.remote_control import RemoteControl
@@ -491,6 +492,7 @@ class MainWindow(QMainWindow):
         self.run_all_flow = RunAllFlow(self)
         self.tests_page.run_all_requested.connect(self.run_all_flow.start)
         self.tests_page.can_queue = self.install_queue_open
+        self.tests_page.can_add = lambda: hasattr(self, "automation_panel") and self.automation_panel.can_queue()
         self.tests_page.queue_requested.connect(lambda entry: self.queue_install(entry))
         from app.ui import admin_restart as _admin
         self.tests_page.install_many_requested.connect(lambda entries: _admin.install_selected(self, entries))
@@ -611,6 +613,11 @@ class MainWindow(QMainWindow):
         """Run one or more tests from the Tests screen (repetitions dialog, then the plan)."""
         from app.ui.run_tests import start_tests
         start_tests(self, entries)
+
+    def queue_tests(self, entries: list):
+        """Queue next: the ticked tests join the run going on (app/ui/run_tests.py queue_tests)."""
+        from app.ui.run_tests import queue_tests
+        queue_tests(self, entries)
 
     def edit_ai_models(self):
         """Add or remove the owner's own fixed AI models; the Tests screen is read again after a change."""

@@ -399,3 +399,40 @@ def test_nothing_starts_while_the_app_scans_and_it_says_so(qapp):
     assert page.tree.itemWidget(page.items["b"], 5).isEnabled()
     page.request_run([page.entry("b")])
     assert len(asked) == 1
+
+
+def test_queue_next_shows_while_tests_run_and_hands_the_ticked_tests_to_the_run(qapp):
+    """Owner, 2026-10-23: while tests run, ticked tests join that run (Queue next) instead of waiting for it."""
+    from types import SimpleNamespace
+    from PySide6.QtWidgets import QLabel
+    from app.ui.run_tests import queue_tests
+    from app.ui.tests_page import RunState
+    page = TestsPage()
+    a, b = entry("tool_a", ref="A"), entry("tool_b", ref="B")
+    game = entry("game", mode=ASSISTED, group="game", source="steam", ref={"app_id": "1"})
+    page.set_entries([a, b, game])
+    taking = {"now": False}
+    page.can_add = lambda: taking["now"]
+    page.watch(lambda: RunState(True, 0, 2, "x"), lambda: None)
+    assert page.queue_btn.isHidden() and not page.tree.isEnabled()
+    taking["now"] = True
+    page.refresh_progress()                                    # the plan has started: Queue next shows
+    assert not page.queue_btn.isHidden() and page.tree.isEnabled() and not page.run_btn.isEnabled()
+    asked = []
+    page.queue_run_requested.connect(asked.append)
+    page.set_checked("tool_b", True)
+    assert page.queue_btn.text() == "Queue next (1)..."
+    page.queue_btn.click()
+    assert [e.id for e in asked[0]] == ["tool_b"]
+
+    queued_refs = []
+    panel = SimpleNamespace(can_queue=lambda: True, skip_test=lambda: None,
+                            queue_workloads=lambda refs: (queued_refs.extend(refs) or ["tool_b"],
+                                                          {"tool_a": "already in this run"}))
+    window = SimpleNamespace(automation_panel=panel, status_label=QLabel(), tests_page=page)
+    assert queue_tests(window, [a, b, game], licenses=lambda w, e: e) == ["tool_b"]
+    assert queued_refs == ["A", "B"]
+    text = window.status_label.text()
+    assert "Queued after the tests going on (same report): tool_b." in text
+    assert "tool_a (already in this run)" in text and "run alone): game." in text
+    assert not page.skip_btn.isHidden()                        # a test to skip to now

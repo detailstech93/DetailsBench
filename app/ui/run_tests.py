@@ -628,6 +628,30 @@ def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_re
     return launch(window, automatic, choice, opener)
 
 
+def queue_tests(window, entries: List[TestEntry], licenses=check_licenses) -> List[str]:
+    """Queue next (owner, 2026-10-23): the ticked tests join the run of tests going on, after its tests, with its
+    numbers of runs, in the same session and report. Games, tests that need you and tests waiting for a typed score
+    are not queued (they run alone). Returns the names queued."""
+    panel = window.automation_panel
+    if not panel.can_queue():
+        QMessageBox.information(window, "Queue next", "No run of tests takes more tests now; start them with Run.")
+        return []
+    entries = licenses(window, entries)
+    automatic, others = split_entries([e for e in entries if not e.waits_for_typed_score()])
+    left = [e.name for e in entries if e not in automatic]
+    queued, refused = panel.queue_workloads([e.ref for e in automatic])
+    parts = [f"Queued after the tests going on (same report): {', '.join(queued)}."] if queued else []
+    if refused:
+        parts.append("Not queued: " + "; ".join(f"{name} ({why})" for name, why in refused.items()) + ".")
+    if left:
+        parts.append(f"Not queued (games, tests that need you or wait for a typed score run alone): "
+                     f"{', '.join(left)}.")
+    window.status_label.setText(" ".join(parts) or "Nothing was queued.")
+    if queued:
+        window.tests_page.allow_skip(panel.skip_test)
+    return queued
+
+
 def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_report,
            confirm=None, tools_ready: bool = False) -> bool:
     """Start the plan of automatic tests; the report is written (and opened) when it ends."""
@@ -644,6 +668,8 @@ def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_re
         from app.export import build_session_export
         from app.report_set import finished_tests, test_of_step, write_test_report
         now = test_of_step(text)
+        if len(getattr(panel, "plan_workloads", automatic)) < 2:
+            return                              # one test (until one is queued): only the final report
         if folder is None or panel.last_session_id is None or now == seen["now"] or text.startswith("Pause"):
             return                              # the same test still going on: nothing new is over
         seen["now"] = now
@@ -684,7 +710,7 @@ def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_re
         return path
 
     panel.on_plan_finished = finished
-    panel.on_step_report = step_report if len(automatic) > 1 else None
+    panel.on_step_report = step_report
     started = panel.start_plan(tools_ready=tools_ready, workloads=[e.ref for e in automatic],
                                profile=plan_profile(window.selected_profile(), choice), extra_runs=choice.extra_runs,
                                confirm=confirm)

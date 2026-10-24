@@ -26,6 +26,12 @@ def _key(item) -> RunKey:
     return str(item[0]), int(item[1]), bool(item[2])
 
 
+def _item(p) -> dict:
+    return {"workload_id": p.workload.id, "repetitions": p.repetitions, "warmup_runs": p.warmup_runs,
+            "timeout_seconds": p.timeout_seconds, "settings": p.settings,
+            "retries": p.retries, "max_extra_runs": p.max_extra_runs}
+
+
 class PlanJournal:
     def __init__(self, path: Path):
         self.path = Path(path)
@@ -41,11 +47,14 @@ class PlanJournal:
         self.data = {
             "session_id": session_id, "stamp": stamp, "cooldown_seconds": cooldown_seconds,
             "created": datetime.now().isoformat(timespec="seconds"),
-            "items": [{"workload_id": p.workload.id, "repetitions": p.repetitions, "warmup_runs": p.warmup_runs,
-                       "timeout_seconds": p.timeout_seconds, "settings": p.settings,
-                       "retries": p.retries, "max_extra_runs": p.max_extra_runs} for p in plan],
+            "items": [_item(p) for p in plan],
             "done": [list(k) for k in done], "current": None,
         }
+        self._write()
+
+    def add_items(self, plan):
+        """Tests queued while the plan runs (Queue next): a resumed plan runs them too."""
+        self.data["items"] += [_item(p) for p in plan]
         self._write()
 
     def run_started(self, key: RunKey):
