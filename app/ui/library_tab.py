@@ -44,6 +44,7 @@ class LibraryTab(QWidget):
         self.save_as = save_as or (lambda start: QFileDialog.getSaveFileName(
             self, "Save the comparison", start, "HTML report (*.html)")[0])
         self.opener = opener
+        self.show_dialog = lambda dialog: dialog.exec()
         self.compared = None
         self.report_path = None
         self.results = []
@@ -155,7 +156,11 @@ class LibraryTab(QWidget):
         self.restore_btn.clicked.connect(self.restore)
         self.show_deleted = QCheckBox("Show deleted results")
         self.show_deleted.toggled.connect(lambda _: self.load())
-        for w in (self.name_btn, self.delete_btn, self.restore_btn, self.show_deleted):
+        self.readings_btn = QPushButton("Readings chart...")
+        self.readings_btn.setToolTip("The chosen result's readings over the test (temperature, power, clock, load) "
+                                     "as a chart; pick the reading from a list.")
+        self.readings_btn.clicked.connect(self.readings_chart)
+        for w in (self.readings_btn, self.name_btn, self.delete_btn, self.restore_btn, self.show_deleted):
             bar.addWidget(w)
         bar.addStretch()
         rl.addLayout(bar)
@@ -536,6 +541,7 @@ class LibraryTab(QWidget):
         has_folder = sync.folder_setting(self._data()) is not None
         self.name_btn.setEnabled(bool(part and part["kind"] == "system" and has_folder))
         self.delete_btn.setEnabled(bool(row and not row["deleted"] and has_folder))
+        self.readings_btn.setEnabled(bool(row))
         self.restore_btn.setEnabled(bool(row and row["deleted"] and has_folder))
         self.compare_btn.setEnabled(len(self._selected_parts()) >= 2)
         self.os_btn.setEnabled(len(self._selected_parts()) == 1)
@@ -544,6 +550,21 @@ class LibraryTab(QWidget):
         self.save_btn.setEnabled(bool(self.compared and self.compared["rows"]))
         self.open_btn.setEnabled(self.report_path is not None)
         self.clear_btn.setEnabled(bool(self.compared) or len(self._selected_parts()) > 1)
+
+    def readings_chart(self) -> None:
+        row = self._selected_row()
+        pkg = next((p for p in self.all_results if row and p["package_id"] == row["package_id"]), None)
+        if pkg is None:
+            return
+        from app.library import readings
+        data = readings.load([sync.folder_setting(self._data()), self._data() / sync.OUTBOX], pkg)
+        if data is None or not readings.choices(data):
+            self.part_title.setText(self.part_title.text().split("\n")[0] + "\nNo readings over the test were kept "
+                                    "for this result (imported, run before this version, or its run folder is on "
+                                    "another PC).")
+            return
+        from app.ui.readings_dialog import ReadingsDialog
+        self.show_dialog(ReadingsDialog(data, f"{row['pc']} - {row['test']}", self, save_as=self.save_as))
 
     def _unit(self) -> str:
         hw = getattr(getattr(self.window, "environment_profile", None), "hardware", None) or {}

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.library import package as pk
-from app.library import store
+from app.library import readings, store
 from app.library.index import LibraryIndex
 
 logger = logging.getLogger(__name__)
@@ -59,6 +59,10 @@ def send_waiting(data_dir: Path, library: Optional[Path] = None) -> str:
         return f"{left} result(s) wait on this PC: no results library folder is chosen."
     try:
         sent, problems = store.send(outbox, library)
+        try:
+            readings.send(outbox, library)          # the readings over each test, beside its result
+        except (OSError, ValueError) as e:
+            problems.append(f"Readings not copied: {e}. They wait in the outbox.")
         got = LibraryIndex(Path(data_dir) / INDEX).refresh(library)
     except store.LibraryError as e:
         return f"{left} result(s) wait on this PC: {e}"
@@ -79,6 +83,7 @@ def add_session(db, session_id: int, data_dir: Path, runs_root: Optional[Path] =
     for test_id, why in left:
         logger.info("Results library: session %s %s not added: %s", session_id, test_id, why)
     new = store.to_outbox(Path(data_dir) / OUTBOX, packages)
+    readings.to_outbox(Path(data_dir) / OUTBOX, packages, runs_root)
     logger.info("Results library: session %s: %d package(s), %d new", session_id, len(packages), new)
     if not packages:
         return "No result of this session goes to the library" + (f" ({left[0][1]})." if left else ".")
@@ -137,6 +142,7 @@ def add_earlier(db, data_dir: Path, runs_root: Optional[Path] = None, this_pc: O
             older += 1
         sessions += 1
         count += store.to_outbox(Path(data_dir) / OUTBOX, packages)
+        readings.to_outbox(Path(data_dir) / OUTBOX, packages, runs_root)
     if not sessions:
         return "No earlier session to add."
     return (f"{sessions} session(s) read" + (f", {older} of them from before the parts record (driver unknown)"
