@@ -469,7 +469,7 @@ def test_the_page_keeps_install_buttons_out_of_the_grey_and_follows_the_newest_r
     assert "newest && !s.running" not in PAGE
     # owner, 2026-10-22: while a test, an install or a scan goes on, every choice is greyed out until it ends
     assert "freeze(!!(s.running || s.scanning));" in PAGE and 'id="busyNote"' in PAGE
-    assert '#tests button.act, #installMany, #all, #none' in PAGE and "freeze(frozen);" in PAGE
+    assert '#tests button.act:not(.qn), #installMany, #all, #none' in PAGE and "freeze(frozen);" in PAGE
     # during an install, Install stays for downloads that can wait in line (owner, 2026-10-22)
     assert 'if (what === "install" && t.queueable) b.dataset.queue = t.id;' in PAGE
     assert '"In line (" + (n + 1) + ")"' in PAGE and "queueOpen = !!s.queue_open" in PAGE
@@ -694,3 +694,70 @@ def test_the_phone_dot_blinks_green_and_turns_red_when_a_test_failed():
                             last_session_id=3, step=(1, 2, "B: run 1"))
     db = SimpleNamespace(get_session=lambda sid: {"results": rows})
     assert [t["state"] for t in plan_tests(panel, db, True)] == ["failed", "running"]
+
+
+def test_queue_next_skip_in_line_and_the_shutdown_box_from_the_page(served):
+    """Owner, 2026-10-24: the phone does what the Tests screen does during a run."""
+    api, server, base = served
+    seen = []
+    api.queue = lambda tid: seen.append(("queue", tid)) or (True, "Queued")
+    api.unqueue = lambda tid: seen.append(("unqueue", tid)) or (False, "not in this run")
+    api.set_shutdown = lambda on: seen.append(("off", on)) or (True, "ok")
+    status, _, body = call(base + "/api/queue", "ABCD2345", {"id": "sevenzip_benchmark"})
+    assert status == 200 and json.loads(body)["text"] == "Queued"
+    assert call(base + "/api/unqueue", "ABCD2345", {"id": "x"})[0] == 409
+    assert call(base + "/api/shutdown", "ABCD2345", {"on": True})[0] == 200
+    assert call(base + "/api/shutdown", "ABCD2345", {"on": "yes"})[0] == 400
+    assert call(base + "/api/queue", "ABCD2345", {"id": 5})[0] == 400
+    assert call(base + "/api/queue", None, {"id": "x"})[0] == 401
+    assert seen == [("queue", "sevenzip_benchmark"), ("unqueue", "x"), ("off", True)]
+    page = call(base + "/")[2].decode()
+    assert "Queue next" in page and "/api/unqueue" in page and "/api/shutdown" in page
+
+
+def test_the_page_shows_tests_queued_skipped_and_in_line():
+    from app.ui.remote_control import plan_tests
+
+    def item(wid, runs=1):
+        return SimpleNamespace(workload=SimpleNamespace(id=wid, display_name=wid), repetitions=runs, warmup_runs=0)
+    runner = SimpleNamespace(plan=[item("a"), item("b"), item("c")], _queued=[item("d")], dropped={"c"},
+                             session_id=1)
+    panel = SimpleNamespace(worker=SimpleNamespace(runner=runner), last_session_id=1, step=(1, 3, "a: run 1"))
+    db = SimpleNamespace(get_session=lambda sid: {"results": []})
+    line = [SimpleNamespace(entry=SimpleNamespace(id="g", name="Game"))]
+    tests = plan_tests(panel, db, True, line)
+    assert [(t["id"], t["state"], t["can_unqueue"]) for t in tests] == [
+        ("a", "running", False), ("b", "waiting", True), ("c", "skipped", False), ("d", "waiting", True),
+        ("g", "queued", True)]
+
+
+def test_the_phone_queues_only_what_needs_nobody_at_the_pc(qapp, monkeypatch):
+    from app.ui import shutdown_after
+    from app.ui.remote_control import RemoteApi
+    from app.ui.tests_page import RunState, TestsPage
+    monkeypatch.setattr(shutdown_after, "why_not_offered", lambda *a, **k: None)
+
+    class AI:
+        asks_settings = True
+
+        def configure(self, settings):
+            pass
+
+    def entry(tid, source="workload", ref=None):
+        return TestEntry(id=tid, name=tid, group="cpu", mode="automatic", state="installed", state_reason="",
+                         compatible=True, compatibility_reason="", verified=True, official_url=None, source=source,
+                         ref=ref)
+    page = TestsPage()
+    page.set_entries([entry("a"), entry("b"), entry("ai", ref=AI()), entry("g", source="steam"), entry("back", ref=AI())])
+    page.can_add = lambda: True
+    page.watch(lambda: RunState(True, 0, 2, "x", marks={"a": "running", "back": "skipped"}), lambda: None)
+    page.refresh_progress()
+    runner = SimpleNamespace(dropped={"back"})
+    panel = SimpleNamespace(can_queue=lambda: True, worker=SimpleNamespace(runner=runner))
+    window = SimpleNamespace(tests_page=page, automation_panel=panel)
+    api = RemoteApi(window, SimpleNamespace(run=lambda fn, timeout=20.0: fn()))
+    assert api._phone_queueable() == ["b", "back"]      # not running, no settings menu, not a game
+    panel.can_queue = lambda: False                      # a game runs, or a resumed plan: nothing from the phone
+    assert api._phone_queueable() == []
+    assert api.set_shutdown(True)[0] and page.shutdown_box.isChecked()
+    assert api.set_shutdown(False)[0] and not page.shutdown_box.isChecked()

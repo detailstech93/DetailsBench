@@ -261,8 +261,9 @@ def _score(value) -> str:
     return f"{value:,.2f}".rstrip("0").rstrip(".") if isinstance(value, float) else str(value)
 
 
-def plan_tests(panel, db, running: bool) -> List[dict]:
-    """Each test of the plan going on now (or the last one): its state, runs and scores so far."""
+def plan_tests(panel, db, running: bool, line=()) -> List[dict]:
+    """Each test of the plan going on now (or the last one): its state, runs and scores so far; then the tests
+    queued but not taken in yet, and the ones waiting in line after the run (line: [Waiting])."""
     runner = getattr(getattr(panel, "worker", None), "runner", None)
     sid = getattr(panel, "last_session_id", None)
     if runner is None or sid is None or getattr(runner, "session_id", sid) != sid:
@@ -274,7 +275,8 @@ def plan_tests(panel, db, running: bool) -> List[dict]:
         rows = []
     now = panel.step[2] if running else ""
     out = []
-    for item in runner.plan:
+    dropped = getattr(runner, "dropped", set())
+    for item in list(runner.plan) + list(getattr(runner, "_queued", [])):
         wl = item.workload
         name = wl.display_name
         mine = [r for r in rows if r.get("benchmark_name") == wl.id]
@@ -282,7 +284,7 @@ def plan_tests(panel, db, running: bool) -> List[dict]:
         good = [r for r in measured if (r.get("status") or "completed") == "completed" and r.get("score") is not None]
         skipped = any(r.get("status") == "skipped" and str(r.get("note") or "").startswith(SKIPPED_BY_USER)
                       for r in mine)             # a skip during a warm-up is stored as a warm-up row
-        if skipped:
+        if skipped or (wl.id in dropped and not mine):
             state = "skipped"                   # owner, 2026-10-21: it said "running" after the skip
         elif running and now.startswith(name + ":"):
             state = "running"
@@ -292,10 +294,14 @@ def plan_tests(panel, db, running: bool) -> List[dict]:
         else:
             state = "done" if good else "failed" if measured else "not run"
         scores = [float(r["score"]) for r in good]
-        out.append({"name": name, "state": state, "runs": len(measured), "planned": item.repetitions,
+        out.append({"id": wl.id, "name": name, "state": state, "can_unqueue": running and state == "waiting",
+                    "runs": len(measured), "planned": item.repetitions,
                     "warmups": item.warmup_runs, "failed": len(measured) - len(good),
                     "scores": [_score(s) for s in scores], "unit": (good[0].get("unit") if good else "") or "",
                     "average": _score(sum(scores) / len(scores)) if scores else ""})
+    for w in line:                              # each runs on its own after the run (a game, ...)
+        out.append({"id": w.entry.id, "name": w.entry.name, "state": "queued", "can_unqueue": True, "runs": 0,
+                    "planned": 0, "warmups": 0, "failed": 0, "scores": [], "unit": "", "average": ""})
     return out
 
 
@@ -474,7 +480,12 @@ class RemoteApi:
             p = out["percent"]
             if running and p and 0 < p < 100 and gone > 5:
                 out["left"] = "about " + elapsed_text(gone * (100 - p) / p)
-        out["tests"] = plan_tests(panel, w.db, running)
+        out["tests"] = plan_tests(panel, w.db, running, getattr(w, "run_line", []) if running else [])
+        out["can_queue"] = self._phone_queueable()
+        box = getattr(page, "shutdown_box", None)
+        if box is not None:                     # the box on the Tests screen, changed here too (owner, 2026-10-24)
+            out["shutdown_box"] = {"on": box.isChecked(), "offered": box.isEnabled(),
+                                   "why": "" if box.isEnabled() else box.toolTip()}
         listed = self.reports()
         out["newest_report"] = listed[0]["name"] if listed else ""     # also after the app started again
         out["tests_key"] = tests_key(page.entries)
@@ -493,6 +504,62 @@ class RemoteApi:
         return self.main.run(lambda: remote_start(self.window, ids, repetitions, warmup_runs, cooldown_seconds,
                                                   stress_minutes=stress_minutes, game_presets=game_presets,
                                                   shutdown_after=shutdown_after))
+
+    def _phone_queueable(self) -> List[str]:
+        """Queue next from the phone (owner, 2026-10-24): the automatic tests that join the run going on with no
+        window at the PC: not a game, not one with its own settings menu (unless it is back from a Skip in line,
+        its settings kept), not one with a license still to accept."""
+        page, panel = self.window.tests_page, self.window.automation_panel
+        if not page.busy or not panel.can_queue():
+            return []
+        dropped = getattr(getattr(panel.worker, "runner", None), "dropped", set())
+        out = []
+        for e in page.entries:
+            if e.source != "workload" or not page.queueable(e):
+                continue
+            if e.id not in dropped and hasattr(e.ref, "configure") and getattr(e.ref, "asks_settings", True):
+                continue
+            lic = getattr(e.ref, "license", None)
+            if lic and not e.ref.license_ok():
+                continue
+            out.append(e.id)
+        return out
+
+    def queue(self, test_id: str) -> Tuple[bool, str]:
+        def run():
+            if test_id not in self._phone_queueable():
+                return False, "This test cannot be queued from here now (it needs someone at the PC, or the run ended)."
+            from app.ui.run_tests import queue_tests
+            names = queue_tests(self.window, [self._entry(test_id)[0]], licenses=lambda w, e: e)
+            if names:
+                logger.info("%s queued from the remote page", test_id)
+            return bool(names), self.window.status_label.text()
+        return self.main.run(run)
+
+    def unqueue(self, test_id: str) -> Tuple[bool, str]:
+        def run():
+            entry = self._entry(test_id)[0]
+            if entry is None:
+                return False, "No such test on this PC."
+            if not self.window.tests_page.busy:
+                return False, "Nothing is running."
+            from app.ui.run_tests import unqueue
+            why = unqueue(self.window, entry)
+            if why is None:
+                logger.info("%s taken out of the line from the remote page", test_id)
+            return why is None, self.window.status_label.text()
+        return self.main.run(run)
+
+    def set_shutdown(self, on: bool) -> Tuple[bool, str]:
+        def run():
+            box = getattr(self.window.tests_page, "shutdown_box", None)
+            if box is None or not box.isEnabled():
+                return False, (box.toolTip() if box is not None else "") or "Shutting down is not offered here."
+            box.setChecked(on)
+            logger.info("Shut down when the run ends: %s (remote page)", "on" if on else "off")
+            return True, ("The PC shuts down when the run ends (and the tests in line), once everything is saved."
+                          if on else "The PC stays on when the run ends.")
+        return self.main.run(run)
 
     def stop(self) -> str:
         def stop():

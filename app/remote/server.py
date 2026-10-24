@@ -310,7 +310,8 @@ def _handler(server: "RemoteServer"):
             if not self._allowed():
                 return
             path = self.path.split("?")[0]
-            if path not in ("/api/start", "/api/stop", "/api/skip", "/api/question", "/api/act"):
+            if path not in ("/api/start", "/api/stop", "/api/skip", "/api/question", "/api/act", "/api/queue",
+                            "/api/unqueue", "/api/shutdown"):
                 self._json(404, {"error": "not found"})
                 return
             try:
@@ -338,6 +339,22 @@ def _handler(server: "RemoteServer"):
                     body = json.loads(raw.decode("utf-8"))
                 except (ValueError, UnicodeDecodeError):
                     self._json(400, {"error": "not JSON"})
+                    return
+                if path in ("/api/queue", "/api/unqueue"):        # Queue next / Skip in line (owner, 2026-10-24)
+                    test_id = body.get("id") if isinstance(body, dict) else None
+                    if not isinstance(test_id, str) or not 0 < len(test_id) <= 200:
+                        self._json(400, {"error": "no test named"})
+                        return
+                    ok, text = (server.api.queue if path == "/api/queue" else server.api.unqueue)(test_id)
+                    self._json(200 if ok else 409, {"ok": ok, "text": text})
+                    return
+                if path == "/api/shutdown":
+                    on = body.get("on") if isinstance(body, dict) else None
+                    if not isinstance(on, bool):
+                        self._json(400, {"error": "on must be true or false"})
+                        return
+                    ok, text = server.api.set_shutdown(on)
+                    self._json(200 if ok else 409, {"ok": ok, "text": text})
                     return
                 if path in ("/api/question", "/api/act"):
                     test_id, what = check_action(body, server.api.info().get("tests", []))

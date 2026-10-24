@@ -53,6 +53,8 @@ button:disabled { opacity:.45; cursor:default; }
 .dot.done { background:var(--accent); }
 .dot.failed { background:var(--stop); }
 .dot.skipped { background:var(--muted); }
+.dot.waiting, .dot.queued { background:var(--warn); }   /* in line: amber, as on the PC */
+.ptest .act { margin:0 0 0 8px; padding:3px 10px; font-size:13px; }
 .ptest .scores { grid-column:2 / 4; font-size:13px; color:var(--muted); overflow-wrap:anywhere; }
 .ptest .count { font-size:13px; color:var(--muted); white-space:nowrap; }
 .tabs button.on { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
@@ -122,6 +124,9 @@ a { color:var(--accent); }
       <button id="skip" class="hidden">Skip this test</button>
       <button id="stop" class="stop" disabled>Emergency stop</button>
     </div>
+    <label class="test" id="offBox" style="margin-top:10px"><input id="off" type="checkbox"><span>Shut down the PC
+      when the run ends (and the tests in line; only once every result and report is saved; 60 s to cancel). It can
+      be changed at any time, also during the run.</span></label>
     <p id="shutdownNote" class="shutdown hidden"></p>
     <p id="message" class="muted"></p>
   </section>
@@ -161,8 +166,6 @@ a { color:var(--accent); }
         <div id="stressBox"><label for="stressMin">Stress test (min)</label><select id="stressMin">
           <option>1</option><option>5</option><option selected>10</option><option>20</option><option>30</option><option>60</option></select></div>
       </div>
-      <label class="test" id="offBox"><input id="off" type="checkbox"><span>Shut down the PC when the run ends
-        (only once every result and report is saved; 60 s to cancel at the PC)</span></label>
       <div id="gameBox" class="hidden">
         <h2 style="margin-top:12px">Game preset</h2>
         <label class="test"><input id="gSame" type="checkbox" checked><span>One preset for every game</span></label>
@@ -307,6 +310,7 @@ function showInfo(info) {
     if (t.group !== group) { group = t.group; const g = el("div", group, "group"); g.dataset.section = sec; box.append(g); }
     const item = el("div", undefined, "item");
     item.dataset.section = sec;
+    item.dataset.id = t.id;
     const row = el("label", undefined, "test" + (t.can_start ? "" : " off"));
     const cb = el("input"); cb.type = "checkbox"; cb.value = t.id; cb.disabled = !t.can_start;
     cb.dataset.off = t.can_start ? "" : "1";
@@ -351,7 +355,7 @@ function showInfo(info) {
 let frozen = false, queueOpen = false, queued = [];
 function freeze(busy) {
   frozen = busy;
-  document.querySelectorAll("#tests button.act, #installMany, #all, #none").forEach((b) => b.disabled = busy);
+  document.querySelectorAll("#tests button.act:not(.qn), #installMany, #all, #none").forEach((b) => b.disabled = busy);
   document.querySelectorAll("#tests input").forEach((c) => c.disabled = busy || c.dataset.off === "1");
   document.querySelectorAll("#tests button[data-queue]").forEach((b) => {
     const n = queued.indexOf(b.dataset.queue);
@@ -455,7 +459,28 @@ async function reloadInfo() {
 }
 
 const STATE_WORDS = { running: "running now", waiting: "waiting", done: "done", failed: "failed",
-                      "not run": "not run", skipped: "skipped" };
+                      "not run": "not run", skipped: "skipped", queued: "in line, runs on its own after" };
+
+// Queue next and Skip in line (owner, 2026-10-24), as on the PC
+async function lineCall(path, id) {
+  try {
+    const d = await (await call(path, { id })).json();
+    $("message").textContent = d.text || d.error || "";
+    refresh();
+  } catch (e) { if (e.message !== "code") $("message").textContent = "The PC does not answer."; }
+}
+function showQueueNext(ids) {
+  const can = new Set(ids || []);
+  document.querySelectorAll("#tests .item").forEach((item) => {
+    let b = item.querySelector("button.qn");
+    if (can.has(item.dataset.id) && !b) {
+      b = el("button", "Queue next", "act qn");
+      b.title = "Adds this test to the run going on: it runs after its tests, in the same report.";
+      b.addEventListener("click", (e) => { e.preventDefault(); lineCall("/api/queue", item.dataset.id); });
+      item.append(b);
+    } else if (!can.has(item.dataset.id) && b) b.remove();
+  });
+}
 
 function showPlan(tests) {
   const box = $("plan");
@@ -467,7 +492,16 @@ function showPlan(tests) {
     name.append(el("strong", t.name), el("span", "  " + (STATE_WORDS[t.state] || t.state), "muted"));
     let count = t.runs + " / " + t.planned + " runs";
     if (t.failed) count += ", " + t.failed + " failed";
-    row.append(el("span", undefined, "dot " + t.state.replace(" ", "")), name, el("span", count, "count"));
+    if (t.can_unqueue) {
+      const b = el("button", "Skip", "act");
+      b.title = "Takes this test out of the line before it starts.";
+      b.addEventListener("click", () => {
+        if (confirm("Take " + t.name + " out of the line? It does not run.")) lineCall("/api/unqueue", t.id);
+      });
+      name.append(b);
+    }
+    row.append(el("span", undefined, "dot " + t.state.replace(" ", "")), name,
+               el("span", t.state === "queued" ? "" : count, "count"));
     if (t.scores.length) {
       const unit = t.unit ? " " + t.unit : "";
       row.append(el("div", "Scores: " + t.scores.join(", ") + unit +
@@ -530,6 +564,12 @@ function showState(s) {
   $("elapsed").textContent = s.elapsed ? "Time: " + s.elapsed : "";
   $("left").textContent = s.left ? "Left: " + s.left : "";
   showPlan(s.tests);
+  showQueueNext(s.can_queue);
+  if (s.shutdown_box && !offSending) {
+    $("off").checked = s.shutdown_box.on;
+    $("off").disabled = !s.shutdown_box.offered;
+    $("off").title = s.shutdown_box.why || "";
+  }
   $("stop").disabled = !s.running && !s.shutdown_pending;
   $("stop").textContent = s.shutdown_pending && !s.running ? "Cancel the shutdown" : "Emergency stop";
   $("shutdownNote").classList.toggle("hidden", !s.shutdown_pending);   // the PC's 60 s countdown, here too
@@ -628,7 +668,14 @@ $("start").onclick = async () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   } catch (e) { if (e.message !== "code") $("message").textContent = "The PC does not answer."; }
 };
-let skipWhat = "test";
+let skipWhat = "test", offSending = false;
+$("off").addEventListener("change", async () => {
+  offSending = true;
+  try { $("message").textContent = (await (await call("/api/shutdown", { on: $("off").checked })).json()).text || ""; }
+  catch (e) { if (e.message !== "code") $("message").textContent = "The PC does not answer."; }
+  offSending = false;
+  refresh();
+});
 $("skip").onclick = async () => {
   if (!confirm(skipWhat === "download"
       ? "Skip the download going on? Only this download ends; the next one in line starts."
