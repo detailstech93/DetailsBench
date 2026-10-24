@@ -251,14 +251,6 @@ class TestsPage(QWidget):
         row.addWidget(self.run_plan_btn)
         row.addWidget(self.run_all_btn)
         row.addWidget(self.run_btn)
-        # Queue next (owner, 2026-10-23): while tests run, the ticked tests join that run (same report)
-        self.queue_btn = QPushButton("Queue next...")
-        self.queue_btn.setMinimumHeight(40)
-        self.queue_btn.setToolTip("Adds the ticked tests to the run going on: they run after its tests, with its "
-                                  "numbers of runs, in the same report.")
-        self.queue_btn.clicked.connect(self.queue_selected)
-        self.queue_btn.setVisible(False)
-        row.addWidget(self.queue_btn)
         layout.addLayout(row)
 
         # progress while a test runs: green bar, percent, what is running, time, stop
@@ -309,6 +301,8 @@ class TestsPage(QWidget):
         # sets this: can_queue(None) = an install is going on that takes more, can_queue(entry) = this one can wait
         self.can_queue: Callable[..., bool] = lambda entry=None: False
         self.can_add: Callable[[], bool] = lambda: False        # the window: a run that takes queued tests
+        self.adding = False                 # Run buttons say "Queue next" (owner, 2026-10-24: the Run button itself)
+        self.taking = False
         self.scanning = False
         self.started_at: Optional[float] = None
         self.timer = QTimer(self)
@@ -408,6 +402,7 @@ class TestsPage(QWidget):
     def _action_button(self, e: TestEntry) -> Optional[QPushButton]:
         if e.can_run():
             b = QPushButton("Run alone..." if e.waits_for_typed_score() else "Run...")
+            b.setProperty("run_text", b.text())
             b.clicked.connect(lambda checked=False, x=e: self.request_run([x]))
             b.setEnabled(not self.blocked())
             return b
@@ -486,19 +481,19 @@ class TestsPage(QWidget):
         k = len(self.selected_to_install())
         self.install_btn.setEnabled(k > 0 and not self.blocked())
         self.install_btn.setText(f"Install selected ({k})..." if k else "Install selected...")
-        self.run_btn.setEnabled(n > 0 and not self.blocked())
+        self.adding = self.busy and self.can_add()
+        self.run_btn.setEnabled(n > 0 and (self.adding or not self.blocked()))
         self.run_all_btn.setEnabled(bool(self.section_entries()) and not self.blocked())
         self.run_plan_btn.setEnabled(bool(self.entries) and not self.blocked())
-        self.run_btn.setText(f"Run selected ({n})..." if n else "Run selected...")
-        adding = self.busy and self.can_add()
-        self.queue_btn.setVisible(adding)
-        self.queue_btn.setEnabled(adding and n > 0)
-        self.queue_btn.setText(f"Queue next ({n})..." if n else "Queue next...")
+        word = "Queue next" if self.adding else "Run selected"
+        self.run_btn.setText(f"{word} ({n})..." if n else f"{word}...")
+        self.run_btn.setToolTip("Adds the ticked tests to the run going on: they run after its tests, with its "
+                                "numbers of runs, in the same report." if self.adding else "")
 
-    def queue_selected(self):
-        chosen = self.selected()
-        if chosen and self.busy and self.can_add():
-            self.queue_run_requested.emit(chosen)
+    def queueable(self, e: TestEntry) -> bool:
+        """Queue next takes an automatic test not in the run going on (games and typed-score tests run alone)."""
+        return (e.can_run() and e.mode == AUTOMATIC and e.source == "workload" and not e.waits_for_typed_score()
+                and e.id not in self.marks)
 
     def run_selected(self):
         chosen = self.selected()
@@ -532,7 +527,9 @@ class TestsPage(QWidget):
                 button.setEnabled(not self.busy or (entry is not None and self.can_queue(entry)))
 
     def request_run(self, entries: List[TestEntry]):
-        if not self.blocked():      # one test (or plan) at a time, never while the scan goes on
+        if self.busy and self.can_add():        # tests are running: Run queues these into that run
+            self.queue_run_requested.emit(list(entries))
+        elif not self.blocked():    # one test (or plan) at a time, never while the scan goes on
             self.run_requested.emit(entries)
 
     def blocked(self) -> bool:
@@ -643,15 +640,20 @@ class TestsPage(QWidget):
             if isinstance(button, QPushButton) and button.text() == "Install":
                 entry = self.entry(test_id)
                 button.setEnabled(not busy or (line and entry is not None and self.can_queue(entry)))
-        self.tree.setEnabled(not busy or line or self.can_add())
+        self.taking = busy and self.can_add()       # what the list was set up for (refresh_progress follows it)
+        self.tree.setEnabled(not busy or line or self.taking)
         self._sync_run_buttons()
 
     def _sync_run_buttons(self):
-        for item in self.items.values():
-            button = self.tree.itemWidget(item, 5)
-            if isinstance(button, QPushButton) and button.text().startswith("Run"):
-                button.setEnabled(not self.blocked())
         self.update_run_button()
+        for test_id, item in self.items.items():
+            button = self.tree.itemWidget(item, 5)
+            if not isinstance(button, QPushButton) or not button.property("run_text"):
+                continue
+            entry = self.entry(test_id)
+            queue = self.adding and entry is not None and self.queueable(entry)
+            button.setText("Queue next" if queue else button.property("run_text"))
+            button.setEnabled(queue or not self.blocked())
 
     def show_marks(self, marks: Optional[Dict[str, str]]):
         """A dot by each test of a plan (owner, 2026-10-22): green blinking while it runs, green when it has a score,
@@ -698,8 +700,10 @@ class TestsPage(QWidget):
                 self.progress_bar.setValue(percent)
             runs = f"Run {min(state.done + 1, state.total)} of {state.total}: " if state.total else ""
             self.progress_label.setText(runs + state.text)
-            if self.can_add() != self.queue_btn.isVisible():
+            if self.can_add() != self.taking:
                 self.set_busy(True)             # the plan has started (or ended): ticking and Queue next follow
+            elif self.adding:
+                self._sync_run_buttons()        # a test reached by the run (or queued) is not queued again
             return
         self.timer.stop()
         self.progress_bar.setRange(0, 100)

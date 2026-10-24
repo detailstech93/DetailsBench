@@ -413,17 +413,28 @@ def test_queue_next_shows_while_tests_run_and_hands_the_ticked_tests_to_the_run(
     page.set_entries([a, b, game])
     taking = {"now": False}
     page.can_add = lambda: taking["now"]
-    page.watch(lambda: RunState(True, 0, 2, "x"), lambda: None)
-    assert page.queue_btn.isHidden() and not page.tree.isEnabled()
+    state = RunState(True, 0, 2, "x", marks={"tool_a": "running"})
+    page.watch(lambda: state, lambda: None)
+    row = {k: page.tree.itemWidget(page.items[k], 5) for k in ("tool_a", "tool_b")}
+    assert page.run_btn.text().startswith("Run selected") and not page.tree.isEnabled()
     taking["now"] = True
-    page.refresh_progress()                                    # the plan has started: Queue next shows
-    assert not page.queue_btn.isHidden() and page.tree.isEnabled() and not page.run_btn.isEnabled()
-    asked = []
+    page.refresh_progress()                    # the plan has started: Run means Queue next (owner, 2026-10-24)
+    assert page.tree.isEnabled()
+    assert row["tool_b"].text() == "Queue next" and row["tool_b"].isEnabled()
+    assert row["tool_a"].text() == "Run..." and not row["tool_a"].isEnabled()     # it is the test running
+    asked, ran = [], []
     page.queue_run_requested.connect(asked.append)
+    page.run_requested.connect(ran.append)
+    for e in ("tool_a", "game"):
+        page.set_checked(e, False)
     page.set_checked("tool_b", True)
-    assert page.queue_btn.text() == "Queue next (1)..."
-    page.queue_btn.click()
-    assert [e.id for e in asked[0]] == ["tool_b"]
+    assert page.run_btn.text() == "Queue next (1)..." and page.run_btn.isEnabled()
+    page.run_btn.click()
+    row["tool_b"].click()
+    assert [[e.id for e in x] for x in asked] == [["tool_b"], ["tool_b"]] and ran == []
+    taking["now"] = False
+    page.refresh_progress()
+    assert row["tool_b"].text() == "Run..." and not row["tool_b"].isEnabled()
 
     queued_refs = []
     panel = SimpleNamespace(can_queue=lambda: True, skip_test=lambda: None,
