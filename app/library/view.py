@@ -121,3 +121,12 @@ def rows(results: List[Mapping], part_key: str, names: Optional[Mapping[str, str
                     "notes": ", ".join(flags), "stress": stress,
                     "deleted": p.get("deleted")})
     return out
+
+
+def by_test(rows_: List[dict]) -> List[tuple]:
+    """[(test, [its rows, newest first])] by test name: a test run more than once is one line that opens
+    (owner, 2026-10-24)."""
+    groups: Dict[str, List[dict]] = {}
+    for r in rows_:
+        groups.setdefault(r["test"], []).append(r)
+    return [(test, sorted(rs, key=lambda r: r["date"], reverse=True)) for test, rs in sorted(groups.items())]

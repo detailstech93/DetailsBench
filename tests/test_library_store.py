@@ -39,7 +39,7 @@ def export(hw=HW, runs=None, is_test=False, summaries=None):
                                           run("vray_benchmark", "cpu", None, status="failed")]
     from app.stats import summarize_runs
     names = {r["benchmark_name"] for r in runs}
-    return {"app": {"version": "0.1.3"}, "session": {"id": 7, "name": "Automated", "created_at": "x", "is_test": is_test},
+    return {"app": {"version": "0.1.3"}, "session": {"id": 7, "name": "Automated", "created_at": "2026-10-24T12:00:00", "is_test": is_test},
             "manifest": {"environment": {"hardware": hw, "is_wsl": {"value": False}},
                          "benchmarks": [{"name": "blender_benchmark", "version": "5.2.0"}], "run_settings": {}},
             "runs": runs,
@@ -274,6 +274,12 @@ def test_add_earlier_only_sessions_with_the_parts(tmp_path, monkeypatch):
     assert "nothing to add" in sync.add_earlier(Old(), tmp_path)
 
 
+def _line(tab, pick):
+    from PySide6.QtCore import Qt
+    return next(tab.table.topLevelItem(i) for i in range(tab.table.topLevelItemCount())
+                if tab.table.topLevelItem(i).data(0, Qt.UserRole) and pick(tab.table.topLevelItem(i).data(0, Qt.UserRole)))
+
+
 def test_library_screen_delete_restore_and_name(qapp, tmp_path):
     from types import SimpleNamespace
     from app.ui.library_tab import LibraryTab
@@ -285,24 +291,23 @@ def test_library_screen_delete_restore_and_name(qapp, tmp_path):
     cpu = tab.tree.topLevelItem(1)
     assert cpu.text(0) == "Processors" and cpu.text(1) == "2" and cpu.childCount() == 1
     tab.tree.setCurrentItem(cpu.child(0))
-    assert tab.table.rowCount() == 2 and not tab.name_btn.isEnabled() and not tab.delete_btn.isEnabled()
-    row = next(i for i, r in enumerate(tab.rows) if not r["stress"])
-    tab.table.selectRow(row)
+    assert tab.table.topLevelItemCount() == 2 and not tab.name_btn.isEnabled() and not tab.delete_btn.isEnabled()
+    tab.table.setCurrentItem(_line(tab, lambda r: not r["stress"]))
     assert tab.delete_btn.isEnabled() and not tab.restore_btn.isEnabled()
     answers.append("retest after a driver update")
     tab.delete()
-    assert tab.table.rowCount() == 1 and tab.tree.topLevelItem(1).child(0).text(1) == "1"
+    assert tab.table.topLevelItemCount() == 1 and tab.tree.topLevelItem(1).child(0).text(1) == "1"
     assert len(list((lib / "events").glob("*.json"))) == 1 and len(list((lib / "packages").rglob("*.json"))) == 2
     tab.show_deleted.setChecked(True)
-    assert tab.table.rowCount() == 2 and "(+1 deleted)" in tab.tree.topLevelItem(1).child(0).text(1)
-    row = next(i for i, r in enumerate(tab.rows) if r["deleted"])
-    assert "retest" in tab.table.item(row, 7).text()
-    tab.table.selectRow(row)
+    assert tab.table.topLevelItemCount() == 2 and "(+1 deleted)" in tab.tree.topLevelItem(1).child(0).text(1)
+    gone = _line(tab, lambda r: r["deleted"])
+    assert "retest" in gone.text(7)
+    tab.table.setCurrentItem(gone)
     tab.restore()
     tab.show_deleted.setChecked(False)
-    assert tab.table.rowCount() == 2
+    assert tab.table.topLevelItemCount() == 2
     answers.append(None)                            # cancelled: nothing written
-    tab.table.selectRow(0)
+    tab.table.setCurrentItem(tab.table.topLevelItem(0))
     tab.delete()
     assert len(list((lib / "events").glob("*.json"))) == 2
 
@@ -396,3 +401,27 @@ def test_a_package_with_more_runs_replaces_the_one_that_missed_some(tmp_path):
     assert [r["result"]["runs"] for r in index.results()] == [2]
     store.to_outbox(outbox, [short])                        # fewer runs never replace more
     assert store.send(outbox, lib) == (0, []) and store.waiting(outbox) == []
+
+
+def test_a_test_run_in_several_sessions_is_one_line_that_opens_newest_first(qapp, tmp_path):
+    """Owner, 2026-10-24: the same test in one line; open it to see every result by date."""
+    from PySide6.QtCore import Qt
+    from app.ui.library_tab import LibraryTab
+    data, lib = _library(tmp_path)
+    for sid, day in ((8, "2026-10-25 10:00"), (9, "2026-10-26 10:00")):
+        e = export()
+        e["session"] = dict(e["session"], id=sid, created_at=day)
+        store.to_outbox(data / sync.OUTBOX, pk.build_packages(e)[0][:1])
+    sync.send_waiting(data)
+    tab = LibraryTab(lambda: data)
+    tab.refresh()
+    tab.tree.setCurrentItem(tab.tree.topLevelItem(1).child(0))
+    lines = [tab.table.topLevelItem(i) for i in range(tab.table.topLevelItemCount())]
+    blender = next(x for x in lines if x.childCount())
+    assert len(lines) == 2 and blender.childCount() == 3 and "(3 results)" in blender.text(0)
+    assert [blender.child(i).text(6) for i in range(3)] == ["2026-10-26 10:00", "2026-10-25 10:00", "2026-10-24 12:00"]
+    assert blender.data(0, Qt.UserRole) is None and blender.child(0).data(0, Qt.UserRole)["result"] == "101 points"
+    tab.table.setCurrentItem(blender)
+    assert not tab.delete_btn.isEnabled()               # the test's line is not one result
+    tab.table.setCurrentItem(blender.child(0))
+    assert tab.delete_btn.isEnabled()

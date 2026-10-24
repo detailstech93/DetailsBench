@@ -8,7 +8,7 @@ from typing import Callable, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QFileDialog, QHBoxLayout, QHeaderView, QInputDialog,
-                               QLabel, QPushButton, QSplitter, QTableWidget, QTableWidgetItem, QTreeWidget,
+                               QLabel, QPushButton, QSplitter, QTreeWidget,
                                QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from app.library import store, sync, view
@@ -82,14 +82,13 @@ class LibraryTab(QWidget):
         self.part_title.setWordWrap(True)
         self.part_title.setStyleSheet("font-weight: bold; font-size: 14px;")
         rl.addWidget(self.part_title)
-        self.table = QTableWidget(0, len(COLUMNS))
-        self.table.setHorizontalHeaderLabels(COLUMNS)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        # owner, 2026-10-24: one line per test; a test run more than once opens to its results, newest first
+        self.table = QTreeWidget()
+        self.table.setColumnCount(len(COLUMNS))
+        self.table.setHeaderLabels(COLUMNS)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)     # drag to resize
-        self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.verticalHeader().setVisible(False)
+        self.table.header().setSectionResizeMode(QHeaderView.Interactive)                # drag to resize
+        self.table.header().setStretchLastSection(True)
         self.table.itemSelectionChanged.connect(self._buttons)
         rl.addWidget(self.table)
         bar = QHBoxLayout()
@@ -219,37 +218,56 @@ class LibraryTab(QWidget):
 
     def show_part(self) -> None:
         part = self._current_part()
-        self.table.setRowCount(0)
         if not part:
+            self.table.clear()
             self.part_title.setText("Choose a part on the left." if self.results else
                                     "The library has no results yet (or this PC has not read it: Refresh).")
             self._buttons()
             return
+        if part["key"] != getattr(self, "_shown_key", None):
+            self.table.clear()                          # another part: its tests start closed
+        self._shown_key = part["key"]
         self.part_title.setText(part["name"])
         self.rows = view.rows(self.results, part["key"], self.names)
         if not self.show_deleted.isChecked():
             self.rows = [r for r in self.rows if not r["deleted"]]
-        for r in self.rows:
-            i = self.table.rowCount()
-            self.table.insertRow(i)
-            notes = r["notes"]
-            if r["deleted"]:
-                notes = f"DELETED {r['deleted'].get('at', '')[:10]}: {r['deleted'].get('reason') or ''}" + (
-                    f"; {notes}" if notes else "")
-            for c, value in enumerate((r["test"], r["result"], r["accuracy"], r["software"], r["variant"], r["pc"],
-                                       r["date"], notes)):
-                cell = QTableWidgetItem(value)
-                if r["deleted"]:
-                    cell.setForeground(Qt.gray)
-                self.table.setItem(i, c, cell)
+        open_tests = {self.table.topLevelItem(i).text(0) for i in range(self.table.topLevelItemCount())
+                      if self.table.topLevelItem(i).isExpanded()}
+        self.table.clear()
+        for test, results in view.by_test(self.rows):
+            if len(results) == 1:
+                self.table.addTopLevelItem(self._item(results[0]))
+                continue
+            newest = results[0]
+            top = QTreeWidgetItem([f"{test} ({len(results)} results)", newest["result"], "latest result", "", "", "",
+                                   newest["date"], ""])
+            top.setToolTip(0, "Open to see every result of this test, newest first.")
+            self.table.addTopLevelItem(top)
+            for r in results:
+                top.addChild(self._item(r, child=True))
+            top.setExpanded(top.text(0) in open_tests)
         if self.rows and not self._fitted:              # fitted to the text once; then the owner's widths stay
-            self.table.resizeColumnsToContents()
+            for c in range(len(COLUMNS)):
+                self.table.resizeColumnToContents(c)
             self._fitted = True
         self._buttons()
 
+    def _item(self, r: dict, child: bool = False) -> QTreeWidgetItem:
+        notes = r["notes"]
+        if r["deleted"]:
+            notes = f"DELETED {r['deleted'].get('at', '')[:10]}: {r['deleted'].get('reason') or ''}" + (
+                f"; {notes}" if notes else "")
+        item = QTreeWidgetItem([r["date"] if child else r["test"], r["result"], r["accuracy"], r["software"],
+                                r["variant"], r["pc"], r["date"], notes])
+        item.setData(0, Qt.UserRole, r)
+        if r["deleted"]:
+            for c in range(len(COLUMNS)):
+                item.setForeground(c, Qt.gray)
+        return item
+
     def _selected_row(self) -> Optional[dict]:
-        rows = self.table.selectionModel().selectedRows() if self.table.selectionModel() else []
-        return self.rows[rows[0].row()] if rows and getattr(self, "rows", None) else None
+        item = self.table.currentItem() if self.table.selectedItems() else None
+        return item.data(0, Qt.UserRole) if item is not None else None     # a test's line is not a result
 
     def _buttons(self) -> None:
         part, row = self._current_part(), self._selected_row()
