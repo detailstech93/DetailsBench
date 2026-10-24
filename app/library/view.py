@@ -56,6 +56,13 @@ def software(pkg: Mapping) -> str:
     return text or ("driver unknown" if pkg.get("old_session") else "-")      # phase 6: an older session
 
 
+def driver_label(pkg: Mapping) -> str:
+    """The one version a part's results are told apart by: its driver, else firmware, BIOS or browser."""
+    ctx = pkg["attribution"].get("context") or {}
+    return next((f"{label} {ctx[k]}" for k, label in CONTEXT_KEYS if k != "ai_runtime" and ctx.get(k)),
+                "driver unknown" if pkg.get("old_session") else "-")
+
+
 def stress_text(pkg: Mapping) -> str:
     """Owner, 2026-10-24: under load, stable or not, how much it drew, how hot it got."""
     m = pkg["result"].get("metrics") or {}
@@ -97,6 +104,12 @@ def _device_keys(results: List[Mapping]) -> Dict[str, str]:
     return out
 
 
+def pc_name(pkg: Mapping, names: Mapping[str, str], devices: Mapping[str, str]) -> str:
+    """The device a result ran on: the owner's name for it, else maker + model, else its unit id."""
+    return (names.get(pkg["pc"].get("system_key") or devices.get(pkg["pc"]["unit_id"], ""))
+            or _pc(pkg["pc"].get("device") or {}) or pkg["pc"]["unit_id"])
+
+
 def rows(results: List[Mapping], part_key: str, names: Optional[Mapping[str, str]] = None) -> List[dict]:
     """One row per result of the part: newest driver first, then newest date. "Tested on" is the device's name
     in the library when the owner gave one."""
@@ -110,15 +123,13 @@ def rows(results: List[Mapping], part_key: str, names: Optional[Mapping[str, str
     for p in pkgs:
         a, r = p["attribution"], p["result"]
         stress = a.get("kind") == "stress"
-        device = (p["pc"].get("device") or {})
         flags = list(a.get("flags") or []) + (["noisy"] if r.get("noisy") else []) + list(a.get("guessed") or [])
         out.append({"package_id": p["package_id"], "test": p["test"].get("name") or p["test"]["id"],
                     "result": (r.get("text") or "-") if a.get("kind") == "info" else stress_text(p) if stress
                     else f"{_number(r.get('mean'))} {p['test'].get('unit') or ''}".strip(),
                     "accuracy": "" if stress else r.get("accuracy") or "", "software": software(p),
                     "variant": a.get("variant") or "",
-                    "pc": names.get(p["pc"].get("system_key") or devices.get(p["pc"]["unit_id"], ""))
-                          or _pc(device) or p["pc"]["unit_id"],
+                    "pc": pc_name(p, names, devices),
                     "date": (p["session"].get("created_at") or p.get("created_at") or "")[:16].replace("T", " "),
                     "notes": ", ".join(flags), "stress": stress,
                     "deleted": p.get("deleted")})

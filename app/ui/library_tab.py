@@ -1,7 +1,8 @@
 """Advanced > Results library: where this PC's results go (this PC, a NAS share or a synced cloud folder), and the
 library itself by part (phase 4): devices, processors, graphics cards, memory, storage; each part's results with
 their driver, accuracy and the PC they ran on; delete with a reason and restore; a name for an unnamed device.
-Phase 5: two or more parts side by side (Compare), saved as an HTML report."""
+Phase 5: two or more parts side by side (Compare), saved as an HTML report; one part on Windows vs Linux or across
+its drivers; every part ranked by one test; filters by OS and kind of device (owner, 2026-10-25)."""
 
 import logging
 from datetime import datetime
@@ -10,7 +11,8 @@ from typing import Callable, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QFileDialog, QHBoxLayout, QHeaderView, QInputDialog,
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QHeaderView,
+                               QInputDialog,
                                QLabel, QPushButton, QSplitter, QTabWidget, QTreeWidget,
                                QTreeWidgetItem, QVBoxLayout, QWidget)
 
@@ -21,6 +23,9 @@ logger = logging.getLogger(__name__)
 COMPARE_HINT = ("Choose two or more parts on the left (Ctrl+click), then \"Compare selected parts\"; or one part, "
                 "then \"Windows vs Linux\". Each part shows its result on the newest driver it was tested with; "
                 "Windows is compared with Windows, Linux with Linux.")
+KIND_LABELS = {"laptop": "Laptops", "desktop": "Desktops", "board": "Single-board computers", "mini pc": "Mini PCs",
+               "": "Kind not recorded"}
+RANK_COLUMNS = ("#", "Part", "Result", "vs best", "Accuracy", "Driver / software", "Variant", "Tested on", "Date")
 COLUMNS = ("Test", "Result", "Accuracy", "Driver / software", "Variant", "Tested on", "Date", "Notes")
 
 
@@ -42,6 +47,7 @@ class LibraryTab(QWidget):
         self.compared = None
         self.report_path = None
         self.results = []
+        self.all_results = []
         self.names = {}
         self._fitted = False
         layout = QVBoxLayout(self)
@@ -78,6 +84,20 @@ class LibraryTab(QWidget):
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
 
+        filters = QHBoxLayout()
+        filters.addWidget(QLabel("Show:"))
+        self.os_filter = QComboBox()
+        for text, value in (("All systems", ""), ("Windows", "Windows"), ("Linux", "Linux")):
+            self.os_filter.addItem(text, value)
+        self.os_filter.currentIndexChanged.connect(lambda _: self.load())
+        self.kind_filter = QComboBox()
+        self.kind_filter.addItem("All devices", None)
+        self.kind_filter.currentIndexChanged.connect(lambda _: self.load())
+        for w in (self.os_filter, self.kind_filter):
+            filters.addWidget(w)
+        filters.addStretch()
+        layout.addLayout(filters)
+
         split = QSplitter(Qt.Horizontal)
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Part", "Results"])
@@ -100,6 +120,11 @@ class LibraryTab(QWidget):
         self.os_btn.setToolTip("The chosen part's (or device's) Windows results against its Linux ones.")
         self.os_btn.clicked.connect(self.compare_os)
         ll.addWidget(self.os_btn)
+        self.drivers_btn = QPushButton("Across drivers")
+        self.drivers_btn.setToolTip("The chosen part on each driver it was tested with, oldest first: a drop after "
+                                    "an update shows as a minus.")
+        self.drivers_btn.clicked.connect(self.compare_drivers)
+        ll.addWidget(self.drivers_btn)
         split.addWidget(left)
         self.pages = QTabWidget()
         right = QWidget()
@@ -146,6 +171,16 @@ class LibraryTab(QWidget):
         page = QWidget()
         cl = QVBoxLayout(page)
         cl.setContentsMargins(0, 0, 0, 0)
+        rank = QHBoxLayout()
+        rank.addWidget(QLabel("Rank every part by:"))
+        self.rank_test = QComboBox()
+        self.rank_test.setMinimumContentsLength(40)
+        self.rank_test.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        rank.addWidget(self.rank_test, 1)
+        self.rank_btn = QPushButton("Rank")
+        self.rank_btn.clicked.connect(self.rank)
+        rank.addWidget(self.rank_btn)
+        cl.addLayout(rank)
         self.compare_title = QLabel(COMPARE_HINT)
         self.compare_title.setWordWrap(True)
         cl.addWidget(self.compare_title)
@@ -238,11 +273,15 @@ class LibraryTab(QWidget):
     def load(self) -> None:
         try:
             index = self._index()
-            self.results = index.results(include_deleted=True)
+            self.all_results = index.results(include_deleted=True)
             self.names = index.names()
         except Exception:
             logger.exception("Results library: index not read")
-            self.results, self.names = [], {}
+            self.all_results, self.names = [], {}
+        self._kinds()
+        self.results = compare.filtered(self.all_results, self.os_filter.currentData() or "",
+                                        self.kind_filter.currentData())
+        self._rank_tests()
         current = self._current_key()
         selected = {p["key"] for p in self._selected_parts()}
         shown = self.results if self.show_deleted.isChecked() else [p for p in self.results if not p.get("deleted")]
@@ -270,6 +309,28 @@ class LibraryTab(QWidget):
             item.setSelected(True)
         self.show_part()
 
+    def _kinds(self) -> None:
+        """The kinds of device the library has, as filter choices; the one chosen stays chosen."""
+        chosen = self.kind_filter.currentData()
+        kinds = sorted({compare.device_kind(p) for p in self.all_results}, key=lambda k: (k == "", k))
+        self.kind_filter.blockSignals(True)
+        self.kind_filter.clear()
+        self.kind_filter.addItem("All devices", None)
+        for k in kinds:
+            self.kind_filter.addItem(KIND_LABELS.get(k.lower(), k[:1].upper() + k[1:]), k)
+        i = self.kind_filter.findData(chosen) if chosen is not None else 0
+        self.kind_filter.setCurrentIndex(max(i, 0))
+        self.kind_filter.blockSignals(False)
+
+    def _rank_tests(self) -> None:
+        chosen = self.rank_test.currentData()
+        self.rank_test.clear()
+        for key, label in compare.tests(self.results):
+            self.rank_test.addItem(label, key)
+        i = self.rank_test.findData(chosen) if chosen is not None else -1
+        if i >= 0:
+            self.rank_test.setCurrentIndex(i)
+
     def _selected_parts(self) -> list:
         return [d for d in (i.data(0, Qt.UserRole) for i in self.tree.selectedItems()) if d]
 
@@ -285,14 +346,33 @@ class LibraryTab(QWidget):
             return
         self._show_compared(compare.os_compare(self.results, parts[0]["key"], self.names))
 
+    def compare_drivers(self) -> None:
+        parts = self._selected_parts()
+        if len(parts) != 1:
+            return
+        self._show_compared(compare.drivers_compare(self.results, parts[0]["key"], self.names))
+
+    def rank(self) -> None:
+        key = self.rank_test.currentData()
+        if key is None:
+            return
+        self._show_compared(compare.ranking(self.results, tuple(key), self.names))
+
     def _show_compared(self, result: dict) -> None:
         self.compared = result
         self.report_path = None
         names = [p["name"] for p in self.compared["parts"]]
-        self.compare_title.setText(" vs ".join(names) + f": {len(self.compared['rows'])} test(s). The difference "
-                                   f"is against {names[0]}; the best result is bold.")
         t = self.compare_table
         t.clear()
+        if result.get("mode") == "ranking":
+            self._show_ranking(result)
+            return
+        if not names:
+            self.compare_title.setText("Nothing to compare.")
+            self._buttons()
+            return
+        self.compare_title.setText(result.get("title", " vs ".join(names)) + f": {len(self.compared['rows'])} "
+                                   f"test(s). The difference is against {names[0]}; the best result is bold.")
         t.setColumnCount(len(names) + 3)
         t.setHeaderLabels(["Test", "OS"] + names + ["Notes"])
         bold = QFont()
@@ -311,6 +391,33 @@ class LibraryTab(QWidget):
                     item.setFont(i + 2, bold)
             item.setToolTip(len(texts), item.text(len(texts)))
             t.addTopLevelItem(item)
+        for c in range(t.columnCount()):
+            t.resizeColumnToContents(c)
+            t.setColumnWidth(c, min(t.columnWidth(c), 360))
+        self.pages.setCurrentIndex(1)
+        self._buttons()
+
+    def _show_ranking(self, result: dict) -> None:
+        """One line per part, best first."""
+        t = self.compare_table
+        row = result["rows"][0] if result["rows"] else None
+        aside = result.get("set_aside") or 0
+        self.compare_title.setText(result["title"] + f": {len(result['parts'])} part(s)"
+                                   + (" (lower is better)" if row and row["lower_is_better"] else "")
+                                   + (f"; {aside} result(s) set aside (WSL, virtual machine, emulated or on "
+                                      f"battery)" if aside else "") + "."
+                                   + ("\n" + "; ".join(row["notes"]) if row and row["notes"] else ""))
+        t.setColumnCount(len(RANK_COLUMNS))
+        t.setHeaderLabels(RANK_COLUMNS)
+        if row:
+            for n, (part, cell, pc) in enumerate(zip(result["parts"], row["cells"], result["pcs"]), 1):
+                item = QTreeWidgetItem([str(n), part["name"], f"{cell['text']} {row['unit']}".strip(),
+                                        "best" if n == 1 else (f"{cell['diff']:+.1f}%" if cell["diff"] is not None
+                                                               else "-"),
+                                        cell["accuracy"], cell["software"], cell["variant"], pc, cell["date"]])
+                for c in range(len(RANK_COLUMNS)):
+                    item.setToolTip(c, item.text(c))
+                t.addTopLevelItem(item)
         for c in range(t.columnCount()):
             t.resizeColumnToContents(c)
             t.setColumnWidth(c, min(t.columnWidth(c), 360))
@@ -432,6 +539,8 @@ class LibraryTab(QWidget):
         self.restore_btn.setEnabled(bool(row and row["deleted"] and has_folder))
         self.compare_btn.setEnabled(len(self._selected_parts()) >= 2)
         self.os_btn.setEnabled(len(self._selected_parts()) == 1)
+        self.drivers_btn.setEnabled(len(self._selected_parts()) == 1)
+        self.rank_btn.setEnabled(self.rank_test.count() > 0)
         self.save_btn.setEnabled(bool(self.compared and self.compared["rows"]))
         self.open_btn.setEnabled(self.report_path is not None)
         self.clear_btn.setEnabled(bool(self.compared) or len(self._selected_parts()) > 1)

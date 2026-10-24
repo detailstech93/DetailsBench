@@ -3,7 +3,8 @@
 For each part and test the result shown is the one on the newest driver the part has a result for, the newest date
 on that driver (plan, "Compare rules"). Windows results line up with Windows ones and Linux with Linux; one part's
 Windows results against its Linux ones is a comparison of its own (owner, 2026-10-24). What does not compare cleanly
-is said, not hidden: another benchmark version or settings, one run only, a noisy result. Pure, so
+is said, not hidden: another benchmark version or settings, one run only, a noisy result. Also one part across
+its drivers (a drop after an update shows), every part ranked by one test, and filters by OS and kind of device. Pure, so
 the screen and the HTML report show the same thing.
 """
 
@@ -16,6 +17,7 @@ from app.library import view
 
 LOWER_IS_BETTER = {"s", "sec", "seconds", "ms", "min", "minutes"}       # time to finish: less is faster
 SKIP_KINDS = {"info", "stress"}                                          # text and load checks: no score to line up
+SET_ASIDE = ("WSL", "virtual machine", "emulated", "on battery")        # never in a ranking (owner, 2026-10-21)
 
 
 def lower_is_better(unit: Optional[str]) -> bool:
@@ -51,10 +53,23 @@ def _pick(pkgs: List[Mapping]) -> Mapping:
                                     p["session"].get("created_at") or p.get("created_at") or ""))
 
 
+def _scorable(p: Mapping) -> bool:
+    return (not p.get("deleted") and p["attribution"].get("kind") not in SKIP_KINDS
+            and isinstance(p["result"].get("mean"), (int, float)))
+
+
 def _scores(results: List[Mapping], key: str) -> List[Mapping]:
     """The part's results that have a score to line up."""
-    return [p for p in results if p["attribution"]["part_key"] == key and not p.get("deleted")
-            and p["attribution"].get("kind") not in SKIP_KINDS and isinstance(p["result"].get("mean"), (int, float))]
+    return [p for p in results if p["attribution"]["part_key"] == key and _scorable(p)]
+
+
+def device_kind(pkg: Mapping) -> str:
+    return (pkg["pc"].get("device") or {}).get("kind") or ""
+
+
+def filtered(results: List[Mapping], os: str = "", kind: Optional[str] = None) -> List[Mapping]:
+    """Only one OS family ('' = all) and one kind of device (None = all, '' = not recorded)."""
+    return [p for p in results if (not os or os_family(p) == os) and (kind is None or device_kind(p) == kind)]
 
 
 def _chosen(pkgs: List[Mapping], with_os: bool = True) -> Dict[tuple, Mapping]:
@@ -76,7 +91,8 @@ def compare(results: List[Mapping], part_keys: List[str], names: Optional[Mappin
             continue
         parts.append({"key": key, "name": view.part_name(mine, names)})
         chosen[key] = _chosen(_scores(results, key))
-    return {"mode": "parts", "parts": parts, "rows": _rows(parts, chosen)}
+    return {"mode": "parts", "title": " vs ".join(p["name"] for p in parts), "parts": parts,
+            "rows": _rows(parts, chosen)}
 
 
 def os_compare(results: List[Mapping], part_key: str, names: Optional[Mapping[str, str]] = None) -> dict:
@@ -93,7 +109,68 @@ def os_compare(results: List[Mapping], part_key: str, names: Optional[Mapping[st
     rows = _rows(parts, chosen)
     for row in rows:
         row["os"] = "Windows vs Linux"
-    return {"mode": "os", "parts": parts, "rows": rows}
+    return {"mode": "os", "title": f"{name}: Windows vs Linux", "parts": parts, "rows": rows}
+
+
+def drivers_compare(results: List[Mapping], part_key: str, names: Optional[Mapping[str, str]] = None) -> dict:
+    """One part on each driver (or firmware, browser) it was tested with, oldest first: the difference is against
+    the oldest, so a drop after an update shows as a minus."""
+    mine = [p for p in results if p["attribution"]["part_key"] == part_key]
+    if not mine:
+        return {"mode": "drivers", "title": "", "parts": [], "rows": []}
+    name = view.part_name(mine, names or {})
+    by_label: Dict[str, List[Mapping]] = {}
+    for p in _scores(results, part_key):
+        by_label.setdefault(view.driver_label(p), []).append(p)
+
+    def order(label):
+        known = label not in ("-", "driver unknown")
+        return (known, view._version_key(label), min(q["session"].get("created_at") or q.get("created_at") or ""
+                                                      for q in by_label[label]))
+    labels = sorted(by_label, key=order)
+    parts = [{"key": f"{part_key}|{label}", "name": label} for label in labels]
+    chosen = {f"{part_key}|{label}": _chosen(by_label[label]) for label in labels}
+    rows = _rows(parts, chosen)
+    for row in rows:                                    # the column already says "driver unknown"
+        row["notes"] = [n for n in row["notes"] if not n.startswith("driver unknown")]
+    return {"mode": "drivers", "title": f"{name}: " + (" vs ".join(labels) or "no results"), "parts": parts,
+            "rows": rows}
+
+
+def tests(results: List[Mapping]) -> List[tuple]:
+    """[(test key, 'name (OS)')] of every test with a score, for the ranking list."""
+    out = {}
+    for p in results:
+        if _scorable(p):
+            key = _test_key(p)
+            out.setdefault(key, f"{_test_name(p)} ({key[1] or 'OS not recorded'})")
+    return sorted(out.items(), key=lambda kv: kv[1].lower())
+
+
+def ranking(results: List[Mapping], test_key: tuple, names: Optional[Mapping[str, str]] = None) -> dict:
+    """Every part with a result of the test on that OS, best first (its newest driver). Results run in WSL, a VM,
+    emulated or on battery are set aside, and counted."""
+    names = names or {}
+    by_part: Dict[str, List[Mapping]] = {}
+    aside = 0
+    for p in results:
+        if not _scorable(p) or _test_key(p) != tuple(test_key):
+            continue
+        if any(f in (p["attribution"].get("flags") or []) for f in SET_ASIDE):
+            aside += 1
+            continue
+        by_part.setdefault(p["attribution"]["part_key"], []).append(p)
+    picks = {k: _pick(v) for k, v in by_part.items()}
+    devices = view._device_keys(results)
+    lower = lower_is_better(test_key[2])
+    order = sorted(picks, key=lambda k: picks[k]["result"]["mean"], reverse=not lower)
+    parts = [{"key": k, "name": view.part_name([q for q in results if q["attribution"]["part_key"] == k], names)}
+             for k in order]
+    rows = _rows(parts, {k: {tuple(test_key): picks[k]} for k in order}) if parts else []
+    test = rows[0]["test"] if rows else str(test_key[0])
+    return {"mode": "ranking", "title": f"Ranking: {test} ({test_key[1] or 'OS not recorded'})", "parts": parts,
+            "rows": rows, "set_aside": aside,
+            "pcs": [view.pc_name(picks[k], names, devices) for k in order]}
 
 
 def _rows(parts: List[dict], chosen: Mapping[str, Mapping[tuple, Mapping]]) -> List[dict]:
@@ -152,7 +229,7 @@ def report_html(result: Mapping, now: Optional[str] = None) -> str:
     """One page that stands on its own: a table and a bar per part for each test, light or dark like the system."""
     parts = result["parts"]
     when = now or datetime.now().isoformat(timespec="minutes").replace("T", " ")
-    title = " vs ".join(p["name"] for p in parts)
+    title = result.get("title") or " vs ".join(p["name"] for p in parts)
     blocks = []
     for row in result["rows"]:
         values = [c["mean"] for c in row["cells"] if c]
@@ -206,7 +283,11 @@ def report_html(result: Mapping, now: Optional[str] = None) -> str:
         f"<h1>{_e(title)}</h1>"
         f'<p class="sub">DetailsBench results library, {_e(when)}. Each column shows its result on the newest '
         f"driver it was tested with. Differences are against {first}. "
-        + ("The same part on Windows and on Linux." if result.get("mode") == "os" else
-           "Windows results are compared with Windows, Linux with Linux.") + "</p>"
+        + {"os": "The same part on Windows and on Linux.",
+           "drivers": "The same part on each driver it was tested with, oldest first.",
+           "ranking": "Every part with a result of this test, best first. Results run in WSL, a virtual machine, "
+                      "emulated or on battery are left out."}.get(result.get("mode"),
+                                                                 "Windows results are compared with Windows, Linux "
+                                                                 "with Linux.") + "</p>"
         + ("".join(blocks) or "<p>These parts have no results to compare.</p>")
         + "</main></body></html>")

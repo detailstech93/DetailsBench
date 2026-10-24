@@ -177,3 +177,77 @@ def test_windows_against_linux_on_one_device():
     gb = next(r for r in out["rows"] if r["test"] == "Gb")
     assert gb["os"] == "Windows vs Linux" and gb["cells"][1]["diff"] == pytest.approx(10.0) and gb["best"] == 1
     assert "The same part on Windows and on Linux." in compare.report_html(out)
+
+
+# ── one part across drivers, ranking, filters (owner, 2026-10-25) ──
+
+def test_one_part_across_its_drivers_oldest_first():
+    results = [pkg("a", "bench", 100, driver="581.8"), pkg("a", "bench", 90, driver="617.42"),
+               dict(pkg("a", "bench", 95, date="2026-10-01T10:00:00"), old_session=True)]
+    out = compare.drivers_compare(results, "a")
+    assert [p["name"] for p in out["parts"]] == ["driver unknown", "Driver 581.8", "Driver 617.42"]
+    row, = out["rows"]
+    assert row["cells"][2]["diff"] == pytest.approx((90 - 95) / 95 * 100) and row["best"] == 1   # a drop: minus
+    assert out["title"] == "A: driver unknown vs Driver 581.8 vs Driver 617.42"
+    assert "oldest first" in compare.report_html(out)
+
+
+def test_ranking_best_first_and_set_aside_left_out():
+    wsl = pkg("d", "render", 1, unit="s")
+    wsl["attribution"]["flags"] = ["WSL"]
+    results = [pkg("a", "render", 50, unit="s"), pkg("b", "render", 40, unit="s"), pkg("c", "render", 60, unit="s"),
+               pkg("a", "render", 30, unit="s", os="Ubuntu 24.04"), wsl]
+    keys = dict(compare.tests(results))
+    assert keys[("render", "Windows", "s")] == "Render (Windows)"
+    out = compare.ranking(results, ("render", "Windows", "s"))
+    assert [p["name"] for p in out["parts"]] == ["B", "A", "C"]                 # time: less is better
+    assert out["set_aside"] == 1 and out["rows"][0]["cells"][1]["diff"] == pytest.approx(25.0)
+    assert out["pcs"] == ["u1", "u1", "u1"]
+
+
+def test_filters_by_os_and_kind():
+    laptop = pkg("a", "x", 1)
+    laptop["pc"]["device"] = {"kind": "laptop"}
+    board = pkg("b", "x", 2, os="Debian 12")
+    results = [laptop, board]
+    assert compare.filtered(results, "Linux") == [board]
+    assert compare.filtered(results, kind="laptop") == [laptop]
+    assert compare.filtered(results, kind="") == [board]                     # kind not recorded
+    assert compare.filtered(results) == results
+
+
+def test_screen_drivers_ranking_and_filters(qapp, tmp_path):
+    from app.ui.library_tab import LibraryTab
+    laptop = pkg("a", "bench", 100, driver="581.8")
+    laptop["pc"]["device"] = {"kind": "laptop"}
+    results = [laptop, pkg("a", "bench", 120, driver="617.42"), pkg("b", "bench", 150, os="Fedora Linux 44")]
+
+    class Index:
+        def results(self, include_deleted=False):
+            return results
+
+        def names(self):
+            return {}
+
+        def info(self):
+            return {}
+    tab = LibraryTab(lambda: tmp_path, save_as=lambda start: "", opener=lambda p: None)
+    tab._index = lambda: Index()
+    tab.refresh()
+    assert [tab.kind_filter.itemText(i) for i in range(tab.kind_filter.count())] == [
+        "All devices", "Laptops", "Kind not recorded"]
+    gpus = next(tab.tree.topLevelItem(i) for i in range(tab.tree.topLevelItemCount())
+                if tab.tree.topLevelItem(i).text(0) == "Graphics cards")
+    gpus.child(0).setSelected(True)
+    assert tab.drivers_btn.isEnabled()
+    tab.compare_drivers()
+    assert tab.compare_table.headerItem().text(2) == "Driver 581.8"
+    assert tab.compare_table.topLevelItem(0).text(3) == "120 points (+20.0%)"
+    tab.rank_test.setCurrentIndex(tab.rank_test.findText("Bench (Windows)"))
+    tab.rank()
+    first = tab.compare_table.topLevelItem(0)
+    assert first.text(0) == "1" and first.text(1) == "A" and first.text(3) == "best"
+    tab.os_filter.setCurrentIndex(tab.os_filter.findData("Linux"))           # only Linux: part A is gone
+    assert gpus is not None and [tab.rank_test.itemText(i) for i in range(tab.rank_test.count())] == ["Bench (Linux)"]
+    tab.kind_filter.setCurrentIndex(tab.kind_filter.findData("laptop"))
+    assert tab.rank_test.count() == 0 and not tab.rank_btn.isEnabled()
