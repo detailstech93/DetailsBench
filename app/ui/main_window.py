@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 SHOW_SESSION_COMPARE = False   # the old two-session Compare Results tab (owner, 2026-10-25)
 
+
 class BenchmarkWorker(QThread):
     """Background worker thread for running BenchmarkManager.scan().
 
