@@ -794,7 +794,6 @@ def shutdown_when_done(window, session_id, summary, report) -> bool:
         window.status_label.setText(f"{window.status_label.text()}  The computer shuts down after the tests in "
                                     f"line.")
         return False
-    tick_shutdown(window, False)                # once: the next run does not shut down unless ticked again
     from app.ui import shutdown_after
     return shutdown_after.after_run(window, session_id, summary, report)
 

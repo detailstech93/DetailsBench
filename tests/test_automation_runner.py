@@ -353,3 +353,38 @@ def test_skip_on_a_test_in_line_takes_it_out_before_it_starts(db, tmp_path):
     assert [(r.workload_id, r.result.status) for r in summary.records] == [("a", "completed"), ("later", "skipped")]
     assert summary.records[1].result.error == DROPPED_BY_USER
     assert runner.drop("a") == "the run has ended"
+
+
+def test_queue_next_brings_back_a_test_skipped_in_line(db, tmp_path):
+    database, sid = db
+    seen = {}
+    later = Scripted("later", [ok(5.0)])
+
+    def act(ctx):
+        if not seen:
+            seen["drop"] = runner.drop("later")
+            seen["back"] = runner.undrop("later")
+            seen["again"] = runner.undrop("later")
+    a = Scripted("a", [ok(1.0)], on_run=act)
+    runner = AutomationRunner(database, sid, [PlanItem(a, 1, 0), PlanItem(later, 1, 0)], tmp_path / "o")
+    summary = runner.run()
+    assert seen == {"drop": None, "back": True, "again": False}
+    assert [(r.workload_id, r.result.status) for r in summary.records] == [("a", "completed"), ("later", "completed")]
+    assert runner.undrop("later") is False
+
+
+def test_a_test_taken_out_of_the_line_does_not_cancel_the_shutdown(db, tmp_path):
+    """Owner, 2026-10-24: Skip on the last test in line turned the shutdown off."""
+    from types import SimpleNamespace
+    from app.automation.runner import DROPPED_BY_USER, SKIPPED_BY_USER
+    from app.ui import shutdown_after
+
+    def rec(error):
+        return SimpleNamespace(result=SimpleNamespace(error=error))
+    summary = SimpleNamespace(stopped=False, records=[rec(None), rec(DROPPED_BY_USER)])
+    report = tmp_path / "r.html"
+    report.write_text("x")
+    database = SimpleNamespace(get_runs=lambda *a, **k: [1])
+    assert shutdown_after.why_not_now(database, 1, summary, report) is None
+    summary.records.append(rec(SKIPPED_BY_USER))
+    assert "skipped" in shutdown_after.why_not_now(database, 1, summary, report)

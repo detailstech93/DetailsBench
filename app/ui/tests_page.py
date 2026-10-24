@@ -504,7 +504,8 @@ class TestsPage(QWidget):
         """Queue next takes any test not running, done or in line: an automatic one joins the run (its settings
         menu, e.g. the AI test's, opens now), a game gets its dialog and waits in line. A test whose score you
         type stays greyed (owner, 2026-10-24)."""
-        return e.can_run() and not e.waits_for_typed_score() and e.id not in self.marks
+        return (e.can_run() and not e.waits_for_typed_score()
+                and self.marks.get(e.id, "skipped") == "skipped")     # skipped: Queue next brings it back
 
     def run_selected(self):
         chosen = self.selected()

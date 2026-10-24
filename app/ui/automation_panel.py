@@ -528,9 +528,11 @@ class AutomationPanel(QGroupBox):
         refused: Dict[str, str] = {}
         if not self.can_queue():
             return [], {wl.display_name: "no run is going on" for wl in workloads}
-        ready = []
+        ready, back = [], []
         for wl in workloads:
-            if not wl.availability()[0]:
+            if self.worker.runner.undrop(wl.id):
+                back.append(wl.display_name)    # taken out of the line earlier: back in its place
+            elif not wl.availability()[0]:
                 refused[wl.display_name] = "not available"
             elif hasattr(wl, "configure") and getattr(wl, "asks_settings", True):
                 settings = self.choose_settings(wl)
@@ -541,6 +543,8 @@ class AutomationPanel(QGroupBox):
                 ready.append((wl, settings))
             else:
                 ready.append((wl, None))
+        if not ready:
+            return back, refused
         plan = self.build_plan([wl for wl, _ in ready], self.plan_profile, self.plan_extra_runs)
         for item, (_, settings) in zip(plan, ready):
             item.settings = settings
@@ -556,7 +560,7 @@ class AutomationPanel(QGroupBox):
                 logger.exception("Could not store the queued tests in the session manifest")
             done, total, text = self.step
             self.step = (done, total + sum(item.repetitions + item.warmup_runs for item in taken), text)
-        return [item.workload.display_name for item in taken], refused
+        return back + [item.workload.display_name for item in taken], refused
 
     def run_progress(self):
         """(fraction done, seconds left) of the run going on now, for a workload that knows it (a stress test

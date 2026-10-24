@@ -45,10 +45,12 @@ def why_not_now(db, session_id: Optional[int], summary, report: Optional[Path]) 
         return "the run has no session"
     if summary is None or getattr(summary, "stopped", False) or not hasattr(summary, "records"):
         return "the run was stopped or did not end normally"
-    from app.automation.runner import SKIPPED_BY_USER
+    from app.automation.runner import DROPPED_BY_USER, SKIPPED_BY_USER
     # a Skip cancels it only when nothing ran after it: the last test (or the only one) was skipped. A test skipped
     # in the middle of a plan does not (owner, 2026-10-21)
-    last = summary.records[-1] if summary.records else None
+    # a test taken out of the line before it started is not "the last test skipped" (owner, 2026-10-24)
+    kept = [r for r in summary.records if str(getattr(getattr(r, "result", None), "error", "") or "") != DROPPED_BY_USER]
+    last = kept[-1] if kept else None
     if str(getattr(getattr(last, "result", None), "error", "") or "").startswith(SKIPPED_BY_USER):
         return "the last test was skipped (Skip of the last test cancels the shutdown)"
     try:

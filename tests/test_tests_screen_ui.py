@@ -556,7 +556,8 @@ def test_shut_down_after_the_run_waits_for_the_tests_in_line(qapp, monkeypatch):
     assert "shuts down after the tests in line" in window.status_label.text() and page.shutdown_box.isChecked()
     window.run_line = []                                                 # the last test in line is over
     assert run_tests.shutdown_when_done(window, 2, None, None) is True and calls == [2]
-    assert not page.shutdown_box.isChecked()                             # once: not for the next run
+    assert page.shutdown_box.isChecked()             # the owner unticks it, never the app (2026-10-24)
+    page.shutdown_box.setChecked(False)
     run_tests.tick_shutdown(window)                                      # the run dialog's box ticks it
     assert page.shutdown_box.isChecked()
     monkeypatch.setattr(shutdown_after, "why_not_offered", lambda *a, **k: "not offered in WSL")
@@ -592,3 +593,14 @@ def test_skip_takes_a_test_out_of_the_line(qapp):
     assert window.status_label.text() == "tool_b was taken out of the line."
     window.automation_panel.drop_queued = lambda wid: "it is running: use Skip this test"
     assert run_tests.unqueue(window, entry("tool_a")) == "it is running: use Skip this test"
+
+
+def test_a_test_skipped_in_line_can_be_queued_again(qapp):
+    """Owner, 2026-10-24: Skip on a test in line by mistake left a grey dot and it could not be run again."""
+    from app.ui.tests_page import RunState
+    page = TestsPage()
+    page.set_entries([entry("tool_a"), entry("tool_b")])
+    page.can_add = lambda: True
+    page.watch(lambda: RunState(True, 0, 2, "x", marks={"tool_a": "running", "tool_b": "skipped"}), lambda: None)
+    page.refresh_progress()
+    assert page.queueable(page.entry("tool_b")) and not page.queueable(page.entry("tool_a"))

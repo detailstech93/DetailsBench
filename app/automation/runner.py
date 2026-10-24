@@ -223,6 +223,18 @@ class AutomationRunner:
             self.queued_ids += [p.workload.id for p in taken]
         return taken, refused
 
+    def undrop(self, wid: str) -> bool:
+        """Queue next on a test taken out of the line that the run has not reached yet: it is back in its place
+        (owner, 2026-10-24: skipped by mistake, it could not be run again). False when it was not."""
+        with self._queue_lock:
+            if self._closed or self.stop_event.is_set() or wid not in self.dropped:
+                return False
+            _, _, summary = self._live
+            if summary is not None and any(r.workload_id == wid for r in summary.records):
+                return False                    # already passed (stored as skipped)
+            self.dropped.discard(wid)
+        return True
+
     def drop(self, wid: str) -> Optional[str]:
         """Skip on a test in line (owner, 2026-10-24): it is taken out before it starts and stored as skipped.
         None when it is out, else why not (the test going on has Skip this test)."""
