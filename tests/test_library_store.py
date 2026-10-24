@@ -49,7 +49,8 @@ def export(hw=HW, runs=None, is_test=False, summaries=None):
 
 def test_one_package_per_finished_test():
     pkgs, left = pk.build_packages(export(), now="2026-10-24T12:00:00")
-    assert [p["test"]["id"] for p in pkgs] == ["blender_benchmark"]
+    assert [p["test"]["id"] for p in pkgs] == ["blender_benchmark", "stress_cpu"]
+    assert pkgs[1]["attribution"]["kind"] == "stress" and not pkgs[1]["attribution"]["ranked"]
     p = pkgs[0]
     assert p["package_id"] == "c502abe010156c02_s7_blender_benchmark"
     assert p["result"]["scores"] == [100.0, 102.0] and p["result"]["mean"] == 101.0          # warm-up left out
@@ -57,7 +58,7 @@ def test_one_package_per_finished_test():
     assert p["attribution"]["part"] == "cpu" and p["result"]["metrics"] == {"monster": {"mean": 50.0}}
     assert pk.check(p) is None
     why = dict(left)
-    assert "Games section" in why["cyberpunk2077_builtin_benchmark"] and "stability" in why["stress_cpu"]
+    assert "Games section" in why["cyberpunk2077_builtin_benchmark"] and "stress_cpu" not in why
     assert why["vray_benchmark"] == "no measured run"            # a failure is never a score
 
 
@@ -74,9 +75,12 @@ def test_accuracy_labels():
 def test_a_changed_or_newer_package_is_refused():
     p = pk.build_packages(export())[0][0]
     assert "changed" in pk.check(dict(p, result=dict(p["result"], mean=1)))
-    newer = dict(p, format_version=pk.FORMAT_VERSION + 1)
-    newer["hash"] = pk.content_hash(newer)
-    assert "newer app" in pk.check(newer)
+    added = dict(p, format_version=pk.FORMAT_VERSION + 1, a_new_field={"x": 1})     # a newer app added fields
+    added["hash"] = pk.content_hash(added)
+    assert pk.check(added) is None                                                  # still read here
+    changed = dict(p, readable_by=pk.READABLE_BY + 1)                               # a field changed its meaning
+    changed["hash"] = pk.content_hash(changed)
+    assert "newer app" in pk.check(changed)
 
 
 def test_library_folder(tmp_path):
@@ -94,7 +98,7 @@ def test_library_folder(tmp_path):
 def test_outbox_then_library_then_index(tmp_path):
     outbox, lib = tmp_path / "outbox", tmp_path / "lib"
     lib.mkdir()
-    pkgs = pk.build_packages(export())[0]
+    pkgs = pk.build_packages(export())[0][:1]       # the Blender package
     assert store.to_outbox(outbox, pkgs) == 1 and store.to_outbox(outbox, pkgs) == 0      # written once
     with pytest.raises(store.LibraryError):                    # no library there yet: everything stays waiting
         store.send(outbox, lib)
@@ -112,7 +116,7 @@ def test_outbox_then_library_then_index(tmp_path):
 def test_a_different_file_of_the_same_name_is_not_overwritten(tmp_path):
     (tmp_path / "lib").mkdir()
     outbox, lib = tmp_path / "outbox", store.open_library(tmp_path / "lib", create=True)
-    pkgs = pk.build_packages(export())[0]
+    pkgs = pk.build_packages(export())[0][:1]       # the Blender package
     store.to_outbox(outbox, pkgs)
     other = dict(pkgs[0], created_at="another")
     other["hash"] = pk.content_hash(other)
@@ -128,7 +132,7 @@ def test_delete_and_restore_never_erase(tmp_path):
     lib = tmp_path / "lib"
     lib.mkdir()
     store.open_library(lib, create=True)
-    pkgs = pk.build_packages(export())[0]
+    pkgs = pk.build_packages(export())[0][:1]       # the Blender package
     store.to_outbox(tmp_path / "o", pkgs)
     store.send(tmp_path / "o", lib)
     index = LibraryIndex(tmp_path / "i.db")
@@ -149,14 +153,14 @@ def test_add_session_waits_without_a_folder_then_goes(tmp_path, monkeypatch):
     data = tmp_path / "data"
     data.mkdir()
     text = sync.add_session(None, 7, data)
-    assert "no results library folder" in text and len(store.waiting(data / sync.OUTBOX)) == 1
+    assert "no results library folder" in text and len(store.waiting(data / sync.OUTBOX)) == 2   # Blender, stress
     from app.paths import save_setting
     lib = tmp_path / "nas"
     lib.mkdir()
     store.open_library(lib, create=True)
     save_setting(data, sync.FOLDER_KEY, str(lib))
-    assert sync.send_waiting(data) == "1 result(s) added to the library."
-    assert len(LibraryIndex(data / sync.INDEX).results()) == 1
+    assert sync.send_waiting(data) == "2 result(s) added to the library."
+    assert len(LibraryIndex(data / sync.INDEX).results()) == 2
 
 
 def test_ai_run_read_from_the_session_folder(tmp_path):

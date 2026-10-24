@@ -89,11 +89,33 @@ def test_games_wait_for_the_games_section():
     assert [x["part"] for x in a["linked"]] == ["cpu"]
 
 
-@pytest.mark.parametrize("tid,group,why", [("stress_cpu", "stress", "stability"), ("selftest_python", "cpu", "own check"),
+@pytest.mark.parametrize("tid,group,why", [("stress_other", "stress", "no known part"), ("selftest_python", "cpu", "own check"),
                                            ("something", "other", "not a test of one part")])
 def test_kept_with_the_session(tid, group, why):
     a = at.attribute(tid, group, LAPTOP)
     assert not a["library"] and not a["ranked"] and why in a["why_not"]
+
+
+def test_stress_tests_go_with_their_part_and_the_device():
+    """Owner, 2026-10-24: under load, how much it draws, whether it stays stable, how hot it gets."""
+    cpu = at.attribute("stress_cpu", "stress", LAPTOP)
+    gpu = at.attribute("stress_gpu", "stress", LAPTOP)
+    both = at.attribute("stress_cpu_gpu", "stress", LAPTOP)
+    assert (cpu["part"], gpu["part"], both["part"]) == ("cpu", "gpu", "system")
+    assert all(a["library"] and not a["ranked"] and a["kind"] == "stress" for a in (cpu, gpu, both))
+    assert [x["part"] for x in cpu["linked"]] == ["system"]          # the device's cooling
+    assert [x["part"] for x in both["linked"]] == ["cpu", "gpu"]
+
+
+def test_a_build_is_named_by_its_card_processor_and_date():
+    build = dict(LAPTOP, captured_at="2026-10-24T15:00:00",
+                 device={"maker": "ASUS", "model": "System Product Name", "kind": "desktop", "placeholder": True})
+    a = at.attribute("stress_cpu_gpu", "stress", build)
+    assert a["part_name"] == "Build: NVIDIA GeForce RTX 5090 Laptop GPU + Intel Core Ultra 9 275HX (2026-10-24)"
+    other = dict(build, cpu={"name": "AMD Ryzen 9 9950X", "cores": 16, "threads": 32})
+    assert at.attribute("stress_cpu_gpu", "stress", other)["part_key"] != a["part_key"]   # new processor: new build
+    mini = dict(build, device={"maker": "Beelink", "model": "SER9", "kind": "mini PC", "placeholder": False})
+    assert at.attribute("stress_cpu_gpu", "stress", mini)["part_name"] == "Beelink SER9"
 
 
 def test_no_parts_read():

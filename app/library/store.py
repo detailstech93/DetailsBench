@@ -22,7 +22,7 @@ from app.library.package import check, safe_name
 
 LIBRARY_FILE = "library.json"
 LIBRARY_FORMAT = "detailsbench.library"
-LIBRARY_VERSION = 1
+LIBRARY_VERSION = 1            # the folder layout; a package's own version is checked per package (package.py)
 EVENT_FORMAT = "detailsbench.library.event"
 
 
@@ -65,7 +65,7 @@ def open_library(folder: Path, create: bool = False) -> Path:
     if info.get("format") != LIBRARY_FORMAT:
         raise LibraryError(f"{marker} is not a DetailsBench results library.")
     if not isinstance(info.get("format_version"), int) or info["format_version"] > LIBRARY_VERSION:
-        raise LibraryError("This library was made by a newer DetailsBench: update the app to use it.")
+        raise LibraryError("This library's folders are laid out by a newer DetailsBench: update the app to use it.")
     return folder
 
 

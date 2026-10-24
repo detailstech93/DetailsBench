@@ -21,6 +21,7 @@ from typing import List, Mapping, Optional
 
 from data.test_catalog import GROUP_PARTS, TEST_PARTS
 
+STRESS_PARTS = {"stress_cpu": "cpu", "stress_gpu": "gpu", "stress_cpu_gpu": "system"}
 GAMES_READY = False             # owner, 2026-10-24: game results join the library once the Games section is ready
 GPU_BACKEND = re.compile(r"cuda|vulkan|rocm|hip|metal|opencl|sycl|directml|\bdml\b", re.I)
 NOISE = re.compile(r"\((?:R|TM|C)\)|\bCPU\b|\bProcessor\b|@\s*[\d.]+\s*GHz|\d+-Core", re.I)
@@ -114,15 +115,31 @@ def storage_part(hw: Mapping, drive: Optional[Mapping] = None) -> Optional[dict]
 
 
 def system_part(hw: Mapping) -> Optional[dict]:
+    """The device tested itself (owner, 2026-10-24): a named device (a mini PC, a laptop, a ready-made desktop) by
+    its maker and model; a desktop whose firmware names no model is a build, named by its graphics card, processor
+    and the date it was first tested: "Build: RTX 4090 + Ryzen 9 9950X (2026-10-24)". A build with another card or
+    processor is another build. A laptop or mini PC with no model name is this unit, until the owner names it."""
     d = hw.get("device") or {}
-    if not d.get("maker") and not d.get("model"):
+    if not d.get("maker") and not d.get("model") and not hw.get("cpu"):
         return None
-    name = " ".join(x for x in (d.get("maker"), d.get("model")) if x)
-    if d.get("placeholder"):                    # the owner names it (library screen); until then this unit's own
-        name = f"{d.get('maker') or 'Unknown'} {d.get('kind') or 'PC'} (not named yet)"
-    return {"part": "system", "part_key": _key("system", d.get("maker"), d.get("model"),
-                                               hw.get("unit_id") if d.get("placeholder") else None),
-            "part_name": name, "variant": None, "context": {"bios": d.get("bios"), "os": _os(hw)}}
+    ctx = {"bios": d.get("bios"), "os": _os(hw)}
+    if not d.get("placeholder"):
+        return {"part": "system", "part_key": _key("system", d.get("maker"), d.get("model")),
+                "part_name": " ".join(x for x in (d.get("maker"), d.get("model")) if x), "variant": None,
+                "context": ctx}
+    if d.get("kind") in (None, "desktop"):
+        cpu = cpu_part(hw)
+        gpu = pick_gpu(hw)[0]
+        gname = gpu_part(hw, gpu) if gpu else None
+        date = str(hw.get("captured_at") or "")[:10] or None
+        parts = " + ".join(x["part_name"] for x in (gname, cpu) if x) or "unknown parts"
+        return {"part": "system", "build": True,
+                "part_key": _key("system", "build", hw.get("unit_id"), cpu and cpu["part_key"],
+                                 gname and gname["part_key"]),
+                "part_name": f"Build: {parts}" + (f" ({date})" if date else ""), "variant": None, "context": ctx}
+    return {"part": "system", "part_key": _key("system", d.get("maker"), d.get("model"), hw.get("unit_id")),
+            "part_name": f"{d.get('maker') or 'Unknown'} {d.get('kind') or 'PC'} (not named yet)", "variant": None,
+            "context": ctx}
 
 
 def ai_device(test_id: str, ai_run: Optional[Mapping], note: Optional[str]) -> dict:
@@ -170,8 +187,14 @@ def attribute(test_id: str, group: str, hardware: Optional[Mapping], *, ai_run: 
            "context": {}, "library": True, "why_not": None, "ranked": True, "flags": list(flags), "guessed": []}
     if is_test or ("part" in spec and spec["part"] is None):
         return dict(out, library=False, ranked=False, why_not="the app's own check")
-    if group == "stress":
-        return dict(out, library=False, ranked=False, why_not="a stability test: kept with the session")
+    stress = group == "stress"
+    if stress:
+        # owner, 2026-10-24: how the part (or the whole device) holds up under load: stability, power, temperature.
+        # Filed with its part, shown on its page, never ranked with performance scores
+        kind = STRESS_PARTS.get(test_id)
+        if kind is None:
+            return dict(out, library=False, ranked=False, why_not="a stress test of no known part")
+        out["kind"] = "stress"
     if kind is None:
         return dict(out, library=False, ranked=False, why_not="not a test of one part")
     if group == "game" and not GAMES_READY:
@@ -214,6 +237,8 @@ def attribute(test_id: str, group: str, hardware: Optional[Mapping], *, ai_run: 
     linked = list(spec.get("linked") or (["cpu"] if group == "game" else []))
     if kind == "system":
         linked = linked or ["cpu", "gpu"]
+    if stress and kind != "system":
+        linked = ["system"]                     # the cooling of this device decides the temperatures
     out["linked"] = [p for p in (make(k) for k in linked) if p]
     if group == "web" or test_id in ("speedometer", "jetstream"):
         m = re.search(r"Browser:\s*([^;]+)", note or "")
@@ -222,5 +247,5 @@ def attribute(test_id: str, group: str, hardware: Optional[Mapping], *, ai_run: 
             out["flags"].append("browser not recorded")
     if ai:
         out["context"]["ai_runtime"] = ai["backend"]
-    out["ranked"] = not out["flags"]
+    out["ranked"] = not out["flags"] and not stress
     return out

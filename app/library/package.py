@@ -18,6 +18,11 @@ from app.library.attribution import attribute, flags_of
 
 FORMAT = "detailsbench.library.package"
 FORMAT_VERSION = 1
+# Every app reads every package it can (owner, 2026-10-24): a newer app only ADDS fields, which an older one does
+# not look at, so FORMAT_VERSION stays as it is. Only when the meaning of a field already there changes (mean
+# becomes median, another unit) does READABLE_BY go up: an older app then leaves those packages out and says how
+# many need a newer app, instead of comparing numbers that do not mean the same.
+READABLE_BY = 1
 NOISY_CV = 3.0                  # spread above this gets a warning (plan: "CV over 3% gets a warning")
 
 
@@ -53,6 +58,8 @@ def _settings(manifest: Mapping, test_id: str) -> dict:
     keep = {k: entry.get(k) for k in ("version", "architecture", "model", "drive", "comparable_to_native")
             if entry.get(k) is not None}
     run = manifest.get("run_settings") or {}
+    if run.get("stress_minutes"):
+        keep["stress_minutes"] = run["stress_minutes"]
     if run.get("ai_model"):
         keep["ai_model"] = run["ai_model"]
     return keep
@@ -84,6 +91,10 @@ def build_packages(export: Mapping, read_ai_run: Callable[[str], Optional[dict]]
             continue
         group = measured[0].get("benchmark_type") or ""
         settings = _settings(manifest, test_id)
+        minutes = next((m.get("mean") for name, m in ((export.get("metric_summaries") or {}).get(test_id) or {}).items()
+                        if name == "stress_minutes"), None)
+        if minutes and "stress_minutes" not in settings:
+            settings["stress_minutes"] = minutes        # a stress run compares only with one of the same length
         note = next((r.get("note") for r in measured if r.get("note")), None)
         emulated = settings.get("comparable_to_native") is False
         attr = attribute(test_id, group, hw, ai_run=read_ai_run(test_id) if group == "ai" else None, note=note,
@@ -98,7 +109,7 @@ def build_packages(export: Mapping, read_ai_run: Callable[[str], Optional[dict]]
         fingerprint = hashlib.sha256(json.dumps({"test": test_id, **settings}, sort_keys=True,
                                                 default=str).encode()).hexdigest()[:16]
         pkg = {
-            "format": FORMAT, "format_version": FORMAT_VERSION,
+            "format": FORMAT, "format_version": FORMAT_VERSION, "readable_by": READABLE_BY,
             "package_id": package_id(hw["unit_id"], session.get("id"), test_id),
             "created_at": now or datetime.now().isoformat(timespec="seconds"),
             "app": export.get("app"),
@@ -125,8 +136,9 @@ def check(package: Mapping, newest: int = FORMAT_VERSION) -> Optional[str]:
     """None when the package can be read by this app, else why not."""
     if package.get("format") != FORMAT:
         return "not a library package"
-    if not isinstance(package.get("format_version"), int) or package["format_version"] > newest:
-        return f"made by a newer app (format {package.get('format_version')}): update the app to read it"
+    needs = package.get("readable_by", package.get("format_version"))
+    if not isinstance(needs, int) or needs > newest:
+        return f"needs a newer app (its numbers mean something else in format {needs}): update the app to read it"
     if package.get("hash") != content_hash(package):
         return "the file was changed or cut after it was written"
     return None
