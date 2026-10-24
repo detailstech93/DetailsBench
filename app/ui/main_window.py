@@ -461,7 +461,7 @@ class MainWindow(QMainWindow):
 
         # 8. Results library (hardware library, phase 3): its folder and what waits to be sent
         from app.ui.library_tab import LibraryTab
-        self.results_library_tab = LibraryTab(lambda: self.frame_panel.data_dir)
+        self.results_library_tab = LibraryTab(lambda: self.frame_panel.data_dir, window=self)
         self.tabs.addTab(self.results_library_tab, "Results library")
         
         from app.ui.this_pc_page import ThisPcPage

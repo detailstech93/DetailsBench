@@ -4,6 +4,7 @@ Not one database file on the share (SQLite over SMB or a sync tool can break whe
   <library>/library.json                                   what this folder is, and its format version
   <library>/packages/<unit id>/s<session>/<test>.json      one package per finished test, written once
   <library>/events/<package id>__<time>__<unit>.json       delete / restore, also written once; the newest wins
+  <library>/names/<part>__<time>__<unit>.json              the owner's name for a device, newest wins
 File names carry the PC's unit id, so two PCs never write the same file and no lock is needed.
 
 Nothing is lost on a power cut or with the NAS away: a package is first written to this PC's outbox (next to the
@@ -107,11 +108,17 @@ def send(outbox: Path, library: Path) -> Tuple[int, List[str]]:
             if there is None:
                 _write_once(dest, pkg)
                 there = _read(dest)
-            if there is None or there.get("hash") != pkg["hash"]:
+            if there is None:
+                problems.append(f"{rel}: written but cannot be read back (kept in the outbox)")
+                continue
+            if there.get("hash") == pkg["hash"]:
+                sent += 1
+            elif there.get("package_id") != pkg.get("package_id") or check(there):
                 problems.append(f"{rel}: the library has another file of that name (kept in the outbox)")
                 continue
-            path.unlink()                   # the library holds the same file now
-            sent += 1
+            # else: this test of this session is in the library already (added again, e.g. "Add earlier
+            # sessions"): the file there stays as it was written; this copy is not needed
+            path.unlink()                   # the library holds it now
         except OSError as e:
             problems.append(f"Could not copy to the library: {e}. The rest waits in the outbox.")
             break
@@ -128,4 +135,14 @@ def write_event(library: Path, package_id: str, action: str, unit_id: str, reaso
     path = library / "events" / f"{safe_name(package_id)}__{stamp}__{safe_name(unit_id)}.json"
     _write_once(path, {"format": EVENT_FORMAT, "format_version": 1, "package_id": package_id, "action": action,
                        "reason": reason, "at": now.isoformat(timespec="seconds"), "by": unit_id})
+    return path
+
+
+def write_name(library: Path, part_key: str, name: str, unit_id: str, now: Optional[datetime] = None) -> Path:
+    """The owner's name for a part (a device with no model name: "Living room mini PC"); empty takes it back."""
+    library = open_library(library)
+    now = now or datetime.now()
+    path = library / "names" / f"{safe_name(part_key)}__{now.strftime('%Y%m%dT%H%M%S%f')}__{safe_name(unit_id)}.json"
+    _write_once(path, {"format": "detailsbench.library.name", "format_version": 1, "part_key": part_key,
+                       "name": name.strip(), "at": now.isoformat(timespec="seconds"), "by": unit_id})
     return path

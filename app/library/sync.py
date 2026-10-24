@@ -107,3 +107,25 @@ def after_run(window, session_id: Optional[int]) -> None:
         except Exception:
             logger.exception("Results library: session %s not added", session_id)
     threading.Thread(target=work, name="results-library", daemon=True).start()
+
+
+def add_earlier(db, data_dir: Path, runs_root: Optional[Path] = None) -> str:
+    """Every session on this PC whose record has the PC's parts (from 0.1.3 on) into the outbox, then sent.
+    A test already in the library stays as it is there."""
+    from app.export import build_session_export
+    count, sessions = 0, 0
+    for s in db.get_sessions():
+        manifest = db.get_session_manifest(s["id"]) or {}
+        if not ((manifest.get("environment") or {}).get("hardware") or {}).get("unit_id"):
+            continue
+        try:
+            packages, _ = pk.build_packages(build_session_export(db, s["id"]), ai_run_reader(runs_root, s["id"]))
+        except Exception:
+            logger.exception("Results library: session %s not added", s["id"])
+            continue
+        sessions += 1
+        count += store.to_outbox(Path(data_dir) / OUTBOX, packages)
+    if not sessions:
+        return ("No earlier session has the record of the PC's parts (sessions from before 0.1.3, or run before "
+                "the app was restarted after the update): nothing to add.")
+    return f"{sessions} session(s) read. " + send_waiting(data_dir)

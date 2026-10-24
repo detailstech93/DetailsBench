@@ -113,12 +113,26 @@ def test_outbox_then_library_then_index(tmp_path):
     assert [r["package_id"] for r in index.results(part="cpu")] == [pkgs[0]["package_id"]]
 
 
-def test_a_different_file_of_the_same_name_is_not_overwritten(tmp_path):
+def test_a_test_already_in_the_library_stays_as_it_is_there(tmp_path):
     (tmp_path / "lib").mkdir()
     outbox, lib = tmp_path / "outbox", store.open_library(tmp_path / "lib", create=True)
     pkgs = pk.build_packages(export())[0][:1]       # the Blender package
     store.to_outbox(outbox, pkgs)
-    other = dict(pkgs[0], created_at="another")
+    same = dict(pkgs[0], created_at="earlier")      # the same test of the same session, packaged before
+    same["hash"] = pk.content_hash(same)
+    dest = lib / store.relative_path(same)
+    dest.parent.mkdir(parents=True)
+    dest.write_text(json.dumps(same), encoding="utf-8")
+    assert store.send(outbox, lib) == (0, []) and store.waiting(outbox) == []
+    assert json.loads(dest.read_text(encoding="utf-8"))["created_at"] == "earlier"
+
+
+def test_a_different_file_of_the_same_name_is_not_overwritten(tmp_path):
+    (tmp_path / "lib").mkdir()
+    outbox, lib = tmp_path / "outbox", store.open_library(tmp_path / "lib", create=True)
+    pkgs = pk.build_packages(export())[0][:1]
+    store.to_outbox(outbox, pkgs)
+    other = dict(pkgs[0], package_id="someone-else", created_at="another")
     other["hash"] = pk.content_hash(other)
     dest = lib / store.relative_path(other)
     dest.parent.mkdir(parents=True)
@@ -183,3 +197,126 @@ def test_library_tab(qapp, tmp_path):
     assert str(lib) in tab.folder_label.text() and (lib / "library.json").is_file()
     tab.auto.setChecked(False)
     assert sync.auto_setting(tmp_path) is False
+
+
+def _library(tmp_path):
+    """A data folder with a chosen library holding the Blender and CPU stress packages of session 7."""
+    from app.paths import save_setting
+    data, lib = tmp_path / "data", tmp_path / "nas"
+    data.mkdir()
+    lib.mkdir()
+    store.open_library(lib, create=True)
+    save_setting(data, sync.FOLDER_KEY, str(lib))
+    store.to_outbox(data / sync.OUTBOX, pk.build_packages(export())[0])
+    sync.send_waiting(data)
+    return data, lib
+
+
+def test_names_newest_wins_and_empty_takes_it_back(tmp_path):
+    data, lib = _library(tmp_path)
+    index = LibraryIndex(data / sync.INDEX)
+    store.write_name(lib, "system:x", "Living room mini PC", "u1", now=datetime(2026, 10, 24, 12))
+    store.write_name(lib, "system:x", "Office mini PC", "u2", now=datetime(2026, 10, 24, 13))
+    index.refresh(lib)
+    assert index.names() == {"system:x": "Office mini PC"}
+    store.write_name(lib, "system:x", "  ", "u1", now=datetime(2026, 10, 24, 14))
+    index.refresh(lib)
+    assert index.names() == {}
+
+
+def test_view_parts_and_rows(tmp_path):
+    from app.library import view
+    data, _ = _library(tmp_path)
+    results = LibraryIndex(data / sync.INDEX).results()
+    grouped = view.parts(results, {})
+    assert [p["name"] for p in grouped["cpu"]] == ["Intel Core Ultra 9 275HX"]
+    assert grouped["cpu"][0]["results"] == 2 and grouped["gpu"] == [] and grouped["system"] == []
+    rows = view.rows(results, grouped["cpu"][0]["key"])
+    blender = next(r for r in rows if not r["stress"])
+    assert blender["result"] == "101 points" and blender["pc"] == "Dell Inc. XPS 15"
+    assert "BIOS 1.2" in blender["software"]
+    stress = next(r for r in rows if r["stress"])
+    assert stress["result"].endswith("no load numbers")       # the made-up run has no telemetry
+    named = view.parts(results, {grouped["cpu"][0]["key"]: "My CPU"})
+    assert named["cpu"][0]["name"] == "My CPU"
+
+
+def test_stress_text_reads_the_load_numbers():
+    from app.library import view
+    pkg = {"attribution": {"part": "system"}, "test": {"settings": {"stress_minutes": 5}},
+           "result": {"metrics": {"cpu_stability": {"mean": 98.8}, "tel_cpu_package_power_avg": {"mean": 63.2},
+                                  "tel_cpu_package_power_max": {"mean": 149.0},
+                                  "tel_cpu_temperature_hottest_max": {"mean": 102.0},
+                                  "gpu_stability": {"mean": 99.5}, "gpu_errors": {"mean": 2},
+                                  "tel_gpu0_temperature_max": {"mean": 80.0}}}}
+    assert view.stress_text(pkg) == ("5 min: CPU 98.8% stable, 63 W avg / 149 W max, 102 C max; "
+                                     "GPU 99.5% stable, 2 errors, 80 C max")
+
+
+def test_add_earlier_only_sessions_with_the_parts(tmp_path, monkeypatch):
+    import app.export
+    monkeypatch.setattr(app.export, "build_session_export", lambda db, sid: export())
+
+    class Db:
+        def get_sessions(self):
+            return [{"id": 6}, {"id": 7}]
+
+        def get_session_manifest(self, sid):
+            return {"environment": {"hardware": HW}} if sid == 7 else {"environment": {}}
+    data = tmp_path / "data"
+    data.mkdir()
+    text = sync.add_earlier(Db(), data)
+    assert text.startswith("1 session(s) read.") and len(store.waiting(data / sync.OUTBOX)) == 2
+
+    class Old(Db):
+        def get_session_manifest(self, sid):
+            return {}
+    assert "nothing to add" in sync.add_earlier(Old(), tmp_path)
+
+
+def test_library_screen_delete_restore_and_name(qapp, tmp_path):
+    from types import SimpleNamespace
+    from app.ui.library_tab import LibraryTab
+    data, lib = _library(tmp_path)
+    answers = []
+    window = SimpleNamespace(environment_profile=SimpleNamespace(hardware={"unit_id": "c502abe010156c02"}))
+    tab = LibraryTab(lambda: data, window=window, ask_text=lambda *a: answers.pop(0))
+    tab.refresh()
+    cpu = tab.tree.topLevelItem(1)
+    assert cpu.text(0) == "Processors" and cpu.text(1) == "2" and cpu.childCount() == 1
+    tab.tree.setCurrentItem(cpu.child(0))
+    assert tab.table.rowCount() == 2 and not tab.name_btn.isEnabled() and not tab.delete_btn.isEnabled()
+    row = next(i for i, r in enumerate(tab.rows) if not r["stress"])
+    tab.table.selectRow(row)
+    assert tab.delete_btn.isEnabled() and not tab.restore_btn.isEnabled()
+    answers.append("retest after a driver update")
+    tab.delete()
+    assert tab.table.rowCount() == 1 and tab.tree.topLevelItem(1).child(0).text(1) == "1"
+    assert len(list((lib / "events").glob("*.json"))) == 1 and len(list((lib / "packages").rglob("*.json"))) == 2
+    tab.show_deleted.setChecked(True)
+    assert tab.table.rowCount() == 2 and "(+1 deleted)" in tab.tree.topLevelItem(1).child(0).text(1)
+    row = next(i for i, r in enumerate(tab.rows) if r["deleted"])
+    assert "retest" in tab.table.item(row, 7).text()
+    tab.table.selectRow(row)
+    tab.restore()
+    tab.show_deleted.setChecked(False)
+    assert tab.table.rowCount() == 2
+    answers.append(None)                            # cancelled: nothing written
+    tab.table.selectRow(0)
+    tab.delete()
+    assert len(list((lib / "events").glob("*.json"))) == 2
+
+
+def test_library_screen_names_a_device(qapp, tmp_path):
+    from app.ui.library_tab import LibraryTab
+    data, lib = _library(tmp_path)
+    store.to_outbox(data / sync.OUTBOX, pk.build_packages(export(runs=[run("stress_cpu_gpu", "stress", 1.0)]))[0])
+    sync.send_waiting(data)
+    tab = LibraryTab(lambda: data, ask_text=lambda *a: "Test bench")
+    tab.refresh()
+    devices = tab.tree.topLevelItem(0)
+    assert devices.text(0) == "Devices" and devices.child(0).text(0) == "Dell Inc. XPS 15"
+    tab.tree.setCurrentItem(devices.child(0))
+    assert tab.name_btn.isEnabled()
+    tab.name_part()
+    assert tab.tree.topLevelItem(0).child(0).text(0) == "Test bench" and tab.part_title.text() == "Test bench"

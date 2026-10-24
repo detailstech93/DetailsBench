@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS packages (
     created_at TEXT, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS events (path TEXT PRIMARY KEY, package_id TEXT NOT NULL, action TEXT NOT NULL,
     at TEXT, reason TEXT, by TEXT);
+CREATE TABLE IF NOT EXISTS names (path TEXT PRIMARY KEY, part_key TEXT NOT NULL, name TEXT, at TEXT);
 CREATE TABLE IF NOT EXISTS seen (path TEXT PRIMARY KEY, size INTEGER, mtime REAL);
 CREATE TABLE IF NOT EXISTS info (key TEXT PRIMARY KEY, value TEXT);
 """
@@ -50,7 +51,8 @@ class LibraryIndex:
         added, events, skipped = 0, 0, []
         with self._db() as db:
             seen = {p: (s, m) for p, s, m in db.execute("SELECT path, size, mtime FROM seen")}
-            files = sorted(library.glob("packages/*/*/*.json")) + sorted(library.glob("events/*.json"))
+            files = (sorted(library.glob("packages/*/*/*.json")) + sorted(library.glob("events/*.json"))
+                     + sorted(library.glob("names/*.json")))
             for f in files:
                 rel = f.relative_to(library).as_posix()
                 try:
@@ -64,7 +66,13 @@ class LibraryIndex:
                 except (OSError, ValueError):
                     skipped.append(f"{rel}: cannot be read")
                     continue
-                if rel.startswith("events/"):
+                if rel.startswith("names/"):
+                    if not isinstance(data, dict) or not data.get("part_key"):
+                        skipped.append(f"{rel}: not a name")
+                        continue
+                    db.execute("INSERT OR REPLACE INTO names VALUES (?, ?, ?, ?)",
+                               (rel, data["part_key"], data.get("name"), data.get("at")))
+                elif rel.startswith("events/"):
                     if not isinstance(data, dict) or data.get("action") not in ("delete", "restore"):
                         skipped.append(f"{rel}: not a delete or restore")
                         continue
@@ -93,7 +101,7 @@ class LibraryIndex:
     def rebuild(self, library: Path) -> dict:
         """Forgets what was read and reads the whole folder again (the folder is the source)."""
         with self._db() as db:
-            for table in ("packages", "events", "seen"):
+            for table in ("packages", "events", "names", "seen"):
                 db.execute(f"DELETE FROM {table}")
         return self.refresh(library)
 
@@ -105,6 +113,14 @@ class LibraryIndex:
                     "SELECT package_id, action, at, reason, by, path FROM events ORDER BY path"):
                 out[pid] = {"action": action, "at": at, "reason": reason, "by": by}
         return {pid: e for pid, e in out.items() if e["action"] == "delete"}
+
+    def names(self) -> dict:
+        """{part key: the owner's newest name} (an empty newest name takes it back)."""
+        out = {}
+        with self._db() as db:
+            for key, name in db.execute("SELECT part_key, name FROM names ORDER BY path"):
+                out[key] = name
+        return {k: v for k, v in out.items() if v}
 
     def results(self, include_deleted: bool = False, part: Optional[str] = None) -> List[dict]:
         gone = self.deleted()

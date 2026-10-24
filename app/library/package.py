@@ -65,6 +65,11 @@ def _settings(manifest: Mapping, test_id: str) -> dict:
     return keep
 
 
+def _display_name(manifest: Mapping, test_id: str) -> str:
+    entry = next((b for b in (manifest.get("benchmarks") or []) if b.get("name") == test_id), {}) or {}
+    return entry.get("display_name") or test_id
+
+
 def build_packages(export: Mapping, read_ai_run: Callable[[str], Optional[dict]] = lambda test_id: None,
                    now: Optional[str] = None) -> Tuple[List[dict], List[Tuple[str, str]]]:
     """(packages, [(test id, why it is left out)]) for one session. A test with no measured run, one the library
@@ -115,7 +120,7 @@ def build_packages(export: Mapping, read_ai_run: Callable[[str], Optional[dict]]
             "app": export.get("app"),
             "pc": {"unit_id": hw["unit_id"], "device": hw.get("device"), "os": hw.get("os")},
             "session": {k: session.get(k) for k in ("id", "name", "created_at")},
-            "test": {"id": test_id, "group": group, "version": measured[0].get("benchmark_version"),
+            "test": {"id": test_id, "name": _display_name(manifest, test_id), "group": group, "version": measured[0].get("benchmark_version"),
                      "unit": units.pop() if len(units) == 1 else None, "settings": settings,
                      "fingerprint": fingerprint},
             "attribution": attr,
