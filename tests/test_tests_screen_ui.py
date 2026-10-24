@@ -410,7 +410,8 @@ def test_queue_next_shows_while_tests_run_and_hands_the_ticked_tests_to_the_run(
     page = TestsPage()
     a, b = entry("tool_a", ref="A"), entry("tool_b", ref="B")
     game = entry("game", mode=ASSISTED, group="game", source="steam", ref={"app_id": "1"})
-    page.set_entries([a, b, game])
+    typed = entry("puget", mode=ASSISTED, source="library", ref="P")
+    page.set_entries([a, b, game, typed])
     taking = {"now": False}
     page.can_add = lambda: taking["now"]
     state = RunState(True, 0, 2, "x", marks={"tool_a": "running"})
@@ -422,6 +423,8 @@ def test_queue_next_shows_while_tests_run_and_hands_the_ticked_tests_to_the_run(
     assert page.tree.isEnabled()
     assert row["tool_b"].text() == "Queue next" and row["tool_b"].isEnabled()
     assert row["tool_a"].text() == "Run..." and not row["tool_a"].isEnabled()     # it is the test running
+    typed_btn = page.tree.itemWidget(page.items["puget"], 5)
+    assert typed_btn.text() == "Run alone..." and not typed_btn.isEnabled()   # you type its score: greyed (2026-10-24)
     page.set_section("games")
     game_btn = page.tree.itemWidget(page.items["game"], 5)
     assert game_btn.text() == "Queue next" and game_btn.isEnabled()     # its dialog, then in line (2026-10-24)
@@ -459,6 +462,8 @@ def test_queue_next_shows_while_tests_run_and_hands_the_ticked_tests_to_the_run(
     assert "tool_a (already in this run)" in text and "In line, each on its own after the run going on: game." in text
     assert queue_tests(window, [game], licenses=lambda w, e: e) == []       # not twice
     assert "game (already in line)" in window.status_label.text()
+    assert queue_tests(window, [typed], licenses=lambda w, e: e) == [] and asked_for == ["game"]
+    assert "puget (you type its score: run it alone)" in window.status_label.text()
     assert not page.skip_btn.isHidden()                        # a test to skip to now
 
 
@@ -500,3 +505,54 @@ def test_a_test_that_needs_you_lets_the_line_go_on_once_its_scores_are_typed(qap
     page.offer_record("Run it again.", lambda: None, ended.append)
     page._stop()
     assert ended == [False, True]
+
+
+def test_a_test_with_its_own_settings_queued_while_a_game_runs_asks_them_at_once(qapp, monkeypatch):
+    """Owner, 2026-10-24: the AI test's settings menu opens when Queue next is pressed, not when its turn comes."""
+    from types import SimpleNamespace
+    from app.ui import run_tests
+
+    class AI:
+        id, asks_settings = "llama", True
+
+        def configure(self, settings):
+            pass
+    menus = []
+    panel = SimpleNamespace(choose_settings=lambda wl: menus.append(wl.id) or {"model": "m"})
+    window = SimpleNamespace(automation_panel=panel)
+    ai = entry("llama", ref=AI())
+    monkeypatch.setattr(run_tests, "choose_run",
+                        lambda w, auto, others, lone, ask: run_tests.Prepared(auto, others, run_tests.RunChoice(3, 1, 0)))
+    prepared = run_tests.prepare_one(window, ai)
+    assert menus == ["llama"] and prepared.settings == {"llama": {"model": "m"}}
+    panel.choose_settings = lambda wl: None                 # the menu closed with nothing chosen: not queued
+    assert run_tests.prepare_one(window, ai) is None
+    assert run_tests.prepare_one(window, entry("puget", source="library")) is None
+
+
+def test_shut_down_after_the_run_waits_for_the_tests_in_line(qapp):
+    from types import SimpleNamespace
+    from PySide6.QtWidgets import QLabel
+    from app.ui import run_tests
+    window = SimpleNamespace(status_label=QLabel("Session #1 done."))
+    assert run_tests.shutdown_later(window) is False                     # nothing in line: shut down now
+    tool = run_tests.Prepared([entry("tool_a")], [], run_tests.RunChoice(1, 0, 0))
+    window.run_line = [run_tests.Waiting(entry("tool_a"), tool)]
+    assert run_tests.shutdown_later(window) is True and tool.choice.shutdown_after is True
+    assert "shuts down after the tests in line (tool_a last)" in window.status_label.text()
+    game = run_tests.Prepared([], [entry("g", source="steam")], run_tests.RunChoice(1, 0, 0))
+    window.run_line.append(run_tests.Waiting(entry("g", source="steam"), game))
+    assert run_tests.shutdown_later(window) is True and "not shut down: a game is in line" in window.status_label.text()
+
+
+def test_double_click_on_the_test_running_queues_nothing(qapp):
+    from app.ui.tests_page import RunState
+    page = TestsPage()
+    page.set_entries([entry("tool_a"), entry("tool_b")])
+    page.can_add = lambda: True
+    page.watch(lambda: RunState(True, 0, 2, "x", marks={"tool_a": "running"}), lambda: None)
+    asked = []
+    page.queue_run_requested.connect(asked.append)
+    page.request_run([page.entry("tool_a")])
+    page.request_run([page.entry("tool_b")])
+    assert [[e.id for e in x] for x in asked] == [["tool_b"]]

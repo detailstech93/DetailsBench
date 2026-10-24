@@ -289,3 +289,21 @@ def test_a_test_queued_from_the_panel_joins_the_session_and_its_manifest(qapp, t
     used = db.get_session_manifest(sid)["benchmarks"]
     assert [b["name"] for b in used] == ["selftest_slow", "selftest_later"] and used[1]["queued"] is True
     assert not panel.can_queue()
+
+
+def test_settings_chosen_at_queue_next_are_not_asked_again_when_the_test_starts(qapp, tmp_path):
+    """A test with its own settings queued while a game ran: its menu opened then, so its start does not ask."""
+    import json
+    from tests.test_llama_benchy import RESULT, PyBenchy, _fake
+    script = _fake(tmp_path, f"open(out, 'w').write({json.dumps(json.dumps(RESULT))})\n")
+    wl = PyBenchy(script)
+    wl.model = None
+    profile = RunProfile(name="one", repetitions=1, warmup_runs=0, cooldown_seconds=0)
+    panel, db = make_panel(tmp_path, [wl], profile=profile)
+    panel.telemetry_box.setChecked(False)
+    asked = []
+    panel.choose_settings = lambda w: asked.append(w.id)
+    chosen = {"model": "google/gemma-4-12b-qat", "depths": [0], "concurrency": [1], "prefix_caching": True}
+    assert panel.start_plan(workloads=[wl], profile=profile, settings={wl.id: chosen}) is True
+    assert asked == [] and wl.model == "google/gemma-4-12b-qat"
+    panel.worker.wait(30000)

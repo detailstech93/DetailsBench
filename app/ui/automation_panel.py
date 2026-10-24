@@ -448,9 +448,11 @@ class AutomationPanel(QGroupBox):
         return sid
 
     def start_plan(self, tools_ready: bool = False, workloads: Optional[list] = None, profile=None,
-                   extra_runs: int = 0, confirm: Optional[Callable[[str], bool]] = None) -> bool:
+                   extra_runs: int = 0, confirm: Optional[Callable[[str], bool]] = None,
+                   settings: Optional[Dict[str, dict]] = None) -> bool:
         """Run the ticked tools, or `workloads` with `profile` (the Tests screen passes both). `confirm`: what
-        answers the start question instead of the dialog (remote start: the owner pressed Start on the page)."""
+        answers the start question instead of the dialog (remote start: the owner pressed Start on the page).
+        `settings`: {test id: its settings} already chosen (a test queued while a game ran): not asked again."""
         if self.is_running() or self.lhm.busy():
             return False
         if self.db is None or self.output_root is None:
@@ -466,17 +468,18 @@ class AutomationPanel(QGroupBox):
         if self.telemetry_box.isChecked() and not tools_ready:
             # LibreHardwareMonitor for CPU sensors: asks to download/start it only when it is not running.
             started = []
-            self.lhm.ensure(lambda: started.append(self.start_plan(True, workloads, profile, extra_runs, confirm)))
+            self.lhm.ensure(lambda: started.append(self.start_plan(True, workloads, profile, extra_runs, confirm,
+                                                                   settings)))
             return bool(started and started[0])      # empty: it asks or downloads first, the run starts later
         chosen = {}
         for wl in workloads:
             if hasattr(wl, "configure") and getattr(wl, "asks_settings", True):   # llama-benchy: chosen every plan
-                settings = self.choose_settings(wl)
-                if not settings:
+                picked = (settings or {}).get(wl.id) or self.choose_settings(wl)
+                if not picked:
                     self.status_label.setText("No llama-benchy settings chosen; nothing was run.")
                     return False
-                wl.configure(settings)
-                chosen[wl.id] = settings
+                wl.configure(picked)
+                chosen[wl.id] = picked
         profile = profile or self.get_profile()
         plan = self.build_plan(workloads, profile, extra_runs)
         for item in plan:

@@ -597,6 +597,7 @@ class Prepared:
     choice: RunChoice
     games: List[Tuple[str, str]] = dataclasses.field(default_factory=list)
     offered: Offered = dataclasses.field(default_factory=dict)
+    settings: Optional[Dict[str, dict]] = None      # {test id: its own settings} chosen at Queue next (AI test)
 
 
 def choose_run(window, automatic: List[TestEntry], others: List[TestEntry], lone_game: bool, ask=ask_choice,
@@ -633,8 +634,6 @@ def begin(window, p: Prepared, opener=open_report, after=None) -> bool:
     line never changes the run before it. after(stopped): what comes once it is over (the line goes on)."""
     automatic, others, choice, games, offered = p.automatic, p.others, p.choice, p.games, p.offered
     data_dir = window.frame_panel.data_dir
-    if not automatic and len(others) == 1 and others[0].source == "library":
-        return start_library(window, others[0], choice.repetitions, after)
     _save_plan(data_dir, automatic + others, choice)
     if games and choice.preset is not None:
         try:
@@ -653,7 +652,7 @@ def begin(window, p: Prepared, opener=open_report, after=None) -> bool:
             return False
     if not automatic:
         return start_other(window, others[0], choice, after)
-    return launch(window, automatic, choice, opener, after=after)
+    return launch(window, automatic, choice, opener, after=after, settings=p.settings)
 
 
 def running(window) -> bool:
@@ -679,23 +678,29 @@ def line_marks(window) -> Dict[str, str]:
 
 
 def prepare_one(window, entry: TestEntry, ask=ask_choice) -> Optional[Prepared]:
-    """Queue next on a game, a test that needs you or one whose score is typed: its dialog opens now (owner,
-    2026-10-24), it runs alone later."""
-    if entry.source == "library":
-        count = ask_count(window, entry.name)
-        return None if count is None else Prepared([], [entry], RunChoice(count, 0, 0))
+    """Queue next on a game, or on a test the run going on cannot take (a game runs): its dialog, and a test's
+    own settings menu (the AI test's), open now (owner, 2026-10-24); it runs alone later. None: not queued."""
+    if entry.waits_for_typed_score():
+        return None
     automatic, others = split_entries([entry])
     lone_game = not automatic and len(others) == 1 and others[0].source == "steam"
     if not automatic and not lone_game:
         return None
-    return choose_run(window, automatic, others, lone_game, ask)
+    prepared = choose_run(window, automatic, others, lone_game, ask)
+    wl = entry.ref
+    if prepared is not None and automatic and hasattr(wl, "configure") and getattr(wl, "asks_settings", True):
+        settings = window.automation_panel.choose_settings(wl)
+        if not settings:
+            return None
+        prepared.settings = {wl.id: settings}
+    return prepared
 
 
 def queue_tests(window, entries: List[TestEntry], licenses=check_licenses, ask=ask_choice) -> List[str]:
     """Queue next (owner, 2026-10-23): automatic tests join the run of tests going on, after its tests, with its
-    numbers of runs, in the same session and report. A game, a test that needs you or one whose score is typed
-    (owner, 2026-10-24), or any test while a game runs, gets its dialog now and waits in line: it runs alone
-    once the run before it is over. Returns the names queued."""
+    numbers of runs, in the same session and report (a test's own settings menu opens now). A game, or any test
+    while a game runs, gets its dialog now and waits in line: it runs alone once the run before it is over
+    (owner, 2026-10-24). A test whose score you type is never queued. Returns the names queued."""
     panel = window.automation_panel
     if not running(window):
         QMessageBox.information(window, "Queue next", "No run is going on; start them with Run.")
@@ -707,6 +712,9 @@ def queue_tests(window, entries: List[TestEntry], licenses=check_licenses, ask=a
     line, later, dropped = line_of(window), [], []
     for e in entries:
         if e in joining:
+            continue
+        if e.waits_for_typed_score():
+            refused[e.name] = "you type its score: run it alone"
             continue
         if any(w.entry.id == e.id for w in line):
             refused[e.name] = "already in line"
@@ -745,6 +753,22 @@ def line_next(window, stopped: bool = False, start=None):
     when_free(window, start or start_waiting)
 
 
+def shutdown_later(window) -> bool:
+    """Shut down when the run ends, with tests in line after it: the computer shuts down after the last of them
+    instead (a game, which cannot, leaves it on). True when the shutdown is not for now."""
+    line = getattr(window, "run_line", [])
+    if not line:
+        return False
+    last = line[-1].prepared
+    if last.automatic:
+        last.choice = dataclasses.replace(last.choice, shutdown_after=True)
+        note = f"The computer shuts down after the tests in line ({line[-1].entry.name} last)."
+    else:
+        note = "The computer was not shut down: a game is in line after it."
+    window.status_label.setText(f"{window.status_label.text()}  {note}")
+    return True
+
+
 def when_free(window, start, tries: int = 120):
     """The run's "finished" comes just before its thread ends: wait for it (half a second at a time, a minute)."""
     if running(window) and tries > 0:
@@ -766,7 +790,7 @@ def start_waiting(window, opener=open_report) -> bool:
 
 
 def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_report,
-           confirm=None, tools_ready: bool = False, after=None) -> bool:
+           confirm=None, tools_ready: bool = False, after=None, settings: Optional[Dict[str, dict]] = None) -> bool:
     """Start the plan of automatic tests; the report is written (and opened) when it ends."""
     panel = window.automation_panel
     from app.ui import reports_folder
@@ -802,8 +826,9 @@ def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_re
         else:
             go_on(stopped)
         if getattr(choice, "shutdown_after", False):
-            from app.ui import shutdown_after
-            shutdown_after.after_run(window, session_id, panel.last_summary, report)
+            if not shutdown_later(window):
+                from app.ui import shutdown_after
+                shutdown_after.after_run(window, session_id, panel.last_summary, report)
 
     def written_report(session_id: int, text: str) -> Optional[Path]:
         panel.on_step_report = None
@@ -831,7 +856,7 @@ def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_re
     panel.on_step_report = step_report
     started = panel.start_plan(tools_ready=tools_ready, workloads=[e.ref for e in automatic],
                                profile=plan_profile(window.selected_profile(), choice), extra_runs=choice.extra_runs,
-                               confirm=confirm)
+                               confirm=confirm, **({"settings": settings} if settings else {}))
     if started or panel.lhm.active():
         # stay on the Tests screen: green bar, percent and Stop there (Ctrl+Shift+X still works)
         window.tests_page.watch(lambda: plan_state(panel, result), panel.emergency_stop,

@@ -489,9 +489,10 @@ class TestsPage(QWidget):
         self.run_btn.setText(f"Run selected ({n})..." if n else "Run selected...")
 
     def queueable(self, e: TestEntry) -> bool:
-        """Queue next takes any test not running, done or in line: an automatic one joins the run, a game or a
-        test that needs you gets its dialog and waits in line (owner, 2026-10-24)."""
-        return e.can_run() and e.id not in self.marks
+        """Queue next takes any test not running, done or in line: an automatic one joins the run (its settings
+        menu, e.g. the AI test's, opens now), a game gets its dialog and waits in line. A test whose score you
+        type stays greyed (owner, 2026-10-24)."""
+        return e.can_run() and not e.waits_for_typed_score() and e.id not in self.marks
 
     def run_selected(self):
         chosen = self.selected()
@@ -526,7 +527,9 @@ class TestsPage(QWidget):
 
     def request_run(self, entries: List[TestEntry]):
         if self.busy and self.can_add():        # tests are running: Run queues these into that run
-            self.queue_run_requested.emit(list(entries))
+            entries = [e for e in entries if self.queueable(e)]     # a double-click on the test running: nothing
+            if entries:
+                self.queue_run_requested.emit(entries)
         elif not self.blocked():    # one test (or plan) at a time, never while the scan goes on
             self.run_requested.emit(entries)
 
