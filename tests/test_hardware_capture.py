@@ -100,12 +100,17 @@ def test_linux_parts(tmp_path, no_nvidia):
         "sys/class/drm/card1/device/mem_info_vram_total": str(24 * 2 ** 30),
         "sys/class/drm/card1-DP-1/status": "connected",
         "sys/block/nvme0n1/size": str(2 * 10 ** 12 // 512), "sys/block/nvme0n1/queue/rotational": "0",
-        "sys/block/nvme0n1/device/model": "Samsung SSD 990 PRO 2TB\n",
+        "sys/block/nvme0n1/device/model": "Samsung SSD  990 PRO 2TB\n",
         "sys/block/nvme0n1/device/firmware_rev": "4B2QJXD7\n",
         "sys/block/loop0/size": "8",
         "etc/os-release": 'NAME="Fedora Linux"\nVERSION_ID=43\nPRETTY_NAME="Fedora Linux 43 (Workstation Edition)"\n',
         "etc/machine-id": "0123456789abcdef\n"})
-    hw = hardware.capture(tmp_path, platform_name="linux", linux_root=tmp_path)
+    def run(cmd, **kwargs):
+        assert cmd == ["lspci", "-mm", "-d", "1002:744c"] and kwargs["timeout"]
+        return SimpleNamespace(returncode=0, stderr="", stdout='03:00.0 "VGA compatible controller" '
+                               '"Advanced Micro Devices, Inc. [AMD/ATI]" "Navi 31 [Radeon RX 7900 XTX]" -rc8\n')
+    hw = hardware.capture(tmp_path, platform_name="linux", linux_root=tmp_path, run=run)
+    assert hw["gpus"][0]["name"] == "Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XTX]"
     assert hw["device"]["maker"] == "LENOVO" and hw["device"]["kind"] == "laptop" and not hw["device"]["placeholder"]
     assert hw["cpu"]["vendor"] == "AuthenticAMD" and hw["cpu"]["threads"] == 2 and hw["cpu"]["cores"] == 1
     assert hw["ram"]["total_gb"] == 31.2 and hw["ram"]["modules"] == []
@@ -113,6 +118,7 @@ def test_linux_parts(tmp_path, no_nvidia):
                                vram_mb=24576)]
     assert [(x["id"], x["kind"], x["size_gb"], x["firmware"]) for x in hw["drives"]] == [("nvme0n1", "nvme", 2000,
                                                                                          "4B2QJXD7")]
+    assert hw["drives"][0]["model"] == "Samsung SSD 990 PRO 2TB"
     assert hw["os"]["name"] == "Fedora Linux 43 (Workstation Edition)" and hw["unit_id"] and hw["notes"] == []
 
 

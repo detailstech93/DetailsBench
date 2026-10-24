@@ -268,6 +268,20 @@ def _cpuinfo(text: str) -> dict:
             "cores": len(physical) or None, "threads": threads or None}
 
 
+def lspci_name(vendor: Optional[str], device: Optional[str], run: Callable = subprocess.run) -> Optional[str]:
+    """The card's name from `lspci -mm -d VVVV:DDDD` (pciutils): its maker and device fields."""
+    if not vendor or not device:
+        return None
+    try:
+        res = run(["lspci", "-mm", "-d", f"{vendor}:{device}"], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    fields = re.findall(r'"([^"]*)"', (res.stdout or "").splitlines()[0] if res.stdout else "")
+    if res.returncode != 0 or len(fields) < 3:
+        return None
+    return f"{fields[1]} {fields[2]}".strip() or None
+
+
 def _block_of(path: Path, root: Path) -> Optional[str]:
     """The whole disk (sda, nvme0n1) that holds `path`: its device number, up from a partition or a device-mapper
     volume (LVM, LUKS) to the disk under it."""
@@ -331,6 +345,7 @@ def linux_capture(data_path: Path, root: Path = Path("/"), run: Callable = subpr
                      "subsys_id": (sd or "").replace("0x", "") + (sv or "").replace("0x", "") or None,
                      "vram_mb": vram // 2 ** 20 if vram else None, "power_limit_w": None, "power_default_w": None, "power_max_w": None,
                      "source": "/sys/class/drm"})
+        gpus[-1]["name"] = lspci_name(gpus[-1]["vendor_id"], gpus[-1]["device_id"], run)
     disk = _block_of(data_path, root)
     drives = []
     for blk in sorted((root / "sys/block").glob("*")):
@@ -338,7 +353,7 @@ def linux_capture(data_path: Path, root: Path = Path("/"), run: Callable = subpr
             continue
         size = _int(_read(blk / "size"))
         rot = _read(blk / "queue/rotational")
-        drives.append({"id": blk.name, "model": _read(blk / "device/model"),
+        drives.append({"id": blk.name, "model": " ".join((_read(blk / "device/model") or "").split()) or None,
                        "kind": "nvme" if blk.name.startswith("nvme") else ("hdd" if rot == "1" else "ssd"
                                                                          if rot == "0" else None),
                        "bus": "NVMe" if blk.name.startswith("nvme") else ("MMC" if blk.name.startswith("mmc")
