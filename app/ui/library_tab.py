@@ -253,6 +253,7 @@ class LibraryTab(QWidget):
         if self.rows and not self._fitted:              # fitted to the text once; then the owner's widths stay
             for c in range(len(COLUMNS)):
                 self.table.resizeColumnToContents(c)
+                self.table.setColumnWidth(c, min(self.table.columnWidth(c), 360))     # long text: on hover
             self._fitted = True
         self._buttons()
 
@@ -264,6 +265,8 @@ class LibraryTab(QWidget):
         item = QTreeWidgetItem([r["date"] if child else r["test"], r["result"], r["accuracy"], r["software"],
                                 r["variant"], r["pc"], r["date"], notes])
         item.setData(0, Qt.UserRole, r)
+        for c in range(len(COLUMNS)):
+            item.setToolTip(c, item.text(c))
         if r["deleted"]:
             for c in range(len(COLUMNS)):
                 item.setForeground(c, Qt.gray)

@@ -112,7 +112,8 @@ def rows(results: List[Mapping], part_key: str, names: Optional[Mapping[str, str
         device = (p["pc"].get("device") or {})
         flags = list(a.get("flags") or []) + (["noisy"] if r.get("noisy") else []) + list(a.get("guessed") or [])
         out.append({"package_id": p["package_id"], "test": p["test"].get("name") or p["test"]["id"],
-                    "result": stress_text(p) if stress else f"{_number(r.get('mean'))} {p['test'].get('unit') or ''}".strip(),
+                    "result": (r.get("text") or "-") if a.get("kind") == "info" else stress_text(p) if stress
+                    else f"{_number(r.get('mean'))} {p['test'].get('unit') or ''}".strip(),
                     "accuracy": "" if stress else r.get("accuracy") or "", "software": software(p),
                     "variant": a.get("variant") or "",
                     "pc": names.get(p["pc"].get("system_key") or devices.get(p["pc"]["unit_id"], ""))

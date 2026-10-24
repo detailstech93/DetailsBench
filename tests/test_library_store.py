@@ -426,3 +426,15 @@ def test_a_test_run_in_several_sessions_is_one_line_that_opens_newest_first(qapp
     assert not tab.delete_btn.isEnabled()               # the test's line is not one result
     tab.table.setCurrentItem(blender.child(0))
     assert tab.delete_btn.isEnabled()
+
+
+def test_an_info_row_shows_its_text():
+    """Imported device notes (power, temperature, parts) have no number: their text is the result."""
+    from app.library import view
+    pkg = {"package_id": "x", "pc": {"unit_id": "imported-a", "device": {"maker": None, "model": "Orion O6"}},
+           "session": {"id": "xlsx", "created_at": None}, "created_at": None,
+           "test": {"id": "device_info", "name": "Device notes (imported)"},
+           "attribution": {"part": "system", "part_key": "system:imported:orion-o6", "kind": "info", "flags": []},
+           "result": {"mean": None, "text": "Power: 33.6 W max; Temperature: 68 C max"}}
+    row = view.rows([pkg], "system:imported:orion-o6")[0]
+    assert row["result"] == "Power: 33.6 W max; Temperature: 68 C max" and row["date"] == "" and row["pc"] == "Orion O6"
