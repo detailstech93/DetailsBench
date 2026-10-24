@@ -672,7 +672,10 @@ def _model_sections(export: Mapping) -> str:
             f"counts) for {model} in LM Studio, loaded by the app with context {CONTEXT}, every layer on the "
             f"graphics card and one request at a time; prompt {PP} tokens, {TG} generated. Higher is faster. "
             "Comparable only with the same model, quantization, LM Studio engine and llama-benchy version. Nothing "
-            "was uploaded.", decimals=1, chart_specs=AI_CHARTS, ai=True))
+            "was uploaded.", decimals=1, chart_specs=AI_CHARTS, ai=True,
+            settings={test_id: [("Prompt tokens (pp)", PP), ("Generated tokens (tg)", TG),
+                                ("Context depth (tokens)", 0), ("Concurrency (requests at once)", 1),
+                                ("Loaded context (tokens)", CONTEXT)]}))
     return "".join(sections)
 
 
@@ -765,6 +768,35 @@ def _ai_rows(metrics: Mapping) -> dict:
     return rows
 
 
+def _ai_settings(details: dict, metrics: Mapping) -> dict:
+    """The llama-benchy settings in words (owner, 2026-10-24: the report did not say pp, tg, context depth or
+    concurrency): pp/tg split in two, then the depths and concurrency levels the run measured."""
+    rows = _ai_rows(metrics)
+    depths = sorted({depth for (_, depth, measured) in rows if measured})
+    levels = sorted({conc for (conc, _, _) in rows})
+    out: dict = {}
+    for key, value in details.items():
+        if key == "pp/tg" and "/" in value:
+            pp, tg = value.split("/", 1)
+            out["Prompt tokens (pp)"], out["Generated tokens (tg)"] = pp, tg
+            if depths:
+                out["Context depth (tokens)"] = ", ".join(f"{d:,}" for d in depths)
+            if levels:
+                out["Concurrency (requests at once)"] = ", ".join(str(c) for c in levels)
+        elif key == "Context":
+            out["Loaded context (tokens)"] = value
+        elif key == "Parallel":
+            out["Parallel requests LM Studio allows"] = value
+        else:
+            out[key] = value
+    return out
+
+
+def _settings_table(details: Mapping) -> str:
+    return ("<h4>Test settings</h4>" + '<table class="kv">'
+            + "".join(f"<tr><th>{esc(k)}</th><td>{esc(v)}</td></tr>" for k, v in details.items()) + "</table>")
+
+
 def _ai_value(name: str, value: Optional[float]) -> str:
     if value is None:
         return "-"
@@ -805,10 +837,12 @@ def _ai_table(metrics: Mapping) -> str:
 
 
 def _tiles_section(export: Mapping, heading: str, tests, explanation: str, readings: bool = True,
-                   decimals: int = 0, chart_specs=BLENDER_CHARTS, metric_tiles=None, ai: bool = False) -> str:
+                   decimals: int = 0, chart_specs=BLENDER_CHARTS, metric_tiles=None, ai: bool = False,
+                   settings=None) -> str:
     """A tool with several tests, each with its own unit: one tile per test, what ran, how the PC behaved and
     charts over time. metric_tiles {test: [(metric, label)]}: more tiles of that test from its metrics (the mean
-    of its measured runs), e.g. Geekbench's Single-Core Score next to the Multi-Core one."""
+    of its measured runs), e.g. Geekbench's Single-Core Score next to the Multi-Core one. settings {test: [(label,
+    value)]}: what a test is set to before it runs (the fixed AI models), shown also when it did not finish."""
     session_is_test = _truthy((_mapping(export.get("session")) or {}).get("is_test"))
     names = [t[0] for t in tests]
     by_test: dict = {}
@@ -832,7 +866,9 @@ def _tiles_section(export: Mapping, heading: str, tests, explanation: str, readi
         if not done:
             tiles.append(f'<div class="tile bad"><div class="label">{esc(engine)}</div>'
                          '<div class="value"><span>no score</span></div></div>')
-            blocks.append(f"<h3>{esc(engine)}</h3><p>The test did not finish: {_text(runs[-1].get('note'))}.</p>")
+            known = (settings or {}).get(name)
+            blocks.append(f"<h3>{esc(engine)}</h3><p>The test did not finish: {_text(runs[-1].get('note'))}.</p>"
+                          + (_settings_table(dict((k, str(v)) for k, v in known)) if known else ""))
             continue
         mean = (_mapping((_mapping(summaries.get(name)) or {}).get("stats")) or {}).get("mean")
         score = _whole(mean) if not decimals or _whole(mean) is None else float(mean)
@@ -860,13 +896,15 @@ def _tiles_section(export: Mapping, heading: str, tests, explanation: str, readi
             details["Run again after a failure"] = f"{retried} (the failed tries are in the runs table, not in the score)"
         if extra:
             details["Extra runs"] = f"{extra} (the scores varied a lot, so more runs were added)"
+        if ai:
+            details = _ai_settings(details, _mapping(metrics.get(name)) or {})
         kv = "".join(f"<tr><th>{esc(k)}</th><td>{esc(v)}</td></tr>" for k, v in details.items())
         if not readings:            # typed in by the owner: no readings were taken during the test
             blocks.append(f"<h3>{esc(engine)}</h3>" + f'<table class="kv">{kv}</table>')
             continue
         charts = _series_charts(done[-1], chart_specs)
         blocks.append(
-            f"<h3>{esc(engine)}</h3>" + f'<table class="kv">{kv}</table>'
+            f"<h3>{esc(engine)}</h3>" + ("<h4>Test settings</h4>" if ai else "") + f'<table class="kv">{kv}</table>'
             + (_ai_table(_mapping(metrics.get(name)) or {}) if ai else "") +
             "<h4>During the test</h4>"
             '<div class="table-wrap"><table><thead><tr><th>Reading</th><th>Average</th><th>Highest</th></tr>'

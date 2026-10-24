@@ -67,3 +67,29 @@ def test_every_llama_benchy_measurement_is_in_the_report():
                                     "metric_summaries": {"llama_benchy_x": export["metric_summaries"]["llama_benchy"]}})
     assert "All llama-benchy measurements" in fixed and "Time to first token" in fixed
     assert "All llama-benchy measurements" not in report._mlperf_section(_export("mlperf_client"))
+
+
+def test_the_report_names_pp_tg_context_depth_and_concurrency():
+    # owner, 2026-10-24: the llama-benchy report said neither pp nor tg nor context depth nor concurrency
+    export = _export("llama_benchy")
+    export["runs"][0]["note"] = "Model: gemma; Context: 4096; Parallel: 2; pp/tg: 512/128"
+    m = lambda v: {"mean": v, "unit": "tok/s"}
+    export["metric_summaries"] = {"llama_benchy": {"tg_tok_s@d0_c1": m(3.0), "tg_tok_s@d4096_c1": m(2.0),
+                                                   "tg_tok_s@d0_c2": m(5.0), "ctx_pp_tok_s@d8192_c1": m(1.0)}}
+    html = report._free_llama_section(export)
+    assert "<h4>Test settings</h4>" in html
+    for row in ("<tr><th>Prompt tokens (pp)</th><td>512</td></tr>", "<tr><th>Generated tokens (tg)</th><td>128</td></tr>",
+                "<tr><th>Context depth (tokens)</th><td>0, 4,096</td></tr>",
+                "<tr><th>Concurrency (requests at once)</th><td>1, 2</td></tr>",
+                "<tr><th>Loaded context (tokens)</th><td>4096</td></tr>"):
+        assert row in html
+    assert "pp/tg" not in html
+
+
+def test_a_fixed_model_that_did_not_finish_still_shows_its_settings():
+    export = _export("llama_benchy_qwen35_4b")
+    export["runs"][0].update(status="cancelled", score=None, note="stopped by user")
+    html = report._model_sections(export)
+    assert "The test did not finish: stopped by user." in html
+    assert "<tr><th>Prompt tokens (pp)</th><td>512</td></tr>" in html
+    assert "<tr><th>Concurrency (requests at once)</th><td>1</td></tr>" in html
