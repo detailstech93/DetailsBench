@@ -849,6 +849,8 @@ def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_re
 
     def finished(session_id: int, text: str):
         report = written_report(session_id, text)
+        from app.library.sync import after_run
+        after_run(window, session_id)           # the results library (in the background; never raises)
         stopped = bool(getattr(getattr(panel, "last_summary", None), "stopped", False))
         go_on = after or (lambda s: line_next(window, s))           # the tests in line
         if len(automatic) == 1 and automatic[0].waits_for_typed_score() and not stopped:
