@@ -180,3 +180,19 @@ def test_no_check_and_no_update_while_tests_run_and_update_only_after_yes(qapp, 
     flow.release = RELEASE
     assert flow.start_update() and done == [RELEASE] and relaunched == [1]
     assert load_settings(tmp_path)[0][updater.PREVIOUS_KEY] == "abc"
+
+
+def test_beta_versions_are_on_by_default_and_the_check_at_start_includes_them(qapp, tmp_path):
+    """Owner, 2026-10-24: every version is a beta for now; the box is ticked until someone unticks it."""
+    from app.ui.update_ui import UpdateBar, UpdateFlow, UpdatesTab
+    asked = []
+    bar, tab = UpdateBar(), UpdatesTab()
+    flow = UpdateFlow(None, bar, tab, data_dir=tmp_path, check=lambda beta=False: asked.append(beta) or
+                      updater.Check(None, "newest"), start_thread=lambda fn: fn(), warn=lambda *a: None)
+    flow.window = _window()
+    assert tab.beta.isChecked() and updater.BETA_KEY not in load_settings(tmp_path)[0]
+    flow.at_start()
+    assert asked == [True]
+    tab.beta.setChecked(False)                       # unticked: remembered, the default no longer applies
+    _, _, tab2 = _flow(tmp_path, updater.Check(None, "x"))
+    assert not tab2.beta.isChecked()

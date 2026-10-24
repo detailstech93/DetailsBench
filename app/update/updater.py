@@ -42,6 +42,9 @@ VERSION = re.compile(r"^v?(\d+)\.(\d+)(?:\.(\d+))?(?:-([0-9A-Za-z.]+))?$")
 # settings.json keys
 CHECK_KEY, LAST_KEY, SKIP_KEY, BETA_KEY, PREVIOUS_KEY = (
     "update_check", "update_last_check", "update_skip", "update_beta", "update_previous")
+# owner, 2026-10-24: every version is a beta for now, so "Include beta versions" is on until someone unticks it
+# (the check at start then finds betas too). Set it to False with the first final release.
+BETA_DEFAULT = True
 
 
 def version_key(text: str) -> Optional[tuple]:

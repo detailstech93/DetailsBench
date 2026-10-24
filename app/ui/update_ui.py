@@ -97,7 +97,7 @@ class UpdateFlow(QObject):
         self.working = False
         settings = self._settings()
         tab.daily.setChecked(settings.get(updater.CHECK_KEY, True) is not False)
-        tab.beta.setChecked(bool(settings.get(updater.BETA_KEY, False)))
+        tab.beta.setChecked(bool(settings.get(updater.BETA_KEY, updater.BETA_DEFAULT)))
         tab.daily.toggled.connect(lambda on: self._save(updater.CHECK_KEY, bool(on)))
         tab.beta.toggled.connect(lambda on: self._save(updater.BETA_KEY, bool(on)))
         tab.check_btn.clicked.connect(lambda: self.check(asked=True))
