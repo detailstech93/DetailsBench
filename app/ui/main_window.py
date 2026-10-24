@@ -69,6 +69,10 @@ class BenchmarkWorker(QThread):
                 self.discovery_ready.emit(discover_installed())
             except Exception:
                 logger.exception("Installed-software discovery failed")
+            if profile is not None:             # the parts, saved with each session (hardware library, phase 1)
+                self.progress.emit("Reading the PC's parts...")
+                from app.environment import hardware
+                profile.hardware = hardware.capture()
             self.progress.emit("Scanning system capabilities and benchmarks...")
             benchmarks = self.benchmark_manager.scan(profile)
             self.scan_finished.emit(benchmarks)

@@ -52,6 +52,7 @@ def _benchmark_entry(bm: Mapping) -> dict:
         "compatibility": compat.get("status"),
         "comparable_to_native": compat.get("comparable_to_native", True),
         **({"model": bm["model"]} if bm.get("model") else {}),       # AI tools: the model measured
+        **({"drive": bm["drive"]} if bm.get("drive") else {}),       # disk tests: the drive measured
     }
 
 

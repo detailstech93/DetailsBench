@@ -419,16 +419,19 @@ class AutomationPanel(QGroupBox):
         from app.ui.long_question import ask_yes_no
         return ask_yes_no(self, "Run automated benchmarks?", text)
 
-    @staticmethod
-    def _benchmarks_used(workloads) -> List[dict]:
+    def _benchmarks_used(self, workloads) -> List[dict]:
         from app.emulation import program_arch
+        from app.environment.hardware import app_data_drive
         from app.frames.provision import native_arch
         native = native_arch()
+        drive = app_data_drive((self.get_environment() or {}).get("hardware"))
         return [{"name": wl.id, "display_name": wl.display_name, "version": wl.version(),
                  "executable_path": wl.executable()[0],
                  "detection_method": "tool spec " + wl.executable()[1],
                  **_arch_fields(native, program_arch(wl)),
-                 **({"model": wl.model} if getattr(wl, "model", None) else {})}
+                 **({"model": wl.model} if getattr(wl, "model", None) else {}),
+                 # a disk test measures the drive of the app's data (app/storage/disk_tools.py)
+                 **({"drive": drive} if drive and getattr(wl, "benchmark_type", "") == "storage" else {})}
                 for wl in workloads]
 
     def _create_session(self, workloads, profile, conditions: Optional[dict] = None) -> int:

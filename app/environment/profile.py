@@ -61,9 +61,11 @@ class EnvironmentProfile:
     # Not ProfileFields: per-step failures and timings
     diagnostics: List[str] = field(default_factory=list)
     step_seconds: Dict[str, float] = field(default_factory=dict)
+    # the PC's parts (app/environment/hardware.py), read after the profile; None until then
+    hardware: Optional[dict] = None
 
     def field_names(self) -> List[str]:
-        return [f.name for f in fields(self) if f.name not in ("diagnostics", "step_seconds")]
+        return [f.name for f in fields(self) if f.name not in ("diagnostics", "step_seconds", "hardware")]
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -76,4 +78,5 @@ class EnvironmentProfile:
                 setattr(profile, name, ProfileField(**data[name]))
         profile.diagnostics = list(data.get("diagnostics", []))
         profile.step_seconds = dict(data.get("step_seconds", {}))
+        profile.hardware = data.get("hardware") if isinstance(data.get("hardware"), dict) else None
         return profile
