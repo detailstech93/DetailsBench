@@ -297,6 +297,7 @@ def test_library_screen_delete_restore_and_name(qapp, tmp_path):
     answers.append("retest after a driver update")
     tab.delete()
     assert tab.table.topLevelItemCount() == 1 and tab.tree.topLevelItem(1).child(0).text(1) == "1"
+    assert "1 deleted result(s) hidden" in tab.part_title.text()
     assert len(list((lib / "events").glob("*.json"))) == 1 and len(list((lib / "packages").rglob("*.json"))) == 2
     tab.show_deleted.setChecked(True)
     assert tab.table.topLevelItemCount() == 2 and "(+1 deleted)" in tab.tree.topLevelItem(1).child(0).text(1)

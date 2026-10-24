@@ -99,6 +99,7 @@ class LibraryTab(QWidget):
                                    "a retest). Nothing is erased: it can be restored.")
         self.delete_btn.clicked.connect(self.delete)
         self.restore_btn = QPushButton("Restore")
+        self.restore_btn.setToolTip("Tick \"Show deleted results\", then choose the grey result.")
         self.restore_btn.clicked.connect(self.restore)
         self.show_deleted = QCheckBox("Show deleted results")
         self.show_deleted.toggled.connect(lambda _: self.load())
@@ -227,7 +228,10 @@ class LibraryTab(QWidget):
         if part["key"] != getattr(self, "_shown_key", None):
             self.table.clear()                          # another part: its tests start closed
         self._shown_key = part["key"]
-        self.part_title.setText(part["name"])
+        hidden = 0 if self.show_deleted.isChecked() else sum(
+            1 for p in self.results if p.get("deleted") and p["attribution"]["part_key"] == part["key"])
+        self.part_title.setText(part["name"] + (f"   ({hidden} deleted result(s) hidden: tick \"Show deleted "
+                                                f"results\" to see or restore them)" if hidden else ""))
         self.rows = view.rows(self.results, part["key"], self.names)
         if not self.show_deleted.isChecked():
             self.rows = [r for r in self.rows if not r["deleted"]]
@@ -245,7 +249,7 @@ class LibraryTab(QWidget):
             self.table.addTopLevelItem(top)
             for r in results:
                 top.addChild(self._item(r, child=True))
-            top.setExpanded(top.text(0) in open_tests)
+            top.setExpanded(top.text(0) in open_tests or any(r["deleted"] for r in results))   # deleted: in view
         if self.rows and not self._fitted:              # fitted to the text once; then the owner's widths stay
             for c in range(len(COLUMNS)):
                 self.table.resizeColumnToContents(c)
