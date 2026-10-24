@@ -95,7 +95,7 @@ def test_a_typed_test_asks_how_many_runs_before_it_starts(monkeypatch):
     w = SimpleNamespace(automation_panel=SimpleNamespace(is_running=lambda: False),
                         frame_panel=SimpleNamespace(is_running=lambda: False),
                         _on_launch_clicked=launched.append,
-                        tests_page=SimpleNamespace(offer_record=lambda text, fn: offered.append(text)))
+                        tests_page=SimpleNamespace(offer_record=lambda text, fn, *after: offered.append(text)))
     e = SimpleNamespace(source="library", name="Speedometer 3", ref="bm")
     monkeypatch.setattr(run_tests, "ask_count", lambda window, name: None)
     assert not run_tests.start_other(w, e) and launched == []

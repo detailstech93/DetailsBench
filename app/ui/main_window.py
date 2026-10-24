@@ -492,7 +492,9 @@ class MainWindow(QMainWindow):
         self.run_all_flow = RunAllFlow(self)
         self.tests_page.run_all_requested.connect(self.run_all_flow.start)
         self.tests_page.can_queue = self.install_queue_open
-        self.tests_page.can_add = lambda: hasattr(self, "automation_panel") and self.automation_panel.can_queue()
+        self.tests_page.can_add = lambda: (hasattr(self, "automation_panel") and hasattr(self, "frame_panel")
+                                           and __import__("app.ui.run_tests", fromlist=["x"]).running(self))
+        self.tests_page.waiting = lambda: __import__("app.ui.run_tests", fromlist=["x"]).line_marks(self)
         self.tests_page.queue_requested.connect(lambda entry: self.queue_install(entry))
         from app.ui import admin_restart as _admin
         self.tests_page.install_many_requested.connect(lambda entries: _admin.install_selected(self, entries))

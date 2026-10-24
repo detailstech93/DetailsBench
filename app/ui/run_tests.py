@@ -17,6 +17,7 @@ import webbrowser
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QGroupBox, QLabel,
                                QMessageBox, QScrollArea, QSpinBox, QVBoxLayout, QWidget)
 
@@ -584,6 +585,23 @@ def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_re
     if panel.is_running() or window.frame_panel.is_running():
         QMessageBox.information(window, "Run tests", "A run is already going on; wait for it or stop it first.")
         return False
+    prepared = choose_run(window, automatic, others, lone_game, ask, saved)
+    return prepared is not None and begin(window, prepared, opener)
+
+
+@dataclasses.dataclass
+class Prepared:
+    """Tests and what the run dialog chose for them, before they start (now, or later from the line)."""
+    automatic: List[TestEntry]
+    others: List[TestEntry]
+    choice: RunChoice
+    games: List[Tuple[str, str]] = dataclasses.field(default_factory=list)
+    offered: Offered = dataclasses.field(default_factory=dict)
+
+
+def choose_run(window, automatic: List[TestEntry], others: List[TestEntry], lone_game: bool, ask=ask_choice,
+               saved: Optional[dict] = None) -> Optional[Prepared]:
+    """The run dialog (or the number of runs of a test whose score is typed). Nothing is saved yet."""
     from app.ui import reports_folder
     reports_folder.choose(window)                  # the first time: where all reports go
     data_dir = window.frame_panel.data_dir
@@ -600,13 +618,23 @@ def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_re
     if len(automatic) == 1 and automatic[0].waits_for_typed_score():
         count = ask_count(window, automatic[0].name)
         if count is None:
-            return False
+            return None
         choice = RunChoice(count, 0, 0)     # no warm-up: each run's page opens and the owner types its score
     else:
         choice = ask(window, automatic or others, profile, [] if lone_game else others, games, offered, initial,
                      **extra)
     if choice is None:
-        return False
+        return None
+    return Prepared(automatic, [others[0]] if lone_game else others, choice, games, offered)
+
+
+def begin(window, p: Prepared, opener=open_report, after=None) -> bool:
+    """Start what the dialog chose. The choices (game settings, stress minutes) are saved only now, so a test in
+    line never changes the run before it. after(stopped): what comes once it is over (the line goes on)."""
+    automatic, others, choice, games, offered = p.automatic, p.others, p.choice, p.games, p.offered
+    data_dir = window.frame_panel.data_dir
+    if not automatic and len(others) == 1 and others[0].source == "library":
+        return start_library(window, others[0], choice.repetitions, after)
     _save_plan(data_dir, automatic + others, choice)
     if games and choice.preset is not None:
         try:
@@ -623,37 +651,122 @@ def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_re
         except (OSError, ValueError) as e:
             QMessageBox.warning(window, "Run tests", f"The stress test length could not be saved: {e}")
             return False
-    if lone_game:
-        return start_other(window, others[0], choice)
-    return launch(window, automatic, choice, opener)
+    if not automatic:
+        return start_other(window, others[0], choice, after)
+    return launch(window, automatic, choice, opener, after=after)
 
 
-def queue_tests(window, entries: List[TestEntry], licenses=check_licenses) -> List[str]:
-    """Queue next (owner, 2026-10-23): the ticked tests join the run of tests going on, after its tests, with its
-    numbers of runs, in the same session and report. Games, tests that need you and tests waiting for a typed score
-    are not queued (they run alone). Returns the names queued."""
+def running(window) -> bool:
+    return window.automation_panel.is_running() or window.frame_panel.is_running()
+
+
+@dataclasses.dataclass
+class Waiting:
+    """A test in line after the run going on: it starts on its own when that run is over."""
+    entry: TestEntry
+    prepared: Prepared
+
+
+def line_of(window) -> List[Waiting]:
+    if not hasattr(window, "run_line"):
+        window.run_line = []
+    return window.run_line
+
+
+def line_marks(window) -> Dict[str, str]:
+    """The amber "In line" dot of each test waiting in the line."""
+    return {w.entry.id: "queued" for w in getattr(window, "run_line", [])}
+
+
+def prepare_one(window, entry: TestEntry, ask=ask_choice) -> Optional[Prepared]:
+    """Queue next on a game, a test that needs you or one whose score is typed: its dialog opens now (owner,
+    2026-10-24), it runs alone later."""
+    if entry.source == "library":
+        count = ask_count(window, entry.name)
+        return None if count is None else Prepared([], [entry], RunChoice(count, 0, 0))
+    automatic, others = split_entries([entry])
+    lone_game = not automatic and len(others) == 1 and others[0].source == "steam"
+    if not automatic and not lone_game:
+        return None
+    return choose_run(window, automatic, others, lone_game, ask)
+
+
+def queue_tests(window, entries: List[TestEntry], licenses=check_licenses, ask=ask_choice) -> List[str]:
+    """Queue next (owner, 2026-10-23): automatic tests join the run of tests going on, after its tests, with its
+    numbers of runs, in the same session and report. A game, a test that needs you or one whose score is typed
+    (owner, 2026-10-24), or any test while a game runs, gets its dialog now and waits in line: it runs alone
+    once the run before it is over. Returns the names queued."""
     panel = window.automation_panel
-    if not panel.can_queue():
-        QMessageBox.information(window, "Queue next", "No run of tests takes more tests now; start them with Run.")
+    if not running(window):
+        QMessageBox.information(window, "Queue next", "No run is going on; start them with Run.")
         return []
-    entries = licenses(window, entries)
-    automatic, others = split_entries([e for e in entries if not e.waits_for_typed_score()])
-    left = [e.name for e in entries if e not in automatic]
-    queued, refused = panel.queue_workloads([e.ref for e in automatic])
+    entries = [e for e in licenses(window, entries) if e.can_run()]
+    joining = ([e for e in entries if e.source == "workload" and not e.waits_for_typed_score()]
+               if panel.can_queue() else [])
+    queued, refused = panel.queue_workloads([e.ref for e in joining]) if joining else ([], {})
+    line, later, dropped = line_of(window), [], []
+    for e in entries:
+        if e in joining:
+            continue
+        if any(w.entry.id == e.id for w in line):
+            refused[e.name] = "already in line"
+            continue
+        prepared = prepare_one(window, e, ask)
+        if prepared is None:
+            dropped.append(e.name)
+            continue
+        line.append(Waiting(e, prepared))
+        later.append(e.name)
     parts = [f"Queued after the tests going on (same report): {', '.join(queued)}."] if queued else []
+    if later:
+        parts.append(f"In line, each on its own after the run going on: {', '.join(later)}.")
     if refused:
         parts.append("Not queued: " + "; ".join(f"{name} ({why})" for name, why in refused.items()) + ".")
-    if left:
-        parts.append(f"Not queued (games, tests that need you or wait for a typed score run alone): "
-                     f"{', '.join(left)}.")
+    if dropped:
+        parts.append(f"Not queued (nothing chosen): {', '.join(dropped)}.")
     window.status_label.setText(" ".join(parts) or "Nothing was queued.")
     if queued:
         window.tests_page.allow_skip(panel.skip_test)
-    return queued
+    return queued + later
+
+
+def line_next(window, stopped: bool = False, start=None):
+    """The run before is over: the next test in line starts (after the run's own callbacks are done). A stopped
+    run ends the line: what you stop, the tests after it do not start."""
+    line = getattr(window, "run_line", None)
+    if not line:
+        return
+    if stopped:
+        names = ", ".join(w.entry.name for w in line)
+        line.clear()
+        window.status_label.setText(f"{window.status_label.text()} Stopped: the tests in line were not started "
+                                    f"({names}).".strip())
+        return
+    when_free(window, start or start_waiting)
+
+
+def when_free(window, start, tries: int = 120):
+    """The run's "finished" comes just before its thread ends: wait for it (half a second at a time, a minute)."""
+    if running(window) and tries > 0:
+        QTimer.singleShot(500, lambda: when_free(window, start, tries - 1))
+    else:
+        QTimer.singleShot(0, lambda: start(window))
+
+
+def start_waiting(window, opener=open_report) -> bool:
+    """Start the first test in line (the next ones follow it). False when none started."""
+    line = getattr(window, "run_line", [])
+    while line and not running(window):
+        w = line.pop(0)
+        started = begin(window, w.prepared, opener, after=lambda stopped: line_next(window, stopped))
+        if started and window.tests_page.busy:
+            return True
+        window.status_label.setText(f"{w.entry.name} (in line) did not start.")
+    return False
 
 
 def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_report,
-           confirm=None, tools_ready: bool = False) -> bool:
+           confirm=None, tools_ready: bool = False, after=None) -> bool:
     """Start the plan of automatic tests; the report is written (and opened) when it ends."""
     panel = window.automation_panel
     from app.ui import reports_folder
@@ -681,8 +794,13 @@ def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_re
 
     def finished(session_id: int, text: str):
         report = written_report(session_id, text)
-        if len(automatic) == 1 and automatic[0].waits_for_typed_score():
-            typed_followup(window, automatic[0], session_id, opener)
+        stopped = bool(getattr(getattr(panel, "last_summary", None), "stopped", False))
+        go_on = after or (lambda s: line_next(window, s))           # the tests in line
+        if len(automatic) == 1 and automatic[0].waits_for_typed_score() and not stopped:
+            if typed_followup(window, automatic[0], session_id, opener, after=go_on) is None:
+                go_on(False)                    # no score to type: the line goes on
+        else:
+            go_on(stopped)
         if getattr(choice, "shutdown_after", False):
             from app.ui import shutdown_after
             shutdown_after.after_run(window, session_id, panel.last_summary, report)
@@ -727,7 +845,8 @@ def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_re
 RESULT_PAGE = re.compile(r"https://browser\.geekbench\.com/v\d+/(?:cpu|gpu|compute)/\d+(?![\w/?])")
 
 
-def typed_followup(window, entry: TestEntry, session_id: int, opener=None, ask=None) -> Optional[List[str]]:
+def typed_followup(window, entry: TestEntry, session_id: int, opener=None, ask=None,
+                   after=None) -> Optional[List[str]]:
     """A workload whose score is typed (Geekbench 6 on Linux): the result page of each run opens, then "Enter the
     scores..." stores one typed score per run in the same session, as manual entries next to the runs, and writes
     the report again (with their average). The result pages, or None when the runs left none."""
@@ -774,7 +893,7 @@ def typed_followup(window, entry: TestEntry, session_id: int, opener=None, ask=N
         (opener or open_report)(path)
         return path
     window.tests_page.offer_record(f"{entry.name} finished: the score of each run is on the page that opened "
-                                   f"({len(pages)} page(s)). Enter them.", record)
+                                   f"({len(pages)} page(s)). Enter them.", record, after)
     return pages
 
 
@@ -872,7 +991,7 @@ def game_report(window, session_id: Optional[int], summary, opener=None) -> Opti
     return path
 
 
-def start_other(window, entry: TestEntry, choice: Optional[RunChoice] = None) -> bool:
+def start_other(window, entry: TestEntry, choice: Optional[RunChoice] = None, after=None) -> bool:
     """One assisted or manual test: hand it to the flow that already runs it. With a choice from the run
     dialog, a Steam game uses its counts and the preset saved for it (no settings window)."""
     if window.automation_panel.is_running() or window.frame_panel.is_running():
@@ -887,7 +1006,10 @@ def start_other(window, entry: TestEntry, choice: Optional[RunChoice] = None) ->
         if not frame.select_game(game["app_id"]):
             QMessageBox.information(window, "Run tests", f"{game['name']} is not fully installed.")
             return False
-        frame.on_game_finished = lambda sid, summary: game_report(window, sid, summary)
+        def game_over(sid, summary):
+            game_report(window, sid, summary)
+            (after or (lambda s: line_next(window, s)))(bool(getattr(summary, "stopped", False)))
+        frame.on_game_finished = game_over
         if choice is None:
             frame.benchmark_game()
         else:
@@ -903,12 +1025,16 @@ def start_other(window, entry: TestEntry, choice: Optional[RunChoice] = None) ->
         return True
     if entry.source == "library":
         count = ask_count(window, entry.name)
-        if count is None:
-            return False
-        window._on_launch_clicked(entry.ref)
-        times = "once" if count == 1 else f"{count} times"
-        window.tests_page.offer_record(f"{entry.name} was started. Run its benchmark {times}, then enter the "
-                                       f"score{'s' if count > 1 else ''}.",
-                                       lambda: record_and_report(window, entry, count=count))
-        return True
+        return count is not None and start_library(window, entry, count, after)
     return False
+
+
+def start_library(window, entry: TestEntry, count: int, after=None) -> bool:
+    """A test that needs you: its app opens, you run it and type its scores (then the line goes on)."""
+    window._on_launch_clicked(entry.ref)
+    times = "once" if count == 1 else f"{count} times"
+    window.tests_page.offer_record(f"{entry.name} was started. Run its benchmark {times}, then enter the "
+                                   f"score{'s' if count > 1 else ''}.",
+                                   lambda: record_and_report(window, entry, count=count),
+                                   after or (lambda stopped: line_next(window, stopped)))
+    return True

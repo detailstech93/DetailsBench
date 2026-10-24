@@ -401,7 +401,7 @@ def test_nothing_starts_while_the_app_scans_and_it_says_so(qapp):
     assert len(asked) == 1
 
 
-def test_queue_next_shows_while_tests_run_and_hands_the_ticked_tests_to_the_run(qapp):
+def test_queue_next_shows_while_tests_run_and_hands_the_ticked_tests_to_the_run(qapp, monkeypatch):
     """Owner, 2026-10-23: while tests run, ticked tests join that run (Queue next) instead of waiting for it."""
     from types import SimpleNamespace
     from PySide6.QtWidgets import QLabel
@@ -422,6 +422,11 @@ def test_queue_next_shows_while_tests_run_and_hands_the_ticked_tests_to_the_run(
     assert page.tree.isEnabled()
     assert row["tool_b"].text() == "Queue next" and row["tool_b"].isEnabled()
     assert row["tool_a"].text() == "Run..." and not row["tool_a"].isEnabled()     # it is the test running
+    page.set_section("games")
+    game_btn = page.tree.itemWidget(page.items["game"], 5)
+    assert game_btn.text() == "Queue next" and game_btn.isEnabled()     # its dialog, then in line (2026-10-24)
+    page.set_section("tests")
+    row = {k: page.tree.itemWidget(page.items[k], 5) for k in ("tool_a", "tool_b")}
     asked, ran = [], []
     page.queue_run_requested.connect(asked.append)
     page.run_requested.connect(ran.append)
@@ -437,13 +442,61 @@ def test_queue_next_shows_while_tests_run_and_hands_the_ticked_tests_to_the_run(
     assert row["tool_b"].text() == "Run..." and not row["tool_b"].isEnabled()
 
     queued_refs = []
-    panel = SimpleNamespace(can_queue=lambda: True, skip_test=lambda: None,
+    panel = SimpleNamespace(can_queue=lambda: True, skip_test=lambda: None, is_running=lambda: True,
                             queue_workloads=lambda refs: (queued_refs.extend(refs) or ["tool_b"],
                                                           {"tool_a": "already in this run"}))
-    window = SimpleNamespace(automation_panel=panel, status_label=QLabel(), tests_page=page)
-    assert queue_tests(window, [a, b, game], licenses=lambda w, e: e) == ["tool_b"]
-    assert queued_refs == ["A", "B"]
+    window = SimpleNamespace(automation_panel=panel, frame_panel=SimpleNamespace(is_running=lambda: False),
+                             status_label=QLabel(), tests_page=page)
+    from app.ui import run_tests
+    asked_for = []
+    monkeypatch.setattr(run_tests, "prepare_one", lambda w, e, ask: asked_for.append(e.id) or "chosen")
+    assert queue_tests(window, [a, b, game], licenses=lambda w, e: e) == ["tool_b", "game"]
+    assert queued_refs == ["A", "B"] and asked_for == ["game"]          # the game's dialog opened now
+    assert [(w.entry.id, w.prepared) for w in window.run_line] == [("game", "chosen")]
+    assert run_tests.line_marks(window) == {"game": "queued"}
     text = window.status_label.text()
     assert "Queued after the tests going on (same report): tool_b." in text
-    assert "tool_a (already in this run)" in text and "run alone): game." in text
+    assert "tool_a (already in this run)" in text and "In line, each on its own after the run going on: game." in text
+    assert queue_tests(window, [game], licenses=lambda w, e: e) == []       # not twice
+    assert "game (already in line)" in window.status_label.text()
     assert not page.skip_btn.isHidden()                        # a test to skip to now
+
+
+def test_the_tests_in_line_start_one_by_one_after_the_run_and_a_stop_ends_the_line(qapp, monkeypatch):
+    """Owner, 2026-10-24: a game or a test that needs you waits in line and starts on its own once the run
+    before it is over; what you stop, the tests after it do not start."""
+    from types import SimpleNamespace
+    from PySide6.QtWidgets import QLabel
+    from app.ui import run_tests
+    busy = {"now": False}
+    page = SimpleNamespace(busy=False)
+    window = SimpleNamespace(automation_panel=SimpleNamespace(is_running=lambda: busy["now"]),
+                             frame_panel=SimpleNamespace(is_running=lambda: False), status_label=QLabel(),
+                             tests_page=page)
+    g1, g2 = entry("g1", source="steam"), entry("g2", source="steam")
+    window.run_line = [run_tests.Waiting(g1, "p1"), run_tests.Waiting(g2, "p2")]
+    begun = []
+
+    def begin(w, prepared, opener, after=None):
+        begun.append(prepared)
+        page.busy = prepared != "p1"            # g1 does not start (not installed now): g2 starts instead
+        return True
+    monkeypatch.setattr(run_tests, "begin", begin)
+    busy["now"] = True
+    assert run_tests.start_waiting(window) is False and begun == []      # the run before is still going on
+    busy["now"] = False
+    assert run_tests.start_waiting(window) is True and begun == ["p1", "p2"] and window.run_line == []
+    assert "g1 (in line) did not start." in window.status_label.text()
+    window.run_line = [run_tests.Waiting(g1, "p1")]
+    run_tests.line_next(window, stopped=True)
+    assert window.run_line == [] and "the tests in line were not started (g1)" in window.status_label.text()
+
+
+def test_a_test_that_needs_you_lets_the_line_go_on_once_its_scores_are_typed(qapp):
+    page = TestsPage()
+    ended = []
+    page.offer_record("Run it, then enter the score.", lambda: None, ended.append)
+    page._record()
+    page.offer_record("Run it again.", lambda: None, ended.append)
+    page._stop()
+    assert ended == [False, True]

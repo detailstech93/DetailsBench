@@ -301,6 +301,7 @@ class TestsPage(QWidget):
         # sets this: can_queue(None) = an install is going on that takes more, can_queue(entry) = this one can wait
         self.can_queue: Callable[..., bool] = lambda entry=None: False
         self.can_add: Callable[[], bool] = lambda: False        # the window: a run that takes queued tests
+        self.waiting: Callable[[], Dict[str, str]] = dict        # the window: tests in line after it (their dots)
         self.adding = False     # each test's own Run button says "Queue next" (owner, 2026-10-24; not Run selected)
         self.taking = False
         self.scanning = False
@@ -397,7 +398,7 @@ class TestsPage(QWidget):
             top.setExpanded(True)
         self.tree.blockSignals(False)
         self.show_marks(self.marks)
-        self.update_run_button()
+        self._sync_run_buttons()            # new rows (the other section) say Queue next too while a run goes on
 
     def _action_button(self, e: TestEntry) -> Optional[QPushButton]:
         if e.can_run():
@@ -488,9 +489,9 @@ class TestsPage(QWidget):
         self.run_btn.setText(f"Run selected ({n})..." if n else "Run selected...")
 
     def queueable(self, e: TestEntry) -> bool:
-        """Queue next takes an automatic test not in the run going on (games and typed-score tests run alone)."""
-        return (e.can_run() and e.mode == AUTOMATIC and e.source == "workload" and not e.waits_for_typed_score()
-                and e.id not in self.marks)
+        """Queue next takes any test not running, done or in line: an automatic one joins the run, a game or a
+        test that needs you gets its dialog and waits in line (owner, 2026-10-24)."""
+        return e.can_run() and e.id not in self.marks
 
     def run_selected(self):
         chosen = self.selected()
@@ -578,21 +579,26 @@ class TestsPage(QWidget):
         self.remote_btn.setStyleSheet("QPushButton { background: #2e7d32; color: white; font-weight: bold; }"
                                       if on else "")
 
-    def offer_record(self, text: str, record: Callable[[], object]):
-        """A manual test was started: the bar waits, the score is typed in when it ends."""
-        self.record_fn = record
+    def offer_record(self, text: str, record: Callable[[], object],
+                     after: Optional[Callable[[bool], object]] = None):
+        """A manual test was started: the bar waits, the score is typed in when it ends. after(stopped): once
+        the scores are typed (or Stop pressed), e.g. the next test in line."""
+        self.record_fn, self.after_manual = record, after
         self.record_btn.setVisible(True)
-        self.watch(lambda: RunState(True, 0, None, text), self._end_manual)
+        self.watch(lambda: RunState(True, 0, None, text), lambda: self._end_manual(stopped=True))
 
     def offer_report(self, open_report: Callable[[], object]):
         """The run's report is written: a button opens it again (the browser may have opened behind)."""
         self.report_fn = open_report
         self.report_btn.setVisible(True)
 
-    def _end_manual(self):
+    def _end_manual(self, stopped: bool = False):
+        after, self.after_manual = getattr(self, "after_manual", None), None
         self.record_fn = None
         self.record_btn.setVisible(False)
         self.get_state = RunState
+        if after is not None:
+            after(stopped)
 
     def _record(self):
         if self.record_fn is not None:
@@ -687,7 +693,8 @@ class TestsPage(QWidget):
 
     def refresh_progress(self):
         state = self.get_state()
-        self.show_marks(state.marks)
+        line = self.waiting() if state.running else {}
+        self.show_marks({**line, **(state.marks or {})} if line else state.marks)
         if self.started_at is not None:
             self.elapsed_label.setText(elapsed_text(time.monotonic() - self.started_at))
         if state.running:

@@ -333,7 +333,7 @@ def test_after_the_runs_their_pages_open_and_one_typed_score_per_run_is_stored(t
             stored.append((result_id, metrics))
     label = SimpleNamespace(value="", text=lambda: label.value)
     label.setText = lambda t: setattr(label, "value", t)
-    page = SimpleNamespace(open_url=opened.append, offer_record=lambda text, fn: offered.append((text, fn)),
+    page = SimpleNamespace(open_url=opened.append, offer_record=lambda text, fn, *after: offered.append((text, fn)),
                            offer_report=lambda fn: None)
     window = SimpleNamespace(db=Db(), status_label=label, tests_page=page)
     monkeypatch.setattr(sys, "platform", "linux")
