@@ -167,10 +167,10 @@ def stats_to_metrics(stats: FrameStats) -> dict:
         if value is not None:
             metrics[name] = (value, unit)
 
-    add("avg_fps", stats.avg_fps, "fps")
-    add("low_1pct_fps", stats.low_1pct_fps, "fps")
-    add("low_01pct_fps", stats.low_01pct_fps, "fps")
-    add("p99_fps", stats.p99_fps, "fps")
+    add("avg_fps", stats.avg_fps, "FPS")
+    add("low_1pct_fps", stats.low_1pct_fps, "FPS")
+    add("low_01pct_fps", stats.low_01pct_fps, "FPS")
+    add("p99_fps", stats.p99_fps, "FPS")
     add("p99_frametime_ms", stats.p99_frametime_ms, "ms")
     add("median_frametime_ms", stats.median_frametime_ms, "ms")
     add("min_frametime_ms", stats.min_frametime_ms, "ms")

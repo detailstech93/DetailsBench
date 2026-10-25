@@ -19,7 +19,7 @@ def test_store_and_read(db):
     database, sid = db
     rid = database.create_result(sid, "game", "game", 120.0, unit="fps")
     assert database.save_result_metrics(rid, {"low_1pct_fps": (80.5, "fps"), "frames": (3600, "frames")}) == 2
-    assert database.get_result_metrics(rid) == {"frames": (3600.0, "frames"), "low_1pct_fps": (80.5, "fps")}
+    assert database.get_result_metrics(rid) == {"frames": (3600.0, "frames"), "low_1pct_fps": (80.5, "FPS")}   # saved as "fps": one spelling
     assert database.get_result_metrics(rid + 99) == {}
 
 
@@ -66,4 +66,4 @@ def test_runner_stores_numeric_metrics_of_completed_runs(db, tmp_path):
                         metrics={"low_1pct_fps": (70.0, "fps"), "threads": 8, "label": "x", "bad": math.nan})
     AutomationRunner(database, sid, [PlanItem(Fixed(ok), 1, 0)], tmp_path / "o").run()
     rid = database.get_runs(sid)[0]["id"]
-    assert database.get_result_metrics(rid) == {"low_1pct_fps": (70.0, "fps"), "threads": (8.0, None)}
+    assert database.get_result_metrics(rid) == {"low_1pct_fps": (70.0, "FPS"), "threads": (8.0, None)}

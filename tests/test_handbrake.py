@@ -105,7 +105,7 @@ def test_a_run_reads_the_speed_and_deletes_its_own_encode(tmp_path, monkeypatch)
     monkeypatch.setattr(hb, "run_process", run)
     w = hb.HandBrakeWorkload("handbrake_x265_1080p", cli=cli, clip=clip)
     r = w.run(_ctx(tmp_path))
-    assert r.status == "completed" and r.score == 148.21 and r.unit == "fps" and not w.verified
+    assert r.status == "completed" and r.score == 148.21 and r.unit == "FPS" and not w.verified
     assert seen["command"][-1] == "H.265 MKV 1080p30" and seen["command"][2] == str(clip)
     assert not (tmp_path / "run" / "encode_x265.mkv").exists() and "HandBrake: 1.11.2" in r.note
     assert "deleted after the run" in r.note and clip.exists()

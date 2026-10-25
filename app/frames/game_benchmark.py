@@ -607,7 +607,7 @@ class GameBenchmark:
                                   "FPS; not stored)", **common)
         metrics = stats_to_metrics(stats)
         metrics["window_start_s"] = (float(a), "s")
-        result = WorkloadResult(status="completed", score=stats.avg_fps, unit="fps",
+        result = WorkloadResult(status="completed", score=stats.avg_fps, unit="FPS",
                                 metrics=metrics, duration_seconds=float(b - a), **common)
         if shot:
             result.note = f"Proof screenshot: {shot}"
@@ -734,7 +734,7 @@ class GameBenchmark:
             return
         for key, label in OWN_LABELS:
             if own.get(key) is not None:
-                result.metrics[f"game_{key}_fps"] = (float(own[key]), "fps")
+                result.metrics[f"game_{key}_fps"] = (float(own[key]), "FPS")
         shown = ", ".join(f"{label} {own[key]:g}" for key, label in OWN_LABELS if own.get(key) is not None)
         if shown:
             result.note = "; ".join(x for x in [result.note, f"Game's own result: {shown} FPS"] if x)

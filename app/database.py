@@ -6,6 +6,8 @@ import logging
 from typing import Optional
 from datetime import datetime
 
+from app.units import canonical, sql as unit_sql
+
 logger = logging.getLogger(__name__)
 
 # Result states (Phase 2 spec). Only "completed" runs may carry a score.
@@ -242,7 +244,7 @@ class Database:
                                    passed, benchmark_version, is_test, is_manual,
                                    status, is_warmup, run_index, note, duration_seconds)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (session_id, benchmark_name, benchmark_type, score, unit,
+            (session_id, benchmark_name, benchmark_type, score, canonical(unit),
              status == "completed", benchmark_version or None, is_test, is_manual,
              status, is_warmup, run_index, note, duration_seconds)
         )
@@ -272,7 +274,7 @@ class Database:
         cursor = conn.cursor()
         cursor.execute(f"""
             SELECT r.id, r.session_id, r.benchmark_name, r.benchmark_type, r.benchmark_version,
-                   r.score, r.unit, r.timestamp, r.run_index, r.note,
+                   r.score, {unit_sql('r.unit')} AS unit, r.timestamp, r.run_index, r.note,
                    COALESCE(r.status, CASE WHEN r.passed THEN 'completed' ELSE 'failed' END) AS status,
                    COALESCE(r.is_warmup, 0) AS is_warmup,
                    CASE WHEN COALESCE(r.is_test, 0) OR COALESCE(s.is_test, 0) THEN 1 ELSE 0 END AS is_test,
@@ -475,7 +477,7 @@ class Database:
         for name, (value, unit) in metrics.items():
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
                 raise ValueError(f"metric {name!r} is not a finite number: {value!r}")
-            rows.append((result_id, str(name), float(value), unit))
+            rows.append((result_id, str(name), float(value), canonical(unit)))
         conn = self._get_connection()
         try:
             row = conn.execute("SELECT status, passed FROM results WHERE id = ?", (result_id,)).fetchone()
@@ -500,7 +502,7 @@ class Database:
                      if all(isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
                             for x in (t, v))]
             if clean:
-                rows.append((result_id, str(name), unit, json.dumps(clean, separators=(",", ":"))))
+                rows.append((result_id, str(name), canonical(unit), json.dumps(clean, separators=(",", ":"))))
         if not rows:
             return 0
         conn = self._get_connection()
@@ -525,7 +527,7 @@ class Database:
                                 (result_id,)).fetchall()
         finally:
             conn.close()
-        return {name: {"unit": unit, "points": json.loads(points)} for name, unit, points in rows}
+        return {name: {"unit": canonical(unit), "points": json.loads(points)} for name, unit, points in rows}
 
     def get_result_metrics(self, result_id: int) -> dict:
         """{name: (value, unit)}; {} when the run has none."""
@@ -535,7 +537,7 @@ class Database:
                                 (result_id,)).fetchall()
         finally:
             conn.close()
-        return {name: (value, unit) for name, value, unit in rows}
+        return {name: (value, canonical(unit)) for name, value, unit in rows}
 
     def save_session_manifest(self, session_id: int, manifest: dict) -> None:
         """Store the session's manifest once; a second save raises ValueError."""
@@ -640,7 +642,7 @@ class Database:
             # Load results
             r_where = "AND is_test = 0" if not include_test else ""
             cursor.execute(
-                f"SELECT benchmark_name, benchmark_type, score, unit, passed, benchmark_version, is_test, is_manual FROM results WHERE session_id = ? {r_where}",
+                f"SELECT benchmark_name, benchmark_type, score, {unit_sql('unit')} AS unit, passed, benchmark_version, is_test, is_manual FROM results WHERE session_id = ? {r_where}",
                 (session_id,)
             )
             result_rows = cursor.fetchall()
@@ -681,7 +683,7 @@ class Database:
 
         cursor.execute(f"""
             SELECT s.id, s.name, r.benchmark_name, r.benchmark_type, r.score,
-                   r.unit, r.passed, r.benchmark_version, s.created_at,
+                   {unit_sql('r.unit')} AS unit, r.passed, r.benchmark_version, s.created_at,
                    COALESCE(s.is_test, 0) as is_test,
                    COALESCE(s.is_manual, 0) as is_manual,
                    COALESCE(r.is_test, 0) as r_is_test,

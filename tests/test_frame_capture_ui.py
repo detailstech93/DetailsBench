@@ -118,10 +118,10 @@ def test_capture_stores_fps_and_low(qapp, panel):
     assert p.worker.wait(30000)
     qapp.processEvents()
     runs = db.get_runs(p.last_session_id)
-    assert [(r["status"], r["unit"]) for r in runs] == [("completed", "fps")] * 2
+    assert [(r["status"], r["unit"]) for r in runs] == [("completed", "FPS")] * 2
     assert runs[0]["score"] == pytest.approx(1000 * 200 / sum(times))
     metrics = db.get_result_metrics(runs[0]["id"])
-    assert metrics["low_1pct_fps"] == (pytest.approx(25.0), "fps") and metrics["frames"] == (200.0, "frames")
+    assert metrics["low_1pct_fps"] == (pytest.approx(25.0), "FPS") and metrics["frames"] == (200.0, "frames")
     assert len(calls) == 2 and "1% low 25.0" in p.status_label.text()
     manifest = db.get_session_manifest(p.last_session_id)
     assert manifest["benchmarks"][0]["version"] == "2.3.0"

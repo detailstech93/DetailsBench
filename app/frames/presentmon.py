@@ -156,4 +156,4 @@ class FrameCaptureWorkload(Workload):
         metrics = stats_to_metrics(stats)
         metrics.update({"rows_skipped": (float(parsed.rows_skipped), "rows"),
                         "dropped_presents": (float(parsed.dropped), "frames")})
-        return WorkloadResult(status="completed", score=stats.avg_fps, unit="fps", metrics=metrics, **common)
+        return WorkloadResult(status="completed", score=stats.avg_fps, unit="FPS", metrics=metrics, **common)

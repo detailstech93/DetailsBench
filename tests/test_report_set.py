@@ -46,7 +46,7 @@ def test_several_tests_get_a_folder_a_report_each_and_a_summary(tmp_path):
     summary = path.read_text(encoding="utf-8")
     assert "Environment" in summary or "environment" in summary.lower()
     assert '<a href="cinebench_2026_2026-10-20_09-15-30.html">' in summary
-    assert "FAILED" in summary and "exit code 3" in summary and "7,899.2 pts" in summary
+    assert "FAILED" in summary and "exit code 3" in summary and "7,899.2 points" in summary
     assert "11 min 20 s" in summary and "2 <span>of 3</span>" in summary and "12 min 30 s" in summary
 
 
@@ -57,7 +57,7 @@ def test_outcome_counts_runs_and_warmups(tmp_path):
     db.create_result(sid, "t", "cpu", 12.0, unit="pts", run_index=1, duration_seconds=6)
     db.create_result(sid, "t", "cpu", 14.0, unit="pts", run_index=2, duration_seconds=7)
     o = rs.test_outcome(build_session_export(db, sid), "t")
-    assert o["passed"] and o["result"] == "13 pts (average of 2 runs)"
+    assert o["passed"] and o["result"] == "13 points (average of 2 runs)"
     assert o["runs"] == "2 of 2 measured run(s) completed, 1 warm-up" and o["time"] == "18 s"
 
 

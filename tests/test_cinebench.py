@@ -89,7 +89,7 @@ def test_a_run_reads_the_points(tmp_path, monkeypatch):
     monkeypatch.setattr(cinebench.sys, "platform", "win32")
     w = cinebench.CinebenchWorkload("cinebench_2026_single", exe=exe)
     r = w.run(_ctx(tmp_path))
-    assert r.status == "completed" and r.score == 2101.53 and r.unit == "pts"
+    assert r.status == "completed" and r.score == 2101.53 and r.unit == "points"
     assert seen["command"][-2] == "--console-capture" and seen["cwd"] == str(tmp_path)
     assert seen["command"][-1] == cinebench.build_command(str(exe), "g_CinebenchCpu1Test=true")
     assert r.command == [seen["command"][-1]]          # the report shows Maxon's command, not the helper

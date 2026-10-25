@@ -468,7 +468,7 @@ def test_a_built_in_benchmark_is_measured_whole_once_per_launch(tmp_path):
         assert w.result.status == "completed", w.result.error
         assert abs(w.result.score - 1000 / (20 + r)) < 0.2                # the benchmark only, not its menus
         assert abs(w.result.metrics["duration_seconds"][0] - 60) < 0.1
-        assert w.result.metrics["game_avg_fps"] == (48.0, "fps")
+        assert w.result.metrics["game_avg_fps"] == (48.0, "FPS")
         assert "Measured: the game's whole benchmark (60 s" in w.result.note
         assert "Game's own result: Average 48, Minimum 45, Maximum 55 FPS" in w.result.note
 

@@ -133,7 +133,7 @@ def test_runner_stores_telemetry_with_workload_metrics(db, tmp_path):
     rec = summary.records[0]
     metrics = database.get_result_metrics(rec.result_id)
     assert metrics["tel_gpu0_temperature_max"] == (64.0, "C") and metrics["tel_gpu0_temperature_avg"] == (62.0, "C")
-    assert metrics["low_1pct_fps"] == (3.0, "fps")
+    assert metrics["low_1pct_fps"] == (3.0, "FPS")
     assert (rec.run_dir / "telemetry.csv").is_file()
     info = json.loads((rec.run_dir / "telemetry.json").read_text(encoding="utf-8"))
     assert info["unavailable"] == {"lhm": "not running"} and info["samples"] == 2

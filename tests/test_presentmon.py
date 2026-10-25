@@ -48,9 +48,9 @@ def test_completed_capture(tmp_path, exe):
     times = [10.0] * 198 + [50.0, 30.0]
     result = capture(tmp_path, exe, ElevatedOutcome("exited", exit_code=0, duration_seconds=21.0),
                      csv_rows(times=times), calls)
-    assert result.status == "completed" and result.unit == "fps"
+    assert result.status == "completed" and result.unit == "FPS"
     assert result.score == pytest.approx(1000 * 200 / sum(times))
-    assert result.metrics["low_1pct_fps"] == (pytest.approx(25.0), "fps")
+    assert result.metrics["low_1pct_fps"] == (pytest.approx(25.0), "FPS")
     executable, args, cwd, timeout = calls[0]
     assert executable == exe and timeout == 50 and cwd == str(tmp_path)
     assert args == ["--process_name", "game.exe", "--output_file", str(tmp_path / CSV_NAME), "--timed", "20",

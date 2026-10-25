@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from app.library.package import check
+from app.units import canonical
 from app.library.store import open_library
 
 SCHEMA = """
@@ -132,6 +133,7 @@ class LibraryIndex:
             for (text,) in db.execute(query + " ORDER BY created_at", args):
                 pkg = json.loads(text)
                 pkg["deleted"] = gone.get(pkg["package_id"])
+                pkg["test"]["unit"] = canonical(pkg["test"].get("unit"))     # "pts" written before 2026-10-25
                 if include_deleted or not pkg["deleted"]:
                     out.append(pkg)
         return out

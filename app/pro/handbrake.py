@@ -34,7 +34,7 @@ MODES = {
     "handbrake_x264_1080p": ("H.264 (x264), 1080p", "Fast 1080p30", "encode_x264.mp4"),
     "handbrake_x265_1080p": ("H.265 (x265), 1080p", "H.265 MKV 1080p30", "encode_x265.mkv"),
 }
-UNIT = "fps"
+UNIT = "FPS"
 SPEED = re.compile(r"average encoding speed for job is\s+([0-9]+(?:\.[0-9]+)?)\s*fps", re.I)
 VERSION = re.compile(r"\bHandBrake\s+(\d+\.\d+\.\d+)")
 CLIP = "Big Buck Bunny 1080p 30 fps (10:34)"

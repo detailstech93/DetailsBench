@@ -571,7 +571,8 @@ def _vray_section(export: Mapping) -> str:
         "was uploaded.")
 
 
-CINEBENCH_TESTS = (("cinebench_2026", "Multiple Threads", "pts"), ("cinebench_2026_single", "Single Thread", "pts"))
+CINEBENCH_TESTS = (("cinebench_2026", "Multiple Threads", "points"),
+                   ("cinebench_2026_single", "Single Thread", "points"))
 
 
 def _cinebench_section(export: Mapping) -> str:
@@ -625,8 +626,8 @@ def _ycruncher_section(export: Mapping) -> str:
         decimals=3)
 
 
-GPU_TESTS = (("gravitymark_vulkan", "GravityMark, Vulkan", "fps"), ("gravitymark_opengl", "GravityMark, OpenGL", "fps"),
-             ("gravitymark_d3d12", "GravityMark, Direct3D 12", "fps"), ("vkmark", "vkmark (Vulkan)", "points"),
+GPU_TESTS = (("gravitymark_vulkan", "GravityMark, Vulkan", "FPS"), ("gravitymark_opengl", "GravityMark, OpenGL", "FPS"),
+             ("gravitymark_d3d12", "GravityMark, Direct3D 12", "FPS"), ("vkmark", "vkmark (Vulkan)", "points"),
              ("glmark2", "glmark2 (OpenGL)", "points"))
 
 
@@ -640,8 +641,8 @@ def _gpu_bench_section(export: Mapping) -> str:
         decimals=1)
 
 
-HANDBRAKE_TESTS = (("handbrake_x264_1080p", "H.264 (x264), 1080p", "fps"),
-                   ("handbrake_x265_1080p", "H.265 (x265), 1080p", "fps"))
+HANDBRAKE_TESTS = (("handbrake_x264_1080p", "H.264 (x264), 1080p", "FPS"),
+                   ("handbrake_x265_1080p", "H.265 (x265), 1080p", "FPS"))
 
 
 def _handbrake_section(export: Mapping) -> str:

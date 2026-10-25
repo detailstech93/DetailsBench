@@ -99,8 +99,8 @@ def test_averages_leave_out_warmups_and_failures(db, tmp_path):
     summary = AutomationRunner(database, sid, [PlanItem(wl, repetitions=4, warmup_runs=1)], tmp_path).run()
     assert len(summary.records) == 5
     avg = plan_averages(database.get_runs(sid))["tool_a"]
-    assert avg["count"] == 3 and avg["mean"] == 12.0 and avg["unit"] == "pts" and round(avg["cv_percent"], 1) == 16.7
-    assert averages_text({"tool_a": avg}) == "tool_a: mean 12 pts over 3 run(s), CV 16.7%"
+    assert avg["count"] == 3 and avg["mean"] == 12.0 and avg["unit"] == "points" and round(avg["cv_percent"], 1) == 16.7
+    assert averages_text({"tool_a": avg}) == "tool_a: mean 12 points over 3 run(s), CV 16.7%"
 
 
 def test_database_error_ends_the_plan_but_keeps_it_resumable(db, tmp_path):

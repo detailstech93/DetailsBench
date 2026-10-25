@@ -155,10 +155,10 @@ def test_stats_to_metrics_constant_capture():
     stats = compute_frame_stats([10.0] * 100)
     metrics = stats_to_metrics(stats)
 
-    assert metrics["avg_fps"] == (100.0, "fps")
-    assert metrics["low_1pct_fps"] == (100.0, "fps")
-    assert metrics["low_01pct_fps"] == (100.0, "fps")
-    assert metrics["p99_fps"] == (100.0, "fps")
+    assert metrics["avg_fps"] == (100.0, "FPS")
+    assert metrics["low_1pct_fps"] == (100.0, "FPS")
+    assert metrics["low_01pct_fps"] == (100.0, "FPS")
+    assert metrics["p99_fps"] == (100.0, "FPS")
     assert metrics["p99_frametime_ms"] == (10.0, "ms")
     assert metrics["median_frametime_ms"] == (10.0, "ms")
     assert metrics["min_frametime_ms"] == (10.0, "ms")
@@ -177,7 +177,7 @@ def test_stats_to_metrics_single_frame_omits_stdev():
     assert "stdev_frametime_ms" not in metrics
     assert metrics["frames"] == (1.0, "frames")
     assert metrics["invalid_frames"] == (0.0, "frames")
-    assert metrics["avg_fps"] == (100.0, "fps")
+    assert metrics["avg_fps"] == (100.0, "FPS")
     assert metrics["duration_seconds"] == (0.01, "s")
 
 

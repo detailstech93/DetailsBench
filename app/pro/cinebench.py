@@ -34,7 +34,7 @@ MODES = {
     "cinebench_2026": ("Multiple Threads", "g_CinebenchCpuXTest=true"),
     "cinebench_2026_single": ("Single Thread", "g_CinebenchCpu1Test=true"),
 }
-UNIT = "pts"
+UNIT = "points"
 # how long one test takes, for the progress bar only (an estimate: Maxon's minimum duration of 10 min plus loading
 # and the last pass; on the owner's PC 11.3 min Multiple Threads and 12.7 min Single Thread, 2026-10-19)
 EXPECTED_SECONDS = 720

@@ -38,12 +38,12 @@ def test_same_pc_earlier_sessions_are_compared_and_others_left_out(tmp_path):
     now = session(db, [110.0, 110.0])
     export = build_session_export(db, now)
     rows = export["earlier"]
-    assert [r["benchmark"] for r in rows] == ["tool_a"] and rows[0]["unit"] == "pts"
+    assert [r["benchmark"] for r in rows] == ["tool_a"] and rows[0]["unit"] == "points"   # saved as "pts", read with the one spelling
     assert [e["session_id"] for e in rows[0]["earlier"]] == [second, first]
     assert round(rows[0]["compare"]["delta_percent"], 2) == 4.76 and rows[0]["compare"]["status"] == "ok"
     html = _earlier_section(export)
     assert "<h2>Compared with earlier runs on this PC</h2>" in html and "+4.8%" in html
-    assert "105.00 pts" in html and "101.00" in html and "50.00" not in html
+    assert "105.00 points" in html and "101.00" in html and "50.00" not in html
     first_export = build_session_export(db, first)
     assert first_export["earlier"] == [] and _earlier_section(first_export) == ""
 

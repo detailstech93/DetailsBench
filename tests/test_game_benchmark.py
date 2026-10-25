@@ -102,7 +102,7 @@ def test_one_recording_becomes_warmup_and_measured_windows(tmp_path):
     assert "--terminate_on_proc_exit" in args and "--process_id" not in args
     assert [(w.is_warmup, w.run_index) for w in cap.windows] == [(True, 0), (False, 1), (False, 2)]
     for w in cap.windows:
-        assert w.result.status == "completed" and abs(w.result.score - 20.0) < 1e-6 and w.result.unit == "fps"
+        assert w.result.status == "completed" and abs(w.result.score - 20.0) < 1e-6 and w.result.unit == "FPS"
     assert [w.result.metrics["window_start_s"][0] for w in cap.windows] == [10.0, 30.0, 50.0]
     assert fakes.closed == [[7]] and cap.message.endswith("; game closed (Game.exe)")
 
