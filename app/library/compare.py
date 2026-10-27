@@ -18,6 +18,37 @@ from app.library import view
 LOWER_IS_BETTER = {"s", "sec", "seconds", "ms", "min", "minutes"}       # time to finish: less is faster
 SKIP_KINDS = {"info", "stress"}                                          # text and load checks: no score to line up
 SET_ASIDE = ("WSL", "virtual machine", "emulated", "on battery")        # never in a ranking (owner, 2026-10-21)
+# A stress test is compared by the power it drew (owner, 2026-10-27): its own score is a load check. No part is
+# "best" there: less power can be thriftier or held back by a lower limit.
+POWER = (("tel_cpu_package_power_avg", "CPU power, average"), ("tel_cpu_package_power_max", "CPU power, peak"),
+         ("tel_gpu0_power_avg", "GPU power, average"), ("tel_gpu0_power_max", "GPU power, peak"))
+TOTAL = "CPU + GPU power, average"      # peaks are not added: the CPU's and the GPU's need not come at one moment
+
+
+def _metric(p: Mapping, name: str) -> Optional[float]:
+    value = (((p["result"].get("metrics") or {}).get(name)) or {}).get("mean")
+    return value if isinstance(value, (int, float)) else None
+
+
+def power(results: List[Mapping]) -> List[Mapping]:
+    """The results, each stress test followed by one result per power reading it has (in memory only)."""
+    out = []
+    for p in results:
+        out.append(p)
+        if p["attribution"].get("kind") != "stress" or p.get("deleted"):
+            continue
+        values = [(label, _metric(p, name)) for name, label in POWER]
+        cpu, gpu = values[0][1], values[2][1]
+        if cpu is not None and gpu is not None:
+            values.append((TOTAL, cpu + gpu))
+        for label, value in values:
+            if value is None:
+                continue
+            q = dict(p, attribution=dict(p["attribution"], kind="power", test_id=f"{_test_key(p)[0]}:{label}"),
+                     test=dict(p["test"], name=f"{_test_name(p)}: {label}", unit="W", no_best=True),
+                     result=dict(p["result"], mean=value, noisy=False))
+            out.append(q)
+    return out
 
 
 def lower_is_better(unit: Optional[str]) -> bool:
@@ -84,6 +115,7 @@ def compare(results: List[Mapping], part_keys: List[str], names: Optional[Mappin
     """{"parts": [{key, name}], "rows": [...]}. Each row is one test on one OS: its result per part (None where the
     part has none), the % difference to the first part, the best part, and notes. Tests all parts have come first."""
     names = names or {}
+    results = power(results)
     parts, chosen = [], {}
     for key in part_keys:
         mine = [p for p in results if p["attribution"]["part_key"] == key]
@@ -97,6 +129,7 @@ def compare(results: List[Mapping], part_keys: List[str], names: Optional[Mappin
 
 def os_compare(results: List[Mapping], part_key: str, names: Optional[Mapping[str, str]] = None) -> dict:
     """One part's Windows results against its Linux ones, test by test (owner, 2026-10-24)."""
+    results = power(results)
     mine = [p for p in results if p["attribution"]["part_key"] == part_key]
     if not mine:
         return {"mode": "os", "parts": [], "rows": []}
@@ -115,6 +148,7 @@ def os_compare(results: List[Mapping], part_key: str, names: Optional[Mapping[st
 def drivers_compare(results: List[Mapping], part_key: str, names: Optional[Mapping[str, str]] = None) -> dict:
     """One part on each driver (or firmware, browser) it was tested with, oldest first: the difference is against
     the oldest, so a drop after an update shows as a minus."""
+    results = power(results)
     mine = [p for p in results if p["attribution"]["part_key"] == part_key]
     if not mine:
         return {"mode": "drivers", "title": "", "parts": [], "rows": []}
@@ -140,7 +174,7 @@ def drivers_compare(results: List[Mapping], part_key: str, names: Optional[Mappi
 def tests(results: List[Mapping]) -> List[tuple]:
     """[(test key, 'name (OS)')] of every test with a score, for the ranking list."""
     out = {}
-    for p in results:
+    for p in power(results):
         if _scorable(p):
             key = _test_key(p)
             out.setdefault(key, f"{_test_name(p)} ({key[1] or 'OS not recorded'})")
@@ -151,6 +185,7 @@ def ranking(results: List[Mapping], test_key: tuple, names: Optional[Mapping[str
     """Every part with a result of the test on that OS, best first (its newest driver). Results run in WSL, a VM,
     emulated or on battery are set aside, and counted."""
     names = names or {}
+    results = power(results)
     by_part: Dict[str, List[Mapping]] = {}
     aside = 0
     for p in results:
@@ -211,11 +246,12 @@ def _rows(parts: List[dict], chosen: Mapping[str, Mapping[tuple, Mapping]]) -> L
             notes.append("other settings: not the same test")
         valued = [m for m in means if m is not None]
         best = None
-        if len(valued) > 1:
+        if len(valued) > 1 and not first["test"].get("no_best"):
             target = min(valued) if lower else max(valued)
             best = means.index(target)
         rows.append({"test": _test_name(first), "os": test_key[1], "unit": test_key[2], "lower_is_better": lower,
                      "group": first["test"].get("group") or "", "cells": cells, "best": best,
+                     "no_best": bool(first["test"].get("no_best")),
                      "all": len(valued) == len(parts), "notes": notes})
     rows.sort(key=lambda r: (not r["all"], r["test"].lower(), r["os"]))
     return rows
@@ -249,7 +285,8 @@ def report_html(result: Mapping, now: Optional[str] = None) -> str:
                         f'<span class="track"><span class="bar{best}" style="width:{width:.1f}%"></span></span>'
                         f'<span class="val">{_e(cell["text"])} {_e(row["unit"])}{diff}</span>'
                         f'<span class="detail">{_e(detail)}</span></div>')
-        better = "lower is better" if row["lower_is_better"] else "higher is better"
+        better = ("power drawn: no best" if row.get("no_best") else
+                  "lower is better" if row["lower_is_better"] else "higher is better")
         notes = "".join(f"<li>{_e(n)}</li>" for n in row["notes"])
         blocks.append(f'<section><h2>{_e(row["test"])}<span class="os">{_e(row["os"] or "OS not recorded")}'
                       f' &middot; {better}</span></h2>{"".join(bars)}'

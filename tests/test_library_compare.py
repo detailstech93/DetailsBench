@@ -251,3 +251,21 @@ def test_screen_drivers_ranking_and_filters(qapp, tmp_path):
     assert gpus is not None and [tab.rank_test.itemText(i) for i in range(tab.rank_test.count())] == ["Bench (Linux)"]
     tab.kind_filter.setCurrentIndex(tab.kind_filter.findData("laptop"))
     assert tab.rank_test.count() == 0 and not tab.rank_btn.isEnabled()
+
+
+def test_stress_is_compared_by_power_with_no_best():
+    def stress(part, cpu, gpu):
+        p = pkg(part, "stress_cpu_gpu", 90.0, unit="%", kind="stress", name="Stress CPU+GPU")
+        p["result"]["metrics"] = {"tel_cpu_package_power_avg": {"mean": cpu}, "tel_cpu_package_power_max": {"mean": cpu + 50},
+                                  "tel_gpu0_power_avg": {"mean": gpu}}
+        return p
+    results = [stress("a", 60.0, 150.0), stress("b", 80.0, 120.0)]
+    rows = compare.compare(results, ["a", "b"])["rows"]
+    assert [r["test"] for r in rows] == ["Stress CPU+GPU: CPU + GPU power, average", "Stress CPU+GPU: CPU power, average",
+                                         "Stress CPU+GPU: CPU power, peak", "Stress CPU+GPU: GPU power, average"]
+    assert [c["mean"] for c in rows[0]["cells"]] == [210.0, 200.0]
+    assert all(r["best"] is None and r["no_best"] for r in rows)
+    assert "power drawn: no best" in compare.report_html({"title": "t", "parts": [], "rows": rows})
+    key = ("stress_cpu_gpu:CPU + GPU power, average", "Windows", "W")
+    assert key in dict(compare.tests(results))
+    assert [p["name"] for p in compare.ranking(results, key)["parts"]] == ["A", "B"]

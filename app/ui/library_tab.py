@@ -417,8 +417,8 @@ class LibraryTab(QWidget):
         if row:
             for n, (part, cell, pc) in enumerate(zip(result["parts"], row["cells"], result["pcs"]), 1):
                 item = QTreeWidgetItem([str(n), part["name"], f"{cell['text']} {row['unit']}".strip(),
-                                        "best" if n == 1 else (f"{cell['diff']:+.1f}%" if cell["diff"] is not None
-                                                               else "-"),
+                                        ("-" if row.get("no_best") else "best") if n == 1 else
+                                        (f"{cell['diff']:+.1f}%" if cell["diff"] is not None else "-"),
                                         cell["accuracy"], cell["software"], cell["variant"], pc, cell["date"]])
                 for c in range(len(RANK_COLUMNS)):
                     item.setToolTip(c, item.text(c))
