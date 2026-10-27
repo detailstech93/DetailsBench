@@ -209,7 +209,7 @@ def _readings_rows(extra: Mapping) -> list:
 # (chart title, [series names], unit shown): the charts of a stress test, from its stored series
 STRESS_CHARTS = (
     ("Work done each second (stability)", ("cpu_work", "gpu_work"), "%"),
-    ("Power", ("tel_cpu_package_power", "tel_gpu0_power"), "W"),
+    ("Power", ("tel_cpu_package_power", "tel_gpu0_power", "tel_plug_power"), "W"),
     ("Temperature", ("tel_cpu_temperature_hottest", "tel_gpu0_temperature"), "\u00b0C"),
     ("Clock", ("tel_cpu_core_clock_avg", "tel_cpu_clock_avg", "tel_gpu0_sm_clock"), "MHz"),
     ("Load", ("tel_cpu_load", "tel_gpu0_load"), "%"),
@@ -219,12 +219,13 @@ GAME_CHARTS = (
     ("Frames per second", ("fps",), "FPS"),
     ("Load", ("tel_cpu_load", "tel_gpu0_load"), "%"),
     ("Temperature", ("tel_cpu_temperature_hottest", "tel_gpu0_temperature"), "°C"),
-    ("Power", ("tel_cpu_package_power", "tel_gpu0_power"), "W"),
+    ("Power", ("tel_cpu_package_power", "tel_gpu0_power", "tel_plug_power"), "W"),
     ("Clock", ("tel_cpu_core_clock_avg", "tel_cpu_clock_avg", "tel_gpu0_sm_clock"), "MHz"),
     ("Graphics card memory (VRAM) used", ("tel_gpu0_vram_used", "tel_gpumem0_dedicated"), "GiB"),
     ("RAM used", ("tel_ram_used_gib",), "GiB"),
 )
 SERIES_NAMES = {"fps": "each second of the last measured run", "cpu_work": "CPU", "gpu_work": "GPU", "tel_cpu_package_power": "CPU", "tel_gpu0_power": "GPU",
+                "tel_plug_power": "whole device (plug)",
                 "tel_cpu_temperature_hottest": "CPU (hottest core)", "tel_gpu0_temperature": "GPU",
                 "tel_cpu_core_clock_avg": "CPU", "tel_cpu_clock_avg": "CPU", "tel_gpu0_sm_clock": "GPU",
                 "tel_cpu_load": "CPU", "tel_gpu0_load": "GPU", "tel_gpu0_vram_used": "GPU",

@@ -426,8 +426,17 @@ def _provisioned_lhm_settings() -> dict:
     return lhm_provision.read_settings(exe).settings if exe else {}
 
 
+def _plug_sources() -> list:
+    """The smart plug picked on this PC (app/telemetry/home_assistant.py); none when not set up."""
+    from app.paths import get_data_dir
+    from app.telemetry.home_assistant import PlugSource, settings
+    url, token, entity = settings(get_data_dir())
+    return [PlugSource(url, token, entity)] if url and token and entity else []
+
+
 def default_sources(platform_name: str = sys.platform) -> list:
     sources = [PsutilSource(platform_name=platform_name), NvidiaSmiSource(), GpuMemorySource(platform_name)]
+    sources += _plug_sources()
     if platform_name == "win32":
         sources.append(LhmSource(settings=_provisioned_lhm_settings))
     elif platform_name.startswith("linux"):

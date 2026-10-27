@@ -151,3 +151,10 @@ def _no_real_data_folder(monkeypatch, tmp_path):
     2026-10-20). Here the data folder is the test's own; tests of the folder rules pass their own env."""
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "localappdata"))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
+
+
+@pytest.fixture(autouse=True)
+def _no_real_plug(monkeypatch):
+    """A smart plug picked on this computer (app/telemetry/home_assistant.py) is never read in tests."""
+    from app.telemetry import sources
+    monkeypatch.setattr(sources, "_plug_sources", lambda: [])

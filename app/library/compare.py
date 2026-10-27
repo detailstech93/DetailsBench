@@ -21,7 +21,9 @@ SET_ASIDE = ("WSL", "virtual machine", "emulated", "on battery")        # never 
 # A stress test is compared by the power it drew (owner, 2026-10-27): its own score is a load check. No part is
 # "best" there: less power can be thriftier or held back by a lower limit.
 POWER = (("tel_cpu_package_power_avg", "CPU power, average"), ("tel_cpu_package_power_max", "CPU power, peak"),
-         ("tel_gpu0_power_avg", "GPU power, average"), ("tel_gpu0_power_max", "GPU power, peak"))
+         ("tel_gpu0_power_avg", "GPU power, average"), ("tel_gpu0_power_max", "GPU power, peak"),
+         ("tel_plug_power_avg", "whole device power (plug), average"),
+         ("tel_plug_power_max", "whole device power (plug), peak"))
 TOTAL = "CPU + GPU power, average"      # peaks are not added: the CPU's and the GPU's need not come at one moment
 
 

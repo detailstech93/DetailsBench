@@ -106,11 +106,15 @@ class ThisPcPage(QWidget):
         row = QHBoxLayout()
         self.copy_btn = QPushButton("Copy specs")
         self.copy_btn.clicked.connect(self.copy_specs)
+        self.plug_btn = QPushButton("Whole device power (smart plug)...")
+        self.plug_btn.setToolTip("Read this PC's power from a smart plug through Home Assistant, with every test.")
+        self.plug_btn.clicked.connect(self.choose_plug)
         self.tests_btn = QPushButton("Choose tests  →")
         self.tests_btn.setMinimumHeight(40)
         self.tests_btn.setStyleSheet("QPushButton { font-size: 14px; font-weight: bold; padding: 6px 24px; }")
         self.tests_btn.clicked.connect(self.choose_tests.emit)
         row.addWidget(self.copy_btn)
+        row.addWidget(self.plug_btn)
         row.addStretch(1)
         row.addWidget(self.tests_btn)
         layout.addLayout(row)
@@ -152,6 +156,11 @@ class ThisPcPage(QWidget):
                 box.addWidget(value)
             box.addStretch(1)
             self.grid.addWidget(card, i // 3, i % 3)
+
+    def choose_plug(self) -> None:
+        from app.paths import get_data_dir
+        from app.ui.plug_dialog import PlugDialog
+        PlugDialog(get_data_dir(), self).exec()
 
     def copy_specs(self) -> str:
         text = specs_text(self.cards())

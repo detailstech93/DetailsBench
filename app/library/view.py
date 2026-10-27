@@ -85,6 +85,8 @@ def stress_text(pkg: Mapping) -> str:
         if mean(f"{temp}_max") is not None:
             bits.append(f"{mean(f'{temp}_max'):.0f} C max")
         out.append(side.upper() + " " + ", ".join(bits))
+    if mean("tel_plug_power_avg") is not None:
+        out.append(f"whole device {mean('tel_plug_power_avg'):.0f} W avg / {mean('tel_plug_power_max'):.0f} W max")
     minutes = (pkg["test"].get("settings") or {}).get("stress_minutes")
     return (f"{minutes:g} min: " if minutes else "") + ("; ".join(out) or "no load numbers")
 
