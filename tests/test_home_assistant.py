@@ -75,3 +75,10 @@ def test_part_results_show_the_whole_device_power():
            "result": {"metrics": {"cpu_stability": {"mean": 99.0}, "tel_plug_power_avg": {"mean": 310.2},
                                   "tel_plug_power_max": {"mean": 355.0}}}}
     assert view.stress_text(pkg) == "CPU 99.0% stable; whole device 310 W avg / 355 W max"
+
+
+def test_report_table_has_the_plug_row_only_when_read():
+    from app.report import _readings_rows
+    with_plug = "".join(_readings_rows({"tel_plug_power_avg": {"mean": 310.4}, "tel_plug_power_max": {"max": 355.0}}))
+    assert "Whole device power (smart plug)</td><td>310 W</td><td>355 W" in with_plug
+    assert "smart plug" not in "".join(_readings_rows({}))

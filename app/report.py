@@ -106,6 +106,7 @@ def _whole(value: Any) -> Optional[int]:
 
 
 # (label, telemetry key, unit shown): what the game section reports about the PC during the benchmark
+PLUG = "Whole device power (smart plug)"     # only where a plug is set up: no "not measured" row elsewhere
 GAME_READINGS = (
     ("CPU load", ("cpu_load",), "%"),
     ("CPU temperature", ("cpu_temperature_hottest",), "\u00b0C"),
@@ -116,6 +117,7 @@ GAME_READINGS = (
     ("GPU power", ("gpu0_power",), "W"),
     ("GPU clock", ("gpu0_sm_clock",), "MHz"),
     ("GPU memory clock", ("gpu0_mem_clock",), "MHz"),
+    (PLUG, ("plug_power",), "W"),
     ("RAM used", ("ram_used",), "%"),
     ("RAM used (amount)", ("ram_used_gib",), "GiB"),
     ("Graphics card memory (VRAM) used", ("gpu0_vram_used_pct", "gpumem0_dedicated_pct"), "%"),
@@ -197,6 +199,8 @@ def _readings_rows(extra: Mapping) -> list:
         else:
             avg, top = _whole(avg), _whole(top)
         if avg is None and top is None:
+            if label == PLUG:
+                continue
             rows.append(f'<tr><td>{label}</td><td colspan="2" class="muted">not measured (no reading '
                         "in this run)</td></tr>")
             continue
