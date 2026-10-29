@@ -98,7 +98,7 @@ def test_read_settings_on_example():
         "upscaler": "DLSS Balanced",
         "dlss_mode": "Balanced",
         "dynamic_resolution": False,
-        "frame_gen": "DLSS",
+        "frame_gen": "Custom",                   # no FSR frame generation switch in this file
         "dlss_frame_gen": True,
         "multi_frame_gen": "x4",
         "ray_tracing": "Custom",                 # ray tracing on, but not as one of the game's levels
@@ -133,7 +133,6 @@ def test_observed_indices_lists_dynamic_but_not_static():
         "vsync": {"UI-Settings-Video-QualitySetting-Off": 0},
         "preset": {"Custom": 0},
         "dlss_mode": {"Balanced": 3},
-        "frame_gen": {"DLSS": 1},
     }
 
 

@@ -26,7 +26,6 @@ SETTINGS: Dict[str, Tuple[str, str]] = {
     "dlss_mode": ("/graphics/presets", "DLSS"),
     "texture_quality": ("/graphics/presets", "TextureQuality"),
     "dynamic_resolution": ("/graphics/presets", "DynamicResolutionScaling"),
-    "frame_gen": ("/graphics/presets", "FrameGeneration"),
     "dlss_frame_gen": ("/graphics/presets", "DLSSFrameGen"),
     "multi_frame_gen": ("/graphics/presets", "DLSS_MultiFrameGeneration"),
     "rt_lighting": ("/graphics/raytracing", "RayTracedLighting"),
@@ -78,13 +77,22 @@ RT_LEVELS: Dict[str, tuple] = {"Off": (False, False, False, False, "Off", False)
                                "Low": (True, False, False, True, "Off", False),
                                "Medium": (True, False, True, True, "Medium", False),
                                "Ultra": (True, True, True, True, "Ultra", False)}
+# Frame generation follows the upscaler (FSR's read with the owner 2026-10-29, DLSS's from the owner's own file):
+# choosing FrameGeneration alone took DLSS's switch with FSR. XeSS's runs on Intel Arc only (presets.frame_gens_for).
+FRAME_GEN_OPTIONS = tuple(("/graphics/presets", n) for n in ("FrameGeneration", "DLSSFrameGen", "FSR3_FrameGeneration",
+                                                               "DLSS_MultiFrameGeneration"))
+FRAME_GENS: Dict[str, tuple] = {"Off": ("Off", False, False, None)}
+FRAME_GENS.update({f"DLSS {x}": ("DLSS", True, False, x) for x in ("x2", "x3", "x4")})
+FRAME_GENS["FSR x2"] = ("FSR3", False, True, None)
 # positions in the lists the game builds at runtime (no "values" in the file)
-INDEX = {"ResolutionScaling": {"Off": 0, "DLSS": 1, "FSR2": 2, "XeSS": 3},
+INDEX = {"FrameGeneration": {"Off": 0, "DLSS": 1, "FSR3": 2},
+         "DLSS_MultiFrameGeneration": {"x4": 3},   # shortcut: x2 / x3 not read yet in this game version, read them
+                  "ResolutionScaling": {"Off": 0, "DLSS": 1, "FSR2": 2, "XeSS": 3},
          "DLSS": {"Quality": 2, "Balanced": 3, "Performance": 4, "Ultra Performance": 5},
          "FSR2": {"Quality": 1, "Balanced": 2, "Performance": 3},
          "XESS": {"Quality": 2, "Balanced": 3, "Performance": 4, "Ultra Performance": 5}}
 WHOLE = {"preset": (PRESET_OPTIONS, PRESETS), "upscaler": (UPSCALER_OPTIONS, UPSCALERS),
-         "ray_tracing": (RT_OPTIONS, RT_LEVELS)}
+         "ray_tracing": (RT_OPTIONS, RT_LEVELS), "frame_gen": (FRAME_GEN_OPTIONS, FRAME_GENS)}
 
 
 @dataclass(frozen=True)

@@ -143,6 +143,11 @@ def _rdr2_upscaler_mode(choice: str, offered: list) -> Optional[object]:
     return None
 
 
+def _upscaler_frame_gen(choice: str, offered: list) -> Optional[object]:
+    """"fsr x2" -> FSR x2 (one setting holds the upscaler's frame generation and its count); off is Off."""
+    return _exact_text("off", offered) if choice.endswith(" off") else _rdr2_upscaler_mode(choice, offered)
+
+
 def _sottr_ray_tracing(choice: str, offered: list) -> Optional[object]:
     """Its ray traced shadows Off / Medium / High / Ultra; on is Ultra (the most ray tracing work)."""
     return _exact_text("ultra" if choice == "on" else choice, offered)
@@ -169,8 +174,7 @@ GAME_TARGETS: Dict[str, Dict[str, Target]] = {
         "upscaler": Target(("upscaler",), _rdr2_upscaler),
         "upscaler_mode": Target(("upscaler",), _rdr2_upscaler_mode, with_upscaler=True),
         "ray_tracing": Target(("ray_tracing",), _sottr_ray_tracing),
-        "frame_gen": Target(("frame_gen", "dlss_frame_gen", "multi_frame_gen"), _frame_gen,
-                            when_off=("multi_frame_gen",)),
+        "frame_gen": Target(("frame_gen",), _upscaler_frame_gen, with_upscaler=True),
         "quality": Target(("preset",), _exact_text),
     },
     "397540": {    # Borderlands 3

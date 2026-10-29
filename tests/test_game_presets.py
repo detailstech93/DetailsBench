@@ -1,4 +1,4 @@
-from app.games.presets import (GamePreset, NO_SETTING, NOT_SEEN, describe, plan_preset, resolutions_offered,
+from app.games.presets import (KEEP, GamePreset, NO_SETTING, NOT_SEEN, describe, plan_preset, resolutions_offered,
                                summary_lines)
 
 CYBERPUNK = {"resolution": ["2560x1440"], "preset": ["Custom", "Low", "Ultra"], "upscaler": ["Off", "DLSS Quality", "FSR Quality"],
@@ -50,15 +50,15 @@ def test_preset_round_trip_and_resolution_list():
 
 
 def test_frame_generation_on_and_off():
-    offered = dict(CYBERPUNK, frame_gen=["Off", "DLSS"], dlss_frame_gen=[True, False], multi_frame_gen=["x2", "x3", "x4"])
-    assert plan_preset(1091500, GamePreset(frame_gen="x2"), offered) == (
-        {"frame_gen": "DLSS", "dlss_frame_gen": True, "multi_frame_gen": "x2"}, {})
-    assert plan_preset(1091500, GamePreset(frame_gen="x4"), offered)[0]["multi_frame_gen"] == "x4"
-    assert plan_preset(1091500, GamePreset(frame_gen="x3"), dict(offered, multi_frame_gen=["x2"])) ==         ({}, {"frame_gen": NOT_SEEN})                                    # a factor the file does not list
-    assert plan_preset(1091500, GamePreset(frame_gen="off"), offered) == (
-        {"frame_gen": "Off", "dlss_frame_gen": False}, {})               # the multi frame count is left alone
-    assert plan_preset(1091500, GamePreset(frame_gen="x2"), dict(CYBERPUNK, frame_gen=["Off"])) == \
-        ({}, {"frame_gen": NOT_SEEN})                                    # DLSS frame generation never seen
+    offered = dict(CYBERPUNK, frame_gen=["Off", "DLSS x2", "DLSS x3", "DLSS x4", "FSR x2"])
+    fg = lambda up, gen, off=offered: plan_preset(1091500, GamePreset(upscaler=up, upscaler_mode="quality",
+                                                                      frame_gen=gen), off)
+    assert fg("dlss", "x2") == ({"upscaler": "DLSS Quality", "frame_gen": "DLSS x2"}, {})
+    assert fg("fsr", "x2") == ({"upscaler": "FSR Quality", "frame_gen": "FSR x2"}, {})   # FSR's own, not DLSS's
+    assert fg(KEEP, "x4")[0]["frame_gen"] == "DLSS x4"
+    assert fg("dlss", "x3", dict(offered, frame_gen=["Off", "DLSS x2"])) == (
+        {"upscaler": "DLSS Quality"}, {"frame_gen": NOT_SEEN})              # a factor the file does not list
+    assert fg("dlss", "off") == ({"upscaler": "DLSS Quality", "frame_gen": "Off"}, {})
     assert plan_preset(1174180, GamePreset(frame_gen="x2"), RDR2) == ({}, {"frame_gen": NO_SETTING})
     assert describe(GamePreset(frame_gen="x4")) == "Frame generation On, 4x (multi frame)"
     assert GamePreset.from_dict(GamePreset(frame_gen="x3").to_dict()).frame_gen == "x3"
