@@ -60,6 +60,7 @@ MIN_WINDOW_SECONDS = 20
 RESULT_WORDS = ("result", "average", "avg fps", "score")
 RESULT_WAIT_SECONDS = 60.0
 RESULT_LOOK_SECONDS = 2.0
+RESULT_SETTLE_SECONDS = 3.0       # its words show before the results fade in (SOTTR, 2026-10-29): look again
 RESULT_SHOT = "benchmark_result.png"
 CLOSE_SECONDS = 60.0              # closing a game: politely, by force after 30 s (app/frames/game_close.py)
 PASS_GAP_SECONDS = 10.0           # between two runs of a whole benchmark: Steam sees the game closed first
@@ -135,6 +136,7 @@ class GameBenchmarkSpec:
     route: Optional[dict] = None        # keys held and mouse moves during the capture: app/frames/route.py
     steps: Optional[list] = None        # checked menu steps to a built-in benchmark: app/frames/menu_steps.py
     benchmark_seconds: Optional[int] = None     # the built-in benchmark's length after its start mark
+    quit_steps: Optional[list] = None   # menu steps after its window is asked to close (answer "quit?")
     version: Optional[str] = None       # the game's build: Steam's buildid from its appmanifest (app/steam/library)
     relaunches: bool = False            # its first process ends and its launcher starts it again (Far Cry 6)
 
@@ -293,7 +295,14 @@ class GameBenchmark:
                 self.key_notes.append(f"results screen not kept ({error})")
                 return
             seen = None if error else find_word(lines, list(RESULT_WORDS))
-            if seen or self.clock() >= deadline:
+            if seen:
+                self.sleep(RESULT_SETTLE_SECONDS)
+                try:
+                    reader(self._desk(), path)      # the shot kept is this later one
+                except Exception:
+                    pass
+                break
+            if self.clock() >= deadline:
                 break
             self.sleep(RESULT_LOOK_SECONDS)
         if path.is_file():
@@ -347,11 +356,24 @@ class GameBenchmark:
         if not self._started:
             return "; no game process to close"
         self.on_progress(f"Closing {self.spec.game_name}...")
+        from app.frames import game_close
         try:
+            if self.spec.quit_steps and self.closer is game_close.close_game:
+                return "; " + self.closer(self._started, polite=self._close_and_answer)
             return "; " + self.closer(self._started)
         except Exception as e:
             logger.exception("Could not close the game")
             return f"; the game could not be closed ({e}); close it yourself"
+
+    def _close_and_answer(self, pids) -> int:
+        """Ask the game's windows to close, then answer its "quit?" question by its quit steps."""
+        from app.frames import game_close
+        count = game_close.post_close(pids)
+        from app.frames.menu_steps import StepPlayer
+        player = StepPlayer(self.spec.quit_steps, self._desk(), lambda: True, self.shots_dir)
+        player.run()
+        self.key_notes.append("quit: " + player.summary())
+        return count
 
     def _read_csv(self) -> Optional[str]:
         try:

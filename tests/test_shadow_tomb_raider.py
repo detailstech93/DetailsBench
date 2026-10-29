@@ -82,3 +82,27 @@ def test_what_was_written_is_kept_in_the_run_folder(tmp_path):
     forced.apply()
     kept = json.loads((tmp_path / "run" / RECORD_NAME).read_text(encoding="utf-8"))
     assert kept["changed"] == ["dlss"] and kept["requested"] == {"dlss": "Off"}
+
+
+def test_the_dlss_mode_is_chosen_only_with_dlss_on():
+    from app.games import presets
+    offered = sotr.choices(REG, {})
+    assert game_values(750920, offered, "upscaler_mode", list(presets.UPSCALER_MODES[1:])) == [
+        "quality", "balanced", "performance", "ultra_performance"]
+    assert game_values(1091500, None, "upscaler_mode", list(presets.UPSCALER_MODES[1:])) is None
+    on = presets.game_preset("upscaling", "dlss", "off", presets.KEEP, presets.KEEP, presets.KEEP, "performance")
+    assert plan_preset(750920, on, offered)[0] == {"dlss": "Performance"}
+    off = presets.game_preset("raw", "dlss", "off", presets.KEEP, presets.KEEP, presets.KEEP, "performance")
+    assert off.upscaler_mode == presets.KEEP and plan_preset(750920, off, offered)[0] == {"dlss": "Off"}
+    assert presets.GamePreset.from_dict(on.to_dict()) == on
+
+
+def test_the_dialog_offers_only_resolutions_the_screen_has(monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from app.games import presets, screen_modes
+    from app.ui.run_tests import PresetBox
+    monkeypatch.setattr(screen_modes, "resolutions", lambda: {(1280, 720), (1920, 1080)})
+    box = PresetBox([("750920", "SOTTR")], {"750920": (sotr.choices(REG, {}), None)}, presets.GamePreset())
+    combo = box.combos["resolution"]
+    assert [combo.itemData(i) for i in range(combo.count())] == ["1280x720", "1920x1080", presets.KEEP]

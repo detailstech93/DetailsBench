@@ -382,7 +382,7 @@ def test_the_games_results_screen_is_kept_and_the_screen_mode_read(tmp_path):
                         exe_lister=lambda folder: ["Game.exe"], step_player=lambda st: steps,
                         screen_mode=lambda: "2560x1440 at 144 Hz", screen_reader=reader).run()
     shot = tmp_path / "run" / "benchmark_result.png"
-    assert len(reads) == 3 and cap.display_mode == "2560x1440 at 144 Hz"
+    assert len(reads) == 4 and cap.display_mode == "2560x1440 at 144 Hz"     # once more after its words show
     assert {w.result.note for w in cap.windows} == {f"Proof screenshot: {shot}"}
     assert "results screen kept ('result' seen)" in cap.message
     assert all(len(w.frames) > 100 for w in cap.windows if w.result.status == "completed")
@@ -493,3 +493,41 @@ def test_a_run_that_does_not_reach_the_benchmark_ends_the_runs(tmp_path):
     assert fakes.launches == 2 and [w.result.status for w in cap.windows] == ["completed", "invalid", "invalid"]
     assert "did not reach the game's benchmark" in cap.windows[1].result.error
     assert "earlier run did not complete" in cap.windows[2].result.error
+
+
+def test_sottr_answers_its_quit_question_and_the_closer_gets_it():
+    from data.game_start_keys import quit_steps_for
+    from app.frames.game_close import close_game
+    from app.frames.menu_steps import step_problems
+    steps = quit_steps_for(750920)
+    assert steps and not step_problems(steps, marked=False) and steps[0]["click"] == "yes" and quit_steps_for(1174180) is None
+    asked, alive = [], [True]
+
+    def polite(pids):
+        asked.append(pids)
+        alive[0] = False                    # the quit question answered: the game ends
+        return 1
+    from app.frames.game_close import ProcInfo
+    out = close_game({7: ProcInfo(7, 1.0, r"C:\g\SOTTR.exe")}, alive=lambda i: alive[0], polite=polite,
+                     sleep=lambda s: None)
+    assert asked == [[7]] and out == "game closed (SOTTR.exe)"
+
+
+def test_the_quit_steps_play_after_the_window_is_asked_to_close(tmp_path, monkeypatch):
+    from app.frames import game_close, menu_steps
+    played = []
+
+    class Player:
+        def __init__(self, steps, desktop, in_front, folder):
+            played.append(steps)
+        def run(self):
+            played.append("run")
+        def summary(self):
+            return "clicked 'yes'"
+    monkeypatch.setattr(menu_steps, "StepPlayer", Player)
+    monkeypatch.setattr(game_close, "post_close", lambda pids: played.append(("close", pids)) or 1)
+    s = spec(install_path=str(tmp_path), steps=[{"see": "stop", "within": 60, "mark": True}])
+    s.quit_steps = [{"see": "yes", "within": 15, "click": "yes"}]
+    bench = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=False, desktop=object())
+    assert bench._close_and_answer([7]) == 1
+    assert played == [("close", [7]), s.quit_steps, "run"] and bench.key_notes == ["quit: clicked 'yes'"]

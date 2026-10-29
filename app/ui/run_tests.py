@@ -103,14 +103,16 @@ class PresetBox(QGroupBox):
     holds only what the game has (owner, 2026-10-23: no DLSS row value for Far Cry 6; a setting the game lacks has
     no row); one preset for several games offers what any of them has."""
 
-    KEYS = ("mode", "upscaler", "frame_gen", "quality", "resolution", "ray_tracing")
-    NAMES = {"mode": "Mode", "upscaler": "Upscaler", "frame_gen": "Frame generation", "quality": "Quality",
+    KEYS = ("mode", "upscaler", "upscaler_mode", "frame_gen", "quality", "resolution", "ray_tracing")
+    NAMES = {"mode": "Mode", "upscaler": "Upscaler", "upscaler_mode": "Upscaler mode", "frame_gen": "Frame generation", "quality": "Quality",
              "resolution": "Resolution", "ray_tracing": "Ray tracing"}
 
     def __init__(self, games: List[Tuple[str, str]], offered: Offered, initial: "presets.GamePreset",
                  gpu: str = "", parent=None):
         super().__init__("Game settings", parent)
         self.games, self.offered, self.gpu = games, offered, gpu
+        from app.games import screen_modes
+        self.screens = screen_modes.resolutions()    # None: unknown, every resolution offered
         self.per_game: Dict[str, presets.GamePreset] = {app_id: initial for app_id, _ in games}
         self.all_preset = initial
         form = QFormLayout(self)
@@ -199,6 +201,9 @@ class PresetBox(QGroupBox):
         best = presets.recommended_upscaler(self.gpu) if self.gpu else None
         best = best if best in ups else (ups[0] if ups else None)
         self._fill("upscaler", presets.choice_labels(ups, best), p.upscaler if p.upscaler in ups else best)
+        modes_of = self._allowed("upscaler_mode", list(presets.UPSCALER_MODES[1:]))
+        self._fill("upscaler_mode", [(m, presets.LABELS[m]) for m in modes_of or []] +
+                   [(presets.KEEP, "Keep the game's own")], p.upscaler_mode)
         gens = self._frame_gens(self.combos["upscaler"].currentData() or "")
         self._fill("frame_gen", presets.choice_labels(gens, "x2" if "x2" in gens else None),
                    p.frame_gen if p.frame_gen in gens else "x2")
@@ -206,11 +211,15 @@ class PresetBox(QGroupBox):
         quality = self._allowed("quality", list(presets.QUALITIES[1:]))
         self._fill("quality", [(q, presets.LABELS[q]) for q in quality or []] + keep, p.quality)
         res = presets.resolutions_offered([o for o, _ in self.offered.values() if o])
+        from app.games.screen_modes import refusal
+        # owner, 2026-10-29: 2560x1440 was offered on a 1080p screen and the run stayed at 1080p
+        res = [r for r in res if refusal(r, self.screens) is None]
         res = self._allowed("resolution", res[1:])
         self._fill("resolution", [(r, presets.LABELS.get(r, r)) for r in res or []] + keep, p.resolution)
         rt = self._allowed("ray_tracing", list(presets.RAY_TRACING[1:]))
         self._fill("ray_tracing", [(v, presets.LABELS[v]) for v in rt or []] + keep, p.ray_tracing)
         for key, shown in (("mode", has_upscaler), ("upscaler", mode in ("upscaling", "upscaling_fg")),
+                           ("upscaler_mode", mode in ("upscaling", "upscaling_fg") and bool(modes_of)),
                            ("frame_gen", mode == "upscaling_fg"), ("quality", quality is not None),
                            ("resolution", res is not None), ("ray_tracing", rt is not None)):
             self.combos[key].setVisible(shown)
@@ -221,7 +230,7 @@ class PresetBox(QGroupBox):
         if c["mode"] == presets.KEEP:
             return presets.GamePreset(resolution=c["resolution"], quality=c["quality"], ray_tracing=c["ray_tracing"])
         p = presets.game_preset(c["mode"], c["upscaler"] or "off", c["frame_gen"] or "off", c["quality"],
-                                c["resolution"], c["ray_tracing"])
+                                c["resolution"], c["ray_tracing"], c["upscaler_mode"] or presets.KEEP)
         if self._allowed("frame_gen", ["x2"]) is None:     # a game without frame generation: nothing to turn off
             p = dataclasses.replace(p, frame_gen=presets.KEEP)
         return p

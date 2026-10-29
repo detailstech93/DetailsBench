@@ -14,15 +14,20 @@ RESOLUTIONS = (KEEP, "1280x720", "1920x1080", "2560x1440", "3840x2160")
 UPSCALERS = (KEEP, "off", "dlss", "fsr", "xess")
 RAY_TRACING = (KEEP, "off", "medium", "high", "ultra", "on")      # the levels only where the game has them
 FRAME_GEN = (KEEP, "off", "x2", "x3", "x4")      # off, or on with that many frames shown per rendered one
+# how strong the upscaler is (owner, 2026-10-29: DLSS strength); offered only where the game has the mode
+UPSCALER_MODES = (KEEP, "quality", "balanced", "performance", "ultra_performance")
 QUALITIES = (KEEP, "lowest", "low", "medium", "high", "highest", "ultra")
 
 LABELS = {KEEP: "Keep the game's own", "off": "Off", "on": "On", "dlss": "DLSS", "fsr": "FSR", "xess": "XeSS",
           "lowest": "Lowest", "low": "Low", "medium": "Medium", "high": "High", "highest": "Highest", "ultra": "Ultra",
+          "quality": "Quality", "balanced": "Balanced", "performance": "Performance",
+          "ultra_performance": "Ultra Performance",
           "x2": "On, 2x", "x3": "On, 3x (multi frame)", "x4": "On, 4x (multi frame)"}
 # offered only where the game's own list has them (owner, 2026-10-29: Shadow of the Tomb Raider's own presets and
 # ray tracing levels), never as a value "not seen yet"
-GAME_ONLY = {"quality": ("lowest", "highest"), "ray_tracing": ("medium", "high", "ultra")}
-CHOICE_NAMES = {"resolution": "Resolution", "upscaler": "Upscaler", "ray_tracing": "Ray tracing",
+GAME_ONLY = {"quality": ("lowest", "highest"), "ray_tracing": ("medium", "high", "ultra"),
+             "upscaler_mode": UPSCALER_MODES[1:]}
+CHOICE_NAMES = {"resolution": "Resolution", "upscaler": "Upscaler", "upscaler_mode": "Upscaler mode", "ray_tracing": "Ray tracing",
                 "frame_gen": "Frame generation", "quality": "Quality"}
 
 
@@ -33,6 +38,7 @@ class GamePreset:
     ray_tracing: str = KEEP
     quality: str = KEEP
     frame_gen: str = KEEP
+    upscaler_mode: str = KEEP       # last (positional use stays as it was); after upscaler, so its value wins
 
     def chosen(self) -> Dict[str, str]:
         return {k: v for k, v in self.__dict__.items() if v != KEEP}
@@ -43,7 +49,8 @@ class GamePreset:
     @staticmethod
     def from_dict(data) -> "GamePreset":
         data = data if isinstance(data, dict) else {}
-        allowed = {"resolution": RESOLUTIONS, "upscaler": UPSCALERS, "ray_tracing": RAY_TRACING,
+        allowed = {"resolution": RESOLUTIONS, "upscaler": UPSCALERS, "upscaler_mode": UPSCALER_MODES,
+                   "ray_tracing": RAY_TRACING,
                    "frame_gen": FRAME_GEN, "quality": QUALITIES}
         out = {}
         for key, values in allowed.items():
@@ -115,6 +122,11 @@ def _sottr_dlss(choice: str, offered: list) -> Optional[object]:
     return _exact_text({"off": "off", "dlss": "quality"}.get(choice, ""), offered)
 
 
+def _sottr_dlss_mode(choice: str, offered: list) -> Optional[object]:
+    """Its DLSS modes by name: quality -> Quality, ultra_performance -> Ultra Performance."""
+    return _exact_text(choice.replace("_", " "), offered)
+
+
 def _sottr_ray_tracing(choice: str, offered: list) -> Optional[object]:
     """Its ray traced shadows Off / Medium / High / Ultra; on is Ultra (the most ray tracing work)."""
     return _exact_text("ultra" if choice == "on" else choice, offered)
@@ -158,6 +170,7 @@ GAME_TARGETS: Dict[str, Dict[str, Target]] = {
     "750920": {    # Shadow of the Tomb Raider: DLSS, ray traced shadows and presets matched with the owner, 2026-10-29
         "resolution": Target(("resolution",), _exact_text),
         "upscaler": Target(("dlss",), _sottr_dlss),
+        "upscaler_mode": Target(("dlss",), _sottr_dlss_mode),
         "ray_tracing": Target(("ray_tracing",), _sottr_ray_tracing),
         "quality": Target(("preset",), _sottr_quality),
     },
@@ -212,6 +225,8 @@ def plan_preset(app_id, preset: GamePreset, offered: Dict[str, list]) -> Tuple[D
     requested: Dict[str, object] = {}
     skipped: Dict[str, str] = {}
     for choice, value in preset.chosen().items():
+        if choice == "upscaler_mode" and preset.upscaler == "off":
+            continue                    # upscaler off: its mode changes nothing
         target = targets.get(choice)
         if target is None or not any(k in offered for k in target.keys):
             skipped[choice] = _not_in_game(app_id, choice) or NO_SETTING
@@ -382,12 +397,13 @@ def choice_labels(values: Sequence[str], recommended: Optional[str]) -> List[Tup
     return [(v, LABELS.get(v, v) + (RECOMMENDED if v == recommended else "")) for v in values]
 
 
-def game_preset(mode: str, upscaler: str, frame_gen: str, quality: str, resolution: str, ray_tracing: str
-                ) -> GamePreset:
+def game_preset(mode: str, upscaler: str, frame_gen: str, quality: str, resolution: str, ray_tracing: str,
+                upscaler_mode: str = KEEP) -> GamePreset:
     """The page's choices as a preset: raw = upscaler off and no frame generation; upscaling = that upscaler, frame
     generation off; upscaling + frame generation = both."""
     return GamePreset(resolution=resolution, quality=quality, ray_tracing=ray_tracing,
                       upscaler="off" if mode == "raw" else upscaler,
+                      upscaler_mode=KEEP if mode == "raw" else upscaler_mode,
                       frame_gen=frame_gen if mode == "upscaling_fg" else "off")
 
 

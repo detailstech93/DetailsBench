@@ -58,6 +58,8 @@ GAME_MENU_STEPS: Dict[int, dict] = {
             {"see": "fps", "within": 180, "mark": True, "tap": 0.15,
              "again": {"press": "r", "every": 10, "while": "run benchmark"}},
         ],
+        # closing its window asks whether to quit (owner, 2026-10-29: left unanswered, it was closed by force)
+        "quit_steps": [{"see": "yes", "within": 15, "settle": 1, "click": "yes"}],
         "benchmark_seconds": 150,       # about 150 s, then its results screen (MarkBench)
         "verified": False,
         "note": "Options, Display and Graphics, R for the benchmark; measuring starts when its FPS shows. "
@@ -131,6 +133,12 @@ def _menu_entry(app_id) -> dict:
         return GAME_MENU_STEPS.get(int(app_id)) or {}
     except (TypeError, ValueError):
         return {}
+
+
+def quit_steps_for(app_id) -> Optional[list]:
+    """Menu steps played after the game's window is asked to close (a "quit?" question to answer), or None."""
+    steps = _menu_entry(app_id).get("quit_steps")
+    return [dict(s) for s in steps] if steps else None
 
 
 def menu_launch_args(app_id) -> List[str]:

@@ -42,8 +42,8 @@ FRONT_GRACE_SECONDS = 10.0          # the game may lose the front briefly while 
 LOG_NAME = "screen_log.txt"          # what every read saw
 
 
-def step_problems(steps) -> List[str]:
-    """What is wrong in a steps list (empty when usable)."""
+def step_problems(steps, marked: bool = True) -> List[str]:
+    """What is wrong in a steps list (empty when usable). marked False: no start mark needed (quit steps)."""
     from app.simulation.desktop import parse_chord
     out = []
     if not isinstance(steps, list) or not steps:
@@ -69,7 +69,7 @@ def step_problems(steps) -> List[str]:
             out.append(f"step {i}: 'click' needs 'see'")
         if "see" in s and not (isinstance(s.get("within"), (int, float)) and s["within"] > 0):
             out.append(f"step {i}: 'see' needs 'within' seconds")
-    if not any(s.get("mark") for s in steps if isinstance(s, dict)):
+    if marked and not any(s.get("mark") for s in steps if isinstance(s, dict)):
         out.append("no step marks the start of the benchmark")
     return out
 
