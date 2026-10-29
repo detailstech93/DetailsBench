@@ -105,6 +105,21 @@ def _frame_gen(choice: str, offered: list) -> Optional[object]:
     return dlss[0] if dlss else (others[0] if len(others) == 1 else None)
 
 
+def _sottr_dlss(choice: str, offered: list) -> Optional[object]:
+    """Shadow of the Tomb Raider: DLSS on is its Quality mode; it has no FSR, and its XeSS is not matched yet."""
+    return _exact_text({"off": "off", "dlss": "quality"}.get(choice, ""), offered)
+
+
+def _sottr_ray_tracing(choice: str, offered: list) -> Optional[object]:
+    """Its ray traced shadows: on is Ultra (the most ray tracing work), off is Off."""
+    return _exact_text({"on": "ultra", "off": "off"}.get(choice, ""), offered)
+
+
+def _sottr_quality(choice: str, offered: list) -> Optional[object]:
+    """Its presets Lowest..Highest: Ultra is Highest."""
+    return _exact_text("highest" if choice == "ultra" else choice, offered)
+
+
 @dataclass(frozen=True)
 class Target:
     keys: Tuple[str, ...]          # the adapter's setting keys this choice writes (all of them get the same value)
@@ -135,8 +150,11 @@ GAME_TARGETS: Dict[str, Dict[str, Target]] = {
     "391220": {    # Rise of the Tomb Raider
         "resolution": Target(("resolution",), _exact_text),
     },
-    "750920": {    # Shadow of the Tomb Raider: its DLSS, XeSS, ray tracing and quality are unnamed numbers (learned)
+    "750920": {    # Shadow of the Tomb Raider: DLSS, ray traced shadows and presets matched with the owner, 2026-10-29
         "resolution": Target(("resolution",), _exact_text),
+        "upscaler": Target(("dlss",), _sottr_dlss),
+        "ray_tracing": Target(("ray_tracing",), _sottr_ray_tracing),
+        "quality": Target(("preset",), _sottr_quality),
     },
     "292030": {    # The Witcher 3
         "resolution": Target(("resolution",), _exact_text),
@@ -173,7 +191,7 @@ def _not_offered(app_id, keys, offered: Dict[str, list]) -> str:
     try:
         from app.games.settings_file import adapter_for
         settings = getattr(adapter_for(app_id).module, "SETTINGS", {})
-        fixed = [k for k in keys if k in offered and getattr(settings.get(k), "kind", None) == "map"]
+        fixed = [k for k in keys if k in offered and _fixed_list(settings.get(k)) is not None]
     except Exception:
         fixed = []
     if fixed and len(fixed) == len([k for k in keys if k in offered]):
@@ -218,7 +236,16 @@ def _fixed_values(app_id) -> Dict[str, list]:
         settings = getattr(adapter_for(app_id).module, "SETTINGS", {})
     except Exception:
         return {}
-    return {k: [shown for shown, _ in s.values] for k, s in settings.items() if getattr(s, "kind", None) == "map"}
+    return {k: _fixed_list(s) for k, s in settings.items() if _fixed_list(s) is not None}
+
+
+def _fixed_list(setting) -> Optional[list]:
+    """The names of a fixed list: a "map" setting, or a Tomb Raider "named" / "preset" one (kind, names, list)."""
+    if getattr(setting, "kind", None) == "map":
+        return [shown for shown, _ in setting.values]
+    if isinstance(setting, tuple) and len(setting) == 3 and setting[0] in ("named", "preset"):
+        return list(setting[2])
+    return None
 
 
 def game_values(app_id, offered: Optional[Dict[str, list]], choice: str, candidates: Sequence[str]

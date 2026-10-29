@@ -15,7 +15,8 @@ APP_ID = 391220
 LAUNCH_ARGS: List[str] = []
 REGISTRY_KEY = "Software\\Crystal Dynamics\\Rise of the Tomb Raider\\Graphics"
 
-# key -> (kind, registry value names); kind: "bool", "api", "learned" (a number), "resolution"
+# key -> (kind, registry value names[, names]); kind: "bool", "api", "learned" (a number), "resolution",
+# "named" ({menu name: number}, matched with the owner) or "preset" ({preset name: one number per value name})
 SETTINGS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     "resolution": ("resolution", ("FullscreenWidth", "FullscreenHeight")),
     "fullscreen": ("bool", ("Fullscreen",)),
@@ -51,7 +52,7 @@ def _int(data, name) -> Optional[int]:
 
 def read_settings(data, spec=None) -> Dict[str, object]:
     out: Dict[str, object] = {}
-    for key, (kind, names) in (spec or SETTINGS).items():
+    for key, (kind, names, *named) in (spec or SETTINGS).items():
         values = [_int(data, n) for n in names]
         if None in values:
             continue
@@ -63,13 +64,17 @@ def read_settings(data, spec=None) -> Dict[str, object]:
             out[key] = values[0]
         elif kind == "resolution":
             out[key] = f"{values[0]}x{values[1]}"
+        elif kind == "named":
+            out[key] = next((name for name, v in named[0].items() if v == values[0]), values[0])
+        elif kind == "preset":
+            out[key] = next((name for name, v in named[0].items() if list(v) == values), "Custom")
     return out
 
 
 def observed_indices(data, spec=None) -> Dict[str, Dict[str, int]]:
     """Learned numbers and resolutions, as {key: {text: 0}} (JSON keys are text)."""
     now = read_settings(data, spec)
-    return {k: {str(now[k]): 0} for k, (kind, _) in (spec or SETTINGS).items()
+    return {k: {str(now[k]): 0} for k, (kind, *_) in (spec or SETTINGS).items()
             if kind in ("learned", "resolution") and k in now}
 
 
@@ -91,10 +96,12 @@ def _seen(known, key) -> List[str]:
 def choices(data, known, spec=None) -> Dict[str, list]:
     now = read_settings(data, spec)
     out: Dict[str, list] = {}
-    for key, (kind, _) in (spec or SETTINGS).items():
+    for key, (kind, _, *named) in (spec or SETTINGS).items():
         if key not in now:
             continue
-        if kind == "bool":
+        if kind in ("named", "preset"):
+            out[key] = list(named[0])
+        elif kind == "bool":
             out[key] = [True, False]
         elif kind == "api":
             out[key] = list(API)
@@ -126,6 +133,8 @@ def plan(data, desired: Dict[str, object], known, spec=None) -> Tuple[List[Chang
             refused[key] = "not one of: " + ", ".join(API)
         elif kind == "learned" and (not isinstance(want, int) or isinstance(want, bool)):
             refused[key] = "expects a whole number"
+        elif kind in ("named", "preset") and want not in spec[key][2]:
+            refused[key] = "not one of: " + ", ".join(spec[key][2])
         elif kind in ("learned", "resolution") and str(want) not in _seen(known, key):
             refused[key] = NOT_SEEN
         else:
@@ -136,8 +145,12 @@ def plan(data, desired: Dict[str, object], known, spec=None) -> Tuple[List[Chang
 def apply(data, changes: List[Change], spec=None) -> Dict[str, int]:
     out = copy.deepcopy(data)
     for c in changes:
-        kind, names = (spec or SETTINGS)[c.key]
-        if kind == "bool":
+        kind, names, *named = (spec or SETTINGS)[c.key]
+        if kind == "named":
+            out[names[0]] = named[0][c.new]
+        elif kind == "preset":
+            out.update(zip(names, named[0][c.new]))
+        elif kind == "bool":
             out[names[0]] = 1 if c.new else 0
         elif kind == "api":
             out[names[0]] = API[c.new]
