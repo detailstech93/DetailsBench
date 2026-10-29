@@ -116,3 +116,29 @@ def pick_game_process(summary: List[dict], exe_names) -> Optional[Tuple[str, Opt
 
 def first_frame_offset(seen_at_seconds: float, game_seconds_then: float) -> float:
     return seen_at_seconds - game_seconds_then
+
+
+LOADING_FRAME_MS = 200.0        # a frame this long is a loading screen, not a hitch (BL3: 231 ms and 219 ms)
+
+
+def loading_bounds(frametimes_ms: List[float], before_seconds: float,
+                   end_margin_seconds: float = 3.0) -> Tuple[Optional[float], Optional[float]]:
+    """(start, end) in game seconds of a benchmark between two loading frames.
+
+    start is where the last loading frame before `before_seconds` ended; end is end_margin_seconds before
+    the next loading frame ends (the fade back to the menu). Either is None when there is no such frame.
+    """
+    start: Optional[float] = None
+    end: Optional[float] = None
+    running_ms = 0.0
+    for frame_ms in frametimes_ms:
+        running_ms += frame_ms
+        if frame_ms < LOADING_FRAME_MS:
+            continue
+        t = running_ms / 1000.0
+        if t <= before_seconds:
+            start = t
+        elif start is not None:
+            end = t - end_margin_seconds
+            break
+    return start, end

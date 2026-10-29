@@ -118,8 +118,11 @@ GAME_MENU_STEPS: Dict[int, dict] = {
         ],
         "benchmark_seconds": 110,       # "nearly two minutes" (Notebookcheck)
         "results_screen": False,        # it goes back to its menu (owner, 2026-10-29): the shot is its FPS counter
+        # its "fps" was read 44 s after the benchmark began (run of 2026-10-29): measuring starts at the loading
+        # frame before it and stops before the loading frame back to the menu (owner, 2026-10-29)
+        "starts_after_loading": True,
         "verified": False,
-        "note": "Options, Visuals, the Benchmark tab, Start Benchmark; measuring starts when its FPS shows. "
+        "note": "Options, Visuals, the Benchmark tab, Start Benchmark; measuring runs from its loading screen to the next one. "
                 "The benchmark takes about 2 min.",
     },
 }
@@ -155,6 +158,11 @@ def benchmark_seconds_for(app_id) -> Optional[int]:
     """About how long the game's built-in benchmark runs after the step marked as its start, or None."""
     value = _menu_entry(app_id).get("benchmark_seconds")
     return int(value) if isinstance(value, (int, float)) and value > 0 else None
+
+
+def starts_after_loading(app_id) -> bool:
+    """Measuring runs from the loading frame before the marked step to the next one (Borderlands 3)."""
+    return _menu_entry(app_id).get("starts_after_loading") is True
 
 
 def shows_results_for(app_id) -> bool:

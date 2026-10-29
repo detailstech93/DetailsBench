@@ -36,7 +36,7 @@ from app.frames.elevated import run_elevated
 from app.frames.presentmon import CSV_NAME, START_MARGIN_SECONDS, capture_game_args, workload_id_for
 from app.frames.presentmon_csv import parse_presentmon_csv, summarize_processes
 from app.frames.segments import (
-    first_frame_offset, game_seconds, pick_game_process, slice_samples, split_frames, window_bounds,
+    first_frame_offset, game_seconds, loading_bounds, pick_game_process, slice_samples, split_frames, window_bounds,
 )
 from app.frames.stats import compute_frame_stats, stats_to_metrics
 
@@ -598,21 +598,30 @@ class GameBenchmark:
                                + "; a Remote Desktop session records none)" + closed, command=command)
         parsed = parse_presentmon_csv(text, process_id=pick[1])
         windows = spec.windows()
-        mark_shift = 0.0
         frametimes = parsed.frametimes_ms if not parsed.error else []
         recorded = game_seconds(frametimes)
         frame_windows = split_frames(frametimes, windows)
         # the game stops presenting when it is asked to close, so its first frame was `recorded` s earlier
         offset = first_frame_offset(t_close, recorded)
         if t_mark is not None:          # windows count from the benchmark's start, not the game's first frame
-            mark_shift = max(0.0, (t_mark - t0) - offset)
-            windows = [(a + mark_shift, b + mark_shift) for a, b in windows]
+            windows = self._marked_windows(frametimes, windows, max(0.0, (t_mark - t0) - offset))
             frame_windows = split_frames(frametimes, windows)
         sample_windows = slice_samples(tel.samples if tel else [], offset, windows)
         out = self._outcomes(frame_windows, windows, recorded, sample_windows, stopped, steps, command)
         return GameCapture("recorded", f"{recorded:.0f} s of {pick[0]} recorded" + closed, process=pick,
                            windows=out, command=command,
                            telemetry_unavailable=dict(tel.unavailable) if tel else {}, display_mode=self.display_mode)
+
+    def _marked_windows(self, frametimes, windows, mark_shift):
+        """The windows moved to the benchmark's start; for a game whose mark is read late (BL3), its loading frames."""
+        end = None
+        from data.game_start_keys import starts_after_loading
+        if starts_after_loading(self.spec.app_id):
+            start, end = loading_bounds(frametimes, mark_shift)
+            if start is not None and mark_shift - start < self.spec.seconds:     # never an earlier menu load
+                mark_shift = start
+        windows = [(a + mark_shift, b + mark_shift) for a, b in windows]
+        return [(a, min(b, end)) if end is not None and end > a else (a, b) for a, b in windows]
 
     def _outcomes(self, frame_windows, windows, recorded, sample_windows, stopped, steps, command):
         """One WindowOutcome per window: a score only for a usable window of a local (not remote) session."""
@@ -1023,8 +1032,7 @@ class GameBenchmark:
         except OSError:
             offset = 0.0
         if t_mark is not None:          # windows count from the benchmark's start, not the game's first frame
-            mark_shift = max(0.0, (t_mark - t0) - offset)
-            windows = [(a + mark_shift, b + mark_shift) for a, b in windows]
+            windows = self._marked_windows(frametimes, windows, max(0.0, (t_mark - t0) - offset))
             frame_windows = split_frames(frametimes, windows)
         sample_windows = slice_samples(tel.samples if tel else [], offset, windows)
         out = self._outcomes(frame_windows, windows, recorded, sample_windows, stopped, steps, command)
