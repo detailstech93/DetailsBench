@@ -369,7 +369,7 @@ def test_borderlands_3_path(tmp_path):
     assert keys == [parse_chord("enter"),
                     ("mouse", (40, 110)), ("button", True), ("button", False),
                     ("mouse", (40, 10)), ("button", True), ("button", False),
-                    parse_chord("e"), parse_chord("e"), parse_chord("e"),
+                    *[("down", parse_chord("c")), ("up", parse_chord("c"))] * 3,
                     ("mouse", (40, 10)), ("button", True), ("button", False)]
     assert "benchmark started ('fps' seen at 8" in p.summary()
 
