@@ -40,8 +40,8 @@ def read_settings(spec: Dict[str, Setting], get: Callable, data) -> Dict[str, ob
             named = [shown for shown, text in s.values if text == now]
             if named:
                 out[key] = named[0]
-            elif len(s.refs) > 1:
-                out[key] = "/".join(texts)      # a mix with no name yet: shown as it is, and can be changed
+            elif len(s.refs) > 1:            # a mix with no name yet: shown as it is (a long list: Custom), and can be changed
+                out[key] = "/".join(texts) if len(s.refs) <= 3 else "Custom"
         elif s.kind == "learned":
             out[key] = texts[0]
         elif s.kind == "resolution" and all(t.isdigit() for t in texts):

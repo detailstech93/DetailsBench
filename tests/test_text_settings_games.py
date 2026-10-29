@@ -109,3 +109,26 @@ def test_rdr2_dlss_and_fsr_write_their_three_numbers_together():
     odd = data.replace('<dlssIndex value="2" />', '<dlssIndex value="1" />')     # not read with the owner yet
     assert rdr2.read_settings(odd)["upscaler"] == "1/2/0"
     assert [c.new for c in rdr2.plan(odd, {"upscaler": "Off"}, {})[0] if c.key == "upscaler"] == ["Off"]
+
+
+def test_rdr2_preset_sets_every_quality_setting_within_its_range():
+    names = dict(rdr2.PRESETS)
+    assert list(names) == ["Low", "Medium", "High", "Ultra"]
+    refs = [r for r, _, _ in rdr2.PRESET_RANGES]
+    low, ultra, medium = (dict(zip(refs, names[n])) for n in ("Low", "Ultra", "Medium"))
+    assert low["graphics/textureQuality"] == "kSettingLevel_Low" and ultra["graphics/textureQuality"] == "kSettingLevel_Ultra"
+    assert low["graphics/ssao"] == "kSettingLevel_Medium"                     # its lowest is Medium
+    assert ultra["graphics/waterQuality"] == "kSettingLevel_High"             # its highest is High
+    assert (low["graphics/anisotropicFiltering"], medium["graphics/anisotropicFiltering"],
+            ultra["graphics/anisotropicFiltering"]) == ("1", "2", "4")
+    assert medium["advancedGraphics/treeTessellationEnabled"] == "false" and ultra[
+        "advancedGraphics/treeTessellationEnabled"] == "true"
+    assert all(v[-1] == "false" for v in names.values())                        # advanced settings unlocked
+    block = "".join(f"<{r.split('/')[1]}>{t}</{r.split('/')[1]}>" if t.startswith("kSetting")
+                    else f'<{r.split("/")[1]} value="{t}" />' for r, t in zip(refs, names["Ultra"]))
+    graphics = block.split("<shadowSoftShadows>")[0]
+    data = (f"<graphics>{graphics}</graphics><advancedGraphics><locked value=\"true\" />"
+            f"<shadowSoftShadows>{block.split('<shadowSoftShadows>')[1]}</advancedGraphics>")
+    assert rdr2.read_settings(data)["preset"] == "Custom"                       # locked: not one of the four
+    out = rdr2.apply(data, rdr2.plan(data, {"preset": "Low"}, {})[0])
+    assert rdr2.read_settings(out)["preset"] == "Low" and rdr2.verify(out, {"preset": "Low"}) == {}

@@ -3,9 +3,7 @@ from app.games.presets import (GamePreset, NO_SETTING, NOT_SEEN, describe, plan_
 
 CYBERPUNK = {"resolution": ["2560x1440"], "preset": ["Custom", "Low", "Ultra"], "upscaler": ["Off", "DLSS", "FSR 3"],
              "ray_tracing": [True, False], "texture_quality": ["Low", "Medium", "High"]}
-RDR2 = {"resolution": ["2560x1080"],
-        **{k: ["Low", "Medium", "High", "Ultra"] for k in
-           ("texture_quality", "shadow_quality", "lighting_quality", "reflection_quality")}}
+RDR2 = {"resolution": ["2560x1080"], "preset": ["Low", "Medium", "High", "Ultra"]}
 
 
 def test_cyberpunk_choices_become_its_settings():
@@ -21,7 +19,7 @@ def test_values_never_seen_or_missing_settings_are_not_guessed():
     assert requested == {}
     assert skipped == {"resolution": NOT_SEEN, "upscaler": NOT_SEEN, "quality": NOT_SEEN}
     requested, skipped = plan_preset(1174180, GamePreset("keep", "dlss", "on", "high"), RDR2)
-    assert requested == {k: "High" for k in RDR2 if k != "resolution"}      # every quality setting, same level
+    assert requested == {"preset": "High"}          # the game's whole preset (every quality setting at High)
     assert skipped == {"upscaler": NO_SETTING, "ray_tracing": NO_SETTING}
     assert plan_preset(999, GamePreset(quality="low"), {}) == ({}, {"quality": NO_SETTING})
 

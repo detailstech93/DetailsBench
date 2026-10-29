@@ -176,12 +176,11 @@ GAME_TARGETS: Dict[str, Dict[str, Target]] = {
         "resolution": Target(("resolution",), _exact_text),
         "quality": Target(("preset",), _exact_text),
     },
-    "1174180": {   # Red Dead Redemption 2: the four quality settings with Low..Ultra; DLSS / FSR read with the owner
+    "1174180": {   # Red Dead Redemption 2: its whole quality preset Low..Ultra and DLSS / FSR, read with the owner
         "resolution": Target(("resolution",), _exact_text),
         "upscaler": Target(("upscaler",), _rdr2_upscaler),
         "upscaler_mode": Target(("upscaler",), _rdr2_upscaler_mode, with_upscaler=True),
-        "quality": Target(("texture_quality", "shadow_quality", "lighting_quality", "reflection_quality"),
-                          _exact_text),
+        "quality": Target(("preset",), _exact_text),
     },
     "391220": {    # Rise of the Tomb Raider
         "resolution": Target(("resolution",), _exact_text),

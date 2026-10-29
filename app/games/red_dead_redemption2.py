@@ -26,6 +26,66 @@ UPSCALERS = (("Off", ("0", "5", "0")),
              ("DLSS Performance", ("4", "0", "0")), ("DLSS Ultra Performance", ("5", "3", "0")),
              ("FSR Quality", ("0", "5", "1")), ("FSR Balanced", ("0", "5", "2")), ("FSR Performance", ("0", "5", "3")))
 
+# The quality preset: every graphics setting at one level (owner, 2026-10-29: Low must be the game's whole Low, not a
+# few settings). The game's own slider changes with the graphics card (fully left on an RTX 5090 was mostly High), so
+# a level here is fixed instead, as reviewers set it: (setting, its lowest, its highest), read with the owner from the
+# game's menu (every setting lowest, then highest; the highest is the most the game itself wrote that day). Left out:
+# MSAA / FXAA (anti-aliasing the owner keeps), HDR, DLSS / FSR, the API and the slider itself
+PRESET_RANGES = (
+    ("graphics/tessellation", "kSettingLevel_Low", "kSettingLevel_Ultra"),
+    ("graphics/shadowQuality", "kSettingLevel_Low", "kSettingLevel_Ultra"),
+    ("graphics/farShadowQuality", "kSettingLevel_Low", "kSettingLevel_Ultra"),
+    ("graphics/reflectionQuality", "kSettingLevel_Low", "kSettingLevel_Ultra"),
+    ("graphics/mirrorQuality", "kSettingLevel_Low", "kSettingLevel_Ultra"),
+    ("graphics/ssao", "kSettingLevel_Medium", "kSettingLevel_Ultra"),
+    ("graphics/textureQuality", "kSettingLevel_Low", "kSettingLevel_Ultra"),
+    ("graphics/particleQuality", "kSettingLevel_Low", "kSettingLevel_Ultra"),
+    ("graphics/waterQuality", "kSettingLevel_Low", "kSettingLevel_High"),
+    ("graphics/volumetricsQuality", "kSettingLevel_Low", "kSettingLevel_Ultra"),
+    ("graphics/lightingQuality", "kSettingLevel_Low", "kSettingLevel_Ultra"),
+    ("graphics/ambientLightingQuality", "kSettingLevel_Low", "kSettingLevel_Ultra"),
+    ("graphics/anisotropicFiltering", "1", "4"),
+    ("graphics/taa", "kSettingLevel_Low", "kSettingLevel_High"),
+    ("advancedGraphics/shadowSoftShadows", "kSettingLevel_Low", "kSettingLevel_Ultra"),
+    ("advancedGraphics/particleLightingQuality", "kSettingLevel_Low", "kSettingLevel_Medium"),
+    ("advancedGraphics/waterRefractionQuality", "kSettingLevel_Low", "kSettingLevel_High"),
+    ("advancedGraphics/waterReflectionQuality", "kSettingLevel_Low", "kSettingLevel_High"),
+    ("advancedGraphics/waterSimulationQuality", "1", "4"),
+    ("advancedGraphics/waterLightingQuality", "kSettingLevel_Medium", "kSettingLevel_Ultra"),
+    ("advancedGraphics/furDisplayQuality", "kSettingLevel_Medium", "kSettingLevel_High"),
+    ("advancedGraphics/shadowGrassShadows", "kSettingLevel_Low", "kSettingLevel_High"),
+    ("advancedGraphics/worldHeightShadowQuality", "0.000000", "1.000000"),
+    ("advancedGraphics/directionalScreenSpaceShadowQuality", "0.000000", "1.000000"),
+    ("advancedGraphics/scatteringVolumeQuality", "kSettingLevel_Low", "kSettingLevel_Ultra"),
+    ("advancedGraphics/volumetricsRaymarchQuality", "kSettingLevel_Low", "kSettingLevel_Ultra"),
+    ("advancedGraphics/volumetricsLightingQuality", "kSettingLevel_Low", "kSettingLevel_Ultra"),
+    ("advancedGraphics/volumetricsRaymarchResolutionUnclamped", "false", "true"),
+    ("advancedGraphics/terrainShadowQuality", "kSettingLevel_Low", "kSettingLevel_Ultra"),
+    ("advancedGraphics/decalQuality", "kSettingLevel_Low", "kSettingLevel_High"),
+    ("advancedGraphics/ssaoFullScreenEnabled", "false", "true"),
+    ("advancedGraphics/POMQuality", "kSettingLevel_Low", "kSettingLevel_Ultra"),
+    ("advancedGraphics/reflectionMSAA", "0", "3"),
+    ("advancedGraphics/treeQuality", "kSettingLevel_Low", "kSettingLevel_Ultra"),
+    ("advancedGraphics/treeTessellationEnabled", "false", "true"),
+)
+LEVEL_NAMES = tuple(name for name, _ in LEVELS)
+
+
+def _at(low: str, high: str, step: int) -> str:
+    """A setting at level `step` (0 Low .. 3 Ultra) within its own range: a level held to what the setting has, a
+    count spread evenly, an on/off feature (0/1 too) on from High."""
+    if low.startswith("kSettingLevel_"):
+        a, b = LEVEL_NAMES.index(low[14:]), LEVEL_NAMES.index(high[14:])
+        return "kSettingLevel_" + LEVEL_NAMES[min(max(step, a), b)]
+    if low in ("false", "0.000000"):
+        return high if step >= 2 else low
+    return str(round(int(low) + (int(high) - int(low)) * step / 3))
+
+
+# the advanced settings are unlocked (as in the owner's readings), so the game keeps them
+PRESETS = tuple((name, tuple(_at(lo, hi, i) for _, lo, hi in PRESET_RANGES) + ("false",))
+                for i, name in enumerate(LEVEL_NAMES))
+
 SETTINGS = {
     "resolution": Setting("resolution", ("video/screenWidth", "video/screenHeight")),
     "window_mode": Setting("learned", ("video/windowed",)),
@@ -43,6 +103,7 @@ SETTINGS = {
     "msaa": Setting("learned", ("graphics/msaa",)),
     "fxaa": Setting("map", ("graphics/fxaaEnabled",), ON_OFF),
     "upscaler": Setting("map", ("graphics/dlssIndex", "graphics/dlssQuality", "graphics/fsr2Index"), UPSCALERS),
+    "preset": Setting("map", tuple(r for r, _, _ in PRESET_RANGES) + ("advancedGraphics/locked",), PRESETS),
     "motion_blur": Setting("map", ("advancedGraphics/motionBlur",), ON_OFF),
 }
 
