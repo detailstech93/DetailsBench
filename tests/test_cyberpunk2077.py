@@ -457,3 +457,27 @@ def test_verify_treats_true_vs_one_as_mismatch():
 
     desired = {"dlss_frame_gen": True}
     assert verify(data, desired) == {"dlss_frame_gen": (True, 1)}
+
+
+def test_quick_preset_is_written_setting_by_setting():
+    from app.games import cyberpunk2077 as cp
+    groups = {}
+    for (g, n), v in zip(cp.PRESET_OPTIONS, cp.PRESETS["Ultra"]):
+        opt = ({"name": n, "type": "bool", "value": v} if isinstance(v, bool) else
+               {"name": n, "type": "int_list", "value": v, "index": 3, "values": [2, 4, 8, 16]} if n == "Anisotropy" else
+               {"name": n, "type": "string_list", "value": v, "index": 0, "values": ["Off", "Low", "Medium", "High", "Ultra"]})
+        groups.setdefault(g, []).append(opt)
+    groups["/graphics/presets"].append({"name": "QuickPresets", "type": "string_list", "value": "Ultra", "index": 4})
+    data = {"data": [{"group_name": g, "options": o} for g, o in groups.items()]}
+    assert cp.read_settings(data)["preset"] == "Ultra" and cp.choices(data, {})["preset"][:4] == list(cp.PRESETS)
+    changes, refused = cp.plan(data, {"preset": "Low"}, {})
+    assert refused == {} and [(c.key, c.new) for c in changes] == [("preset", "Low")]
+    out = cp.apply(data, changes)
+    assert cp.verify(out, {"preset": "Low"}) == {}
+    assert cp.find_option(out, "/graphics/advanced", "Anisotropy") == {"name": "Anisotropy", "type": "int_list",
+                                                                       "value": 4, "index": 1, "values": [2, 4, 8, 16]}
+    assert (cp.find_option(out, "/graphics/presets", "QuickPresets")["value"],
+            cp.find_option(out, "/graphics/presets", "QuickPresets")["index"]) == cp.CUSTOM
+    assert cp.plan(out, {"preset": "Low"}, {}) == ([], {})                       # already Low: nothing written
+    del groups["/graphics/basic"][0]                                             # FilmGrain missing
+    assert cp.plan(data, {"preset": "High"}, {})[1] == {"preset": "not in the settings file: FilmGrain"}

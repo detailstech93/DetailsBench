@@ -35,6 +35,34 @@ SETTINGS: Dict[str, Tuple[str, str]] = {
     "path_tracing": ("/graphics/raytracing", "RayTracedPathTracing"),
 }
 
+# The game's Quick Presets Low..Ultra, read with the owner from its menu on 2026-10-29 (upscaler off): every setting
+# a preset changes. Written as a whole, since the game shows "Custom" once the upscaler is changed. Ray tracing,
+# the upscaler and frame generation stay separate choices.
+PRESET_OPTIONS = (
+    ("/gameplay/performance", "CrowdDensity"), ("/graphics/performance", "CrowdDensity"),
+    ("/graphics/presets", "TextureQuality"), ("/graphics/advanced", "Anisotropy"),
+    ("/graphics/advanced", "ShadowMeshQuality"), ("/graphics/advanced", "LocalShadowsQuality"),
+    ("/graphics/advanced", "CascadedShadowsRange"), ("/graphics/advanced", "CascadedShadowsResolution"),
+    ("/graphics/advanced", "DistantShadowsResolution"), ("/graphics/advanced", "VolumetricFogResolution"),
+    ("/graphics/advanced", "VolumetricCloudsQuality"), ("/graphics/advanced", "MaxDynamicDecals"),
+    ("/graphics/advanced", "ScreenSpaceReflectionsQuality"), ("/graphics/advanced", "SubsurfaceScatteringQuality"),
+    ("/graphics/advanced", "AmbientOcclusion"), ("/graphics/advanced", "ColorPrecision"),
+    ("/graphics/advanced", "MirrorQuality"), ("/graphics/advanced", "LODPreset"),
+    ("/graphics/basic", "FilmGrain"), ("/graphics/basic", "ChromaticAberration"),
+    ("/graphics/basic", "DepthOfField"), ("/graphics/basic", "MotionBlur"),
+)
+PRESETS: Dict[str, tuple] = {
+    "Low": ("Low", "Low", "Low", 4, "Low", "Low", "Medium", "Medium", "Low", "Low", "Medium", "Low", "Low", "Low",
+            "Low", "Medium", "Low", "Low", False, False, False, "Off"),
+    "Medium": ("Low", "Low", "Medium", 8, "Medium", "Medium", "Medium", "Medium", "High", "High", "Medium", "Medium",
+               "Medium", "Medium", "High", "Medium", "Medium", "Medium", False, False, False, "Low"),
+    "High": ("Medium", "Medium", "High", 16, "High", "High", "High", "High", "High", "High", "High", "High", "High",
+             "High", "High", "High", "High", "High", True, False, True, "High"),
+    "Ultra": ("High", "High", "High", 16, "High", "High", "High", "High", "High", "Ultra", "Ultra", "Ultra", "Ultra",
+              "High", "High", "High", "High", "High", True, True, True, "High"),
+}
+CUSTOM = ("Custom", 0)      # QuickPresets as the game wrote it with each of the four (2026-10-29)
+
 
 @dataclass(frozen=True)
 class Change:
@@ -78,7 +106,20 @@ def read_settings(data) -> Dict[str, object]:
         if option is not None and "value" in option:
             result[key] = option["value"]
 
+    name = _preset_in(data)
+    if name is not None:
+        result["preset"] = name
     return result
+
+
+def _preset_in(data) -> Optional[str]:
+    """Which of Low..Ultra the file holds, setting by setting (None: none of them)."""
+    now = [(find_option(data, g, n) or {}).get("value", NOT_THERE) for g, n in PRESET_OPTIONS]
+    return next((name for name, values in PRESETS.items()
+                 if all(a == b and type(a) is type(b) for a, b in zip(now, values))), None)
+
+
+NOT_THERE = object()
 
 
 def observed_indices(data) -> Dict[str, Dict[str, int]]:
@@ -152,6 +193,16 @@ def plan(
         known = {}
 
     for key, desired_value in desired.items():
+        if key == "preset" and desired_value in PRESETS:
+            missing = [n for (g, n), v in zip(PRESET_OPTIONS, PRESETS[desired_value])
+                       if (find_option(data, g, n) is None
+                           or v not in (find_option(data, g, n).get("values") or [True, False]))]
+            if missing:
+                refused[key] = "not in the settings file: " + ", ".join(missing)
+            elif _preset_in(data) != desired_value:
+                changes.append(Change(key, read_settings(data).get(key), desired_value, None))
+            continue
+
         if key not in SETTINGS:
             refused[key] = "unknown setting"
             continue
@@ -247,6 +298,19 @@ def apply(data, changes: List[Change]) -> dict:
         if key not in SETTINGS:
             continue
 
+        if key == "preset" and change.new in PRESETS:
+            for (group, name), value in zip(PRESET_OPTIONS, PRESETS[change.new]):
+                option = find_option(out, group, name)
+                if option is None:
+                    continue
+                option["value"] = value
+                if isinstance(option.get("values"), list):
+                    option["index"] = option["values"].index(value)
+            option = find_option(out, *SETTINGS["preset"])
+            if option is not None:
+                option["value"], option["index"] = CUSTOM
+            continue
+
         group, name = SETTINGS[key]
         option = find_option(out, group, name)
 
@@ -303,4 +367,6 @@ def choices(data, known: Dict[str, Dict[str, int]]) -> Dict[str, list]:
             if isinstance(opt.get("value"), str) and isinstance(opt.get("index"), int):
                 seen[opt["value"]] = opt["index"]
             out[key] = [v for v, _ in sorted(seen.items(), key=lambda kv: (kv[1], kv[0]))]
+    if _preset_in(data) is not None or all(find_option(data, g, n) for g, n in PRESET_OPTIONS):
+        out["preset"] = list(PRESETS) + [v for v in out.get("preset", []) if v not in PRESETS]
     return out
