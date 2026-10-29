@@ -34,7 +34,8 @@ def test_rdr2_apply_changes_only_those_characters():
     assert out == (RDR2.replace("kSettingLevel_Ultra", "kSettingLevel_Low")
                    .replace('fxaaEnabled value="false"', 'fxaaEnabled value="true"')
                    .replace('screenWidth value="2560"', 'screenWidth value="1920"')
-                   .replace('screenHeight value="1440"', 'screenHeight value="1080"'))
+                   .replace('screenHeight value="1440"', 'screenHeight value="1080"')
+                   .replace('vSync value="1"', 'vSync value="0"'))      # V-Sync off for the run
     assert 'screenWidthWindowed value="2560"' in out
 
 
@@ -43,10 +44,10 @@ def test_rdr2_resolution_goes_to_exclusive_full_screen():
     borderless = RDR2.replace('<vSync value="1" />', '<vSync value="1" />\r\n    <windowed value="2" />')
     changes, refused = rdr2.plan(borderless, {"resolution": "1920x1080", "texture_quality": "Low"}, known)
     assert [(c.key, c.new) for c in changes] == [("resolution", "1920x1080"), ("texture_quality", "Low"),
-                                                ("window_mode", "0")] and refused == {}
+                                                ("window_mode", "0"), ("vsync", "0")] and refused == {}
     changes, refused = rdr2.plan(borderless, {"resolution": "1920x1080", "window_mode": "2"}, known)
     assert refused["resolution"].startswith("windowed or borderless mode (video/windowed 2)")
-    assert [c.key for c in changes] == []                   # window mode 2 is what the file has already
+    assert [c.key for c in changes] == ["vsync"]            # window mode 2 is what the file has already
 
 
 def test_rdr2_any_screen_resolution_at_the_screen_s_refresh_rate(monkeypatch):
@@ -57,9 +58,11 @@ def test_rdr2_any_screen_resolution_at_the_screen_s_refresh_rate(monkeypatch):
     assert rdr2.choices(data, {})["resolution"] == ["1280x720", "1920x1080", "2560x1440"]
     changes, refused = rdr2.plan(data, {"resolution": "1280x720"}, {})   # never seen in the game: still written
     assert refused == {} and [(c.key, c.new) for c in changes] == [
-        ("resolution", "1280x720"), ("window_mode", "0"), ("refresh_rate", "75")]
+        ("resolution", "1280x720"), ("window_mode", "0"), ("refresh_rate", "75"), ("vsync", "0")]
     out = rdr2.apply(data, changes)
-    assert all(s in out for s in ('screenWidth value="1280"', 'windowed value="0"', 'refreshRateNumerator value="75"'))
+    assert all(s in out for s in ('screenWidth value="1280"', 'windowed value="0"', 'refreshRateNumerator value="75"',
+                                  'vSync value="0"'))
+    assert rdr2.plan(data, {"vsync": "1"}, {"vsync": {"1": 0}})[0] == []    # asked for: kept as asked
     assert rdr2.plan(data, {"resolution": "3840x2160"}, {})[1] == {"resolution": NOT_SEEN}
 
 

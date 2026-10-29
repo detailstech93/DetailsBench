@@ -126,6 +126,10 @@ def plan(data, desired, known):
             hz, now = screens.get(want), get(data, "video/refreshRateNumerator")
             if hz and now is not None and "refresh_rate" not in desired and now != str(hz):
                 changes.append(Change("refresh_rate", now, str(hz)))
+    # V-Sync off for the run (owner, 2026-10-29: on, it caps the benchmark at the refresh rate); put back after
+    vsync = get(data, "video/vSync")
+    if "vsync" not in desired and vsync not in (None, "0"):
+        changes.append(Change("vsync", vsync, "0"))
     return changes, refused
 
 
