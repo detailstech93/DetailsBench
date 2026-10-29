@@ -168,6 +168,10 @@ class StepPlayer:
         while True:
             if self.stop.is_set():
                 raise _Stop("stopped")
+            try:
+                self.in_front()         # brings the game back when it lost the front (it minimizes itself)
+            except Exception:
+                pass
             lines, error = self.reader(self.desktop, self.folder / "screen.png")
             self._log(i, lines, error)
             if not error:
