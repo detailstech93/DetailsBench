@@ -265,7 +265,7 @@ def test_preset_box_offers_what_the_card_runs_and_a_preset_per_game(qapp):
     assert box.combos["upscaler"].currentData() == "dlss"
     box.same.setChecked(False)
     box.which.setCurrentIndex(1)
-    assert box.combos["mode"].isHidden()                   # Red Dead Redemption 2: no upscaler the app can set
+    assert not box.combos["mode"].isHidden()               # Red Dead Redemption 2: DLSS / FSR (2026-10-29)
     box.combos["resolution"].setCurrentIndex(box.combos["resolution"].findData("1920x1080"))
     got = box.presets()
     assert got["1091500"] == GamePreset(upscaler="dlss", frame_gen="x2", quality="high")

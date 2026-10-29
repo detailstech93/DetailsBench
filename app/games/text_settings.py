@@ -2,7 +2,8 @@
 
 A game module gives SETTINGS {key: Setting} and two accessors over its parsed data:
 get(data, ref) -> text or None, and put(data, ref, text) -> new data (the input is not changed).
-Kinds: "map" offers every value in Setting.values ((shown value, file text), ...); "learned" is free
+Kinds: "map" offers every value in Setting.values ((shown value, file text), ...; with several refs the file text
+is a tuple, one per ref, all written together); "learned" is free
 text, so only values this game has written before (learned by app/games/settings_file.py) are offered
 or written; "resolution" is two refs (width, height) shown as "WIDTHxHEIGHT" and learned the same way.
 """
@@ -35,7 +36,12 @@ def read_settings(spec: Dict[str, Setting], get: Callable, data) -> Dict[str, ob
         if None in texts:
             continue
         if s.kind == "map":
-            out.update({key: shown for shown, text in s.values if text == texts[0]})
+            now = texts[0] if len(s.refs) == 1 else tuple(texts)
+            named = [shown for shown, text in s.values if text == now]
+            if named:
+                out[key] = named[0]
+            elif len(s.refs) > 1:
+                out[key] = "/".join(texts)      # a mix with no name yet: shown as it is, and can be changed
         elif s.kind == "learned":
             out[key] = texts[0]
         elif s.kind == "resolution" and all(t.isdigit() for t in texts):
@@ -94,7 +100,8 @@ def apply(spec, put: Callable, data, changes: List[Change]):
     for c in changes:
         s = spec[c.key]
         if s.kind == "map":
-            texts = [next(t for v, t in s.values if v == c.new and type(v) is type(c.new))]
+            text = next(t for v, t in s.values if v == c.new and type(v) is type(c.new))
+            texts = list(text) if isinstance(text, tuple) else [text]
         elif s.kind == "resolution":
             texts = c.new.split("x")
         else:

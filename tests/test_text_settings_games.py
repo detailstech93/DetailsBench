@@ -18,7 +18,7 @@ W3 = ('[Viewport]\r\nVSync=true\r\nResolution="2560x1440"\r\nFullScreenMode=1\r\
 def test_rdr2_read_and_plan():
     s = rdr2.read_settings(RDR2)
     assert s == {"resolution": "2560x1440", "vsync": "1", "graphics_api": "Vulkan", "texture_quality": "Ultra",
-                 "fxaa": False, "dlss": "0", "motion_blur": True}
+                 "fxaa": False, "motion_blur": True}
     changes, refused = rdr2.plan(RDR2, {"texture_quality": "Low", "graphics_api": "DX12", "vsync": "0",
                                         "fxaa": "on", "ssao": "x", "msaa": "2"}, {})
     assert [c.key for c in changes] == ["texture_quality", "graphics_api"]
@@ -89,3 +89,23 @@ def test_witcher3_forced_flow_restores_the_file(tmp_path):
     assert b"EnableRT=false" in f.read_bytes() and b"VSync=false" in f.read_bytes()
     rec = fs.finish()
     assert rec.verified and rec.restored is True and f.read_bytes() == W3.encode("utf-8")
+
+
+def test_rdr2_dlss_and_fsr_write_their_three_numbers_together():
+    from app.games import presets
+    data = RDR2.replace('<dlssIndex value="0" />', '<dlssIndex value="2" />\r\n    <dlssQuality value="2" />\r\n'
+                        '    <fsr2Index value="0" />')
+    assert rdr2.read_settings(data)["upscaler"] == "DLSS Quality"
+    offered = rdr2.choices(data, {})
+    want, skipped = presets.plan_preset(1174180, presets.GamePreset(upscaler="fsr", upscaler_mode="performance"), offered)
+    assert want == {"upscaler": "FSR Performance"} and skipped == {}
+    out = rdr2.apply(data, rdr2.plan(data, want, {})[0])
+    assert all(s in out for s in ('dlssIndex value="0"', 'dlssQuality value="5"', 'fsr2Index value="3"'))
+    assert rdr2.verify(out, want) == {}
+    assert presets.plan_preset(1174180, presets.GamePreset(upscaler="dlss", upscaler_mode="ultra_performance"),
+                               offered)[0] == {"upscaler": "DLSS Ultra Performance"}
+    assert "upscaler_mode" in presets.plan_preset(          # FSR Ultra Performance was not read: not written
+        1174180, presets.GamePreset(upscaler="fsr", upscaler_mode="ultra_performance"), offered)[1]
+    odd = data.replace('<dlssIndex value="2" />', '<dlssIndex value="1" />')     # not read with the owner yet
+    assert rdr2.read_settings(odd)["upscaler"] == "1/2/0"
+    assert [c.new for c in rdr2.plan(odd, {"upscaler": "Off"}, {})[0] if c.key == "upscaler"] == ["Off"]

@@ -18,6 +18,13 @@ APP_ID = 1174180
 LAUNCH_ARGS: List[str] = []
 LEVELS = tuple((name, "kSettingLevel_" + name) for name in ("Low", "Medium", "High", "Ultra"))
 ON_OFF = ((True, "true"), (False, "false"))
+# DLSS and FSR as the game writes them (dlssIndex, dlssQuality, fsr2Index), read with the owner one menu change at a
+# time on 2026-10-29. FSR Balanced (2) sits between the Quality (1) and Performance (3) read; FSR Ultra Performance
+# and dlssIndex 1 were not read, so they are not offered
+UPSCALERS = (("Off", ("0", "5", "0")),
+             ("DLSS Quality", ("2", "2", "0")), ("DLSS Balanced", ("3", "1", "0")),
+             ("DLSS Performance", ("4", "0", "0")), ("DLSS Ultra Performance", ("5", "3", "0")),
+             ("FSR Quality", ("0", "5", "1")), ("FSR Balanced", ("0", "5", "2")), ("FSR Performance", ("0", "5", "3")))
 
 SETTINGS = {
     "resolution": Setting("resolution", ("video/screenWidth", "video/screenHeight")),
@@ -35,9 +42,7 @@ SETTINGS = {
     "anti_aliasing": Setting("learned", ("graphics/taa",)),
     "msaa": Setting("learned", ("graphics/msaa",)),
     "fxaa": Setting("map", ("graphics/fxaaEnabled",), ON_OFF),
-    "dlss": Setting("learned", ("graphics/dlssIndex",)),
-    "dlss_mode": Setting("learned", ("graphics/dlssQuality",)),
-    "fsr": Setting("learned", ("graphics/fsr2Index",)),
+    "upscaler": Setting("map", ("graphics/dlssIndex", "graphics/dlssQuality", "graphics/fsr2Index"), UPSCALERS),
     "motion_blur": Setting("map", ("advancedGraphics/motionBlur",), ON_OFF),
 }
 

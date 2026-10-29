@@ -127,6 +127,22 @@ def _sottr_dlss_mode(choice: str, offered: list) -> Optional[object]:
     return _exact_text(choice.replace("_", " "), offered)
 
 
+def _rdr2_upscaler(choice: str, offered: list) -> Optional[object]:
+    """Red Dead Redemption 2: off, or DLSS / FSR in its Quality mode (the mode choice changes it)."""
+    return _exact_text("off" if choice == "off" else choice + " quality", offered)
+
+
+def _rdr2_upscaler_mode(choice: str, offered: list) -> Optional[object]:
+    """"dlss balanced" -> DLSS Balanced; with the upscaler kept, the first upscaler that has the mode."""
+    upscaler, _, mode = choice.partition(" ")
+    names = [upscaler] if upscaler != KEEP else [v.split(" ")[0].lower() for v in offered if " " in str(v)]
+    for name in names:
+        found = _exact_text(f"{name} {mode.replace('_', ' ')}", offered)
+        if found is not None:
+            return found
+    return None
+
+
 def _sottr_ray_tracing(choice: str, offered: list) -> Optional[object]:
     """Its ray traced shadows Off / Medium / High / Ultra; on is Ultra (the most ray tracing work)."""
     return _exact_text("ultra" if choice == "on" else choice, offered)
@@ -142,6 +158,7 @@ class Target:
     keys: Tuple[str, ...]          # the adapter's setting keys this choice writes (all of them get the same value)
     match: Matcher
     when_off: Tuple[str, ...] = ()  # keys left as they are when the choice is "off" (the rest must match)
+    with_upscaler: bool = False     # the mode's matcher gets "<upscaler> <mode>": one setting holds both (RDR2)
 
 
 # The settings each game's adapter knows (app/games/<game>.py SETTINGS). A choice missing here has no setting in
@@ -159,8 +176,10 @@ GAME_TARGETS: Dict[str, Dict[str, Target]] = {
         "resolution": Target(("resolution",), _exact_text),
         "quality": Target(("preset",), _exact_text),
     },
-    "1174180": {   # Red Dead Redemption 2: the four quality settings with Low..Ultra
+    "1174180": {   # Red Dead Redemption 2: the four quality settings with Low..Ultra; DLSS / FSR read with the owner
         "resolution": Target(("resolution",), _exact_text),
+        "upscaler": Target(("upscaler",), _rdr2_upscaler),
+        "upscaler_mode": Target(("upscaler",), _rdr2_upscaler_mode, with_upscaler=True),
         "quality": Target(("texture_quality", "shadow_quality", "lighting_quality", "reflection_quality"),
                           _exact_text),
     },
@@ -235,7 +254,7 @@ def plan_preset(app_id, preset: GamePreset, offered: Dict[str, list]) -> Tuple[D
         for key in target.keys:
             if key not in offered:
                 continue
-            match = target.match(value, list(offered[key]))
+            match = target.match(f"{preset.upscaler} {value}" if target.with_upscaler else value, list(offered[key]))
             if match is None and value == "off" and key in target.when_off:
                 continue
             if match is None:

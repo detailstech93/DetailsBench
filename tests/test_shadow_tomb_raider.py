@@ -117,7 +117,7 @@ def test_the_remote_page_gets_each_games_own_lists():
     assert [v for v, _ in lists["resolutions"]] == ["1280x720", "1920x1080", presets.KEEP]
     assert lists["upscalers"] == ["off", "dlss"] and lists["frame_gens"] is None
     rdr2 = presets.page_game_lists(1174180, None, None)
-    assert rdr2["ray_tracing"] == [] and rdr2["upscalers"] is None
+    assert rdr2["ray_tracing"] == [] and rdr2["upscalers"] == ["off", "dlss", "fsr"]
     page = {"mode": "upscaling", "upscaler": "dlss", "upscaler_mode": "balanced", "quality": "highest",
             "ray_tracing": "medium", "resolution": "1920x1080"}
     assert presets.from_page(page).upscaler_mode == "balanced"
