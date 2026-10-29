@@ -279,3 +279,25 @@ def test_apply_bool_and_map_write_all_keys() -> None:
     assert get_value(updated, SECTION, "LastConfirmedFullscreenMode") == "2"
     assert get_value(updated, SECTION, "PreferredFullscreenMode") == "2"
     assert verify(updated, {"vsync": True, "window_mode": "Windowed"}) == {}
+
+
+def test_overall_quality_writes_its_whole_preset() -> None:
+    from app.games.borderlands3 import PRESET_KEYS, PRESETS
+    from app.games import presets
+    lines = {section: [] for section, _ in PRESET_KEYS}
+    for (section, key), value in zip(PRESET_KEYS, PRESETS["Ultra"]):
+        lines[section].append(key + "=" + ("Medium" if key == "FoliageMode" else value))
+    data = parse("".join(f"[{s}]\r\n" + "".join(x + "\r\n" for x in v) + "\r\n" for s, v in lines.items()))
+    assert read_settings(data)["preset"] == "Custom"                  # one line off Ultra
+    assert choices(data, {})["preset"] == ["VeryLow", "Low", "Medium", "High", "Ultra", "Badass"]
+    changes, refusals = plan(data, {"preset": "Low"}, {})
+    out = apply(data, changes)
+    assert refusals == {} and verify(out, {"preset": "Low"}) == {}
+    assert get_value(out, "ScalabilityGroups", "sg.ShadowQuality") == "1"
+    assert get_value(out, SECTION, "TextureStreamingPoolSizeMB") == "1200"
+    assert plan(parse(sample_text()), {"preset": "Low"}, {})[1]["preset"].startswith("not in the settings file: ")
+    assert plan(data, {"preset": "Epic"}, {})[1] == {"preset": "not one of: VeryLow, Low, Medium, High, Ultra, Badass"}
+    offered = choices(data, {})
+    assert presets.plan_preset(397540, presets.GamePreset(quality="lowest"), offered)[0] == {"preset": "VeryLow"}
+    assert presets.plan_preset(397540, presets.GamePreset(quality="highest"), offered)[0] == {"preset": "Badass"}
+    assert presets.plan_preset(397540, presets.GamePreset(quality="ultra"), offered)[0] == {"preset": "Ultra"}

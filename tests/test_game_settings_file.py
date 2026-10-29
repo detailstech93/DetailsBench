@@ -120,7 +120,7 @@ def test_malformed_indices_file_is_ignored(tmp_path):
 BL3 = ("[ScalabilityGroups]\r\nsg.TextureQuality=3\r\n\r\n[/Script/OakGame.OakGameUserSettings]\r\n"
        "GraphicsQualityMode=Ultra\r\nbUseVSync=False\r\nLastGPUBenchmarkSteps=1.0\r\nLastGPUBenchmarkSteps=2.0\r\n"
        "FullscreenMode=1\r\nLastConfirmedFullscreenMode=1\r\nPreferredFullscreenMode=1\r\n"
-       "PreferredGraphicsAPI=DX11\r\n\r\n")
+       "PreferredGraphicsAPI=DX11\r\nFrameRateLimitMode=Unlimited\r\n\r\n")
 
 
 def test_borderlands3_ini_in_documents_keeps_every_other_byte(tmp_path):
@@ -145,10 +145,10 @@ def test_learned_value_is_refused_until_seen(tmp_path):
     path = docs / "My Games" / "Borderlands 3" / "Saved" / "Config" / "WindowsNoEditor" / "GameUserSettings.ini"
     path.parent.mkdir(parents=True)
     path.write_bytes(BL3.encode("utf-8"))
-    fs = ForcedSettings("397540", {"preset": "Low"}, tmp_path / "run", tmp_path / "data",
+    fs = ForcedSettings("397540", {"fps_limit": "60"}, tmp_path / "run", tmp_path / "data",
                         env={"PCBM_DOCUMENTS": str(docs)})
     rec = fs.apply()
-    assert "not seen in this game yet" in rec.refused["preset"] and path.read_bytes() == BL3.encode("utf-8")
+    assert "not seen in this game yet" in rec.refused["fps_limit"] and path.read_bytes() == BL3.encode("utf-8")
 
 
 def test_a_cut_off_run_is_put_back_by_the_next_run(env):

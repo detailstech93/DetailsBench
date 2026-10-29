@@ -153,6 +153,11 @@ def _sottr_ray_tracing(choice: str, offered: list) -> Optional[object]:
     return _exact_text("ultra" if choice == "on" else choice, offered)
 
 
+def _bl3_quality(choice: str, offered: list) -> Optional[object]:
+    """Its presets Very Low..Badass: lowest is Very Low, highest is Badass."""
+    return _exact_text({"lowest": "verylow", "highest": "badass"}.get(choice, choice), offered)
+
+
 def _sottr_quality(choice: str, offered: list) -> Optional[object]:
     """Its presets Lowest..Highest: Ultra is Highest."""
     return _exact_text("highest" if choice == "ultra" else choice, offered)
@@ -179,7 +184,7 @@ GAME_TARGETS: Dict[str, Dict[str, Target]] = {
     },
     "397540": {    # Borderlands 3
         "resolution": Target(("resolution",), _exact_text),
-        "quality": Target(("preset",), _exact_text),
+        "quality": Target(("preset",), _bl3_quality),
     },
     "1174180": {   # Red Dead Redemption 2: its whole quality preset Low..Ultra and DLSS / FSR, read with the owner
         "resolution": Target(("resolution",), _exact_text),
@@ -284,7 +289,7 @@ def _fixed_values(app_id) -> Dict[str, list]:
 
 def _fixed_list(setting) -> Optional[list]:
     """The names of a fixed list: a "map" setting, or a Tomb Raider "named" / "preset" one (kind, names, list)."""
-    if getattr(setting, "kind", None) == "map":
+    if getattr(setting, "kind", None) in ("map", "whole"):
         return [shown for shown, _ in setting.values]
     if isinstance(setting, tuple) and len(setting) == 3 and setting[0] in ("named", "preset"):
         return list(setting[2])

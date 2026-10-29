@@ -3,8 +3,8 @@
 Documents/My Games/Borderlands 3/Saved/Config/WindowsNoEditor/GameUserSettings.ini (CRLF, duplicate keys).
 Only the first matching line of a key in [/Script/OakGame.OakGameUserSettings] is read or changed; every
 other byte is kept. On/off settings, window mode (Unreal's 0 fullscreen, 1 borderless, 2 windowed) and the
-graphics API offer every value; quality names, resolution and the rest are free text in this file, so only
-values this game has written before (learned by app/games/settings_file.py) are offered or written.
+graphics API offer every value; Overall Quality writes its whole preset (PRESETS). Resolution and the rest
+are free text in this file, so only values this game has written before (learned by app/games/settings_file.py) are offered or written.
 Shape checked on a real file on 2026-10-18. Drafted by the local agent, reviewed.
 """
 
@@ -38,6 +38,35 @@ SECTION = "/Script/OakGame.OakGameUserSettings"
 APP_ID = 397540
 LAUNCH_ARGS: List[str] = []
 
+# Each Overall Quality preset as the game writes it, read with the owner from its menu on 2026-10-29.
+# A preset is all of these lines; a file whose lines match none of them reads as "Custom".
+SG = "ScalabilityGroups"
+PRESET_KEYS: Tuple[Tuple[str, str], ...] = (
+    (SECTION, "GraphicsQualityMode"), (SG, "sg.ShadowQuality"), (SG, "sg.TextureQuality"), (SG, "sg.FoliageQuality"),
+    (SECTION, "bEnableCameraMotionBlur"), (SECTION, "bEnablePerObjectMotionBlur"), (SECTION, "bEnableCAS"),
+    (SECTION, "TextureStreamingQuality"), (SECTION, "MaterialQuality"), (SECTION, "AntiAliasingModeIndex"),
+    (SECTION, "AnisotropicFilteringMode"), (SECTION, "ShadowQualityMode"), (SECTION, "DrawDistanceMode"),
+    (SECTION, "EnvironmentDetailMode"), (SECTION, "TerrainMode"), (SECTION, "FoliageMode"),
+    (SECTION, "VolumetricFogMode"), (SECTION, "ScreenSpaceReflectionsMode"), (SECTION, "CharacterDetailMode"),
+    (SECTION, "AmbientOcclusionQualityMode"), (SECTION, "TextureStreamingAdaptiveBoostScale"),
+    (SECTION, "TextureStreamingPoolSizeMB"),
+)
+PRESETS: Dict[str, Tuple[str, ...]] = {
+    "VeryLow": ("VeryLow", "0", "0", "0", "False", "False", "False", "Low", "Low", "0", "Trilinear", "Low", "Low",
+                "Low", "Low", "Low", "Off", "Off", "Low", "Off", "0.000000", "800"),
+    "Low": ("Low", "1", "1", "0", "False", "False", "False", "Medium", "Medium", "1", "TwoX", "Medium", "Low",
+            "Low", "Medium", "Low", "Off", "Off", "Low", "Low", "0.250000", "1200"),
+    "Medium": ("Medium", "1", "2", "1", "False", "False", "False", "High", "High", "1", "FourX", "Medium", "Medium",
+               "Medium", "Medium", "Medium", "Medium", "Medium", "Medium", "Medium", "0.500000", "2000"),
+    "High": ("High", "2", "2", "2", "False", "False", "True", "High", "High", "2", "EightX", "High", "High",
+             "High", "High", "High", "High", "High", "High", "High", "0.500000", "2000"),
+    "Ultra": ("Ultra", "3", "3", "3", "True", "True", "True", "Ultra", "Ultra", "2", "SixteenX", "Ultra", "Ultra",
+              "Ultra", "Ultra", "Ultra", "High", "High", "Ultra", "High", "0.750000", "3000"),
+    "Badass": ("Badass", "3", "3", "3", "True", "True", "True", "Ultra", "Ultra", "2", "SixteenX", "Ultra", "Ultra",
+               "Ultra", "Ultra", "Ultra", "Ultra", "Ultra", "Ultra", "High", "0.750000", "3000"),
+}
+
+
 SETTINGS: Dict[str, Setting] = {
     "resolution": Setting(
         "resolution",
@@ -55,7 +84,7 @@ SETTINGS: Dict[str, Setting] = {
     ),
     "vsync": Setting("bool", ("bUseVSync",)),
     "fps_limit": Setting("learned", ("FrameRateLimitMode",)),
-    "preset": Setting("learned", ("GraphicsQualityMode",)),
+    "preset": Setting("whole", ("GraphicsQualityMode",), tuple((name, name) for name in PRESETS)),
     "resolution_scale": Setting("learned", ("ResolutionScale",)),
     "dynamic_resolution": Setting("bool", ("bUseDynamicResolution",)),
     "anti_aliasing": Setting("learned", ("AntiAliasingModeIndex",)),
@@ -66,6 +95,16 @@ SETTINGS: Dict[str, Setting] = {
         (("DX11", "DX11"), ("DX12", "DX12")),
     ),
 }
+
+def _preset_name(data: "IniData") -> Optional[str]:
+    """The preset whose lines the file has (a line the file lacks is not compared); "Custom" for none."""
+    if get_value(data, SECTION, "GraphicsQualityMode") is None:
+        return None
+    found = [(section, key, get_value(data, section, key)) for section, key in PRESET_KEYS]
+    for name, values in PRESETS.items():
+        if all(v is None or v == want for (_, _, v), want in zip(found, values)):
+            return name
+    return "Custom"
 
 
 def parse(text: str) -> IniData:
@@ -220,6 +259,11 @@ def read_settings(data: IniData) -> Dict[str, object]:
             if value is not None:
                 result[name] = value
 
+        elif setting.kind == "whole":
+            value = _preset_name(data)
+            if value is not None:
+                result[name] = value
+
         elif setting.kind == "resolution":
             if len(setting.keys) >= 2:
                 width = get_value(data, SECTION, setting.keys[0])
@@ -291,6 +335,9 @@ def choices(data: IniData, known: object) -> Dict[str, list]:
         elif setting.kind == "map":
             result[name] = [shown for shown, _ in setting.values]
 
+        elif setting.kind == "whole":
+            result[name] = [shown for shown, _ in setting.values]
+
         elif setting.kind in ("learned", "resolution"):
             current = settings[name]
             known_values = _known_values(known_dict, name)
@@ -346,6 +393,17 @@ def plan(
             if desired_value not in shown_values:
                 refusals[key] = "not one of: " + ", ".join(shown_values)
                 continue
+
+        elif kind == "whole":
+            if desired_value not in PRESETS:
+                refusals[key] = "not one of: " + ", ".join(PRESETS)
+                continue
+            missing = [k for s, k in PRESET_KEYS if get_value(data, s, k) is None]
+            if missing:     # half a preset is not the preset
+                refusals[key] = "not in the settings file: " + ", ".join(missing)
+            else:
+                changes.append(Change(key, current, desired_value))
+            continue
 
         elif kind == "learned":
             if not isinstance(desired_value, str):
@@ -431,6 +489,12 @@ def apply(data: IniData, changes: List[Change]) -> IniData:
                 continue
             for key in setting.keys:
                 updated = set_value(current, SECTION, key, value)
+                if updated is not None:
+                    current = updated
+
+        elif setting.kind == "whole":
+            for (section, key), text in zip(PRESET_KEYS, PRESETS.get(value, ())):
+                updated = set_value(current, section, key, text)
                 if updated is not None:
                     current = updated
 
