@@ -25,10 +25,10 @@ def test_the_game_does_not_start_with_a_resolution_the_screen_lacks(env, monkeyp
     e, path, data_dir, run_dir = env
     before = path.read_bytes()
     monkeypatch.setattr(screen_modes, "resolutions", lambda: SCREEN)
-    rec = ForcedSettings(APP, {"resolution": "2560x1440", "ray_tracing": False}, run_dir, data_dir, env=e).apply()
-    assert "does not offer 2560x1440" in rec.refused["resolution"] and rec.changed == ["ray_tracing"]
+    rec = ForcedSettings(APP, {"resolution": "2560x1440", "dlss_frame_gen": False}, run_dir, data_dir, env=e).apply()
+    assert "does not offer 2560x1440" in rec.refused["resolution"] and rec.changed == ["dlss_frame_gen"]
     assert settings_problem(rec).startswith("settings not set: resolution: the screen does not offer")
-    assert option(path, "Resolution")["value"] == "2560x1440" and path.read_bytes() != before   # only RT written
+    assert option(path, "Resolution")["value"] == "2560x1440" and path.read_bytes() != before   # only frame gen written
 
 
 def test_an_offered_resolution_goes_on(env, monkeypatch):

@@ -89,7 +89,7 @@ def test_the_dlss_mode_is_chosen_only_with_dlss_on():
     offered = sotr.choices(REG, {})
     assert game_values(750920, offered, "upscaler_mode", list(presets.UPSCALER_MODES[1:])) == [
         "quality", "balanced", "performance", "ultra_performance"]
-    assert game_values(1091500, None, "upscaler_mode", list(presets.UPSCALER_MODES[1:])) is None
+    assert game_values(397540, None, "upscaler_mode", list(presets.UPSCALER_MODES[1:])) is None      # BL3: none
     on = presets.game_preset("upscaling", "dlss", "off", presets.KEEP, presets.KEEP, presets.KEEP, "performance")
     assert plan_preset(750920, on, offered)[0] == {"dlss": "Performance"}
     off = presets.game_preset("raw", "dlss", "off", presets.KEEP, presets.KEEP, presets.KEEP, "performance")

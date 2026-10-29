@@ -57,9 +57,9 @@ def test_forced_settings_in_the_prefix_are_written_and_put_back(tmp_path):
     env = proton.game_env(APP, platform="linux", home=home)
     original = settings.read_bytes()
     choices, current = read_for_dialog(APP, tmp_path / "data", env=env)
-    assert current["ray_tracing"] is True and "ray_tracing" in choices
-    fs = ForcedSettings(APP, {"ray_tracing": False}, tmp_path / "run", tmp_path / "data", env=env)
-    assert fs.apply().changed == ["ray_tracing"] and option(settings, "RayTracing")["value"] is False
+    assert current["dlss_frame_gen"] is True and "dlss_frame_gen" in choices
+    fs = ForcedSettings(APP, {"dlss_frame_gen": False}, tmp_path / "run", tmp_path / "data", env=env)
+    assert fs.apply().changed == ["dlss_frame_gen"] and option(settings, "DLSSFrameGen")["value"] is False
     assert fs.finish().restored and settings.read_bytes() == original
 
 
