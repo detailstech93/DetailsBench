@@ -106,6 +106,10 @@ def test_rdr2_dlss_and_fsr_write_their_three_numbers_together():
                                offered)[0] == {"upscaler": "DLSS Ultra Performance"}
     assert "upscaler_mode" in presets.plan_preset(          # FSR Ultra Performance was not read: not written
         1174180, presets.GamePreset(upscaler="fsr", upscaler_mode="ultra_performance"), offered)[1]
+    msaa = data.replace('<fsr2Index value="0" />', '<fsr2Index value="0" />\r\n    <msaa value="3" />')
+    assert [(c.key, c.new) for c in rdr2.plan(msaa, {"upscaler": "DLSS Performance"}, {})[0]] == [
+        ("upscaler", "DLSS Performance"), ("vsync", "0"), ("msaa", "0")]          # MSAA off with DLSS/FSR
+    assert "msaa" not in [c.key for c in rdr2.plan(msaa, {"upscaler": "Off"}, {})[0]]
     odd = data.replace('<dlssIndex value="2" />', '<dlssIndex value="1" />')     # not read with the owner yet
     assert rdr2.read_settings(odd)["upscaler"] == "1/2/0"
     assert [c.new for c in rdr2.plan(odd, {"upscaler": "Off"}, {})[0] if c.key == "upscaler"] == ["Off"]
