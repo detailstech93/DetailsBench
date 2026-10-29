@@ -399,6 +399,26 @@ def test_the_games_results_screen_is_kept_and_the_screen_mode_read(tmp_path):
     assert all(len(w.frames) > 100 for w in cap.windows if w.result.status == "completed")
 
 
+def test_a_shot_of_another_window_is_not_the_games_results(tmp_path):
+    """Owner, 2026-10-29: BL3's results were missed and a shot of the desktop was kept as them."""
+    from types import SimpleNamespace
+    fakes = Fakes(tmp_path, game_frames=4000)
+    steps = FakeSteps(fakes, mark_after=40)
+    steps.started_shot = str(tmp_path / "run" / "benchmark_started.png")
+
+    def reader(desktop, path):
+        path.write_bytes(b"\x89PNG\r\n\x1a\n")
+        return ["Open reports", "Results"], None            # this app's own window, not the game's screen
+    s = spec(install_path=str(fakes.install), steps=[{"see": "stop", "within": 60, "mark": True}])
+    cap = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=False, elevated_runner=fakes.elevated,
+                        launcher=fakes.launcher, snapshot=fakes.snapshot, clock=fakes.clock, sleep=fakes.sleep,
+                        folder_procs=fakes.folder_procs, closer=fakes.closer,
+                        desktop=SimpleNamespace(foreground_pid=lambda: 999),
+                        exe_lister=lambda folder: ["Game.exe"], step_player=lambda st: steps,
+                        screen_mode=lambda: None, screen_reader=reader).run()
+    assert "results screen not recognized; the last screenshot was kept" in cap.message
+
+
 def test_fps_over_time_and_the_charts_a_game_run_stores(tmp_path):
     from app.automation.workload import RunContext, WorkloadResult
     from app.frames.game_benchmark import RecordedWindow, WindowOutcome, fps_over_time

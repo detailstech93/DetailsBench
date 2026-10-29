@@ -143,6 +143,9 @@ class Win32Desktop:
         other = self._pid_of(fg)[1] if fg else 0
         attached = bool(other and other != mine and self.user32.AttachThreadInput(mine, other, True))
         try:
+            if fg != hwnd:      # an Alt tap lifts Windows' foreground lock for a program in the background
+                self.user32.keybd_event(0x12, 0, 0, 0)
+                self.user32.keybd_event(0x12, 0, 2, 0)        # KEYEVENTF_KEYUP
             self.user32.ShowWindow(hwnd, 9)           # SW_RESTORE
             self.user32.BringWindowToTop(hwnd)
             self.user32.SetForegroundWindow(hwnd)

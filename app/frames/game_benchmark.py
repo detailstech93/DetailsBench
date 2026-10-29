@@ -288,13 +288,17 @@ class GameBenchmark:
         seen = None
         while not self.stop_event.is_set():
             try:
+                front = self._game_in_front()      # brought back first: a shot of this app is not its results
+            except Exception:
+                front = True
+            try:
                 lines, error = reader(self._desk(), path)
             except Exception as e:
                 lines, error = [], str(e)
             if error and not path.is_file():       # no screenshot at all: nothing to wait for
                 self.key_notes.append(f"results screen not kept ({error})")
                 return
-            seen = None if error else find_word(lines, list(RESULT_WORDS))
+            seen = None if error or not front else find_word(lines, list(RESULT_WORDS))
             if seen:
                 self.sleep(RESULT_SETTLE_SECONDS)
                 try:
@@ -539,6 +543,10 @@ class GameBenchmark:
                     player.tick(elapsed)
                 if int(elapsed) != shown:
                     shown = int(elapsed)
+                    try:
+                        self._game_in_front()       # brings it back when it lost the front (its benchmark loading)
+                    except Exception:
+                        pass
                     self.on_progress(f"{spec.game_name}: {elapsed:.0f} of {wait:.0f} s. The first "
                                      f"{spec.settle_seconds} s are not measured; keep the game in front. It is "
                                      "closed at the end.")

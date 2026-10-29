@@ -262,14 +262,19 @@ def test_a_game_behind_this_app_is_brought_to_the_front(tmp_path):
     fakes = Fakes(tmp_path)
     desk = FakeDesktop(fakes, [(0, 999)])                           # this app stays in front by itself
     desk.windows = lambda pids: [SimpleNamespace(hwnd=70, pid=p) for p in sorted(pids)]
-    desk.focus = lambda hwnd: desk.front.append((fakes.now[0], 7))
     s = spec(install_path=str(fakes.install), start_keys=[(5.0, "enter")])
     bench = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=False, elevated_runner=fakes.elevated,
                           launcher=fakes.launcher, snapshot=fakes.snapshot, clock=fakes.clock, sleep=fakes.sleep,
                           folder_procs=fakes.folder_procs, closer=fakes.closer,
                           exe_lister=lambda folder: ["Game.exe"], desktop=desk)
+    focused = []
+    desk.focus = lambda hwnd: (focused.append(fakes.now[0]), desk.front.append((fakes.now[0], 7)))
+    desk.front.append((30, 999))            # its benchmark loads: this app gets the front back
+    desk.foreground_pid = lambda: max((at, i, who) for i, (at, who) in enumerate(desk.front)
+                                      if at <= fakes.now[0])[2]       # the latest change wins
     cap = bench.run()
     assert cap.status == "recorded" and [codes for _, codes in desk.pressed] == [parse_chord("enter")]
+    assert focused[0] < 5 and any(t >= 30 for t in focused)
 
 
 def test_start_keys_go_only_into_the_game_when_it_is_in_front(tmp_path):
