@@ -524,3 +524,19 @@ def test_frame_generation_follows_the_upscaler():
         ("DLSS_MultiFrameGeneration", "x3", 2), ("DLSS_DynamicMultiFrameGeneration_TargetFPS", cp.AUTO, 0)]
     out = cp.apply(out, cp.plan(out, {"frame_gen": "Off"}, {})[0])
     assert cp.read_settings(out)["frame_gen"] == "Off" and cp.verify(out, {"frame_gen": "Off"}) == {}
+
+
+def test_a_chosen_resolution_runs_in_exclusive_full_screen():
+    from app.games import cyberpunk2077 as cp
+    dyn = {"type": "string_list", "is_dynamic": True}
+    data = {"data": [{"group_name": "/video/display", "options": [
+        dict(dyn, name="WindowMode", value="BorderlessWindowed", index=1),
+        dict(dyn, name="Resolution", value="1920x1080", index=13)]}]}
+    known = {"resolution": {"1920x1080": 13, "1280x720": 6}}
+    changes, refused = cp.plan(data, {"resolution": "1920x1080"}, known)   # borderless ignores the file's resolution
+    assert changes == [Change("window_mode", "BorderlessWindowed", "Fullscreen", 2)] and refused == {}
+    assert cp.find_option(cp.apply(data, changes), "/video/display", "WindowMode")["index"] == 2
+    changes, refused = cp.plan(data, {"resolution": "1280x720", "frame_gen": "FSR x2"}, known)
+    assert changes == [] and refused["resolution"].startswith("FSR frame generation has no full screen")
+    assert cp.plan(data, {"resolution": "1280x720", "window_mode": "BorderlessWindowed"}, known)[0] == [
+        Change("resolution", "1920x1080", "1280x720", 6)]                  # a window mode asked for is kept

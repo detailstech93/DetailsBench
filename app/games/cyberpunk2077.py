@@ -329,6 +329,16 @@ def plan(
         else:
             refused[key] = "unsupported type"
 
+    # Borderless takes the desktop's resolution: a chosen one needs exclusive full screen (2, read with the owner
+    # 2026-10-29), put back after. FSR's frame generation has no full screen (the game's own note): left as it is.
+    mode = find_option(data, *SETTINGS["window_mode"]) or {}
+    if ("resolution" in desired and "resolution" not in refused and "window_mode" not in desired
+            and mode.get("value") not in (None, "Fullscreen")):
+        if desired.get("frame_gen") == "FSR x2":
+            refused["resolution"] = "FSR frame generation has no full screen: the game runs at the desktop's resolution"
+            changes = [c for c in changes if c.key != "resolution"]
+        else:
+            changes.append(Change("window_mode", mode.get("value"), "Fullscreen", 2))
     return changes, refused
 
 
