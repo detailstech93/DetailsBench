@@ -37,6 +37,9 @@ GAME_MENU_STEPS: Dict[int, dict] = {
             {"see": "stop", "within": 300, "mark": True,
              "again": {"hold": "x", "seconds": 2.5, "press": "enter", "every": 10, "while": "benchmark test"}},
         ],
+        # it writes its results file only when it quits (2026-10-18): if closing its window asks to quit, Enter
+        # answers it (not seen yet here; optional, so a game that just closes goes on)
+        "quit_steps": [{"see": ["quit", "exit"], "within": 15, "optional": True, "settle": 1, "press": "enter"}],
         "benchmark_seconds": 270,       # about 4.5 min from "Stop Benchmarking" to the results (MarkBench)
         "verified": False,
         "note": "Settings, Graphics, hold X on Run Benchmark Test, confirm; measuring starts when "

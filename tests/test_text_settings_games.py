@@ -38,14 +38,29 @@ def test_rdr2_apply_changes_only_those_characters():
     assert 'screenWidthWindowed value="2560"' in out
 
 
-def test_rdr2_resolution_only_in_exclusive_full_screen():
+def test_rdr2_resolution_goes_to_exclusive_full_screen():
     known = {"resolution": {"1920x1080": 0}, "window_mode": {"0": 0, "2": 0}}
     borderless = RDR2.replace('<vSync value="1" />', '<vSync value="1" />\r\n    <windowed value="2" />')
     changes, refused = rdr2.plan(borderless, {"resolution": "1920x1080", "texture_quality": "Low"}, known)
-    assert [c.key for c in changes] == ["texture_quality"]
-    assert refused["resolution"].startswith("the game is in windowed or borderless mode (video/windowed 2)")
-    changes, refused = rdr2.plan(borderless, {"resolution": "1920x1080", "window_mode": "0"}, known)
-    assert sorted(c.key for c in changes) == ["resolution", "window_mode"] and refused == {}
+    assert [(c.key, c.new) for c in changes] == [("resolution", "1920x1080"), ("texture_quality", "Low"),
+                                                ("window_mode", "0")] and refused == {}
+    changes, refused = rdr2.plan(borderless, {"resolution": "1920x1080", "window_mode": "2"}, known)
+    assert refused["resolution"].startswith("windowed or borderless mode (video/windowed 2)")
+    assert [c.key for c in changes] == []                   # window mode 2 is what the file has already
+
+
+def test_rdr2_any_screen_resolution_at_the_screen_s_refresh_rate(monkeypatch):
+    from app.games import screen_modes
+    monkeypatch.setattr(screen_modes, "refresh_rates", lambda: {(1920, 1080): 60, (1280, 720): 75})
+    data = RDR2.replace('<vSync value="1" />', '<vSync value="1" />\r\n    <windowed value="2" />\r\n'
+                        '    <refreshRateNumerator value="32" />')
+    assert rdr2.choices(data, {})["resolution"] == ["1280x720", "1920x1080", "2560x1440"]
+    changes, refused = rdr2.plan(data, {"resolution": "1280x720"}, {})   # never seen in the game: still written
+    assert refused == {} and [(c.key, c.new) for c in changes] == [
+        ("resolution", "1280x720"), ("window_mode", "0"), ("refresh_rate", "75")]
+    out = rdr2.apply(data, changes)
+    assert all(s in out for s in ('screenWidth value="1280"', 'windowed value="0"', 'refreshRateNumerator value="75"'))
+    assert rdr2.plan(data, {"resolution": "3840x2160"}, {})[1] == {"resolution": NOT_SEEN}
 
 
 def test_witcher3_quotes_are_kept_and_bytes_are_exact():

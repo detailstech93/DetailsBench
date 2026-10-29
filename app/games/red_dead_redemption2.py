@@ -22,6 +22,7 @@ ON_OFF = ((True, "true"), (False, "false"))
 SETTINGS = {
     "resolution": Setting("resolution", ("video/screenWidth", "video/screenHeight")),
     "window_mode": Setting("learned", ("video/windowed",)),
+    "refresh_rate": Setting("learned", ("video/refreshRateNumerator",)),
     "vsync": Setting("learned", ("video/vSync",)),
     "graphics_api": Setting("map", ("advancedGraphics/API",),
                             (("Vulkan", "kSettingAPI_Vulkan"), ("DX12", "kSettingAPI_DX12"))),
@@ -83,25 +84,48 @@ def observed_indices(data):
 merge_indices = ts.merge_indices
 
 
+def _screens():
+    """{"WxH": highest Hz} the screens offer now ({} when unknown): the game takes any of them in exclusive full
+    screen (owner, 2026-10-29, as in Shadow of the Tomb Raider)."""
+    from app.games import screen_modes
+    return {f"{w}x{h}": hz for (w, h), hz in (screen_modes.refresh_rates() or {}).items()}
+
+
 def choices(data, known):
-    return ts.choices(SETTINGS, get, data, known)
+    out = ts.choices(SETTINGS, get, data, known)
+    if "resolution" in out:
+        out["resolution"] = sorted(set(out["resolution"]) | set(_screens()))
+    return out
 
 
 FULL_SCREEN = "0"           # video/windowed: 0 exclusive full screen, 1 windowed, 2 borderless
 SHOWN = {"window_mode": {"0": "Full screen", "1": "Windowed", "2": "Borderless"}}     # named in the game report
-NOT_FULL_SCREEN = ("the game is in windowed or borderless mode (video/windowed {mode}), which draws at the "
-                   "screen's own resolution and resets this value (seen 2026-10-19: 2560x1440 asked, 1024x768 "
-                   "after the run); drop the resolution from the forced settings, or force window mode 0 "
-                   "(exclusive full screen)")
+NOT_FULL_SCREEN = ("windowed or borderless mode (video/windowed {mode}) draws at the screen's own resolution and "
+                   "resets this value (seen 2026-10-19: 2560x1440 asked, 1024x768 after the run); leave the window "
+                   "mode out, or force 0 (exclusive full screen)")
 
 
 def plan(data, desired, known):
+    desired = desired or {}
+    screens = _screens()
+    want = desired.get("resolution")
+    if want in screens:     # a resolution the screen offers is written even if the game never used it
+        known = ts.merge_indices(known, {"resolution": {want: 0}})
     changes, refused = ts.plan(SETTINGS, get, data, desired, known)
-    if "resolution" in (desired or {}) and "resolution" not in refused:
-        mode = (desired or {}).get("window_mode", get(data, "video/windowed"))
-        if mode is not None and str(mode) != FULL_SCREEN:
+    if "resolution" in desired and "resolution" not in refused:
+        mode = desired.get("window_mode", get(data, "video/windowed"))
+        if "window_mode" in desired and str(mode) != FULL_SCREEN:
             refused["resolution"] = NOT_FULL_SCREEN.format(mode=mode)
             changes = [c for c in changes if c.key != "resolution"]
+        else:
+            # exclusive full screen, so the game surely runs at it (borderless ran at the desktop's resolution);
+            # the game's own window mode is put back after the run like the rest
+            if mode is not None and str(mode) != FULL_SCREEN:
+                changes.append(Change("window_mode", mode, FULL_SCREEN))
+            # and at the screen's own refresh rate: a Remote Desktop session left 32 Hz in the file (2026-10-18)
+            hz, now = screens.get(want), get(data, "video/refreshRateNumerator")
+            if hz and now is not None and "refresh_rate" not in desired and now != str(hz):
+                changes.append(Change("refresh_rate", now, str(hz)))
     return changes, refused
 
 

@@ -58,6 +58,7 @@ def _screen_modes_unknown(monkeypatch, request):
         return
     from app.games import screen_modes
     monkeypatch.setattr(screen_modes, "resolutions", lambda: None)
+    monkeypatch.setattr(screen_modes, "refresh_rates", lambda: None)
     monkeypatch.setattr(screen_modes, "current_mode", lambda: None)
     # nor read this computer's screen for a game's results screen (tests pass a screen_reader when they need one)
     from app.frames import screen_text

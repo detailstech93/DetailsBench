@@ -9,7 +9,7 @@ nothing is refused and the check after the run still catches a fallback.
 
 import re
 import sys
-from typing import Optional, Set, Tuple
+from typing import Dict, Optional, Set, Tuple
 
 SIZE = re.compile(r"^\s*(\d{3,5})\s*[x×]\s*(\d{3,5})\s*$", re.IGNORECASE)
 
@@ -47,12 +47,29 @@ def _win32():
 
 def resolutions() -> Optional[Set[Tuple[int, int]]]:
     """Every width x height an attached screen offers, or None when it cannot be read."""
+    modes = _modes()
+    return {(w, h) for w, h, _ in modes} if modes else None
+
+
+def refresh_rates() -> Optional[Dict[Tuple[int, int], int]]:
+    """The highest refresh rate (Hz) the screens offer at each width x height, or None when unknown."""
+    modes = _modes()
+    if not modes:
+        return None
+    out: Dict[Tuple[int, int], int] = {}
+    for w, h, hz in modes:
+        out[(w, h)] = max(out.get((w, h), 0), hz)
+    return out
+
+
+def _modes() -> Optional[Set[Tuple[int, int, int]]]:
+    """Every (width, height, Hz) an attached screen offers, or None when it cannot be read."""
     if sys.platform != "win32":
         return None
     try:
         import ctypes
         user32, DEVMODEW, DISPLAY_DEVICEW = _win32()
-        modes: Set[Tuple[int, int]] = set()
+        modes: Set[Tuple[int, int, int]] = set()
         for i in range(32):
             device = DISPLAY_DEVICEW()
             device.cb = ctypes.sizeof(device)
@@ -65,7 +82,7 @@ def resolutions() -> Optional[Set[Tuple[int, int]]]:
                 mode.dmSize = ctypes.sizeof(mode)
                 if not user32.EnumDisplaySettingsW(device.DeviceName, k, ctypes.byref(mode)):
                     break
-                modes.add((int(mode.dmPelsWidth), int(mode.dmPelsHeight)))
+                modes.add((int(mode.dmPelsWidth), int(mode.dmPelsHeight), int(mode.dmDisplayFrequency)))
         return modes or None
     except Exception:
         return None

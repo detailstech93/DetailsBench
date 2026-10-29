@@ -500,7 +500,8 @@ def test_sottr_answers_its_quit_question_and_the_closer_gets_it():
     from app.frames.game_close import close_game
     from app.frames.menu_steps import step_problems
     steps = quit_steps_for(750920)
-    assert steps and not step_problems(steps, marked=False) and steps[0]["click"] == "yes" and quit_steps_for(1174180) is None
+    assert steps and not step_problems(steps, marked=False) and steps[0]["click"] == "yes" and quit_steps_for(397540) is None
+    assert not step_problems(quit_steps_for(1174180), marked=False)
     asked, alive = [], [True]
 
     def polite(pids):

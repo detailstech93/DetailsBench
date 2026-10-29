@@ -41,4 +41,4 @@ def test_an_offered_resolution_goes_on(env, monkeypatch):
 
 def test_this_pc_s_modes_are_read_only_on_windows(monkeypatch):
     monkeypatch.setattr(screen_modes.sys, "platform", "linux")
-    assert screen_modes.resolutions() is None
+    assert screen_modes.resolutions() is None and screen_modes.refresh_rates() is None
