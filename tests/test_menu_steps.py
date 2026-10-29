@@ -361,11 +361,21 @@ def test_borderlands_3_path(tmp_path):
     assert benchmark_seconds_for(397540) == 110
     timeline = [(0, ["Gearbox"]), (20, ["Press any key"]), (24, ["Loading"]),
                 (30, ["Play", "Options", "Social", "Quit"]), (40, ["Visuals", "Sound", "Gameplay"]),
-                (50, ["Basic", "Display Mode"]), (60, ["Start Benchmark"]), (70, ["Loading"]), (80, ["FPS 140"])]
+                (50, ["Basic", "Display Mode"]), (60, ["Start Benchmark"]), (70, ["Loading"]), (80, ["FPS 140"]),
+                # after it, its main menu; its Benchmark tab shows the last result (owner, 2026-10-30)
+                (190, ["Loading"]), (200, ["Play", "Options", "Social", "Quit"]), (210, ["Visuals", "Sound"]),
+                (220, ["Start Benchmark", "Average FPS 165"])]
     p, desk, clock = player(tmp_path, menu_steps_for(397540), timeline)
     p.run()
     assert p.problem is None and 80 <= p.mark_time < 82
+    assert b"Average FPS 165" in (tmp_path / "benchmark_results.png").read_bytes()
+    assert p.result_shot == str(tmp_path / "benchmark_results.png")
     keys = [e[1] if e[0] == "press" else (e[0], e[1]) for e in desk.events]
+    after = keys[16:]                   # back from its main menu: Options and Visuals clicked, Start never
+    assert after[:6] == [("mouse", (40, 110)), ("button", True), ("button", False),
+                         ("mouse", (40, 10)), ("button", True), ("button", False)]
+    assert all(k[0] in ("down", "up") for k in after[6:])
+    keys = keys[:16]
     assert keys == [parse_chord("enter"),
                     ("mouse", (40, 110)), ("button", True), ("button", False),
                     ("mouse", (40, 10)), ("button", True), ("button", False),
@@ -399,6 +409,19 @@ def test_the_games_results_screen_is_kept_and_the_screen_mode_read(tmp_path):
     assert {w.result.note for w in cap.windows} == {f"Proof screenshot: {shot}"}
     assert "results screen kept ('result' seen)" in cap.message
     assert all(len(w.frames) > 100 for w in cap.windows if w.result.status == "completed")
+
+
+def test_the_game_is_closed_once_its_results_page_is_kept(tmp_path):
+    """Owner, 2026-10-30: BL3 waited long after its benchmark; its results page is shot, then it is closed."""
+    fakes = Fakes(tmp_path, game_frames=4000)
+    steps = FakeSteps(fakes, mark_after=40)
+    steps.result_shot = str(tmp_path / "run" / "benchmark_results.png")
+    steps.done = SimpleNamespace(is_set=lambda: fakes.now[0] >= steps.t + 50)
+    closed_at = []
+    closer = fakes.closer
+    fakes.closer = lambda started: closed_at.append(fakes.now[0]) or closer(started)
+    bench(tmp_path, fakes, steps)
+    assert closed_at and closed_at[0] < steps.t + 55        # not the whole wait (settle and every window)
 
 
 def test_a_shot_of_another_window_is_not_the_games_results(tmp_path):

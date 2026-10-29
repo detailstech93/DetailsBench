@@ -115,6 +115,15 @@ GAME_MENU_STEPS: Dict[int, dict] = {
             # the benchmark shows its frame rate while it runs (Notebookcheck)
             {"see": "fps", "within": 180, "dismiss": {"are you sure": "enter"}, "mark": True,
              "again": {"press": "enter", "every": 10, "while": "start benchmark"}},
+            # it goes back to its main menu; its Benchmark tab then shows the last run's result (owner, 2026-10-30).
+            # The screen is not read for the first 60 s: reading it costs frames while it is measured
+            {"wait": 60},
+            {"see": "options", "within": 180, "dismiss": {"press any": "enter"}, "settle": 2, "click": "options",
+             "wait": 3},
+            {"see": "visuals", "within": 30, "again": {"press": "enter", "every": 5, "while": "options"},
+             "settle": 1, "click": "visuals", "wait": 3},
+            {"see": "start benchmark", "within": 40, "again": {"press": "c", "every": 4}, "tap": 0.15, "settle": 2,
+             "shot": "benchmark_results"},
         ],
         "benchmark_seconds": 110,       # "nearly two minutes" (Notebookcheck)
         "results_screen": False,        # it goes back to its menu (owner, 2026-10-29): the shot is its FPS counter
@@ -122,7 +131,7 @@ GAME_MENU_STEPS: Dict[int, dict] = {
         # frame before it and stops before the loading frame back to the menu (owner, 2026-10-29)
         "starts_after_loading": True,
         "verified": False,
-        "note": "Options, Visuals, the Benchmark tab, Start Benchmark; measuring runs from its loading screen to the next one. "
+        "note": "Options, Visuals, the Benchmark tab, Start Benchmark; measuring runs from its loading screen to the next one; then its Benchmark tab (the last result) is shot and it is closed. "
                 "The benchmark takes about 2 min.",
     },
 }

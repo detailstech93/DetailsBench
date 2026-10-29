@@ -19,6 +19,9 @@ the step expects was read on the screen (app/frames/screen_text.py), and only in
         every key of this step (press, dismiss, again) is held that long by scan code: a game that reads the
         keyboard once a frame misses an instant press (Far Cry 6's F5 and Space, 2026-10-23)
     {"see": "stop", "within": 120, "mark": True}     the benchmark is running: measuring starts here
+    {"see": "start benchmark", "within": 40, "shot": "results"}
+        after the mark: keep this screen as the results shot (a game whose results show on a menu page,
+        Borderlands 3); the game is closed as soon as it is kept
 
 A "see" with "optional": True goes on when the word does not come. Anything else that goes wrong (the word
 never comes, the game is not in front, the screen cannot be read) stops the steps: no key is guessed, the
@@ -65,6 +68,8 @@ def step_problems(steps, marked: bool = True) -> List[str]:
         out += [f"step {i}: unknown key {c!r}" for c in chords if parse_chord(c) is None]
         if not any(k in s for k in ("see", "press", "hold", "wait")):
             out.append(f"step {i} does nothing")
+        if "shot" in s and "see" not in s:
+            out.append(f"step {i}: 'shot' needs 'see'")
         if "click" in s and "see" not in s:
             out.append(f"step {i}: 'click' needs 'see'")
         if "see" in s and not (isinstance(s.get("within"), (int, float)) and s["within"] > 0):
@@ -97,6 +102,7 @@ class StepPlayer:
         self.stop = stop or threading.Event()
         self.notes: List[str] = []
         self.started_shot: Optional[str] = None     # benchmark_started.png, kept for the report
+        self.result_shot: Optional[str] = None      # a "shot" step's screenshot: the benchmark's results
         self.problem: Optional[str] = None
         self.mark_time: Optional[float] = None       # clock() when the mark step's word was seen
         self.done = threading.Event()
@@ -147,6 +153,10 @@ class StepPlayer:
                 self.started_shot = self._keep_shot("benchmark_started.png")
             if step.get("settle"):
                 self.sleep(float(step["settle"]))
+            if step.get("shot"):
+                self.reader(self.desktop, self.folder / "screen.png")      # after the settle: the page drawn
+                self.result_shot = self._keep_shot(f"{step['shot']}.png")
+                self.notes.append(f"kept the results screen at {self._at()}")
             if "click" in step:
                 self._click(i, str(step["click"]))
         for chord in [c.strip() for c in str(step.get("press", "")).split(",") if c.strip()]:

@@ -531,6 +531,9 @@ class GameBenchmark:
                         self.sleep(self.poll_seconds)
                         continue
                 elapsed = self.clock() - (t_mark if t_mark is not None else t_front)
+                if steps is not None and t_mark is not None and steps.done.is_set() and getattr(steps, "result_shot", None):
+                    self.result_shot = steps.result_shot     # its results page was kept after the benchmark: close now
+                    break
                 if elapsed >= wait:
                     break
                 if pending:
