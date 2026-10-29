@@ -34,6 +34,7 @@ from app.games import (borderlands3, counter_strike2, cyberpunk2077, doom2016, f
 
 INDICES_FILENAME = "game_settings_indices.json"
 BACKUP_NAME = "game_settings_backup"      # + the store's own extension
+RECORD_NAME = "game_settings_written.json"  # what was asked, written, refused and checked
 PENDING_FILE = "pending_game_restore.json"  # data dir: {app_id: backup path} written before the game's settings
                                             # are changed, removed once they are put back; what is left after a
                                             # run that was cut off (app closed, crash) is restored later
@@ -366,6 +367,15 @@ class ForcedSettings:
         self._launch = False
         self.env, self.reg = env, reg
 
+    def _kept(self) -> SettingsRecord:
+        """The record also in the run folder (owner, 2026-10-29: a stopped run left no word of what was written)."""
+        try:
+            (self.backup.parent / RECORD_NAME).write_text(json.dumps(self.record.to_dict(), indent=1, default=str),
+                                                          encoding="utf-8")
+        except OSError:
+            pass                            # only a copy: the record itself still goes with the result
+        return self.record
+
     def _mark_pending(self) -> None:
         pending = _read_pending(self.data_dir)
         pending[self.app_id] = str(self.backup)
@@ -414,7 +424,7 @@ class ForcedSettings:
             self.store.write(mod.apply(data, changes))
         accepted = {k: v for k, v in self.requested.items() if k not in refused}
         self.record.mismatch_before_launch = _mismatches(mod.verify(self.store.read(), accepted))
-        return self.record
+        return self._kept()
 
     def _apply_launch(self, mod) -> SettingsRecord:
         """Nothing is written: the accepted values become this launch's arguments (record.launch_args)."""
@@ -432,7 +442,7 @@ class ForcedSettings:
             self.store.save_backup(self.backup)
             self._written = True            # the game may save the values when it closes: put the files back
             self._mark_pending()
-        return self.record
+        return self._kept()
 
     def _finish_launch(self, mod) -> None:
         accepted = {k: v for k, v in self.requested.items() if k not in self.record.refused}
@@ -493,7 +503,7 @@ class ForcedSettings:
                 self.record.notes.append(f"your settings were not put back ({e}); the copy is {self.backup}")
         elif self._written:
             self.record.restored = False
-        return self.record
+        return self._kept()
 
 
 SAVED_KEY = "forced_game_settings"          # settings.json: {app_id: {key: value}}

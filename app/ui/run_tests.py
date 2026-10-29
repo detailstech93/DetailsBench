@@ -208,7 +208,7 @@ class PresetBox(QGroupBox):
         res = presets.resolutions_offered([o for o, _ in self.offered.values() if o])
         res = self._allowed("resolution", res[1:])
         self._fill("resolution", [(r, presets.LABELS.get(r, r)) for r in res or []] + keep, p.resolution)
-        rt = self._allowed("ray_tracing", ["off", "on"])
+        rt = self._allowed("ray_tracing", list(presets.RAY_TRACING[1:]))
         self._fill("ray_tracing", [(v, presets.LABELS[v]) for v in rt or []] + keep, p.ray_tracing)
         for key, shown in (("mode", has_upscaler), ("upscaler", mode in ("upscaling", "upscaling_fg")),
                            ("frame_gen", mode == "upscaling_fg"), ("quality", quality is not None),

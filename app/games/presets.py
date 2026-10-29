@@ -12,13 +12,16 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 KEEP = "keep"
 RESOLUTIONS = (KEEP, "1280x720", "1920x1080", "2560x1440", "3840x2160")
 UPSCALERS = (KEEP, "off", "dlss", "fsr", "xess")
-RAY_TRACING = (KEEP, "on", "off")
+RAY_TRACING = (KEEP, "off", "medium", "high", "ultra", "on")      # the levels only where the game has them
 FRAME_GEN = (KEEP, "off", "x2", "x3", "x4")      # off, or on with that many frames shown per rendered one
-QUALITIES = (KEEP, "low", "medium", "high", "ultra")
+QUALITIES = (KEEP, "lowest", "low", "medium", "high", "highest", "ultra")
 
 LABELS = {KEEP: "Keep the game's own", "off": "Off", "on": "On", "dlss": "DLSS", "fsr": "FSR", "xess": "XeSS",
-          "low": "Low", "medium": "Medium", "high": "High", "ultra": "Ultra",
+          "lowest": "Lowest", "low": "Low", "medium": "Medium", "high": "High", "highest": "Highest", "ultra": "Ultra",
           "x2": "On, 2x", "x3": "On, 3x (multi frame)", "x4": "On, 4x (multi frame)"}
+# offered only where the game's own list has them (owner, 2026-10-29: Shadow of the Tomb Raider's own presets and
+# ray tracing levels), never as a value "not seen yet"
+GAME_ONLY = {"quality": ("lowest", "highest"), "ray_tracing": ("medium", "high", "ultra")}
 CHOICE_NAMES = {"resolution": "Resolution", "upscaler": "Upscaler", "ray_tracing": "Ray tracing",
                 "frame_gen": "Frame generation", "quality": "Quality"}
 
@@ -86,6 +89,8 @@ def _contains(choice: str, offered: list) -> Optional[object]:
 
 
 def _on_off(choice: str, offered: list) -> Optional[object]:
+    if choice not in ("on", "off"):
+        return None
     value = choice == "on"
     return value if value in offered and any(isinstance(v, bool) for v in offered) else None
 
@@ -111,8 +116,8 @@ def _sottr_dlss(choice: str, offered: list) -> Optional[object]:
 
 
 def _sottr_ray_tracing(choice: str, offered: list) -> Optional[object]:
-    """Its ray traced shadows: on is Ultra (the most ray tracing work), off is Off."""
-    return _exact_text({"on": "ultra", "off": "off"}.get(choice, ""), offered)
+    """Its ray traced shadows Off / Medium / High / Ultra; on is Ultra (the most ray tracing work)."""
+    return _exact_text("ultra" if choice == "on" else choice, offered)
 
 
 def _sottr_quality(choice: str, offered: list) -> Optional[object]:
@@ -256,11 +261,20 @@ def game_values(app_id, offered: Optional[Dict[str, list]], choice: str, candida
     if choice not in GAME_TARGETS.get(str(app_id), {}):
         return None
     offered = dict(_fixed_values(app_id), **(offered or {}))
-    out = []
+    out, written = [], []
     for value in candidates:
-        why = None if value == KEEP else plan_preset(app_id, GamePreset(**{choice: value}), offered)[1].get(choice)
+        if value == KEEP:
+            out.append(value)
+            continue
+        requested, skipped = plan_preset(app_id, GamePreset(**{choice: value}), offered)
+        why = skipped.get(choice)
+        if value in GAME_ONLY.get(choice, ()) and why is not None:
+            continue
+        if why is None and requested in written:        # e.g. Ultra when the game's own Highest is offered
+            continue
         if why in (None, NOT_SEEN, NO_SETTING):
             out.append(value)
+            written.append(requested)
     return out
 
 

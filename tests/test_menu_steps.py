@@ -319,7 +319,7 @@ def test_shadow_of_the_tomb_raider_path_and_launch(tmp_path):
     keys = [e[1] if e[0] == "press" else (e[0], e[1]) for e in desk.events]
     assert keys == [parse_chord("enter"), ("mouse", (40, 210)), ("button", True), ("button", False),
                     ("mouse", (240, 10)), ("button", True), ("button", False),
-                    parse_chord("up"), parse_chord("right"), parse_chord("r")]
+                    ("down", parse_chord("r")), ("up", parse_chord("r"))]     # R alone, held (2026-10-29)
     assert "closed a popup ('adapter')" in p.summary()
 
 
@@ -413,6 +413,8 @@ class PassFakes:
         return self.now[0]
 
     def sleep(self, s):
+        import time
+        time.sleep(0.001)           # a real moment, so the PresentMon thread starts before the fake UAC wait ends
         self.now[0] += s
 
     def folder_procs(self):

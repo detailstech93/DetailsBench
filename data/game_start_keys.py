@@ -51,10 +51,11 @@ GAME_MENU_STEPS: Dict[int, dict] = {
             # menus remember the last item: click the word where it is read, then Enter if the click was missed
             {"see": "graphics", "within": 30, "again": {"press": "enter", "every": 5, "while": "options"},
              "settle": 1, "click": "graphics", "wait": 3},
-            # MarkBench: up, right, then R runs the benchmark from the graphics page
-            {"see": "benchmark", "within": 30, "press": "up, right, r", "wait": 3},
+            # R runs the benchmark from the Display and Graphics page. 2026-10-29: an instant R was not seen (five
+            # times) and MarkBench's up, right first changed a setting on the page: R alone, held 0.15 s
+            {"see": "benchmark", "within": 30, "settle": 1, "press": "r", "tap": 0.15, "wait": 3},
             # the benchmark shows its FPS while it runs
-            {"see": "fps", "within": 180, "mark": True,
+            {"see": "fps", "within": 180, "mark": True, "tap": 0.15,
              "again": {"press": "r", "every": 10, "while": "run benchmark"}},
         ],
         "benchmark_seconds": 150,       # about 150 s, then its results screen (MarkBench)

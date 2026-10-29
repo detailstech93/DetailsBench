@@ -45,3 +45,40 @@ def test_the_dialog_offers_what_was_matched_with_the_owner():
     assert game_values(750920, offered, "upscaler", ["off", "dlss", "fsr", "xess"]) == ["off", "dlss"]
     assert game_values(750920, offered, "quality", ["low", "medium", "high", "ultra"]) == ["low", "medium", "high", "ultra"]
     assert game_values(750920, offered, "frame_gen", ["x2"]) is None
+    from app.games import presets
+    assert game_values(750920, offered, "quality", list(presets.QUALITIES[1:])) == [
+        "lowest", "low", "medium", "high", "highest"]
+    assert game_values(750920, offered, "ray_tracing", list(presets.RAY_TRACING[1:])) == ["off", "medium", "high", "ultra"]
+    assert game_values(1091500, None, "ray_tracing", list(presets.RAY_TRACING[1:])) == ["off", "on"]
+    assert "lowest" not in game_values(1091500, None, "quality", list(presets.QUALITIES[1:]))
+
+
+def test_a_resolution_the_screen_offers_is_written_in_exclusive_full_screen(monkeypatch):
+    from app.games import screen_modes
+    monkeypatch.setattr(screen_modes, "resolutions", lambda: {(1920, 1080), (2560, 1440)})
+    assert "2560x1440" in sotr.choices(REG, {})["resolution"]
+    changes, refused = sotr.plan(REG, {"resolution": "2560x1440"}, {})
+    new = sotr.apply(REG, changes)
+    assert not refused and (new["FullscreenWidth"], new["ExclusiveFullscreen"]) == (2560, 1)
+    assert sotr.plan(REG, {"resolution": "3840x2160"}, {})[1] == {"resolution": sotr._rt.NOT_SEEN}
+    assert [c.key for c in sotr.plan(REG, {"dlss": "Off"}, {})[0]] == ["dlss"]
+
+
+def test_what_was_written_is_kept_in_the_run_folder(tmp_path):
+    import json
+    from app.games.settings_file import RECORD_NAME, ForcedSettings
+
+    class Store:
+        where, backup_suffix, writable = "registry", ".json", True
+        data = dict(REG)
+        def exists(self): return True
+        def read(self): return dict(self.data)
+        def write(self, d): self.data = dict(d)
+        def save_backup(self, path): path.write_text(json.dumps(self.data))
+        def restore(self, path): self.data = json.loads(path.read_text())
+
+    forced = ForcedSettings(750920, {"dlss": "Off"}, tmp_path / "run", tmp_path / "data")
+    forced.store = Store()
+    forced.apply()
+    kept = json.loads((tmp_path / "run" / RECORD_NAME).read_text(encoding="utf-8"))
+    assert kept["changed"] == ["dlss"] and kept["requested"] == {"dlss": "Off"}

@@ -108,8 +108,15 @@ def choices(data, known, spec=None) -> Dict[str, list]:
         elif kind == "learned":
             out[key] = sorted({now[key]} | {int(t) for t in _seen(known, key) if t.isdigit()})
         else:
-            out[key] = sorted({now[key]} | set(_seen(known, key)))
+            out[key] = sorted({now[key]} | set(_seen(known, key)) | _screen())
     return out
+
+
+def _screen() -> set:
+    """Every resolution this PC's screens offer ("WxH"): the game takes any of them (owner, 2026-10-29: the chosen
+    2560x1440 was not written because the game had never been seen using it)."""
+    from app.games import screen_modes
+    return {f"{w}x{h}" for w, h in screen_modes.resolutions() or ()}
 
 
 def plan(data, desired: Dict[str, object], known, spec=None) -> Tuple[List[Change], Dict[str, str]]:
@@ -135,10 +142,19 @@ def plan(data, desired: Dict[str, object], known, spec=None) -> Tuple[List[Chang
             refused[key] = "expects a whole number"
         elif kind in ("named", "preset") and want not in spec[key][2]:
             refused[key] = "not one of: " + ", ".join(spec[key][2])
-        elif kind in ("learned", "resolution") and str(want) not in _seen(known, key):
+        elif kind == "learned" and str(want) not in _seen(known, key):
+            refused[key] = NOT_SEEN
+        elif kind == "resolution" and str(want) not in set(_seen(known, key)) | _screen():
             refused[key] = NOT_SEEN
         else:
             changes.append(Change(key, now[key], want))
+    # a chosen resolution in exclusive full screen, so the game surely runs at it (owner, 2026-10-29: it ran at
+    # the desktop's 1080p); the game's own window mode is put back after the run like the rest
+    desired = desired or {}
+    if ("resolution" in desired and "resolution" not in refused and "exclusive_fullscreen" in spec
+            and now.get("fullscreen") is True and now.get("exclusive_fullscreen") is False
+            and "exclusive_fullscreen" not in desired):
+        changes.append(Change("exclusive_fullscreen", False, True))
     return changes, refused
 
 
