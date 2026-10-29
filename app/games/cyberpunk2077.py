@@ -80,13 +80,16 @@ RT_LEVELS: Dict[str, tuple] = {"Off": (False, False, False, False, "Off", False)
 # Frame generation follows the upscaler (FSR's read with the owner 2026-10-29, DLSS's from the owner's own file):
 # choosing FrameGeneration alone took DLSS's switch with FSR. XeSS's runs on Intel Arc only (presets.frame_gens_for).
 FRAME_GEN_OPTIONS = tuple(("/graphics/presets", n) for n in ("FrameGeneration", "DLSSFrameGen", "FSR3_FrameGeneration",
-                                                               "DLSS_MultiFrameGeneration"))
-FRAME_GENS: Dict[str, tuple] = {"Off": ("Off", False, False, None)}
-FRAME_GENS.update({f"DLSS {x}": ("DLSS", True, False, x) for x in ("x2", "x3", "x4")})
-FRAME_GENS["FSR x2"] = ("FSR3", False, True, None)
+                                                               "DLSS_MultiFrameGeneration",
+                                                               "DLSS_DynamicMultiFrameGeneration_TargetFPS"))
+AUTO = "UI-Settings-Video-QualitySetting-Auto"   # DLSS's target for its dynamic frames; empty after FSR
+FRAME_GENS: Dict[str, tuple] = {"Off": ("Off", False, False, None, None)}
+FRAME_GENS.update({f"DLSS {x}": ("DLSS", True, False, x, AUTO) for x in ("x2", "x3", "x4")})
+FRAME_GENS["FSR x2"] = ("FSR3", False, True, None, None)
 # positions in the lists the game builds at runtime (no "values" in the file)
 INDEX = {"FrameGeneration": {"Off": 0, "DLSS": 1, "FSR3": 2},
-         "DLSS_MultiFrameGeneration": {"x4": 3},   # shortcut: x2 / x3 not read yet in this game version, read them
+         "DLSS_MultiFrameGeneration": {"x2": 1, "x3": 2, "x4": 3},
+         "DLSS_DynamicMultiFrameGeneration_TargetFPS": {AUTO: 0},
                   "ResolutionScaling": {"Off": 0, "DLSS": 1, "FSR2": 2, "XeSS": 3},
          "DLSS": {"Quality": 2, "Balanced": 3, "Performance": 4, "Ultra Performance": 5},
          "FSR2": {"Quality": 1, "Balanced": 2, "Performance": 3},

@@ -507,3 +507,20 @@ def test_upscaler_with_its_mode_and_ray_tracing_levels():
             for n in ("ResolutionScaling", "FSR2", "DLSS")] == [("FSR2", 2), ("Performance", 3), ("Auto", 0)]
     assert cp.read_settings(out)["ray_tracing"] == "Low"
     assert cp.plan(out, {"upscaler": "FSR Ultra Performance"}, {})[1]["upscaler"].startswith("not one of: Off, DLSS")
+
+
+def test_frame_generation_follows_the_upscaler():
+    from app.games import cyberpunk2077 as cp
+    dyn = {"type": "string_list", "is_dynamic": True}
+    data = {"data": [{"group_name": "/graphics/presets", "options": [   # as the game wrote it with FSR's (owner)
+        dict(dyn, name="QuickPresets", value="Custom", index=0), dict(dyn, name="FrameGeneration", value="FSR3", index=2),
+        {"name": "DLSSFrameGen", "type": "bool", "value": False}, {"name": "FSR3_FrameGeneration", "type": "bool", "value": True},
+        dict(dyn, name="DLSS_MultiFrameGeneration", value="", index=-1),
+        dict(dyn, name="DLSS_DynamicMultiFrameGeneration_TargetFPS", value="", index=-1)]}]}
+    assert cp.read_settings(data)["frame_gen"] == "FSR x2"
+    out = cp.apply(data, cp.plan(data, {"frame_gen": "DLSS x3"}, {})[0])
+    assert [(o["name"], o["value"], o.get("index")) for o in out["data"][0]["options"][1:]] == [
+        ("FrameGeneration", "DLSS", 1), ("DLSSFrameGen", True, None), ("FSR3_FrameGeneration", False, None),
+        ("DLSS_MultiFrameGeneration", "x3", 2), ("DLSS_DynamicMultiFrameGeneration_TargetFPS", cp.AUTO, 0)]
+    out = cp.apply(out, cp.plan(out, {"frame_gen": "Off"}, {})[0])
+    assert cp.read_settings(out)["frame_gen"] == "Off" and cp.verify(out, {"frame_gen": "Off"}) == {}
