@@ -323,7 +323,15 @@ class GameBenchmark:
         return StepPlayer(self.spec.steps, self._desk(), self._game_in_front, self.shots_dir)
 
     def _game_in_front(self) -> bool:
-        return self._desk().foreground_pid() in self._started
+        desk = self._desk()
+        if desk.foreground_pid() in self._started:
+            return True
+        # the game opens behind this app (owner, 2026-10-29): ask Windows to bring its window up
+        if self._started and hasattr(desk, "windows") and hasattr(desk, "focus"):
+            for window in desk.windows(set(self._started))[:1]:
+                desk.focus(window.hwnd)
+                return desk.foreground_pid() in self._started
+        return False
 
     def _press_due(self, pending: List[Tuple[float, str]], elapsed: float):
         """Press the start keys whose time has come, only into the game: a key is skipped (and noted) when the
