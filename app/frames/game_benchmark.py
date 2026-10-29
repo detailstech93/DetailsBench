@@ -565,7 +565,8 @@ class GameBenchmark:
                 self.display_mode = self.screen_mode()
             except Exception:
                 self.display_mode = None
-            if steps is not None and t_mark is not None:
+            from data.game_start_keys import shows_results_for
+            if steps is not None and t_mark is not None and shows_results_for(spec.app_id):
                 self._keep_result_screen()
 
         t_close = self.clock() - t0

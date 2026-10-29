@@ -372,6 +372,8 @@ def test_borderlands_3_path(tmp_path):
                     *[("down", parse_chord("c")), ("up", parse_chord("c"))] * 3,
                     ("mouse", (40, 10)), ("button", True), ("button", False)]
     assert "benchmark started ('fps' seen at 8" in p.summary()
+    from data.game_start_keys import shows_results_for
+    assert not shows_results_for(397540) and shows_results_for(1174180)     # BL3 goes back to its menu
 
 
 def test_the_games_results_screen_is_kept_and_the_screen_mode_read(tmp_path):

@@ -116,7 +116,8 @@ GAME_MENU_STEPS: Dict[int, dict] = {
             {"see": "fps", "within": 180, "dismiss": {"are you sure": "enter"}, "mark": True,
              "again": {"press": "enter", "every": 10, "while": "start benchmark"}},
         ],
-        "benchmark_seconds": 110,       # "nearly two minutes" (Notebookcheck), then its results screen
+        "benchmark_seconds": 110,       # "nearly two minutes" (Notebookcheck)
+        "results_screen": False,        # it goes back to its menu (owner, 2026-10-29): the shot is its FPS counter
         "verified": False,
         "note": "Options, Visuals, the Benchmark tab, Start Benchmark; measuring starts when its FPS shows. "
                 "The benchmark takes about 2 min.",
@@ -154,6 +155,11 @@ def benchmark_seconds_for(app_id) -> Optional[int]:
     """About how long the game's built-in benchmark runs after the step marked as its start, or None."""
     value = _menu_entry(app_id).get("benchmark_seconds")
     return int(value) if isinstance(value, (int, float)) and value > 0 else None
+
+
+def shows_results_for(app_id) -> bool:
+    """The game shows a results screen after its benchmark (Borderlands 3 does not: it goes back to its menu)."""
+    return _menu_entry(app_id).get("results_screen", True) is not False
 
 
 def relaunches_for(app_id) -> bool:
