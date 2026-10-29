@@ -196,11 +196,14 @@ def plan(data, desired, known):
     vsync = get(data, "video/vSync")
     if "vsync" not in desired and vsync not in (None, "0"):
         changes.append(Change("vsync", vsync, "0"))
-    # MSAA off with DLSS/FSR (owner, 2026-10-29: a DLSS run had MSAA x8 left on); put back after
-    msaa = get(data, "graphics/msaa")
-    if (desired.get("upscaler", "Off") != "Off" and "upscaler" not in refused and "msaa" not in desired
-            and msaa not in (None, "0")):
-        changes.append(Change("msaa", msaa, "0"))
+    # MSAA and FXAA off with DLSS/FSR, which does its own anti-aliasing (owner, 2026-10-29: a DLSS run had
+    # MSAA x8 and FXAA left on); put back after
+    if desired.get("upscaler", "Off") != "Off" and "upscaler" not in refused:
+        msaa = get(data, "graphics/msaa")
+        if "msaa" not in desired and msaa not in (None, "0"):
+            changes.append(Change("msaa", msaa, "0"))
+        if "fxaa" not in desired and get(data, "graphics/fxaaEnabled") == "true":
+            changes.append(Change("fxaa", True, False))
     return changes, refused
 
 
