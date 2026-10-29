@@ -89,12 +89,14 @@ def test_steam_games_installed_missing_and_covered_by_a_script():
              {"store": "steam", "app_id": "1091500", "name": "Cyberpunk", "installed": True}]
     script = FakeWorkload("cyberpunk2077_builtin_benchmark", benchmark_type="game",
                           script={"steam_app": 1091500, "steps": []})
-    entries = build_catalog([script], [], games, WIN_X64)
+    metro = FakeWorkload("metro_script", benchmark_type="game", script={"steam_app": 286690, "steps": []})
+    entries = build_catalog([script, metro], [], games, WIN_X64)
     e = by_id(entries)
     assert e["steam_750920"].state == INSTALLED and e["steam_750920"].mode == ASSISTED
     assert e["steam_397540"].state == MISSING
     assert e["steam_397540"].official_url == "https://store.steampowered.com/app/397540/"
-    assert "steam_1091500" not in e                         # the script covers it
+    assert "steam_286690" not in e                          # the script covers it
+    assert e["steam_1091500"].state == INSTALLED            # menu steps too: offered next to its script (trial)
     assert "steam_223850" not in e                          # 3DMark on Steam is a tool, not a game
     assert len({x.id for x in entries}) == len(entries)
 
@@ -134,7 +136,7 @@ def test_installed_games_without_a_benchmark_are_gameplay_captures():
     assert "steam_292030" not in e                          # not installed: nothing to capture
     assert "steam_1493710" not in e                         # a Steam tool, never launched
     assert e["steam_750920"].name.endswith("(built-in benchmark)")
-    assert "steam_1091500" not in e
+    assert e["steam_1091500"].name.endswith("(built-in benchmark)")     # its menu steps, next to its script
     assert len({x.id for x in entries}) == len(entries)
 
 

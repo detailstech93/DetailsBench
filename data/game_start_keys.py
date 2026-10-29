@@ -20,6 +20,29 @@ GAME_START_KEYS: Dict[int, dict] = {}
 # on the screen first. Paths come from LTT Labs' MarkBench harnesses (github.com/LTTLabsOSS/markbench-tests,
 # read 2026-10-18; facts only, no code taken) and stay "verified": False until watched on a real run here.
 GAME_MENU_STEPS: Dict[int, dict] = {
+    1091500: {      # Cyberpunk 2077: main menu -> Settings -> Graphics -> B "Run Benchmark" -> Enter (confirm)
+        # read with the owner 2026-10-29 (game 2.5), screen by screen; a trial next to the -benchmark script
+        # (data/scripts/cyberpunk2077_benchmark.json), which closes the game before its results screen shows
+        "steps": [
+            # "press ... to continue" may come first (-skipStartScreen did not skip it in 2.31)
+            {"see": "settings", "within": 300, "dismiss": {"press": "space"}, "settle": 2, "click": "settings",
+             "wait": 3},
+            # Settings opens on its Sound tab; the Graphics tab has "Run Benchmark". No Enter if the click was
+            # missed: on the main menu it could pick Continue and load a save
+            {"see": "graphics", "within": 30, "settle": 1, "click": "graphics", "wait": 3},
+            {"see": "benchmark", "within": 30, "settle": 1, "press": "b", "tap": 0.15, "wait": 2},
+            {"see": "are you sure", "within": 20, "again": {"press": "b", "every": 5}, "settle": 1,
+             "press": "enter", "tap": 0.15, "wait": 2},
+            # loading took about 2 s; its "FPS:" counter shows about 22 s later, when its own 64 s measuring
+            # starts (results 64 s after it, 2026-10-29). The counter is not read on every screenshot
+            {"see": "fps", "within": 120, "mark": True,
+             "again": {"press": "enter", "every": 10, "while": "are you sure"}},
+        ],
+        "benchmark_seconds": 64,
+        "verified": False,
+        "note": "Settings, Graphics, B for Run Benchmark, Enter; measuring starts when its FPS counter shows. "
+                "The benchmark takes about 1.5 min.",
+    },
     1174180: {      # Red Dead Redemption 2: main menu -> Settings (Z) -> Graphics -> hold X "Run Benchmark Test"
         "steps": [
             # the main menu drops a key pressed as soon as it shows (2026-10-19): wait, and press Z again if needed
