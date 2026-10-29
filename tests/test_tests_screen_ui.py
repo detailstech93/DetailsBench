@@ -219,8 +219,8 @@ def test_progress_bar_moves_during_a_long_run():
     assert progress_percent(s) == 25 and s.text.endswith("(7:30 left)")
 
 
-OFFERED = {"1091500": ({"resolution": ["2560x1440"], "preset": ["Custom", "Ultra"], "upscaler": ["Off", "DLSS"],
-                        "ray_tracing": [True, False]}, None),
+OFFERED = {"1091500": ({"resolution": ["2560x1440"], "preset": ["Custom", "Ultra"], "upscaler": ["Off", "DLSS Quality"],
+                        "ray_tracing": ["Off", "Low", "Medium", "Ultra"]}, None),
            "750920": (None, "the app cannot set this game's settings")}
 
 
@@ -228,14 +228,14 @@ def test_preset_box_shows_what_each_game_gets(qapp):
     from app.games.presets import GamePreset
     from app.ui.run_tests import PresetBox
     box = PresetBox([("1091500", "Cyberpunk 2077"), ("750920", "Shadow of the Tomb Raider")], OFFERED,
-                    GamePreset(ray_tracing="on"))
-    assert box.preset() == GamePreset(ray_tracing="on")
+                    GamePreset(ray_tracing="ultra"))
+    assert box.preset() == GamePreset(ray_tracing="ultra")          # the game's ray tracing levels
     box.combos["quality"].setCurrentIndex(box.combos["quality"].findData("high"))
     box.combos["mode"].setCurrentIndex(box.combos["mode"].findData("upscaling"))
     box.combos["upscaler"].setCurrentIndex(box.combos["upscaler"].findData("dlss"))
-    assert box.preset() == GamePreset(upscaler="dlss", frame_gen="off", ray_tracing="on", quality="high")
+    assert box.preset() == GamePreset(upscaler="dlss", frame_gen="off", ray_tracing="ultra", quality="high")
     text = box.summary.text()
-    assert "Cyberpunk 2077: Upscaler DLSS" in text and "Ray tracing On" in text
+    assert "Cyberpunk 2077: Upscaler DLSS" in text and "Ray tracing Ultra" in text
     assert "not set: Quality High (the game was never seen" in text
     assert "Shadow of the Tomb Raider: settings cannot be set (the app cannot set this game's settings)" in text
     res = box.combos["resolution"]
@@ -335,7 +335,7 @@ def test_one_game_from_the_tests_screen_asks_counts_and_preset_then_starts_witho
         assert asked == [([("1091500", "Cyberpunk 2077")], GamePreset())]
         assert calls == [("select", "1091500"), ("bench", {"ask_settings": False, "counts": (2, 5)})]
         saved, _ = load_settings(tmp_path / "data")
-        assert saved[SAVED_KEY] == {"1091500": {"upscaler": "DLSS", "ray_tracing": False, "preset": "Ultra"}}
+        assert saved[SAVED_KEY] == {"1091500": {"upscaler": "DLSS Quality", "ray_tracing": "Off", "preset": "Ultra"}}
         assert rt.last_preset(tmp_path / "data") == GamePreset("keep", "dlss", "off", "ultra")   # offered next time
         assert "Cyberpunk 2077: Upscaler DLSS, Ray tracing Off, Quality Ultra." in w.status_label.text()
     finally:

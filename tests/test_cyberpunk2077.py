@@ -95,13 +95,13 @@ def test_read_settings_on_example():
         "vsync": "UI-Settings-Video-QualitySetting-Off",
         "fps_limit": False,
         "preset": "Custom",
-        "upscaler": "DLSS",
+        "upscaler": "DLSS Balanced",
         "dlss_mode": "Balanced",
         "dynamic_resolution": False,
         "frame_gen": "DLSS",
         "dlss_frame_gen": True,
         "multi_frame_gen": "x4",
-        "ray_tracing": True,
+        "ray_tracing": "Custom",                 # ray tracing on, but not as one of the game's levels
         "rt_lighting": "Psycho",
         "path_tracing": False,
     }
@@ -132,7 +132,6 @@ def test_observed_indices_lists_dynamic_but_not_static():
         "window_mode": {"BorderlessWindowed": 1},
         "vsync": {"UI-Settings-Video-QualitySetting-Off": 0},
         "preset": {"Custom": 0},
-        "upscaler": {"DLSS": 1},
         "dlss_mode": {"Balanced": 3},
         "frame_gen": {"DLSS": 1},
     }
@@ -481,3 +480,31 @@ def test_quick_preset_is_written_setting_by_setting():
     assert cp.plan(out, {"preset": "Low"}, {}) == ([], {})                       # already Low: nothing written
     del groups["/graphics/basic"][0]                                             # FilmGrain missing
     assert cp.plan(data, {"preset": "High"}, {})[1] == {"preset": "not in the settings file: FilmGrain"}
+
+
+def test_upscaler_with_its_mode_and_ray_tracing_levels():
+    from app.games import cyberpunk2077 as cp
+    dyn = {"type": "string_list", "is_dynamic": True}
+    data = {"data": [
+        {"group_name": "/graphics/presets", "options": [
+            dict(dyn, name="QuickPresets", value="Ray Tracing Ultra", index=8),
+            dict(dyn, name="ResolutionScaling", value="DLSS", index=1),
+            dict(dyn, name="DLSS", value="Auto", index=0), dict(dyn, name="FSR2", value="Auto", index=0),
+            dict(dyn, name="XESS", value="Auto", index=0)]},
+        {"group_name": "/graphics/raytracing", "options": [
+            {"name": n, "type": "bool", "value": True} for n in ("RayTracing", "RayTracedReflections",
+                                                                 "RayTracedSunShadows", "RayTracedLocalShadows",
+                                                                 "RayTracedPathTracing")] + [
+            {"name": "RayTracedLighting", "type": "string_list", "value": "Ultra", "index": 2,
+             "values": ["Off", "Medium", "Ultra", "Psycho"]}]}]}
+    assert cp.read_settings(data)["upscaler"] == "Custom" and cp.read_settings(data)["ray_tracing"] == "Custom"
+    want = {"upscaler": "Off", "ray_tracing": "Ultra"}            # ray tracing without an upscaler (owner)
+    out = cp.apply(data, cp.plan(data, want, {})[0])
+    assert cp.verify(out, want) == {}
+    assert cp.find_option(out, "/graphics/raytracing", "RayTracedPathTracing")["value"] is False
+    assert cp.find_option(out, "/graphics/presets", "QuickPresets")["value"] == "Custom"
+    out = cp.apply(out, cp.plan(out, {"upscaler": "FSR Performance", "ray_tracing": "Low"}, {})[0])
+    assert [(cp.find_option(out, "/graphics/presets", n)["value"], cp.find_option(out, "/graphics/presets", n)["index"])
+            for n in ("ResolutionScaling", "FSR2", "DLSS")] == [("FSR2", 2), ("Performance", 3), ("Auto", 0)]
+    assert cp.read_settings(out)["ray_tracing"] == "Low"
+    assert cp.plan(out, {"upscaler": "FSR Ultra Performance"}, {})[1]["upscaler"].startswith("not one of: Off, DLSS")

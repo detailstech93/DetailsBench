@@ -47,13 +47,13 @@ def test_adapter_only_for_known_games():
 def test_apply_writes_backs_up_and_verifies(env):
     e, path, data_dir, run_dir = env
     original = path.read_bytes()
-    fs = ForcedSettings(APP, {"ray_tracing": False, "rt_lighting": "Ultra", "dlss_frame_gen": True}, run_dir,
+    fs = ForcedSettings(APP, {"dlss_frame_gen": False, "rt_lighting": "Ultra", "path_tracing": False}, run_dir,
                         data_dir, env=e)
     rec = fs.apply()
-    assert rec.changed == ["ray_tracing", "rt_lighting"] and rec.refused == {}
+    assert rec.changed == ["dlss_frame_gen", "rt_lighting"] and rec.refused == {"path_tracing": "not in the settings file"}
     assert rec.mismatch_before_launch == {} and rec.before["rt_lighting"] == "Psycho"
     assert (run_dir / (BACKUP_NAME + ".json")).read_bytes() == original
-    assert option(path, "RayTracing")["value"] is False
+    assert option(path, "DLSSFrameGen")["value"] is False
     assert option(path, "RayTracedLighting")["value"] == "Ultra" and option(path, "RayTracedLighting")["index"] == 2
     assert not path.with_name(path.name + ".pcbm-tmp").exists()
 
@@ -61,7 +61,7 @@ def test_apply_writes_backs_up_and_verifies(env):
 def test_finish_verifies_after_run_and_restores(env):
     e, path, data_dir, run_dir = env
     original = path.read_bytes()
-    fs = ForcedSettings(APP, {"ray_tracing": False}, run_dir, data_dir, env=e)
+    fs = ForcedSettings(APP, {"dlss_frame_gen": False}, run_dir, data_dir, env=e)
     fs.apply()
     rec = fs.finish()
     assert rec.mismatch_after_run == {} and rec.restored is True and rec.verified
@@ -71,11 +71,11 @@ def test_finish_verifies_after_run_and_restores(env):
 
 def test_game_rewrote_a_setting_is_a_mismatch(env):
     e, path, data_dir, run_dir = env
-    fs = ForcedSettings(APP, {"ray_tracing": False}, run_dir, data_dir, env=e)
+    fs = ForcedSettings(APP, {"dlss_frame_gen": False}, run_dir, data_dir, env=e)
     fs.apply()
-    path.write_text(json.dumps(sample()), encoding="utf-8")            # the game put RT back on
+    path.write_text(json.dumps(sample()), encoding="utf-8")            # the game put it back on
     rec = fs.finish()
-    assert rec.mismatch_after_run == {"ray_tracing": [False, True]} and not rec.verified
+    assert rec.mismatch_after_run == {"dlss_frame_gen": [False, True]} and not rec.verified
 
 
 def test_unknown_dynamic_value_is_refused_and_not_written(env):
@@ -103,7 +103,7 @@ def test_positions_are_learned_from_the_file(env):
 
 
 def test_missing_settings_file_changes_nothing(tmp_path):
-    fs = ForcedSettings(APP, {"ray_tracing": False}, tmp_path / "run", tmp_path / "data",
+    fs = ForcedSettings(APP, {"dlss_frame_gen": False}, tmp_path / "run", tmp_path / "data",
                         env={"LOCALAPPDATA": str(tmp_path / "none")})
     with pytest.raises(OSError, match="start the game once"):
         fs.apply()
@@ -155,11 +155,11 @@ def test_a_cut_off_run_is_put_back_by_the_next_run(env):
     from app.games.settings_file import PENDING_FILE, recover_pending
     e, path, data_dir, run_dir = env
     original = path.read_bytes()
-    ForcedSettings(APP, {"ray_tracing": False}, run_dir, data_dir, env=e).apply()     # app closed: no finish()
-    assert option(path, "RayTracing")["value"] is False and (data_dir / PENDING_FILE).is_file()
+    ForcedSettings(APP, {"dlss_frame_gen": False}, run_dir, data_dir, env=e).apply()     # app closed: no finish()
+    assert option(path, "DLSSFrameGen")["value"] is False and (data_dir / PENDING_FILE).is_file()
     nxt = ForcedSettings(APP, {"rt_lighting": "Ultra"}, tmp := run_dir.parent / "run2", data_dir, env=e)
     rec = nxt.apply()
-    assert rec.before["ray_tracing"] is True                              # the user's own value, not the forced one
+    assert rec.before["dlss_frame_gen"] is True                              # the user's own value, not the forced one
     assert any("cut off" in n for n in rec.notes)
     assert (tmp / (BACKUP_NAME + ".json")).read_bytes() == original       # the new backup is the user's file
     nxt.finish()
@@ -171,7 +171,7 @@ def test_recover_at_start_waits_while_the_game_is_open(env):
     from app.games.settings_file import PENDING_FILE, recover_pending
     e, path, data_dir, run_dir = env
     original = path.read_bytes()
-    ForcedSettings(APP, {"ray_tracing": False}, run_dir, data_dir, env=e).apply()
+    ForcedSettings(APP, {"dlss_frame_gen": False}, run_dir, data_dir, env=e).apply()
     assert "still open" in recover_pending(data_dir, env=e, running=lambda a: True)[0]
     assert path.read_bytes() != original and (data_dir / PENDING_FILE).is_file()
     assert "back now" in recover_pending(data_dir, env=e)[0]
@@ -181,5 +181,5 @@ def test_recover_at_start_waits_while_the_game_is_open(env):
 def test_nothing_written_leaves_no_marker(env):
     from app.games.settings_file import PENDING_FILE
     e, path, data_dir, run_dir = env
-    ForcedSettings(APP, {"ray_tracing": True}, run_dir, data_dir, env=e).apply()     # already on: no change
+    ForcedSettings(APP, {"dlss_frame_gen": True}, run_dir, data_dir, env=e).apply()     # already on: no change
     assert not (data_dir / PENDING_FILE).exists()

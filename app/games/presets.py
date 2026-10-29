@@ -164,10 +164,11 @@ class Target:
 # The settings each game's adapter knows (app/games/<game>.py SETTINGS). A choice missing here has no setting in
 # the app for that game.
 GAME_TARGETS: Dict[str, Dict[str, Target]] = {
-    "1091500": {   # Cyberpunk 2077
+    "1091500": {   # Cyberpunk 2077: presets, DLSS / FSR / XeSS with their modes and ray tracing read with the owner
         "resolution": Target(("resolution",), _exact_text),
-        "upscaler": Target(("upscaler",), _contains),
-        "ray_tracing": Target(("ray_tracing",), _on_off),
+        "upscaler": Target(("upscaler",), _rdr2_upscaler),
+        "upscaler_mode": Target(("upscaler",), _rdr2_upscaler_mode, with_upscaler=True),
+        "ray_tracing": Target(("ray_tracing",), _sottr_ray_tracing),
         "frame_gen": Target(("frame_gen", "dlss_frame_gen", "multi_frame_gen"), _frame_gen,
                             when_off=("multi_frame_gen",)),
         "quality": Target(("preset",), _exact_text),

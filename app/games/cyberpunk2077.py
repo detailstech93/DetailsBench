@@ -23,14 +23,12 @@ SETTINGS: Dict[str, Tuple[str, str]] = {
     "vsync": ("/video/display", "VSync"),
     "fps_limit": ("/video/display", "MaximumFPS_OnOff"),
     "preset": ("/graphics/presets", "QuickPresets"),
-    "upscaler": ("/graphics/presets", "ResolutionScaling"),
     "dlss_mode": ("/graphics/presets", "DLSS"),
     "texture_quality": ("/graphics/presets", "TextureQuality"),
     "dynamic_resolution": ("/graphics/presets", "DynamicResolutionScaling"),
     "frame_gen": ("/graphics/presets", "FrameGeneration"),
     "dlss_frame_gen": ("/graphics/presets", "DLSSFrameGen"),
     "multi_frame_gen": ("/graphics/presets", "DLSS_MultiFrameGeneration"),
-    "ray_tracing": ("/graphics/raytracing", "RayTracing"),
     "rt_lighting": ("/graphics/raytracing", "RayTracedLighting"),
     "path_tracing": ("/graphics/raytracing", "RayTracedPathTracing"),
 }
@@ -62,6 +60,31 @@ PRESETS: Dict[str, tuple] = {
               "High", "High", "High", "High", "High", True, True, True, "High"),
 }
 CUSTOM = ("Custom", 0)      # QuickPresets as the game wrote it with each of the four (2026-10-29)
+
+# The upscaler with its mode, and ray tracing, read with the owner from the menu the same day. None leaves that
+# setting as it is. The game's own ray tracing presets also turn DLSS on: here ray tracing is written alone (owner:
+# ray tracing without an upscaler must stay possible). FSR 2.1 has no Ultra Performance.
+UPSCALER_OPTIONS = (("/graphics/presets", "ResolutionScaling"), ("/graphics/presets", "DLSS"),
+                    ("/graphics/presets", "FSR2"), ("/graphics/presets", "XESS"))
+_MODES = ("Quality", "Balanced", "Performance", "Ultra Performance")
+UPSCALERS: Dict[str, tuple] = {"Off": ("Off", None, None, None)}
+UPSCALERS.update({f"DLSS {m}": ("DLSS", m, None, None) for m in _MODES})
+UPSCALERS.update({f"FSR {m}": ("FSR2", None, m, None) for m in _MODES[:3]})
+UPSCALERS.update({f"XeSS {m}": ("XeSS", None, None, m) for m in _MODES})
+RT_OPTIONS = tuple(("/graphics/raytracing", n) for n in ("RayTracing", "RayTracedReflections", "RayTracedSunShadows",
+                                                          "RayTracedLocalShadows", "RayTracedLighting",
+                                                          "RayTracedPathTracing"))
+RT_LEVELS: Dict[str, tuple] = {"Off": (False, False, False, False, "Off", False),
+                               "Low": (True, False, False, True, "Off", False),
+                               "Medium": (True, False, True, True, "Medium", False),
+                               "Ultra": (True, True, True, True, "Ultra", False)}
+# positions in the lists the game builds at runtime (no "values" in the file)
+INDEX = {"ResolutionScaling": {"Off": 0, "DLSS": 1, "FSR2": 2, "XeSS": 3},
+         "DLSS": {"Quality": 2, "Balanced": 3, "Performance": 4, "Ultra Performance": 5},
+         "FSR2": {"Quality": 1, "Balanced": 2, "Performance": 3},
+         "XESS": {"Quality": 2, "Balanced": 3, "Performance": 4, "Ultra Performance": 5}}
+WHOLE = {"preset": (PRESET_OPTIONS, PRESETS), "upscaler": (UPSCALER_OPTIONS, UPSCALERS),
+         "ray_tracing": (RT_OPTIONS, RT_LEVELS)}
 
 
 @dataclass(frozen=True)
@@ -106,17 +129,27 @@ def read_settings(data) -> Dict[str, object]:
         if option is not None and "value" in option:
             result[key] = option["value"]
 
-    name = _preset_in(data)
-    if name is not None:
-        result["preset"] = name
+    for key in WHOLE:
+        name = _whole_in(data, key)
+        if name is not None:
+            result[key] = name
+        elif key != "preset" and find_option(data, *WHOLE[key][0][0]) is not None:
+            result[key] = "Custom"          # a mix none of the values have
     return result
 
 
-def _preset_in(data) -> Optional[str]:
-    """Which of Low..Ultra the file holds, setting by setting (None: none of them)."""
-    now = [(find_option(data, g, n) or {}).get("value", NOT_THERE) for g, n in PRESET_OPTIONS]
-    return next((name for name, values in PRESETS.items()
-                 if all(a == b and type(a) is type(b) for a, b in zip(now, values))), None)
+def _whole_in(data, key: str) -> Optional[str]:
+    """Which of a setting's values (preset Low..Ultra, upscaler, ray tracing) the file holds, option by option."""
+    options, table = WHOLE[key]
+    now = [(find_option(data, g, n) or {}).get("value", NOT_THERE) for g, n in options]
+    return next((name for name, values in table.items()
+                 if all(b is None or (a == b and type(a) is type(b)) for a, b in zip(now, values))), None)
+
+
+def _allowed(option: dict, value) -> bool:
+    if isinstance(value, bool):
+        return option.get("type") == "bool"
+    return value in (option.get("values") or INDEX.get(option.get("name"), {}))
 
 
 NOT_THERE = object()
@@ -193,13 +226,17 @@ def plan(
         known = {}
 
     for key, desired_value in desired.items():
-        if key == "preset" and desired_value in PRESETS:
-            missing = [n for (g, n), v in zip(PRESET_OPTIONS, PRESETS[desired_value])
-                       if (find_option(data, g, n) is None
-                           or v not in (find_option(data, g, n).get("values") or [True, False]))]
+        if key in WHOLE and (desired_value in WHOLE[key][1] or key != "preset"):
+            options, table = WHOLE[key]
+            if desired_value not in table:
+                if desired_value != read_settings(data).get(key):      # "Custom" as it is: nothing to write
+                    refused[key] = "not one of: " + ", ".join(table)
+                continue
+            missing = [n for (g, n), v in zip(options, table[desired_value])
+                       if v is not None and not _allowed(find_option(data, g, n) or {}, v)]
             if missing:
                 refused[key] = "not in the settings file: " + ", ".join(missing)
-            elif _preset_in(data) != desired_value:
+            elif _whole_in(data, key) != desired_value:
                 changes.append(Change(key, read_settings(data).get(key), desired_value, None))
             continue
 
@@ -295,17 +332,21 @@ def apply(data, changes: List[Change]) -> dict:
             continue
 
         key = change.key
-        if key not in SETTINGS:
+        if key not in SETTINGS and key not in WHOLE:
             continue
 
-        if key == "preset" and change.new in PRESETS:
-            for (group, name), value in zip(PRESET_OPTIONS, PRESETS[change.new]):
+        if key in WHOLE and change.new in WHOLE[key][1]:
+            options, table = WHOLE[key]
+            for (group, name), value in zip(options, table[change.new]):
                 option = find_option(out, group, name)
-                if option is None:
+                if option is None or value is None:
                     continue
                 option["value"] = value
                 if isinstance(option.get("values"), list):
                     option["index"] = option["values"].index(value)
+                elif name in INDEX:
+                    option["index"] = INDEX[name][value]
+            # the game shows "Custom" once one of these is changed by hand; a named preset would be put back on load
             option = find_option(out, *SETTINGS["preset"])
             if option is not None:
                 option["value"], option["index"] = CUSTOM
@@ -367,6 +408,7 @@ def choices(data, known: Dict[str, Dict[str, int]]) -> Dict[str, list]:
             if isinstance(opt.get("value"), str) and isinstance(opt.get("index"), int):
                 seen[opt["value"]] = opt["index"]
             out[key] = [v for v, _ in sorted(seen.items(), key=lambda kv: (kv[1], kv[0]))]
-    if _preset_in(data) is not None or all(find_option(data, g, n) for g, n in PRESET_OPTIONS):
-        out["preset"] = list(PRESETS) + [v for v in out.get("preset", []) if v not in PRESETS]
+    for key, (options, table) in WHOLE.items():
+        if all(find_option(data, g, n) for g, n in options):
+            out[key] = list(table) + [v for v in out.get(key, []) if v not in table]
     return out

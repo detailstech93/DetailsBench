@@ -1,17 +1,18 @@
 from app.games.presets import (GamePreset, NO_SETTING, NOT_SEEN, describe, plan_preset, resolutions_offered,
                                summary_lines)
 
-CYBERPUNK = {"resolution": ["2560x1440"], "preset": ["Custom", "Low", "Ultra"], "upscaler": ["Off", "DLSS", "FSR 3"],
-             "ray_tracing": [True, False], "texture_quality": ["Low", "Medium", "High"]}
+CYBERPUNK = {"resolution": ["2560x1440"], "preset": ["Custom", "Low", "Ultra"], "upscaler": ["Off", "DLSS Quality", "FSR Quality"],
+             "ray_tracing": ["Off", "Low", "Medium", "Ultra"], "texture_quality": ["Low", "Medium", "High"]}
 RDR2 = {"resolution": ["2560x1080"], "preset": ["Low", "Medium", "High", "Ultra"]}
 
 
 def test_cyberpunk_choices_become_its_settings():
     requested, skipped = plan_preset(1091500, GamePreset("2560x1440", "fsr", "on", "ultra"), CYBERPUNK)
-    assert requested == {"resolution": "2560x1440", "upscaler": "FSR 3", "ray_tracing": True, "preset": "Ultra"}
+    assert requested == {"resolution": "2560x1440", "upscaler": "FSR Quality", "ray_tracing": "Ultra",
+                         "preset": "Ultra"}
     assert skipped == {}
     requested, _ = plan_preset(1091500, GamePreset(upscaler="off", ray_tracing="off"), CYBERPUNK)
-    assert requested == {"upscaler": "Off", "ray_tracing": False}
+    assert requested == {"upscaler": "Off", "ray_tracing": "Off"}
 
 
 def test_values_never_seen_or_missing_settings_are_not_guessed():
