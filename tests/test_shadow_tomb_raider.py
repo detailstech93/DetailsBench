@@ -106,3 +106,19 @@ def test_the_dialog_offers_only_resolutions_the_screen_has(monkeypatch):
     box = PresetBox([("750920", "SOTTR")], {"750920": (sotr.choices(REG, {}), None)}, presets.GamePreset())
     combo = box.combos["resolution"]
     assert [combo.itemData(i) for i in range(combo.count())] == ["1280x720", "1920x1080", presets.KEEP]
+
+
+def test_the_remote_page_gets_each_games_own_lists():
+    from app.games import presets
+    lists = presets.page_game_lists(750920, sotr.choices(REG, {}), {(1280, 720), (1920, 1080)})
+    assert [v for v, _ in lists["qualities"]] == ["lowest", "low", "medium", "high", "highest", presets.KEEP]
+    assert [v for v, _ in lists["ray_tracing"]] == ["off", "medium", "high", "ultra", presets.KEEP]
+    assert [v for v, _ in lists["upscaler_modes"]][:2] == ["quality", "balanced"]
+    assert [v for v, _ in lists["resolutions"]] == ["1280x720", "1920x1080", presets.KEEP]
+    assert lists["upscalers"] == ["off", "dlss"] and lists["frame_gens"] is None
+    rdr2 = presets.page_game_lists(1174180, None, None)
+    assert rdr2["ray_tracing"] == [] and rdr2["upscalers"] is None
+    page = {"mode": "upscaling", "upscaler": "dlss", "upscaler_mode": "balanced", "quality": "highest",
+            "ray_tracing": "medium", "resolution": "1920x1080"}
+    assert presets.from_page(page).upscaler_mode == "balanced"
+    assert presets.from_page(dict(page, mode="raw")).upscaler_mode == presets.KEEP

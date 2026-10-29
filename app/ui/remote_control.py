@@ -194,6 +194,21 @@ def remote_entries(entries: List[TestEntry], platform: str = sys.platform) -> Li
     return [e for e, why, _ in remote_listing(entries, platform) if not why]
 
 
+def game_lists(w) -> dict:
+    """{test id: that game's own lists} (presets.page_game_lists); none while a run is going, so its game's
+    settings are not read in the middle of it (the page then shows the common lists)."""
+    from app.games import presets, screen_modes
+    from app.ui import run_tests
+    if run_tests.running(w):
+        return {}
+    entries = [e for e in w.tests_page.entries if e.group == "game" and run_tests.game_of(e)]
+    offered = run_tests.read_offered([run_tests.game_of(e) for e in entries], w.frame_panel.data_dir)
+    screens = screen_modes.resolutions()
+    return {e.id: presets.page_game_lists(run_tests.game_of(e)[0], (offered.get(run_tests.game_of(e)[0])
+                                                                   or (None, None))[0], screens)
+            for e in entries}
+
+
 def remote_start(window, ids: List[str], repetitions: int, warmup_runs: int, cooldown_seconds: int,
                  launch: Optional[Callable] = None, stress_minutes: Optional[int] = None,
                  game_presets: Optional[dict] = None, shutdown_after: bool = False) -> Tuple[bool, str]:
@@ -338,6 +353,7 @@ class RemoteApi:
         from app.ui.run_tests import last_preset
         games = presets.page_choices(presets.main_gpu(str(si.get("gpu_name") or "").split(", ")))
         last = last_preset(w.frame_panel.data_dir)
+        games["per_game"] = game_lists(w)
         games["last"] = dict(last.to_dict(), mode=presets.KEEP if last.upscaler == presets.KEEP
                              and last.frame_gen == presets.KEEP else presets.mode_of(last))
         return {"specs": specs, "tests": tests, "games": games,

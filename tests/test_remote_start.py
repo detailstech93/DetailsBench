@@ -761,3 +761,20 @@ def test_the_phone_queues_only_what_needs_nobody_at_the_pc(qapp, monkeypatch):
     assert api._phone_queueable() == []
     assert api.set_shutdown(True)[0] and page.shutdown_box.isChecked()
     assert api.set_shutdown(False)[0] and not page.shutdown_box.isChecked()
+
+
+def test_the_page_gets_each_games_own_lists_and_none_while_a_run_goes(monkeypatch):
+    """Owner, 2026-10-29: the phone offers what the PC's run dialog offers (SOTTR's own presets, its DLSS modes)."""
+    from app.games import shadow_tomb_raider as sotr
+    from app.ui import remote_control as rc, run_tests
+    reg = {"FullscreenWidth": 1920, "FullscreenHeight": 1080, "Fullscreen": 1, "ExclusiveFullscreen": 0, "DLSS": 3,
+           "RayTracing": 0}
+    game = _entry("steam_750920", source="steam", ref={"app_id": 750920, "name": "SOTTR"}, group="game")
+    w = SimpleNamespace(tests_page=SimpleNamespace(entries=[game, _entry("sevenzip_benchmark")]),
+                        frame_panel=SimpleNamespace(data_dir=None))
+    monkeypatch.setattr(run_tests, "read_offered", lambda games, d: {"750920": (sotr.choices(reg, {}), None)})
+    monkeypatch.setattr(run_tests, "running", lambda window: False)
+    lists = rc.game_lists(w)
+    assert list(lists) == ["steam_750920"] and lists["steam_750920"]["qualities"][0] == ["lowest", "Lowest"]
+    monkeypatch.setattr(run_tests, "running", lambda window: True)
+    assert rc.game_lists(w) == {}

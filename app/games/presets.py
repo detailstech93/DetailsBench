@@ -432,6 +432,23 @@ def page_choices(gpu: str) -> dict:
             "ray_tracing": [["off", "Off"], ["on", "On"], [KEEP, "Keep the game's own"]]}
 
 
+def page_game_lists(app_id, offered: Optional[Dict[str, list]], screens=None) -> dict:
+    """One game's own lists for the remote page, as the run dialog shows them (owner, 2026-10-29): [value, text]
+    pairs, [] where the game has no such setting; resolutions only the screens show (screens None: unknown)."""
+    from app.games.screen_modes import refusal
+    keep = [[KEEP, "Keep the game's own"]]
+
+    def pairs(choice, candidates):
+        found = game_values(app_id, offered, choice, candidates)
+        return [] if found is None else [[v, LABELS.get(v, v)] for v in found] + keep
+    res = [r for r in resolutions_offered([offered] if offered else [])[1:] if refusal(r, screens) is None]
+    return {"qualities": pairs("quality", QUALITIES[1:]), "ray_tracing": pairs("ray_tracing", RAY_TRACING[1:]),
+            "upscaler_modes": pairs("upscaler_mode", UPSCALER_MODES[1:]), "resolutions": pairs("resolution", res),
+            # plain values the card's lists are cut to; None: the game has no such setting
+            "upscalers": game_values(app_id, offered, "upscaler", UPSCALERS[1:]),
+            "frame_gens": game_values(app_id, offered, "frame_gen", FRAME_GEN[1:])}
+
+
 def from_page(data) -> Optional[GamePreset]:
     """A preset sent by the remote page ({mode, upscaler, frame_gen, quality, resolution, ray_tracing}), checked
     like a saved one; None when it is not a preset at all."""
@@ -444,7 +461,8 @@ def from_page(data) -> Optional[GamePreset]:
         if mode != "raw" and upscaler == "off":
             return None
         data = dict(data, upscaler="off" if mode == "raw" else upscaler,
+                    upscaler_mode=KEEP if mode == "raw" else data.get("upscaler_mode", KEEP),
                     frame_gen=frame_gen if mode == "upscaling_fg" else "off")
     else:
-        data = dict(data, upscaler=KEEP, frame_gen=KEEP)
+        data = dict(data, upscaler=KEEP, frame_gen=KEEP, upscaler_mode=KEEP)
     return GamePreset.from_dict(data)

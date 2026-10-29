@@ -173,10 +173,11 @@ a { color:var(--accent); }
         <div class="grid">
           <div><label for="gMode">Mode</label><select id="gMode"></select></div>
           <div id="gUpBox"><label for="gUp">Upscaler</label><select id="gUp"></select></div>
+          <div id="gUpModeBox"><label for="gUpMode">Upscaler mode</label><select id="gUpMode"></select></div>
           <div id="gFgBox"><label for="gFg">Frame generation</label><select id="gFg"></select></div>
-          <div><label for="gQual">Quality</label><select id="gQual"></select></div>
-          <div><label for="gRes">Resolution</label><select id="gRes"></select></div>
-          <div><label for="gRt">Ray tracing</label><select id="gRt"></select></div>
+          <div id="gQualBox"><label for="gQual">Quality</label><select id="gQual"></select></div>
+          <div id="gResBox"><label for="gRes">Resolution</label><select id="gRes"></select></div>
+          <div id="gRtBox"><label for="gRt">Ray tracing</label><select id="gRt"></select></div>
         </div>
         <p id="gCard" class="muted"></p>
       </div>
@@ -254,22 +255,57 @@ function fillSelect(sel, pairs, value) {
   for (const [v, t] of pairs) { const o = el("option", t); o.value = v; sel.append(o); }
   sel.value = pairs.some((p) => p[0] === value) ? value : (pairs.length ? pairs[0][0] : "");
 }
+// the lists of the game(s) the preset is for, as the PC's run dialog shows them (owner, 2026-10-29): one game's
+// own lists, or what any of the picked games has; the common lists when the PC sent none (a run was going)
+function gameLists() {
+  const games = pickedGames().map((g) => g[0]);
+  const ids = ($("gSame").checked || games.length < 2) ? games : [$("gWhich").value];
+  const per = ids.map((id) => (G.per_game || {})[id]);
+  if (!ids.length || per.some((l) => !l)) {
+    return { qualities: G.qualities, ray_tracing: G.ray_tracing, resolutions: G.resolutions, upscaler_modes: [],
+             upscalers: null, frame_gens: null, cut: false };
+  }
+  const merge = (key) => {
+    const seen = new Map();
+    for (const l of per) for (const [v, t] of l[key]) if (v !== "keep" && !seen.has(v)) seen.set(v, t);
+    const out = [...seen];
+    if (key === "resolutions") out.sort((a, b) => a[0].split("x").reduce((x, y) => x * y) - b[0].split("x").reduce((x, y) => x * y));
+    return out.length ? out.concat([["keep", "Keep the game's own"]]) : [];
+  };
+  const values = (key) => per.some((l) => l[key]) ? [...new Set(per.flatMap((l) => l[key] || []))] : [];
+  return { qualities: merge("qualities"), ray_tracing: merge("ray_tracing"), resolutions: merge("resolutions"),
+           upscaler_modes: merge("upscaler_modes"), upscalers: values("upscalers"), frame_gens: values("frame_gens"),
+           cut: true };
+}
 function showPreset(p) {
-  fillSelect($("gMode"), G.modes, p.mode);
+  const L = gameLists();
+  const upOk = (u) => !L.cut || L.upscalers.includes(u);
+  const fgOk = (f) => !L.cut || L.frame_gens.includes(f);
+  const fgOf = (u) => (G.frame_gens[u] || []).filter((f) => fgOk(f[0]));
+  const modes = G.modes.filter((m) => m[0] === "keep" || (!L.cut || L.upscalers.length)
+    && (m[0] !== "upscaling_fg" || G.upscalers.some((u) => upOk(u[0]) && fgOf(u[0]).length))
+    && (m[0] !== "upscaling" || G.upscalers.some((u) => upOk(u[0]))));
+  fillSelect($("gMode"), modes, p.mode);
   const mode = $("gMode").value;
-  const ups = G.upscalers.filter((u) => mode !== "upscaling_fg" || (G.frame_gens[u[0]] || []).length);
+  const ups = G.upscalers.filter((u) => upOk(u[0]) && (mode !== "upscaling_fg" || fgOf(u[0]).length));
   const best = (ups.find((u) => u[1].endsWith("(recommended)")) || ups[0] || [""])[0];
   fillSelect($("gUp"), ups, ups.some((u) => u[0] === p.upscaler) ? p.upscaler : best);
-  fillSelect($("gFg"), G.frame_gens[$("gUp").value] || [], p.frame_gen);
-  fillSelect($("gQual"), G.qualities, p.quality);
-  fillSelect($("gRes"), G.resolutions, p.resolution);
-  fillSelect($("gRt"), G.ray_tracing, p.ray_tracing);
-  $("gUpBox").classList.toggle("hidden", mode !== "upscaling" && mode !== "upscaling_fg");
+  fillSelect($("gFg"), fgOf($("gUp").value), p.frame_gen);
+  fillSelect($("gUpMode"), L.upscaler_modes, p.upscaler_mode || "keep");
+  fillSelect($("gQual"), L.qualities, p.quality);
+  fillSelect($("gRes"), L.resolutions, p.resolution);
+  fillSelect($("gRt"), L.ray_tracing, p.ray_tracing);
+  const upscaling = mode === "upscaling" || mode === "upscaling_fg";
+  $("gUpBox").classList.toggle("hidden", !upscaling);
+  $("gUpModeBox").classList.toggle("hidden", !upscaling || !L.upscaler_modes.length);
+  $("gQualBox").classList.toggle("hidden", !L.qualities.length);
+  $("gResBox").classList.toggle("hidden", !L.resolutions.length);
+  $("gRtBox").classList.toggle("hidden", !L.ray_tracing.length);
   $("gFgBox").classList.toggle("hidden", mode !== "upscaling_fg");
 }
 function readPreset() {
   return { mode: $("gMode").value, upscaler: $("gUp").value, frame_gen: $("gFg").value, quality: $("gQual").value,
-           resolution: $("gRes").value, ray_tracing: $("gRt").value };
+           resolution: $("gRes").value, ray_tracing: $("gRt").value, upscaler_mode: $("gUpMode").value || "keep" };
 }
 function pickedGames() {
   return [...document.querySelectorAll('#tests [data-section="games"] input:checked')]
@@ -281,6 +317,8 @@ function gameTargets() {
   fillSelect(sel, games, was);
   $("gWhichBox").classList.toggle("hidden", $("gSame").checked || games.length < 2);
   $("gSame").parentElement.classList.toggle("hidden", games.length < 2);
+  // the lists follow the games picked
+  if (gAll) showPreset(($("gSame").checked || games.length < 2) ? gAll : (gEach[sel.value] || gAll));
 }
 function presetChanged() {
   const p = readPreset();
@@ -650,7 +688,7 @@ showReportBody(reportShown());
 $("reportReload").onclick = () => { picked = false; showReports(knownReport || ""); };
 $("secTests").onclick = () => showSection("tests");
 $("secGames").onclick = () => showSection("games");
-for (const id of ["gMode", "gUp", "gFg", "gQual", "gRes", "gRt"]) $(id).addEventListener("change", presetChanged);
+for (const id of ["gMode", "gUp", "gUpMode", "gFg", "gQual", "gRes", "gRt"]) $(id).addEventListener("change", presetChanged);
 $("gSame").addEventListener("change", () => { gameTargets(); showPreset(gAll); });
 $("gWhich").addEventListener("change", () => showPreset(gEach[$("gWhich").value] || gAll));
 $("start").onclick = async () => {
