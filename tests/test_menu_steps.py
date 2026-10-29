@@ -106,7 +106,7 @@ def test_no_key_when_the_game_is_not_in_front(tmp_path):
     p, desk, clock = player(tmp_path, [{"press": "enter"}, {"see": "x", "within": 1, "mark": True}], [],
                             front=lambda: False)
     p.run()
-    assert desk.events == [] and p.problem == "enter not sent: the game was not in front"
+    assert desk.events == [] and p.problem == "enter not sent: the game was not in front (another window was)"
 
 
 def test_optional_word_and_a_black_screen(tmp_path):
@@ -263,7 +263,7 @@ def test_a_dropped_key_is_pressed_again_until_the_menu_opens(tmp_path):
     assert [e[1] for e in desk.events] == [parse_chord("z")] * 3     # 3 s after the menu, then again at 8 and 13 s
     assert "pressed z again" in p.summary()
     assert step_problems([{"see": "a", "within": 1, "again": {"press": "z"}, "mark": True}]) == [
-        "step 1: 'again' needs 'see', 'press' or 'hold', and 'every' seconds"]
+        "step 1: 'again' needs 'see', 'press', 'hold' or 'click', and 'every' seconds"]
 
 
 def test_a_click_needs_the_word_s_place(tmp_path):
@@ -276,6 +276,17 @@ def test_a_click_needs_the_word_s_place(tmp_path):
     assert desk.events == [] and p.problem == ("step 1: 'graphics' was read but not where it is on the screen; "
                                                "nothing clicked")
     assert step_problems([{"click": "x", "mark": True}]) == ["step 1 does nothing", "step 1: 'click' needs 'see'"]
+
+
+def test_a_click_the_menu_missed_is_clicked_again(tmp_path):
+    steps = [{"see": "graphics", "within": 30, "again": {"click": "settings", "every": 5, "while": "new game"},
+              "mark": True}]
+    timeline = [(0, ["Continue", "New Game", "Settings"]), (7, ["Sound", "Graphics"])]
+    p, desk, clock = player(tmp_path, steps, timeline)
+    p.run()
+    assert p.problem is None
+    assert [(e[0], e[1]) for e in desk.events] == [("mouse", (40, 210)), ("button", True), ("button", False)]
+    assert "clicked 'settings' at 40,210 again" in p.summary()
 
 
 def test_a_hold_is_tried_again_only_while_the_menu_is_still_there(tmp_path):

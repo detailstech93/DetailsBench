@@ -7,8 +7,8 @@ the step expects was read on the screen (app/frames/screen_text.py), and only in
         just appeared may drop keys).
     {"see": "graphics", "within": 30, "again": {"press": "z", "every": 5}}
         while the word is not there yet, press the previous step's key again every 5 s (it was dropped).
-        "again" may also "hold" a key ("seconds") before its "press", and only while a "while" word is still on
-        the screen (the menu that should have gone away).
+        "again" may also "hold" a key ("seconds") before its "press", or "click" a word, and only while a "while"
+        word is still on the screen (the menu that should have gone away).
     {"see": "graphics", "within": 30, "click": "graphics"}
         click the middle of that word where it was read (a menu that remembers its last item is not reached
         the same way by arrow keys each time).
@@ -57,9 +57,9 @@ def step_problems(steps, marked: bool = True) -> List[str]:
         chords += [c.strip() for k in (s.get("dismiss") or {}).values() for c in str(k).split(",") if c.strip()]
         again = s.get("again")
         if again is not None:
-            if not (isinstance(again, dict) and (again.get("press") or again.get("hold"))
+            if not (isinstance(again, dict) and (again.get("press") or again.get("hold") or again.get("click"))
                     and isinstance(again.get("every"), (int, float)) and again["every"] > 0 and "see" in s):
-                out.append(f"step {i}: 'again' needs 'see', 'press' or 'hold', and 'every' seconds")
+                out.append(f"step {i}: 'again' needs 'see', 'press', 'hold' or 'click', and 'every' seconds")
             else:
                 chords += [str(again[k]) for k in ("press", "hold") if again.get(k)]
         out += [f"step {i}: unknown key {c!r}" for c in chords if parse_chord(c) is None]
@@ -73,6 +73,15 @@ def step_problems(steps, marked: bool = True) -> List[str]:
         out.append("no step marks the start of the benchmark")
     return out
 
+
+
+def _front_name(desktop) -> str:
+    """The program in front, for the note (the game lost the front to it)."""
+    try:
+        import psutil
+        return psutil.Process(desktop.foreground_pid()).name()
+    except Exception:
+        return "another window"
 
 class StepPlayer:
     def __init__(self, steps: List[dict], desktop, in_front: Callable[[], bool], folder: Path,
@@ -183,6 +192,9 @@ class StepPlayer:
                     if again.get("press"):
                         self._press(str(again["press"]), step.get("tap"))
                         self.notes[-1] += " again"
+                    if again.get("click"):
+                        self._click(i, str(again["click"]))
+                        self.notes[-1] += " again"
                     next_again = self.clock() + float(again["every"])
             if self.clock() >= deadline:
                 break
@@ -201,7 +213,7 @@ class StepPlayer:
         deadline = self.clock() + FRONT_GRACE_SECONDS
         while not self.in_front():
             if self.clock() >= deadline or self.stop.is_set():
-                raise _Stop(f"{what} not sent: the game was not in front")
+                raise _Stop(f"{what} not sent: the game was not in front ({_front_name(self.desktop)} was)")
             self.sleep(0.5)
 
     def _press(self, chord: str, tap: Optional[float] = None) -> None:
