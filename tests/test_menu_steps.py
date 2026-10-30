@@ -25,7 +25,7 @@ class Clock:
 
 class Desk:
     def __init__(self, clock):
-        self.clock, self.events = clock, []
+        self.clock, self.events, self.parked = clock, [], 0
 
     def press(self, codes):
         self.events.append(("press", codes))
@@ -37,7 +37,11 @@ class Desk:
         self.events.append(("up", codes, self.clock.now))
 
     def mouse_to(self, x, y):
-        self.events.append(("mouse", (x, y)))
+        from app.frames.menu_steps import PARK_POINT
+        if (x, y) == PARK_POINT:            # out of the way after a click: counted, not in the key events
+            self.parked += 1
+        else:
+            self.events.append(("mouse", (x, y)))
 
     def mouse_button(self, down):
         self.events.append(("button", down, self.clock.now))
@@ -370,6 +374,9 @@ def test_borderlands_3_path(tmp_path):
     assert p.problem is None and 80 <= p.mark_time < 82
     assert b"Average FPS 165" in (tmp_path / "benchmark_results.png").read_bytes()
     assert p.result_shot == str(tmp_path / "benchmark_results.png")
+    assert desk.parked == 5          # after each click the mouse leaves the menu (Options sat under Start's spot)
+    from app.frames.game_benchmark import after_mark_seconds
+    assert after_mark_seconds(menu_steps_for(397540)) >= 60 + 180 + 30 + 40      # not cut on its Visuals page
     keys = [e[1] if e[0] == "press" else (e[0], e[1]) for e in desk.events]
     after = keys[16:]                   # back from its main menu: Options and Visuals clicked, Start never
     assert after[:6] == [("mouse", (40, 110)), ("button", True), ("button", False),

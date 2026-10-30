@@ -40,6 +40,8 @@ PAUSE_SECONDS = 0.5
 LOOK_EVERY_SECONDS = 1.0
 CLICK_SETTLE_SECONDS = 0.3          # the menu highlights the item under the mouse before the click
 DISMISS_PAUSE_SECONDS = 3.0         # a popup closes before the screen is read again
+PARK_POINT = (1, 1)                 # the mouse waits here after a click: a menu item under it lights up and is
+                                    # misread (BL3's Options under the spot of Start, 2026-10-30)
 CLICK_HOLD_SECONDS = 0.15           # button down this long: a game that reads the mouse once a frame sees it
 STILL_PIXELS = 8                    # a word read twice this close is not moving
 STILL_READS = 5                     # reads to wait for a menu that is still sliding in
@@ -266,6 +268,7 @@ class StepPlayer:
         finally:
             self.desktop.mouse_button(False)
         self.notes.append(f"clicked {word!r} at {point[0]},{point[1]}")
+        self.desktop.mouse_to(*PARK_POINT)
 
     def _hold(self, chord: str, seconds: float) -> None:
         from app.simulation.desktop import parse_chord

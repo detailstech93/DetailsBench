@@ -222,12 +222,15 @@ def _own_result(app_id, since: float) -> Optional[dict]:
     return game_own_result(app_id, since)
 
 
-AFTER_STEPS_SECONDS = 120     # steps after the benchmark (back to its results page) get this long
-
-
-def shots_after(steps) -> bool:
-    """The steps go back to a results page after the benchmark (a "shot" step)."""
-    return any(isinstance(s, dict) and s.get("shot") for s in steps or [])
+def after_mark_seconds(steps) -> float:
+    """How long the steps after the benchmark's start may take, when they go back to a results page ("shot"
+    step); 0 otherwise. BL3 was stopped on its Visuals page by a fixed 120 s (2026-10-30)."""
+    steps = [s for s in steps or [] if isinstance(s, dict)]
+    marks = [k for k, s in enumerate(steps) if s.get("mark")]
+    after = steps[marks[0] + 1:] if marks else []
+    if not any(s.get("shot") for s in after):
+        return 0.0
+    return sum(float(s.get(k) or 0) for s in after for k in ("within", "wait", "settle")) + 10 * len(after)
 
 
 OWN_LABELS = (("avg", "Average"), ("min", "Minimum"), ("max", "Maximum"))
@@ -854,7 +857,7 @@ class GameBenchmark:
                 elapsed = now - done["t_mark"]
                 if steps.done.is_set() and getattr(steps, "result_shot", None):
                     break               # its results page was kept after the benchmark (BL3): close now
-                if elapsed >= spec.benchmark_seconds + (AFTER_STEPS_SECONDS if shots_after(spec.steps) else 0):
+                if elapsed >= spec.benchmark_seconds + after_mark_seconds(spec.steps):
                     break
                 if int(elapsed) != shown:
                     shown = int(elapsed)
