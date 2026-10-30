@@ -119,14 +119,17 @@ def first_frame_offset(seen_at_seconds: float, game_seconds_then: float) -> floa
 
 
 LOADING_FRAME_MS = 200.0        # a frame this long is a loading screen, not a hitch (BL3: 231 ms and 219 ms)
+LOAD_CLUSTER_SECONDS = 2.0      # loading frames this close are one load
 
 
-def loading_bounds(frametimes_ms: List[float], before_seconds: float,
-                   end_margin_seconds: float = 3.0) -> Tuple[Optional[float], Optional[float]]:
+def loading_bounds(frametimes_ms: List[float], after_seconds: float, end_margin_seconds: float = 3.0,
+                   within_seconds: float = 60.0) -> Tuple[Optional[float], Optional[float]]:
     """(start, end) in game seconds of a benchmark between two loading frames.
 
-    start is where the last loading frame before `before_seconds` ended; end is end_margin_seconds before
-    the next loading frame begins (the fade back to the menu). Either is None when there is no such frame.
+    start is where the load after `after_seconds` (the Start click) ended; its loading frames come in a cluster
+    (BL3: 223 ms then 244 ms, 0.3 s apart), so the last of them. It must begin within within_seconds of the
+    click. end is end_margin_seconds before the next loading frame begins (the fade back to the menu). Either
+    is None when there is no such frame.
     """
     start: Optional[float] = None
     end: Optional[float] = None
@@ -136,9 +139,16 @@ def loading_bounds(frametimes_ms: List[float], before_seconds: float,
         if frame_ms < LOADING_FRAME_MS:
             continue
         t = running_ms / 1000.0
-        if t <= before_seconds:
+        began = t - frame_ms / 1000.0
+        if began < after_seconds:
+            continue
+        if start is None:
+            if began - after_seconds > within_seconds:
+                break
             start = t
-        elif start is not None:
-            end = t - frame_ms / 1000.0 - end_margin_seconds      # from where the load began
+        elif began - start <= LOAD_CLUSTER_SECONDS:
+            start = t
+        else:
+            end = began - end_margin_seconds
             break
     return start, end

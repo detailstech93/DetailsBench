@@ -110,14 +110,15 @@ GAME_MENU_STEPS: Dict[int, dict] = {
             {"see": "visuals", "within": 30, "again": {"press": "enter", "every": 5, "while": "options"},
              "settle": 1, "click": "visuals", "wait": 3},
             # the Visuals page opens on its first tab (Basic): C moves one tab right until the Benchmark tab shows
+            # marked at its Start click: measuring starts where the load after it ends (its "fps" overlay was read
+            # 44 s to 2 min late, 2026-10-30)
             {"see": "start benchmark", "within": 40, "again": {"press": "c", "every": 4}, "tap": 0.15, "settle": 1,
-             "click": "start", "wait": 3},
-            # the benchmark shows its frame rate while it runs (Notebookcheck)
-            {"see": "fps", "within": 180, "dismiss": {"are you sure": "enter"}, "mark": True,
+             "click": "start", "mark": True},
+            {"gone": "start benchmark", "within": 60, "dismiss": {"are you sure": "enter"},
              "again": {"press": "enter", "every": 10, "while": "start benchmark"}},
             # it goes back to its main menu; its Benchmark tab then shows the last run's result (owner, 2026-10-30).
-            # The screen is not read for the first 60 s: reading it costs frames while it is measured
-            {"wait": 60},
+            # The screen is not read while it runs (about 110 s): reading it costs frames while it is measured
+            {"wait": 115},
             {"see": "options", "within": 180, "dismiss": {"press any": "enter"}, "settle": 2, "click": "options",
              "wait": 3},
             {"see": "visuals", "within": 30, "again": {"press": "enter", "every": 5, "while": "options"},
@@ -127,8 +128,8 @@ GAME_MENU_STEPS: Dict[int, dict] = {
         ],
         "benchmark_seconds": 110,       # "nearly two minutes" (Notebookcheck)
         "results_screen": False,        # it goes back to its menu (owner, 2026-10-29): the shot is its FPS counter
-        # its "fps" was read 44 s after the benchmark began (run of 2026-10-29): measuring starts at the loading
-        # frame before it and stops before the loading frame back to the menu (owner, 2026-10-29)
+        # measuring starts at the loading frames after the Start click and stops before the loading frame back to
+        # the menu (owner, 2026-10-29)
         "starts_after_loading": True,
         "verified": False,
         "note": "Options, Visuals, the Benchmark tab, Start Benchmark; measuring runs from its loading screen to the next one; then its Benchmark tab (the last result) is shot and it is closed. "

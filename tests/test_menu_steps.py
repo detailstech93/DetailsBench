@@ -371,12 +371,12 @@ def test_borderlands_3_path(tmp_path):
                 (220, ["Start Benchmark", "Average FPS 165"])]
     p, desk, clock = player(tmp_path, menu_steps_for(397540), timeline)
     p.run()
-    assert p.problem is None and 80 <= p.mark_time < 82
+    assert p.problem is None and 60 <= p.mark_time < 62       # at its Start click, not its late "fps"
     assert b"Average FPS 165" in (tmp_path / "benchmark_result.png").read_bytes()
     assert p.result_shot == str(tmp_path / "benchmark_result.png")
     assert desk.parked == 5          # after each click the mouse leaves the menu (Options sat under Start's spot)
     from app.frames.game_benchmark import after_mark_seconds
-    assert after_mark_seconds(menu_steps_for(397540)) >= 60 + 180 + 30 + 40      # not cut on its Visuals page
+    assert after_mark_seconds(menu_steps_for(397540)) >= 60 + 115 + 180 + 30 + 40      # not cut on its Visuals page
     keys = [e[1] if e[0] == "press" else (e[0], e[1]) for e in desk.events]
     after = keys[16:]                   # back from its main menu: Options and Visuals clicked, Start never
     assert after[:6] == [("mouse", (40, 110)), ("button", True), ("button", False),
@@ -388,7 +388,7 @@ def test_borderlands_3_path(tmp_path):
                     ("mouse", (40, 10)), ("button", True), ("button", False),
                     *[("down", parse_chord("c")), ("up", parse_chord("c"))] * 3,
                     ("mouse", (40, 10)), ("button", True), ("button", False)]
-    assert "benchmark started ('fps' seen at 8" in p.summary()
+    assert "benchmark started ('start benchmark' seen at 6" in p.summary() and "'start benchmark' gone at 7" in p.summary()
     from data.game_start_keys import shows_results_for
     assert not shows_results_for(397540) and shows_results_for(1174180)     # BL3 goes back to its menu
 
@@ -599,7 +599,8 @@ def test_the_quit_steps_play_after_the_window_is_asked_to_close(tmp_path, monkey
 
 def test_bl3_whole_benchmark_is_measured_between_its_loads_and_closed_after_its_results_page(tmp_path):
     """Owner, 2026-10-30: BL3's numbers were far from its own (114.7 FPS): its late mark took the load back to
-    its menu and the menu. Measured between its loading frames; closed once its Benchmark tab was shot."""
+    its menu and the menu. Marked at its Start click, measured between the loading frames after it; closed once
+    its Benchmark tab was shot."""
     from app.frames.elevated import ElevatedOutcome
 
     class Bl3Fakes(PassFakes):
@@ -607,17 +608,17 @@ def test_bl3_whole_benchmark_is_measured_between_its_loads_and_closed_after_its_
             on_started()
             halt.wait(10)
             rows = (["Game.exe,100,10.0"] * 3000 + ["Game.exe,100,250.0"] + ["Game.exe,100,20.0"] * 5000
-                    + ["Game.exe,100,6800.0"] + ["Game.exe,100,3.0"] * 20000)
+                    + ["Game.exe,100,6800.0"] + ["Game.exe,100,3.0"] * 2000)
             with open(args[args.index("--output_file") + 1], "w", encoding="utf-8") as f:
                 f.write("Application,ProcessID,MsBetweenPresents\n" + "\n".join(rows) + "\n")
             return ElevatedOutcome("stopped", exit_code=1, terminated=True)
 
     fakes = Bl3Fakes(tmp_path)
-    steps = FakeSteps(fakes, mark_after=60)                 # its "fps" read 30 s after its benchmark began
+    steps = FakeSteps(fakes, mark_after=25)                 # its Start click, 5 s before its load
     steps.result_shot = str(tmp_path / "benchmark_result.png")
     steps.done = SimpleNamespace(is_set=lambda: fakes.now[0] >= steps.t + 150)
     s = spec(app_id="397540", install_path=str(fakes.install), warmup_runs=0, repetitions=1,
-             steps=[{"see": "fps", "within": 60, "mark": True}, {"see": "start", "within": 9, "shot": "x"}],
+             steps=[{"see": "start", "within": 60, "mark": True}, {"see": "start", "within": 9, "shot": "x"}],
              benchmark_seconds=110)
     cap = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=False, elevated_runner=fakes.elevated,
                         launcher=fakes.launcher, snapshot=lambda: [], clock=fakes.clock, sleep=fakes.sleep,

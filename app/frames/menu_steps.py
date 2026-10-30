@@ -19,6 +19,7 @@ the step expects was read on the screen (app/frames/screen_text.py), and only in
         every key of this step (press, dismiss, again) is held that long by scan code: a game that reads the
         keyboard once a frame misses an instant press (Far Cry 6's F5 and Space, 2026-10-23)
     {"see": "stop", "within": 120, "mark": True}     the benchmark is running: measuring starts here
+    {"gone": "start benchmark", "within": 60}       wait until a word has left the screen (the menu closed)
     {"see": "start benchmark", "within": 40, "shot": "results"}
         after the mark: keep this screen as the results shot (a game whose results show on a menu page,
         Borderlands 3); the game is closed as soon as it is kept
@@ -65,19 +66,20 @@ def step_problems(steps, marked: bool = True) -> List[str]:
         again = s.get("again")
         if again is not None:
             if not (isinstance(again, dict) and (again.get("press") or again.get("hold") or again.get("click"))
-                    and isinstance(again.get("every"), (int, float)) and again["every"] > 0 and "see" in s):
+                    and isinstance(again.get("every"), (int, float)) and again["every"] > 0
+                    and ("see" in s or "gone" in s)):
                 out.append(f"step {i}: 'again' needs 'see', 'press', 'hold' or 'click', and 'every' seconds")
             else:
                 chords += [str(again[k]) for k in ("press", "hold") if again.get(k)]
         out += [f"step {i}: unknown key {c!r}" for c in chords if parse_chord(c) is None]
-        if not any(k in s for k in ("see", "press", "hold", "wait")):
+        if not any(k in s for k in ("see", "gone", "press", "hold", "wait")):
             out.append(f"step {i} does nothing")
         if "shot" in s and "see" not in s:
             out.append(f"step {i}: 'shot' needs 'see'")
         if "click" in s and "see" not in s:
             out.append(f"step {i}: 'click' needs 'see'")
-        if "see" in s and not (isinstance(s.get("within"), (int, float)) and s["within"] > 0):
-            out.append(f"step {i}: 'see' needs 'within' seconds")
+        if ("see" in s or "gone" in s) and not (isinstance(s.get("within"), (int, float)) and s["within"] > 0):
+            out.append(f"step {i}: {'see' if 'see' in s else 'gone'!r} needs 'within' seconds")
     if marked and not any(s.get("mark") for s in steps if isinstance(s, dict)):
         out.append("no step marks the start of the benchmark")
     return out
@@ -147,7 +149,7 @@ class StepPlayer:
         return f"{self.clock() - self._t0:.0f} s"
 
     def _step(self, i: int, step: dict) -> None:
-        if "see" in step:
+        if "see" in step or "gone" in step:
             found = self._see(i, step)
             if found is None:
                 return                          # optional and not seen
@@ -172,7 +174,8 @@ class StepPlayer:
             self.sleep(float(step["wait"]))
 
     def _see(self, i: int, step: dict) -> Optional[str]:
-        words = step["see"]
+        gone = "see" not in step
+        words = step["gone"] if gone else step["see"]
         dismiss = step.get("dismiss") or {}
         again = step.get("again")
         deadline = self.clock() + float(step["within"])
@@ -191,10 +194,13 @@ class StepPlayer:
             if not error:
                 last = self._lines = lines
                 found = find_word(lines, words)
-                if found:
+                popup = find_word(lines, list(dismiss))
+                if gone and not found and not popup:
+                    self.notes.append(f"{words!r} gone at {self._at()}")
+                    return str(words)
+                if found and not gone:
                     self.notes.append(f"saw {found!r} at {self._at()}")
                     return found
-                popup = find_word(lines, list(dismiss))
                 if popup:
                     for n, chord in enumerate(c.strip() for c in str(dismiss[popup]).split(",") if c.strip()):
                         if n:
@@ -224,7 +230,7 @@ class StepPlayer:
         shot = self._keep_shot(f"step_{i}_not_found.png")
         seen = ", ".join(last[:8]) if last else ("nothing: " + error if error else
                                                  "no words at all (a black screenshot? use borderless window)")
-        raise _Stop(f"step {i}: {wanted!r} did not appear within {step['within']:g} s; the screen showed: "
+        raise _Stop(f"step {i}: {wanted!r} did not {'go away' if gone else 'appear'} within {step['within']:g} s; the screen showed: "
                     f"{seen}" + (f" (screenshot {shot})" if shot else ""))
 
     def _check_front(self, what: str) -> None:

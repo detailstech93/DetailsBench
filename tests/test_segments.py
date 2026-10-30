@@ -144,13 +144,15 @@ def test_first_frame_offset_negative():
     assert first_frame_offset(10.0, 12.5) == -2.5
 
 
-def test_a_late_mark_measures_from_the_loading_frame_to_the_next_one():
+def test_the_start_click_measures_from_the_load_after_it_to_the_next_one():
     from app.frames.segments import loading_bounds
     from data.game_start_keys import starts_after_loading
-    # menu with its own load, the benchmark's load at 10.3 s, 100 s of benchmark, the load back to the menu
-    frames = [250.0] + [10.0] * 1000 + [300.0] + [5.0] * 20000 + [220.0] + [3.0] * 1000
-    start, end = loading_bounds(frames, before_seconds=50.0)     # its "fps" was read 40 s late
-    assert start == pytest.approx(10.55)
-    assert end == pytest.approx(10.55 + 100.0 - 3.0)
+    # menu with its own load, the Start click at 5 s, the benchmark's load (two frames, as BL3's 223 and 244 ms)
+    # at 10 s, 100 s of benchmark, the load back to the menu
+    frames = [250.0] + [10.0] * 1000 + [300.0, 10.0, 240.0] + [5.0] * 20000 + [220.0] + [3.0] * 1000
+    start, end = loading_bounds(frames, after_seconds=5.0)
+    assert start == pytest.approx(10.8)
+    assert end == pytest.approx(10.8 + 100.0 - 3.0)
+    assert loading_bounds(frames, after_seconds=5.0, within_seconds=4.0) == (None, None)    # no load: no window
     assert loading_bounds([5.0] * 100, 0.3) == (None, None)
     assert starts_after_loading(397540) and not starts_after_loading(1174180)

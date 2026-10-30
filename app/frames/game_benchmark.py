@@ -627,12 +627,12 @@ class GameBenchmark:
                            telemetry_unavailable=dict(tel.unavailable) if tel else {}, display_mode=self.display_mode)
 
     def _marked_windows(self, frametimes, windows, mark_shift):
-        """The windows moved to the benchmark's start; for a game whose mark is read late (BL3), its loading frames."""
+        """The windows moved to the benchmark's start; for a game marked at its Start click (BL3), its loading frames."""
         end = None
         from data.game_start_keys import starts_after_loading
         if starts_after_loading(self.spec.app_id):
             start, end = loading_bounds(frametimes, mark_shift)
-            if start is not None and mark_shift - start < max(b for _, b in windows):  # never an earlier menu load
+            if start is not None:
                 mark_shift = start
         windows = [(a + mark_shift, b + mark_shift) for a, b in windows]
         return [(a, min(b, end)) if end is not None and end > a else (a, b) for a, b in windows]
