@@ -41,6 +41,8 @@ LOOK_EVERY_SECONDS = 1.0
 CLICK_SETTLE_SECONDS = 0.3          # the menu highlights the item under the mouse before the click
 DISMISS_PAUSE_SECONDS = 3.0         # a popup closes before the screen is read again
 CLICK_HOLD_SECONDS = 0.15           # button down this long: a game that reads the mouse once a frame sees it
+STILL_PIXELS = 8                    # a word read twice this close is not moving
+STILL_READS = 5                     # reads to wait for a menu that is still sliding in
 FRONT_GRACE_SECONDS = 10.0          # the game may lose the front briefly while it changes video mode
 LOG_NAME = "screen_log.txt"          # what every read saw
 
@@ -243,6 +245,17 @@ class StepPlayer:
         point = word_center(self._lines, word)
         if point is None:
             raise _Stop(f"step {i}: {word!r} was read but not where it is on the screen; nothing clicked")
+        # read again: a menu still sliding in moves its words, and BL3's Quit Game was clicked for Options
+        # where Options had been read (2026-10-30)
+        for _ in range(STILL_READS):
+            self.sleep(LOOK_EVERY_SECONDS)
+            lines, error = self.reader(self.desktop, self.folder / "screen.png")
+            now = None if error else word_center(lines, word)
+            if now is not None and abs(now[0] - point[0]) <= STILL_PIXELS and abs(now[1] - point[1]) <= STILL_PIXELS:
+                break
+            point = now or point
+        else:
+            raise _Stop(f"step {i}: {word!r} did not hold still on the screen; nothing clicked")
         self._check_front(f"click on {word!r}")
         self.desktop.mouse_to(*point)
         self.sleep(CLICK_SETTLE_SECONDS)

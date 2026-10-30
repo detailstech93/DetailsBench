@@ -624,3 +624,22 @@ def test_bl3_whole_benchmark_is_measured_between_its_loads_and_closed_after_its_
     assert abs(w.metrics["duration_seconds"][0] - (100.0 - 5 - 3)) < 0.1
     assert f"Proof screenshot: {steps.result_shot}" in w.note
     assert fakes.now[0] < steps.t + 200                     # closed after its results page, not the whole wait
+
+
+def test_a_word_still_sliding_in_is_clicked_where_it_stops(tmp_path):
+    """BL3, 2026-10-30: its main menu slid in after the benchmark; Options was clicked where it had been read and
+    Quit Game was hit. The word is read again until it holds still, and clicked there."""
+    timeline = [(0, ["Back", "Social", "Store", "Options"]), (0.5, ["Play", "Options", "Store", "Quit Game"])]
+    p, desk, clock = player(tmp_path, [{"see": "options", "within": 10, "settle": 1, "click": "options"},
+                                       {"see": "options", "within": 10, "mark": True}], timeline)
+    p.run()
+    assert p.problem is None
+    assert [e for e in desk.events if e[0] == "mouse"] == [("mouse", (40, 110))]       # its second line
+
+
+def test_a_word_that_never_holds_still_is_not_clicked(tmp_path):
+    p, desk, clock = player(tmp_path, [{"see": "options", "within": 10, "click": "options"},
+                                       {"see": "x", "within": 1, "mark": True}],
+                            [(t, ["x"] * (t % 3) + ["Options"]) for t in range(30)])
+    p.run()
+    assert "did not hold still" in p.problem and not [e for e in desk.events if e[0] == "mouse"]
