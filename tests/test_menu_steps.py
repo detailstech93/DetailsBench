@@ -372,8 +372,8 @@ def test_borderlands_3_path(tmp_path):
     p, desk, clock = player(tmp_path, menu_steps_for(397540), timeline)
     p.run()
     assert p.problem is None and 80 <= p.mark_time < 82
-    assert b"Average FPS 165" in (tmp_path / "benchmark_results.png").read_bytes()
-    assert p.result_shot == str(tmp_path / "benchmark_results.png")
+    assert b"Average FPS 165" in (tmp_path / "benchmark_result.png").read_bytes()
+    assert p.result_shot == str(tmp_path / "benchmark_result.png")
     assert desk.parked == 5          # after each click the mouse leaves the menu (Options sat under Start's spot)
     from app.frames.game_benchmark import after_mark_seconds
     assert after_mark_seconds(menu_steps_for(397540)) >= 60 + 180 + 30 + 40      # not cut on its Visuals page
@@ -614,7 +614,7 @@ def test_bl3_whole_benchmark_is_measured_between_its_loads_and_closed_after_its_
 
     fakes = Bl3Fakes(tmp_path)
     steps = FakeSteps(fakes, mark_after=60)                 # its "fps" read 30 s after its benchmark began
-    steps.result_shot = str(tmp_path / "benchmark_results.png")
+    steps.result_shot = str(tmp_path / "benchmark_result.png")
     steps.done = SimpleNamespace(is_set=lambda: fakes.now[0] >= steps.t + 150)
     s = spec(app_id="397540", install_path=str(fakes.install), warmup_runs=0, repetitions=1,
              steps=[{"see": "fps", "within": 60, "mark": True}, {"see": "start", "within": 9, "shot": "x"}],
@@ -650,3 +650,10 @@ def test_a_word_that_never_holds_still_is_not_clicked(tmp_path):
                             [(t, ["x"] * (t % 3) + ["Options"]) for t in range(30)])
     p.run()
     assert "did not hold still" in p.problem and not [e for e in desk.events if e[0] == "mouse"]
+
+
+def test_bl3_results_shot_is_one_the_report_shows():
+    """Owner, 2026-10-30: the BL3 results page was kept as benchmark_results.png, which the report does not show."""
+    from app.report import PROOF_SHOTS
+    shots = [s["shot"] for s in menu_steps_for(397540) if s.get("shot")]
+    assert shots and all(f"{s}.png" in PROOF_SHOTS for s in shots)

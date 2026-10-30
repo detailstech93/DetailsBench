@@ -123,7 +123,7 @@ GAME_MENU_STEPS: Dict[int, dict] = {
             {"see": "visuals", "within": 30, "again": {"press": "enter", "every": 5, "while": "options"},
              "settle": 1, "click": "visuals", "wait": 3},
             {"see": "start benchmark", "within": 40, "again": {"press": "c", "every": 4}, "tap": 0.15, "settle": 2,
-             "shot": "benchmark_results"},
+             "shot": "benchmark_result"},       # the name the report shows (app/report.py PROOF_SHOTS)
         ],
         "benchmark_seconds": 110,       # "nearly two minutes" (Notebookcheck)
         "results_screen": False,        # it goes back to its menu (owner, 2026-10-29): the shot is its FPS counter
