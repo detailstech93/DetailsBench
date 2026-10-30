@@ -222,6 +222,14 @@ def _own_result(app_id, since: float) -> Optional[dict]:
     return game_own_result(app_id, since)
 
 
+AFTER_STEPS_SECONDS = 120     # steps after the benchmark (back to its results page) get this long
+
+
+def shots_after(steps) -> bool:
+    """The steps go back to a results page after the benchmark (a "shot" step)."""
+    return any(isinstance(s, dict) and s.get("shot") for s in steps or [])
+
+
 OWN_LABELS = (("avg", "Average"), ("min", "Minimum"), ("max", "Maximum"))
 
 
@@ -621,7 +629,7 @@ class GameBenchmark:
         from data.game_start_keys import starts_after_loading
         if starts_after_loading(self.spec.app_id):
             start, end = loading_bounds(frametimes, mark_shift)
-            if start is not None and mark_shift - start < self.spec.seconds:     # never an earlier menu load
+            if start is not None and mark_shift - start < max(b for _, b in windows):  # never an earlier menu load
                 mark_shift = start
         windows = [(a + mark_shift, b + mark_shift) for a, b in windows]
         return [(a, min(b, end)) if end is not None and end > a else (a, b) for a, b in windows]
@@ -759,10 +767,12 @@ class GameBenchmark:
                 recorded = game_seconds(frametimes)
                 process = process or pick
                 # the game's first frame was `recorded` s before it was asked to close
-                a = (done["t_mark"] - done["t_close"]) + recorded
-                b = a + float(spec.benchmark_seconds)
+                mark = (done["t_mark"] - done["t_close"]) + recorded
+                from data.game_start_keys import starts_after_loading
+                settle = MARK_SETTLE_SECONDS if starts_after_loading(spec.app_id) else 0.0    # its load hitches
+                (a, b), = self._marked_windows(frametimes, [(settle, settle + float(spec.benchmark_seconds))], mark)
                 frames = split_frames(frametimes, [(a, b)])[0] if pick else None
-                start = done["t_mark"] - t_start
+                start = done["t_mark"] - t_start + (a - mark)
                 samples = slice_samples(tel.samples if tel else [], 0.0, [(start, start + b - a)])[0]
                 result = (self._window_result(frames, a, b, recorded, False, remote, command, done["shot"])
                           if pick else WorkloadResult(status="invalid", error="PresentMon recorded no frames from "
@@ -842,7 +852,9 @@ class GameBenchmark:
                         self.sleep(self.poll_seconds)
                         continue
                 elapsed = now - done["t_mark"]
-                if elapsed >= spec.benchmark_seconds:
+                if steps.done.is_set() and getattr(steps, "result_shot", None):
+                    break               # its results page was kept after the benchmark (BL3): close now
+                if elapsed >= spec.benchmark_seconds + (AFTER_STEPS_SECONDS if shots_after(spec.steps) else 0):
                     break
                 if int(elapsed) != shown:
                     shown = int(elapsed)
@@ -858,7 +870,11 @@ class GameBenchmark:
                 self.display_mode = self.screen_mode()
             except Exception:
                 pass
-            self._keep_result_screen()
+            from data.game_start_keys import shows_results_for
+            if getattr(steps, "result_shot", None):
+                self.result_shot = steps.result_shot
+            elif shows_results_for(spec.app_id):
+                self._keep_result_screen()
             try:
                 done["own"] = (self.own_result or _own_result)(spec.app_id, since)
             except Exception:

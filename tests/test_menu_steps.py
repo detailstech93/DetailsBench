@@ -588,3 +588,39 @@ def test_the_quit_steps_play_after_the_window_is_asked_to_close(tmp_path, monkey
     bench = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=False, desktop=object())
     assert bench._close_and_answer([7]) == 1
     assert played == [("close", [7]), s.quit_steps, "run"] and bench.key_notes == ["quit: clicked 'yes'"]
+
+
+def test_bl3_whole_benchmark_is_measured_between_its_loads_and_closed_after_its_results_page(tmp_path):
+    """Owner, 2026-10-30: BL3's numbers were far from its own (114.7 FPS): its late mark took the load back to
+    its menu and the menu. Measured between its loading frames; closed once its Benchmark tab was shot."""
+    from app.frames.elevated import ElevatedOutcome
+
+    class Bl3Fakes(PassFakes):
+        def elevated(self, exe, args, cwd, timeout, halt, on_started=None):
+            on_started()
+            halt.wait(10)
+            rows = (["Game.exe,100,10.0"] * 3000 + ["Game.exe,100,250.0"] + ["Game.exe,100,20.0"] * 5000
+                    + ["Game.exe,100,6800.0"] + ["Game.exe,100,3.0"] * 20000)
+            with open(args[args.index("--output_file") + 1], "w", encoding="utf-8") as f:
+                f.write("Application,ProcessID,MsBetweenPresents\n" + "\n".join(rows) + "\n")
+            return ElevatedOutcome("stopped", exit_code=1, terminated=True)
+
+    fakes = Bl3Fakes(tmp_path)
+    steps = FakeSteps(fakes, mark_after=60)                 # its "fps" read 30 s after its benchmark began
+    steps.result_shot = str(tmp_path / "benchmark_results.png")
+    steps.done = SimpleNamespace(is_set=lambda: fakes.now[0] >= steps.t + 150)
+    s = spec(app_id="397540", install_path=str(fakes.install), warmup_runs=0, repetitions=1,
+             steps=[{"see": "fps", "within": 60, "mark": True}, {"see": "start", "within": 9, "shot": "x"}],
+             benchmark_seconds=110)
+    cap = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=False, elevated_runner=fakes.elevated,
+                        launcher=fakes.launcher, snapshot=lambda: [], clock=fakes.clock, sleep=fakes.sleep,
+                        folder_procs=fakes.folder_procs, closer=fakes.closer,
+                        desktop=SimpleNamespace(foreground_pid=lambda: 100), exe_lister=lambda folder: ["Game.exe"],
+                        step_player=lambda st: steps, own_result=lambda *a: None).run()
+    w = cap.windows[0].result
+    assert w.status == "completed", w.error
+    assert abs(w.score - 50.0) < 0.01                       # the benchmark's 20 ms frames only
+    assert abs(w.metrics["window_start_s"][0] - (30.25 + 5)) < 0.01
+    assert abs(w.metrics["duration_seconds"][0] - (100.0 - 5 - 3)) < 0.1
+    assert f"Proof screenshot: {steps.result_shot}" in w.note
+    assert fakes.now[0] < steps.t + 200                     # closed after its results page, not the whole wait

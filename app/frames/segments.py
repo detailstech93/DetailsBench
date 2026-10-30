@@ -126,7 +126,7 @@ def loading_bounds(frametimes_ms: List[float], before_seconds: float,
     """(start, end) in game seconds of a benchmark between two loading frames.
 
     start is where the last loading frame before `before_seconds` ended; end is end_margin_seconds before
-    the next loading frame ends (the fade back to the menu). Either is None when there is no such frame.
+    the next loading frame begins (the fade back to the menu). Either is None when there is no such frame.
     """
     start: Optional[float] = None
     end: Optional[float] = None
@@ -139,6 +139,6 @@ def loading_bounds(frametimes_ms: List[float], before_seconds: float,
         if t <= before_seconds:
             start = t
         elif start is not None:
-            end = t - end_margin_seconds
+            end = t - frame_ms / 1000.0 - end_margin_seconds      # from where the load began
             break
     return start, end

@@ -151,6 +151,6 @@ def test_a_late_mark_measures_from_the_loading_frame_to_the_next_one():
     frames = [250.0] + [10.0] * 1000 + [300.0] + [5.0] * 20000 + [220.0] + [3.0] * 1000
     start, end = loading_bounds(frames, before_seconds=50.0)     # its "fps" was read 40 s late
     assert start == pytest.approx(10.55)
-    assert end == pytest.approx(10.55 + 100.0 + 0.22 - 3.0)
+    assert end == pytest.approx(10.55 + 100.0 - 3.0)
     assert loading_bounds([5.0] * 100, 0.3) == (None, None)
     assert starts_after_loading(397540) and not starts_after_loading(1174180)
