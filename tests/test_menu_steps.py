@@ -653,6 +653,15 @@ def test_a_word_that_never_holds_still_is_not_clicked(tmp_path):
     assert "did not hold still" in p.problem and not [e for e in desk.events if e[0] == "mouse"]
 
 
+def test_a_read_that_misses_the_word_does_not_stop_the_click(tmp_path):
+    """BL3, 2026-10-30: its moving main menu read Options as "soffiAC" on the re-reads; the run stopped."""
+    p, desk, clock = player(tmp_path, [{"see": "options", "within": 30, "click": "options"},
+                                       {"see": "x", "within": 1, "mark": True, "optional": True}],
+                            [(0, ["Options"]), (0.5, ["soffiAC"]), (6.5, ["Options"])])
+    p.run()
+    assert p.problem is None and ("mouse", (40, 10)) in desk.events
+
+
 def test_bl3_results_shot_is_one_the_report_shows():
     """Owner, 2026-10-30: the BL3 results page was kept as benchmark_results.png, which the report does not show."""
     from app.report import PROOF_SHOTS
