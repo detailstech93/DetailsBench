@@ -419,6 +419,23 @@ def test_game_build_and_the_proof_screenshot_are_in_the_report(tmp_path):
     assert "src=" not in render_session_report(hostile)
 
 
+def test_every_runs_results_shot_is_a_small_picture_that_opens_large(tmp_path):
+    """Owner, 2026-11-01: three runs of a game show three small pictures, each opens large when clicked."""
+    export = _game_export(None, {})
+    runs = []
+    for n in range(3):
+        shot = tmp_path / f"run_{n}" / "benchmark_result.png"
+        shot.parent.mkdir()
+        shot.write_bytes(b"\x89PNG\r\n\x1a\n" + bytes([65 + n]) * 3)
+        runs.append({**export["runs"][0], "run_index": n + 1, "note": f"Proof screenshot: {shot}"})
+    export["runs"] = runs
+    game = render_session_report(export)
+    game = game[game.index("Game results"):game.index("<h2>Summary")]
+    assert game.count('<img class="proof"') == 3 and game.count('tabindex="0"') == 3
+    assert "<figcaption>Run 1</figcaption>" in game and "<figcaption>Run 3</figcaption>" in game
+    assert game.count("data:image/png;base64,") == 3 and "<script" not in game
+
+
 def test_the_big_title_says_what_was_tested():
     """Owner, 2026-10-19: the report starts with the tests in large letters, not "Automated <date>"."""
     runs = [{"benchmark_name": n, "status": "completed", "score": 1.0, "run_index": i}

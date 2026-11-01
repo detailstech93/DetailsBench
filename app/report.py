@@ -152,11 +152,10 @@ PROOF_SHOTS = {
 }
 
 
-def _proof_html(path: Any) -> str:
-    """The game's results screen (or, from older runs, the screen when its benchmark started), put into the report
-    itself so it still shows when the report is sent alone. Only a PNG the app wrote, and not a huge one."""
+def _proof_png(path: Any) -> Optional[tuple]:
+    """(file name, base64) of a PNG the app wrote, and not a huge one; None for anything else."""
     if not path:
-        return ""
+        return None
     import base64
     from pathlib import Path
     p = Path(str(path))
@@ -165,11 +164,26 @@ def _proof_html(path: Any) -> str:
     except OSError:
         data = b""
     if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return None
+    return p.name, base64.b64encode(data).decode("ascii")
+
+
+def _proof_html(paths: list) -> str:
+    """The game's results screen of each measured run (or, from older runs, the screen when its benchmark started),
+    put into the report itself so it still shows when the report is sent alone. More than one run: small pictures,
+    one per run, that open large when clicked (owner, 2026-11-01); no script, the click only focuses the picture."""
+    shots = [(n, shot) for n, shot in enumerate(map(_proof_png, paths), 1) if shot]
+    if not shots:
         return ""
-    heading, alt, text = PROOF_SHOTS[p.name]
-    return (f"<h4>{heading}</h4>"
-            f'<img class="proof" alt="{alt}" data-proof="{base64.b64encode(data).decode("ascii")}">'
-            f'<p class="muted">{text}</p>')
+    heading, alt, text = PROOF_SHOTS[shots[0][1][0]]
+    if len(paths) == 1:
+        return (f"<h4>{heading}</h4>"
+                f'<img class="proof" alt="{alt}" data-proof="{shots[0][1][1]}">'
+                f'<p class="muted">{text}</p>')
+    figures = "".join(f'<figure><img class="proof" alt="{alt}, run {n}" data-proof="{data}" tabindex="0">'
+                      f"<figcaption>Run {n}</figcaption></figure>" for n, (_, data) in shots)
+    return (f"<h4>{heading}</h4>" f'<div class="shots">{figures}</div>'
+            f'<p class="muted">{text} Click a picture to see it large; click beside it to close it.</p>')
 
 
 def _game_runs(export: Mapping) -> dict:
@@ -417,7 +431,7 @@ def _game_section(export: Mapping) -> str:
             f'<p class="muted">{esc(runs_text)}.</p>'
             + own_html
             + "<h4>Test conditions</h4>" + settings_html
-            + _proof_html(parts.get("Proof screenshot"))
+            + _proof_html([_note_parts(r.get("note")).get("Proof screenshot") for r in runs])
             + "<h4>During the benchmark</h4>"
             f'<p class="muted">Readings over {esc(span)}.</p>'
             '<div class="table-wrap"><table><thead><tr><th>Reading</th><th>Average</th><th>Highest</th></tr>'
@@ -1529,6 +1543,10 @@ def _style_block() -> str:
         ".tile.bad .value{color:var(--test);}"
         "table.kv th{text-align:left;padding-right:16px;}"
         "img.proof{max-width:100%;height:auto;border-radius:6px;}"
+        ".shots{display:flex;flex-wrap:wrap;gap:10px;}.shots figure{margin:0;width:220px;}"
+        ".shots figcaption{color:var(--muted);font-size:13px;text-align:center;}.shots img.proof{cursor:zoom-in;}"
+        ".shots img.proof:focus{position:fixed;inset:0;margin:auto;max-width:95vw;max-height:95vh;z-index:10;"
+        "cursor:zoom-out;outline:none;box-shadow:0 0 0 100vmax rgba(0,0,0,0.8);}"
         "@media (max-width:600px){body{padding:16px;}section{padding:14px;}}"
         ".footer{"
         "color:var(--muted);"
