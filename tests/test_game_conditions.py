@@ -12,7 +12,11 @@ PROFILE = ('<GamerProfile>\n<RenderProfile GPU="0" VideoModeProfile="1" Quality=
            'DxrReflections="0" DxrShadows="0" VSyncPreset="off">\n'
            '<VideoModeProfileFullscreen adapterIndex="0" windowMode="0" width="1920" height="1080" />\n'
            '<VideoModeProfileWindow windowMode="3" width="1920" height="1080" />\n</RenderProfile>\n'
-           '<CustomQuality>\n<quality ShadowQuality="high" id="custom" />\n</CustomQuality>\n'
+           # its High preset as the game wrote it (2026-11-01)
+           '<CustomQuality>\n<quality EnvironmentQuality="high" PostFxQuality="high" TextureQuality="high" '
+           'VolumetricFogQuality="high" VolumetricCloudsQuality="high" WaterQuality="high" VegetationQuality="high" '
+           'TerrainQuality="high" GeometryQuality="high" AmbientQuality="high" ShadowQuality="high" '
+           'ShadowCinematicQuality="cinematic_pc" ResolutionQuality="" id="custom" />\n</CustomQuality>\n'
            '<ResolutionConfig FidelityFxSuperResolutionEnabled="0" FidelityFxSuperResolutionMode="0" />\n'
            '</GamerProfile>\n')
 
@@ -32,10 +36,23 @@ def test_far_cry_6_reads_and_changes_only_its_values():
     changes, refused = fc6.plan(PROFILE, requested, known)
     new = fc6.apply(PROFILE, changes)
     assert refused == {} and fc6.verify(new, requested) == {}
-    assert new == (PROFILE.replace('Quality="high" ', 'Quality="ultrahigh" ', 1).replace('Reflections="0"', 'Reflections="1"')
+    ultra = ('Quality="high"', 'Quality="ultrahigh"')
+    assert new == (PROFILE.replace(*ultra).replace('Reflections="0"', 'Reflections="1"')
                    .replace('DxrShadows="0"', 'DxrShadows="1"').replace('SuperResolutionEnabled="0"',
-                                                                         'SuperResolutionEnabled="1"'))
-    assert 'ShadowQuality="high"' in new                # the custom quality's own "Quality" names are not touched
+                                                                         'SuperResolutionEnabled="1"')
+                   .replace('PostFxQuality="ultrahigh"', 'PostFxQuality="high"')
+                   .replace('AmbientQuality="ultrahigh"', 'AmbientQuality="high"')
+                   .replace('cinematic_pc', 'cinematic_ultra_pc'))
+
+
+def test_far_cry_6_quality_writes_its_whole_preset():
+    """Owner, 2026-11-01: each preset chosen in the game's menu, the game quit, its file read: the name and 12
+    lines change together (Medium keeps Vegetation at high)."""
+    assert fc6.choices(PROFILE, {})["preset"] == ["Low", "Medium", "High", "Ultra"]
+    new = fc6.apply(PROFILE, fc6.plan(PROFILE, {"preset": "Medium"}, {})[0])
+    assert 'Quality="medium" ' in new and 'VegetationQuality="high"' in new and 'WaterQuality="medium"' in new
+    assert 'ResolutionQuality=""' in new and fc6.verify(new, {"preset": "Medium"}) == {}
+    assert fc6.read_settings(new.replace('WaterQuality="medium"', 'WaterQuality="low"'))["preset"] == "Custom"
 
 
 def test_far_cry_6_resolution_only_in_full_screen():

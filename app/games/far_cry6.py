@@ -12,6 +12,9 @@ written the same way, and the check after the run shows whether the game kept th
 file still read "ultra": the game does not rewrite the file, so the file cannot show what it used. The preset is
 now offered only with values the game itself wrote ("ultrahigh" is its Ultra), and the check after the run reads the report the
 game writes at the end of its benchmark (benchmarks/benchmark <date>/result.html next to gamerprofile.xml).
+
+2026-11-01: all four presets read from the game itself (Low, Medium, High, Ultra); each writes its name and
+the 12 lines of <quality> that come with it (PRESETS).
 """
 
 import os
@@ -28,12 +31,25 @@ ON_OFF = ((True, "1"), (False, "0"))
 NOT_IN_GAME = {"frame_gen": "the game has none", "dlss": "the game has none"}     # for the game report
 SHOWN = {"window_mode": {"1": "Full screen"}}       # file values named in the game report (seen in its menu)
 
+# each preset as the game itself wrote it, chosen one by one in its menu by the owner and the game quit
+# (2026-11-01). Medium has Vegetation "high"; Ultra keeps PostFx and Ambient at "high". Fire and physics
+# (VeryHigh) did not change with the preset, so they are not written.
+PRESET_REFS = tuple("quality@" + name for name in (
+    "EnvironmentQuality", "PostFxQuality", "TextureQuality", "VolumetricFogQuality", "VolumetricCloudsQuality",
+    "WaterQuality", "VegetationQuality", "TerrainQuality", "GeometryQuality", "AmbientQuality", "ShadowQuality",
+    "ShadowCinematicQuality"))
+PRESETS = {
+    "Low": ("low",) + ("low",) * 9 + ("high", "low", "cinematic_pc"),
+    "Medium": ("medium",) + ("medium",) * 6 + ("high", "medium", "medium", "high", "medium", "cinematic_pc"),
+    "High": ("high",) + ("high",) * 11 + ("cinematic_pc",),
+    "Ultra": ("ultrahigh",) + ("ultrahigh", "high") + ("ultrahigh",) * 7 + ("high", "ultrahigh", "cinematic_ultra_pc"),
+}
+
 SETTINGS = {
     "resolution": Setting("resolution", ("VideoModeProfileFullscreen@width", "VideoModeProfileFullscreen@height")),
     "window_mode": Setting("learned", ("RenderProfile@VideoModeProfile",)),
-    # both seen on this PC: "high" (2026-10-23 morning) and "ultrahigh" after the owner chose Ultra in the game's
-    # menu (14:41; the game's report then said Ultra). Low/Medium were never seen, so they are not offered.
-    "preset": Setting("map", ("RenderProfile@Quality",), (("High", "high"), ("Ultra", "ultrahigh"))),
+    # the whole preset: its name and the 12 lines the game writes with it (PRESET_REFS, PRESETS)
+    "preset": Setting("map", ("RenderProfile@Quality",) + PRESET_REFS, tuple(PRESETS.items())),
     "dxr_reflections": Setting("map", ("RenderProfile@DxrReflections",), ON_OFF),
     "dxr_shadows": Setting("map", ("RenderProfile@DxrShadows",), ON_OFF),
     "upscaler": Setting("map", ("ResolutionConfig@FidelityFxSuperResolutionEnabled",),
