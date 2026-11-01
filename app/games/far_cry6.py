@@ -54,6 +54,9 @@ SETTINGS = {
     "dxr_shadows": Setting("map", ("RenderProfile@DxrShadows",), ON_OFF),
     "upscaler": Setting("map", ("ResolutionConfig@FidelityFxSuperResolutionEnabled",),
                         (("Off", "0"), ("FSR 1.0", "1"))),
+    # each chosen in the game's menu by the owner and the game quit (2026-11-01)
+    "upscaler_mode": Setting("map", ("ResolutionConfig@FidelityFxSuperResolutionMode",),
+                             (("Ultra Quality", "0"), ("Quality", "1"), ("Balanced", "2"), ("Performance", "3"))),
     "resolution_scale": Setting("learned", ("RenderProfile@ResolutionScale",)),
     "vsync": Setting("learned", ("RenderProfile@VSyncPreset",)),
 }

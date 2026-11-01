@@ -15,12 +15,12 @@ UPSCALERS = (KEEP, "off", "dlss", "fsr", "xess")
 RAY_TRACING = (KEEP, "off", "medium", "high", "ultra", "on")      # the levels only where the game has them
 FRAME_GEN = (KEEP, "off", "x2", "x3", "x4")      # off, or on with that many frames shown per rendered one
 # how strong the upscaler is (owner, 2026-10-29: DLSS strength); offered only where the game has the mode
-UPSCALER_MODES = (KEEP, "quality", "balanced", "performance", "ultra_performance")
+UPSCALER_MODES = (KEEP, "ultra_quality", "quality", "balanced", "performance", "ultra_performance")
 QUALITIES = (KEEP, "lowest", "low", "medium", "high", "highest", "ultra")
 
 LABELS = {KEEP: "Keep the game's own", "off": "Off", "on": "On", "dlss": "DLSS", "fsr": "FSR", "xess": "XeSS",
           "lowest": "Lowest", "low": "Low", "medium": "Medium", "high": "High", "highest": "Highest", "ultra": "Ultra",
-          "quality": "Quality", "balanced": "Balanced", "performance": "Performance",
+          "ultra_quality": "Ultra Quality", "quality": "Quality", "balanced": "Balanced", "performance": "Performance",
           "ultra_performance": "Ultra Performance",
           "x2": "On, 2x", "x3": "On, 3x (multi frame)", "x4": "On, 4x (multi frame)"}
 # offered only where the game's own list has them (owner, 2026-10-29: Shadow of the Tomb Raider's own presets and
@@ -209,6 +209,7 @@ GAME_TARGETS: Dict[str, Dict[str, Target]] = {
     "2369390": {   # Far Cry 6: FSR 1.0 is its only upscaler; ray traced reflections and shadows; no frame generation
         "resolution": Target(("resolution",), _exact_text),
         "upscaler": Target(("upscaler",), _contains),
+        "upscaler_mode": Target(("upscaler_mode",), _sottr_dlss_mode),     # FSR 1.0 Ultra Quality..Performance
         "ray_tracing": Target(("dxr_reflections", "dxr_shadows"), _on_off),
         "quality": Target(("preset",), _exact_text),
     },

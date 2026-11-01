@@ -24,7 +24,8 @@ PROFILE = ('<GamerProfile>\n<RenderProfile GPU="0" VideoModeProfile="1" Quality=
 def test_far_cry_6_reads_and_changes_only_its_values():
     assert fc6.read_settings(PROFILE) == {
         "resolution": "1920x1080", "window_mode": "1", "preset": "High", "dxr_reflections": False,
-        "dxr_shadows": False, "upscaler": "Off", "resolution_scale": "1", "vsync": "off"}
+        "dxr_shadows": False, "upscaler": "Off", "upscaler_mode": "Ultra Quality", "resolution_scale": "1",
+        "vsync": "off"}
     wanted = GamePreset(ray_tracing="on", quality="ultra", upscaler="fsr", frame_gen="x2")
     # the game's Ultra is "ultrahigh" (seen 2026-10-23; a guessed "ultra" made it fall back to Low)
     requested, skipped = plan_preset(2369390, wanted, fc6.choices(PROFILE, {}))
@@ -53,6 +54,20 @@ def test_far_cry_6_quality_writes_its_whole_preset():
     assert 'Quality="medium" ' in new and 'VegetationQuality="high"' in new and 'WaterQuality="medium"' in new
     assert 'ResolutionQuality=""' in new and fc6.verify(new, {"preset": "Medium"}) == {}
     assert fc6.read_settings(new.replace('WaterQuality="medium"', 'WaterQuality="low"'))["preset"] == "Custom"
+
+
+def test_far_cry_6_fsr_modes_are_its_own_four():
+    """Owner, 2026-11-01: FSR had only on/off. Each mode chosen in the game's menu: Ultra Quality 0, Quality 1,
+    Balanced 2, Performance 3; it has no Ultra Performance."""
+    from app.games.presets import UPSCALER_MODES, game_values
+    assert game_values(2369390, None, "upscaler_mode", UPSCALER_MODES)[1:] == [
+        "ultra_quality", "quality", "balanced", "performance"]
+    assert "ultra_quality" not in game_values(1174180, None, "upscaler_mode", UPSCALER_MODES)    # RDR2 has none
+    requested, skipped = plan_preset(2369390, GamePreset(upscaler="fsr", upscaler_mode="balanced"),
+                                     fc6.choices(PROFILE, {}))
+    assert requested == {"upscaler": "FSR 1.0", "upscaler_mode": "Balanced"} and skipped == {}
+    new = fc6.apply(PROFILE, fc6.plan(PROFILE, requested, {})[0])
+    assert 'FidelityFxSuperResolutionEnabled="1" FidelityFxSuperResolutionMode="2"' in new
 
 
 def test_far_cry_6_resolution_only_in_full_screen():
