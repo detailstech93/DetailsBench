@@ -332,8 +332,10 @@ def test_shadow_of_the_tomb_raider_path_and_launch(tmp_path):
     p.run()
     assert p.problem is None and 78 <= p.mark_time < 80
     keys = [e[1] if e[0] == "press" else (e[0], e[1]) for e in desk.events]
-    assert keys == [parse_chord("enter"), ("mouse", (40, 210)), ("button", True), ("button", False),
-                    ("mouse", (240, 10)), ("button", True), ("button", False),
+    down, enter = parse_chord("down"), parse_chord("enter")
+    # Options by keys (its mouse landed one item high, 2026-11-04), each held 0.15 s like the popup's Enter
+    assert keys == [("down", enter), ("up", enter), ("down", down), ("up", down), ("down", down), ("up", down),
+                    ("down", enter), ("up", enter), ("mouse", (240, 10)), ("button", True), ("button", False),
                     ("down", parse_chord("r")), ("up", parse_chord("r"))]     # R alone, held (2026-10-29)
     assert "closed a popup ('adapter')" in p.summary()
 
