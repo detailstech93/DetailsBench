@@ -41,6 +41,8 @@ STEAM_BENCHMARK_APPS_BY_ID = {int(a["appid"]): a for a in STEAM_BENCHMARK_APPS}
 # Games left out of the tests even when installed (not offered as a gameplay capture either)
 DROPPED_GAMES = {
     391220: "Rise of the Tomb Raider: too old for the tests (owner, 2026-10-23)",
+    286690: ("Metro 2033 Redux: its Next-Gen Update (installed 2026-10-30) removed metro_benchmark.exe and has no "
+             "benchmark in its menus (owner, 2026-11-04)"),
 }
 
 # Games the app starts by a file in their install folder, with no arguments, instead of through Steam:

@@ -110,10 +110,10 @@ def test_a_script_can_say_it_is_automatic():
 
 def test_games_without_a_built_in_benchmark_are_hidden_for_now():
     games = [{"store": "steam", "app_id": "1593500", "name": "God of War", "installed": True, "kind": "game"},
-             {"store": "steam", "app_id": "286690", "name": "Metro 2033 Redux", "installed": True, "kind": "game"}]
+             {"store": "steam", "app_id": "2369390", "name": "Far Cry 6", "installed": True, "kind": "game"}]
     e = by_id(build_catalog([], [], games, WIN_X64))
     assert "steam_1593500" not in e
-    assert e["steam_286690"].name == "Metro 2033 Redux (built-in benchmark)" and e["steam_286690"].state == INSTALLED
+    assert e["steam_2369390"].name == "Far Cry® 6 (built-in benchmark)" and e["steam_2369390"].state == INSTALLED
 
 
 def test_installed_games_without_a_benchmark_are_gameplay_captures():
@@ -214,8 +214,10 @@ def test_a_missing_typed_copy_is_left_out_when_the_app_installs_and_runs_it():
 
 
 def test_a_dropped_game_is_not_offered_even_when_installed():
-    """Rise of the Tomb Raider: too old for the tests (owner, 2026-10-23)."""
+    """Rise of the Tomb Raider: too old for the tests (owner, 2026-10-23). Metro 2033 Redux: its update removed
+    its benchmark (owner, 2026-11-04)."""
     games = [{"store": "steam", "app_id": "391220", "name": "ROTTR", "installed": True, "kind": "game"},
+             {"store": "steam", "app_id": "286690", "name": "Metro 2033 Redux", "installed": True, "kind": "game"},
              {"store": "steam", "app_id": "750920", "name": "SotTR", "installed": True, "kind": "game"}]
     ids = {e.id for e in steam_entries(games, WIN_X64, [], gameplay_captures=True)}
-    assert "steam_391220" not in ids and "steam_750920" in ids
+    assert "steam_391220" not in ids and "steam_286690" not in ids and "steam_750920" in ids
