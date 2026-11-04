@@ -45,7 +45,8 @@ def main():
     errors = []                         # the window is not there yet: it is told through its signal later
     app_log.setup(db_path.resolve().parent, on_error=lambda text: errors[0](text) if errors else None)
 
-    print("DetailsBench v0.1.5")
+    from app import __version__
+    print(f"DetailsBench v{__version__}")
     print("=" * 50)
     print(f"Database: {db_path}")
     for note in db_notes:

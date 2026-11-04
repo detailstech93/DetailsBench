@@ -51,7 +51,7 @@ class PlanItem:
     max_extra_runs: int = 0                    # extra measured runs when the scores vary a lot
 
 
-CV_LIMIT_PERCENT = 5.0          # coefficient of variation above which the scores are called uneven
+CV_LIMIT_PERCENT = 3.0          # coefficient of variation above which the scores are called uneven (owner, 2026-11-04)
 RETRY_STATUSES = ("failed", "timed_out")
 NO_RETRY_ERRORS = ("could not start", "not enough memory")     # the memory does not grow by trying again
 

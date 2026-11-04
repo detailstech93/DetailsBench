@@ -68,6 +68,15 @@ def _format_percent(value: Any) -> str:
     return formatted + " %"
 
 
+def _cv_text(cv) -> str:
+    """The spread, with a word when the runs differ more than the limit (their average is less sure)."""
+    from app.automation.runner import CV_LIMIT_PERCENT
+    text = _format_percent(cv)
+    if isinstance(cv, (int, float)) and not isinstance(cv, bool) and cv > CV_LIMIT_PERCENT:
+        text += f' <span class="uneven">uneven: the runs differ more than {CV_LIMIT_PERCENT:g}%</span>'
+    return text
+
+
 def _format_excluded(value: Any) -> str:
     excluded = _mapping(value)
     if excluded is None:
@@ -1070,7 +1079,7 @@ def _summary_section(export: Mapping) -> str:
                    + (unit if mean != "-" else "") + "</td></tr>")
         numbers = [("Median", _format_number(stats.get("median"))), ("Min", _format_number(stats.get("min"))),
                    ("Max", _format_number(stats.get("max"))), ("Std dev", _format_number(stats.get("stdev"))),
-                   ("CV %", _format_percent(stats.get("cv_percent"))), ("Runs used", runs_used),
+                   ("CV %", _cv_text(stats.get("cv_percent"))), ("Runs used", runs_used),
                    ("Excluded", _format_excluded(data.get("excluded")))]
         stat_rows = "".join(f"<tr><th>{k}</th><td>{v}</td></tr>" for k, v in numbers)
         cards.append(
@@ -1538,7 +1547,7 @@ def _style_block() -> str:
         ".tile .label{color:var(--muted);font-size:13px;}"
         ".tile .value{font-size:30px;font-weight:700;}"
         ".tile .value span{font-size:14px;font-weight:400;color:var(--muted);}"
-        ".muted{color:var(--muted);}"
+        ".muted{color:var(--muted);}.uneven{color:#b45309;font-weight:600;}"
         ".tile.good .value{color:#1a7f37;}"
         ".tile.bad .value{color:var(--test);}"
         "table.kv th{text-align:left;padding-right:16px;}"

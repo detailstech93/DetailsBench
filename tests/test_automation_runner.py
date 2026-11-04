@@ -177,7 +177,7 @@ def test_uneven_scores_get_extra_runs_until_even_or_used_up(db, tmp_path):
                      tmp_path / "out", on_progress=progress.append).run()
     runs = database.get_runs(sid, "tool_a", include_test=True)
     assert [r["run_index"] for r in runs] == [1, 2, 3, 4, 5]        # 2 extra runs, the 6th score is never asked
-    assert runs[3]["note"].startswith("Extra run: the scores varied 15.7% (above 5%), extra run 1 of 2")
+    assert runs[3]["note"].startswith("Extra run: the scores varied 15.7% (above 3%), extra run 1 of 2")
     assert runs[4]["note"].startswith("Extra run: the scores varied 14.0%")
     assert len(wl.results) == 1 and len(other.contexts) == 1         # then the next test as planned
     even = Scripted("tool_c", [ok(100.0), ok(101.0), ok(100.0)])
@@ -197,7 +197,7 @@ def test_the_report_tile_counts_retries_and_extra_runs():
         {**run, "status": "failed", "note": "exit code 1"},
         {**run, "status": "completed", "note": "Retry after a failed try (failed: exit code 1)"},
         {**run, "status": "completed", "note": "x"}, {**run, "status": "completed", "note": "y"},
-        {**run, "status": "completed", "note": "Extra run: the scores varied 9.0% (above 5%), extra run 1 of 2"}]}
+        {**run, "status": "completed", "note": "Extra run: the scores varied 9.0% (above 3%), extra run 1 of 2"}]}
     html = _passmark_section(export)
     assert "Run again after a failure</th><td>1 (" in html and "Extra runs</th><td>1 (" in html
 

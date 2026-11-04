@@ -157,6 +157,15 @@ def test_number_formatting_uses_thousands_separators_and_two_decimals():
     assert "1.23 %" in html_text
 
 
+def test_runs_that_differ_more_than_the_limit_are_marked_uneven():
+    """Owner, 2026-11-04: above 3% the average is less sure; the report says so next to the CV."""
+    def html(cv):
+        return render_session_report({"summaries": {"bench": {"included": 3, "excluded": {}, "mixed_sources": False,
+                                                              "stats": {"count": 3, "mean": 100, "cv_percent": cv}}}})
+    assert "uneven: the runs differ more than 3%" in html(4.2)
+    assert 'class="uneven"' not in html(2.9) and 'class="uneven"' not in html(None)
+
+
 def test_failed_run_score_is_dash_not_zero():
     export = {
         "runs": [
