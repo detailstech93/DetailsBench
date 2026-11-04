@@ -74,13 +74,13 @@ function Install-DetailsBench {
     # ---- 2. the app ---------------------------------------------------------------------------------------------
     if (Test-Path (Join-Path $dir ".git")) {
         Say "Updating the app in $dir"
-        git -C $dir pull --ff-only
+        git -C $dir pull -q --ff-only
         if ($LASTEXITCODE -ne 0) { Fail "could not update $dir (changed files in it?). Nothing was removed." }
     } elseif ((Test-Path $dir) -and (Get-ChildItem $dir -Force | Select-Object -First 1)) {
         Fail "$dir exists and is not this app: set PCBM_DIR to another folder."
     } else {
         Say "Downloading the app into $dir"
-        git clone --depth 1 $repo $dir
+        git clone -q --depth 1 $repo $dir
         if ($LASTEXITCODE -ne 0) { Fail "could not download $repo." }
     }
 
