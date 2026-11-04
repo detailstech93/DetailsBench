@@ -49,8 +49,10 @@ GAME_MENU_STEPS: Dict[int, dict] = {
         "launch_args": ["-nolauncher"],         # skips the game's own launcher window (MarkBench)
         "steps": [
             # a popup about the graphics adapter or an unavailable feature may come first: Enter closes it
+            # 2026-11-04: Continue and Load Game came in about 10 s after the menu and pushed it down: the click
+            # read on Options hit Challenge Tombs. settle 12 lets the menu fill first
             {"see": "options", "within": 240, "dismiss": {"adapter": "enter", "unavailable": "enter"},
-             "settle": 2, "click": "options", "wait": 3},
+             "settle": 12, "click": "options", "wait": 3},
             # menus remember the last item: click the word where it is read, then Enter if the click was missed
             {"see": "graphics", "within": 30, "again": {"press": "enter", "every": 5, "while": "options"},
              "settle": 1, "click": "graphics", "wait": 3},

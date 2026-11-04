@@ -326,11 +326,11 @@ def test_shadow_of_the_tomb_raider_path_and_launch(tmp_path):
     assert benchmark_seconds_for(1) is None and menu_launch_args("x") == []
     assert STEAM_BENCHMARK_APPS_BY_ID[750920]["exe"] == "SOTTR.exe"
     timeline = [(0, ["Square Enix"]), (30, ["Your graphics adapter is not supported"]),
-                (32, ["Continue", "New Game", "Options", "Exit"]), (40, ["Display and Graphics", "Audio"]),
-                (50, ["Display", "Graphics", "Run Benchmark"]), (60, ["Loading"]), (70, ["FPS 141"])]
+                (32, ["Continue", "New Game", "Options", "Exit"]), (48, ["Display and Graphics", "Audio"]),
+                (58, ["Display", "Graphics", "Run Benchmark"]), (68, ["Loading"]), (78, ["FPS 141"])]
     p, desk, clock = player(tmp_path, menu_steps_for(750920), timeline)
     p.run()
-    assert p.problem is None and 70 <= p.mark_time < 72
+    assert p.problem is None and 78 <= p.mark_time < 80
     keys = [e[1] if e[0] == "press" else (e[0], e[1]) for e in desk.events]
     assert keys == [parse_chord("enter"), ("mouse", (40, 210)), ("button", True), ("button", False),
                     ("mouse", (240, 10)), ("button", True), ("button", False),
