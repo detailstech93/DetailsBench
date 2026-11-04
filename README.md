@@ -58,11 +58,22 @@ Some tests are Windows only; the Tests screen hides what this PC cannot run and 
 - Windows 10/11 (x64 or ARM64) or Linux (x64 or ARM64: Debian/Ubuntu, Fedora, Arch, openSUSE; the app has not
   been tested on every Linux distribution yet). On ARM64 fewer tests run: many benchmark programs have no ARM build (the Tests screen says
   which).
-- Python 3.10 or newer.
+- Python 3.10 or newer (the Windows and Linux installers below install it when it is missing).
 
 ### Install and run
 
-Windows (PowerShell):
+Windows, one file: download `DetailsBench-Setup.bat` from the latest release and double-click it. Or one command
+in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/detailstech93/DetailsBench/master/install.ps1 | iex
+```
+
+It installs Git and Python when they are missing (with winget, from their official installers; it asks once
+first), downloads the app into `%USERPROFILE%\DetailsBench`, installs its Python libraries in its own `.venv`, adds
+DetailsBench to the Start menu and the desktop and starts it. Run it again to update.
+
+By hand (PowerShell):
 
 ```powershell
 git clone https://github.com/detailstech93/DetailsBench.git
@@ -160,9 +171,13 @@ must stay under the same license, with its source. The benchmark programs the ap
 
 - ويندوز 10/11 (x64 أو ARM64) أو لينكس (x64 أو ARM64: Debian/Ubuntu و Fedora و Arch و openSUSE؛ لم يتم اختبار الأداة
   على كل توزيعات لينكس بعد). عـ ARM64 في اختبارات أقل: كتير برامج اختبار ما إلها نسخة ARM (شاشة الاختبارات بتقلك أيّا).
-- Python 3.10 أو أحدث.
+- Python 3.10 أو أحدث (أدوات التثبيت تحت بتثبّته إذا مو موجود).
 
 ### التثبيت والتشغيل
+
+عالويندوز ملف واحد: نزّل `DetailsBench-Setup.bat` من آخر إصدار وكبس عليه دبل كليك. بيثبّت Git و Python إذا مو
+موجودين (عن طريق winget من مصادرهم الرسمية، وبيسألك مرة وحدة قبل)، بينزّل التطبيق عـ `%USERPROFILE%\DetailsBench`،
+بيثبّت مكتباته بـ `.venv` تبعه، بيضيفه لقائمة ابدأ وسطح المكتب وبيفتحه. نفس الملف بيحدّثه بعدين.
 
 أوامر التثبيت نفسها يلي بالقسم الإنكليزي فوق ([Install and run](#install-and-run)): بتنسخ المشروع، بتعمل بيئة
 `.venv`، بتثبّت `requirements.txt`، وبتشغّل `scripts/main.py`. عالويندوز فيك بعدها تكبس دبل كليك على `run.bat`.
