@@ -46,6 +46,7 @@ PARK_POINT = (1, 1)                 # the mouse waits here after a click: a menu
 CLICK_HOLD_SECONDS = 0.15           # button down this long: a game that reads the mouse once a frame sees it
 STILL_PIXELS = 8                    # a word read twice this close is not moving
 STILL_READS = 10                    # reads to wait for a menu that is still sliding in
+HOVER_READS = 3                     # reads with the mouse on the word: a menu may change when the mouse comes
 FRONT_GRACE_SECONDS = 10.0          # the game may lose the front briefly while it changes video mode
 LOG_NAME = "screen_log.txt"          # what every read saw
 
@@ -272,6 +273,19 @@ class StepPlayer:
         self._check_front(f"click on {word!r}")
         self.desktop.mouse_to(*point)
         self.sleep(CLICK_SETTLE_SECONDS)
+        # SOTTR, 2026-11-04: Options read at y 367 and clicked there opened Challenge Tombs (2026-10-29 it was
+        # read at 443): its menu seems to grow when the mouse comes. Read again with the mouse there; follow a move
+        for _ in range(HOVER_READS):
+            self.sleep(LOOK_EVERY_SECONDS)
+            lines, error = self.reader(self.desktop, self.folder / "screen.png")
+            self._log(i, lines, error)
+            now = None if error else word_center(lines, word)
+            if now is None or (abs(now[0] - point[0]) <= STILL_PIXELS and abs(now[1] - point[1]) <= STILL_PIXELS):
+                break
+            self.notes.append(f"{word!r} moved under the mouse to {now[0]},{now[1]}")
+            point = now
+            self.desktop.mouse_to(*point)
+            self.sleep(CLICK_SETTLE_SECONDS)
         self._check_front(f"click on {word!r}")
         self.desktop.mouse_button(True)
         try:

@@ -1195,6 +1195,7 @@ def start_other(window, entry: TestEntry, choice: Optional[RunChoice] = None, af
                 _line_session(window, sid)
             else:                               # no run stored: the general report still names it (owner, 2026-11-04)
                 why = getattr(frame.worker, "capture_message", "") or str(summary or "") or "no run stored"
+                why = why[len("failed: "):] if why.lower().startswith("failed: ") else why
                 _line_session(window, {"title": entry.name, "passed": False, "skipped": "", "runs": "no run stored",
                                        "result": f"FAILED: {why}"[:400], "time": "", "seconds": None})
             (after or (lambda s: line_next(window, s)))(stopped)

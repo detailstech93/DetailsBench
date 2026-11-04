@@ -43,7 +43,7 @@ from app.frames.stats import compute_frame_stats, stats_to_metrics
 logger = logging.getLogger(__name__)
 
 UAC_WAIT_SECONDS = 120.0          # time to answer the UAC prompt
-LAUNCH_TIMEOUT_SECONDS = 120.0    # Steam may show its own dialog or update check first
+LAUNCH_TIMEOUT_SECONDS = 300.0    # Steam may show its own dialog or update check first; Rockstar Launcher took about 3 min (2026-11-04)
 LOAD_FACTOR, LOAD_MARGIN_SECONDS = 1.15, 20.0   # wall time waited per second of needed game time, plus margin
 MAX_EXE_NAMES = 200
 LOG_NAME = "capture_log.txt"

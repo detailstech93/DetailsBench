@@ -645,6 +645,24 @@ def test_a_word_still_sliding_in_is_clicked_where_it_stops(tmp_path):
     assert [e for e in desk.events if e[0] == "mouse"] == [("mouse", (40, 110))]       # its second line
 
 
+def test_a_menu_that_grows_when_the_mouse_comes_is_clicked_where_the_word_moved(tmp_path):
+    """SOTTR, 2026-11-04: Options was clicked where it was read and Challenge Tombs (the item that moved there)
+    opened. With the mouse on the word the screen is read again and the click follows the word."""
+    clock = Clock()
+    desk = Desk(clock)
+
+    def reader(desktop, path):
+        moved = any(e[0] == "mouse" for e in desk.events)
+        return boxed((["Continue"] if moved else []) + ["New Game", "Challenge Tombs", "Options"]), None
+    p = StepPlayer([{"see": "options", "within": 10, "click": "options"}], desk, lambda: True, tmp_path,
+                   clock=clock, sleep=clock.sleep, reader=reader)
+    p.run()
+    assert p.problem is None
+    assert [e for e in desk.events if e[0] == "mouse"] == [("mouse", (40, 210)), ("mouse", (40, 310))]
+    assert [e[1] for e in desk.events if e[0] == "button"] == [True, False]        # one click, at the new place
+    assert "'options' moved under the mouse to 40,310" in p.summary()
+
+
 def test_a_word_that_never_holds_still_is_not_clicked(tmp_path):
     p, desk, clock = player(tmp_path, [{"see": "options", "within": 10, "click": "options"},
                                        {"see": "x", "within": 1, "mark": True}],
