@@ -696,3 +696,15 @@ def test_a_picked_save_folder_is_copied_before_the_run_and_put_back_after(qapp, 
     assert (saves / "a.sav").read_bytes() == b"mine"
     assert "saves: 1 file(s) put back" in p.worker.capture_message
     assert db.get_sessions(include_test=True)
+
+
+def test_the_games_steam_build_is_stored_with_every_result(qapp, panel):
+    p, db, _ = panel
+    p.select_presentmon()
+    p.games = lambda: [dict(GAMES[0], version="15427801")]          # buildid from its appmanifest
+    p.refresh_games()
+    p.benchmark_factory = fake_benchmark()
+    run_bench(qapp, p)
+    sid = db.get_sessions(include_test=True)[0]["id"]
+    runs = db.get_runs(session_id=sid, include_test=True)
+    assert runs and {r["benchmark_version"] for r in runs} == {"15427801"}

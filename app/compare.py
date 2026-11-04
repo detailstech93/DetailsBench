@@ -177,7 +177,11 @@ def compare_benchmark(
     # 2. major_version
     if version_a_known and version_b_known and major_a is not None and major_b is not None:
         if major_a != major_b:
-            issues.append(_issue("block", "major_version", "Major benchmark versions differ."))
+            # a Steam build number (games) has no dots: another build is another patch of the game
+            steam_builds = str(version_a).strip().isdigit() and str(version_b).strip().isdigit()
+            issues.append(_issue("block", "major_version",
+                                 f"Game builds differ ({version_a} vs {version_b}): a patch can change performance."
+                                 if steam_builds else "Major benchmark versions differ."))
         elif str(version_a) != str(version_b):
             # 3. version
             issues.append(_issue("warn", "version", "Benchmark versions differ."))

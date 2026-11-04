@@ -286,3 +286,12 @@ def test_mixed_versions_inside_one_session_become_unknown() -> None:
     a = [_run("geekbench_7", 2500.0, "7.1.0.0"), _run("geekbench_7", 2500.0, "7.2.0.0")]
     b = [_run("geekbench_7", 2500.0), _run("geekbench_7", 2500.0)]
     assert "version_unknown" in issue_codes(compare_sessions(a, b)[0])
+
+
+def test_results_of_two_game_builds_are_not_compared() -> None:
+    a = make_side(mean=100.0, version="15427801")              # Steam buildid: another patch of the game
+    b = make_side(mean=104.0, version="15633240")
+    result = compare_benchmark("frames_game", a, b)
+    assert result["status"] == "not_comparable" and "major_version" in issue_codes(result)
+    assert any("Game builds differ (15427801 vs 15633240)" in i["message"] for i in result["issues"])
+    assert compare_benchmark("frames_game", a, make_side(mean=101.0, version="15427801"))["status"] != "not_comparable"
