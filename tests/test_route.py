@@ -109,3 +109,43 @@ def test_a_capture_plays_the_route_and_always_releases(tmp_path):
     cap = bench.run()
     assert cap.status == "recorded" and "; route: " in cap.message and "skipped" in cap.message
     assert ("down", tuple(W)) in desk.log and not desk.down
+
+
+def test_route_check_compares_each_pass_start_with_the_first(tmp_path):
+    from PySide6.QtGui import QColor, QImage
+
+    class ShotDesk(Desk):
+        def __init__(self, greys):
+            super().__init__()
+            self.greys = list(greys)
+
+        def screenshot(self, path):
+            image = QImage(64, 36, QImage.Format.Format_RGB32)
+            image.fill(QColor(*([self.greys.pop(0)] * 3)))
+            image.save(str(path))
+            return 64, 36
+    desk = ShotDesk([100, 100, 151, 0])                    # passes at 10, 20, 30 and 40 s
+    t = [0.0]
+    player = RoutePlayer(ROUTE, lambda: desk, lambda: True, 50, shots_dir=tmp_path)
+    while t[0] < 50:
+        player.tick(t[0])
+        t[0] += 0.5
+    player.release_all()
+    assert player.checks == [(1, 100.0), (2, 100.0), (3, 80.0), (4, None)]
+    assert (tmp_path / "route_pass_3.png").is_file()
+    text = player.summary()
+    assert "route check (the screen at the start of each pass against the first): pass 1 100%, pass 2 100%, " \
+           "pass 3 80%, pass 4 black" in text and "exclusive full screen" in text
+    assert [e[0] for e in desk.log].count("down") == 4                  # the route itself went on as before
+
+
+def test_a_route_check_that_fails_leaves_the_route_going(tmp_path):
+    desk = Desk()                                                       # no screenshot at all
+    t = [0.0]
+    player = RoutePlayer(ROUTE, lambda: desk, lambda: True, 30, shots_dir=tmp_path)
+    while t[0] < 30:
+        player.tick(t[0])
+        t[0] += 0.5
+    player.release_all()
+    assert "route check stopped" in player.summary() and player.problem is None
+    assert [e[0] for e in desk.log].count("down") == 2

@@ -11,6 +11,11 @@ Walking forward, turning around and walking back keeps the character on one stre
 measured window sees much the same scene. Every step is sent only while the game's own window is in front;
 when another window is in front the held keys are released at once and the steps that fall due are skipped
 (counted in the run's message). Held keys are always released at the end, on stop and on error.
+
+Route check (owner's plan step 6, 2026-11-04): when each pass starts, the character should stand where the
+first pass started, facing the same way. The screen is kept then and compared with the first pass's (small grey
+pictures); the likeness of every pass is said in the run's message. Only said for now: how much likeness a real
+route keeps (people, weather, light) is to be seen on a real run before a low one makes a run invalid.
 """
 
 from typing import Callable, List, Optional, Tuple
@@ -18,6 +23,29 @@ from typing import Callable, List, Optional, Tuple
 from app.simulation.desktop import parse_chord
 
 KINDS = {"press": 3, "hold": 4, "mouse": 5}
+CHECK_AFTER = 0.0               # s into each pass: the screen is kept before the pass's first step is sent
+BLACK = 4.0                     # mean grey level under this: a black picture (an exclusive-full-screen game)
+
+
+def thumbnail(path):
+    """The picture as 32x18 grey levels (numpy), or None when it cannot be read."""
+    try:
+        import numpy as np
+        from PySide6.QtGui import QImage
+        image = QImage(str(path))
+        if image.isNull():
+            return None
+        small = image.scaled(32, 18).convertToFormat(QImage.Format.Format_Grayscale8)
+        row = small.bytesPerLine()
+        data = bytes(small.constBits())[:row * 18]
+        return np.frombuffer(data, dtype=np.uint8).reshape(18, row)[:, :32].astype(float)
+    except Exception:
+        return None
+
+
+def likeness(a, b) -> float:
+    """100 = the same picture, 0 = black against white."""
+    return round(100.0 * (1.0 - float(abs(a - b).mean()) / 255.0), 1)
 MAX_MOUSE_STEP = 10000          # counts in one step: a typo must not spin the camera wildly
 
 
@@ -68,11 +96,19 @@ def describe_route(route: dict) -> str:
 
 
 class RoutePlayer:
-    def __init__(self, route: dict, desktop_fn: Callable[[], object], in_front: Callable[[], bool], until: float):
+    def __init__(self, route: dict, desktop_fn: Callable[[], object], in_front: Callable[[], bool], until: float,
+                 shots_dir=None):
         self.desktop_fn, self.in_front = desktop_fn, in_front
+        self.shots_dir = shots_dir      # where the route check keeps its pictures (None: no check)
+        self.check_times: List[float] = []
+        self.checks: List[Tuple[int, Optional[float]]] = []           # (pass, likeness to the first; None: black)
+        self.reference = None
+        self.check_problem: Optional[str] = None
         self.events: List[Tuple[float, list]] = []
         t, period = float(route["loop_from"]), float(route["loop_seconds"])
         while t < until:
+            if shots_dir is not None and t + CHECK_AFTER < until:
+                self.check_times.append(t + CHECK_AFTER)
             for step in route["loop"]:
                 if t + step[0] < until:
                     self.events.append((t + step[0], step))
@@ -105,7 +141,35 @@ class RoutePlayer:
             except Exception:
                 pass
 
+    def _check(self, elapsed: float):
+        n = 0
+        while self.check_times and self.check_times[0] <= elapsed:
+            self.check_times.pop(0)
+            n += 1
+        if not n or self.check_problem or not self.in_front():
+            return
+        number = len(self.checks) + 1
+        try:
+            from pathlib import Path
+            path = Path(self.shots_dir) / f"route_pass_{number}.png"
+            self._desk().screenshot(path)
+            small = thumbnail(path)
+        except Exception as e:          # only a check: the route goes on without it
+            self.check_problem = f"route check stopped: {e}"
+            return
+        if small is None:
+            self.check_problem = "route check stopped: the screenshot could not be read"
+        elif small.mean() < BLACK:
+            self.checks.append((number, None))
+        elif self.reference is None:
+            self.reference = small
+            self.checks.append((number, 100.0))
+        else:
+            self.checks.append((number, likeness(self.reference, small)))
+
     def _tick(self, elapsed: float):
+        if self.shots_dir is not None:
+            self._check(elapsed)
         due = []
         while self.events and self.events[0][0] <= elapsed:
             due.append(self.events.pop(0))
@@ -148,4 +212,11 @@ class RoutePlayer:
             text += "; held keys were released while the game was not in front"
         if self.problem:
             text += f"; {self.problem}"
+        if self.checks:
+            text += ("; route check (the screen at the start of each pass against the first): "
+                     + ", ".join(f"pass {n} " + (f"{v:g}%" if v is not None else "black") for n, v in self.checks))
+            if any(v is None for _, v in self.checks):
+                text += " (a black picture: the game in exclusive full screen is not seen by the screenshot)"
+        if self.check_problem:
+            text += f"; {self.check_problem}"
         return text

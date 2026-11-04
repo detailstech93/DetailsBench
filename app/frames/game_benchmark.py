@@ -522,7 +522,7 @@ class GameBenchmark:
         player = None
         if spec.route:
             from app.frames.route import RoutePlayer
-            player = RoutePlayer(spec.route, self._desk, self._game_in_front, wait)
+            player = RoutePlayer(spec.route, self._desk, self._game_in_front, wait, shots_dir=self.run_dir)
         shown = None
         # keys and a route are timed from the moment the game's window first comes to the front, not from the
         # launch: a game loading from a slow drive showed its window 3.7 min after the launch (The Witcher 3
