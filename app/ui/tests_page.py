@@ -115,6 +115,15 @@ SKIP_TIPS = {"test": "Ends only the test going on (the report says how far it go
                      "it got); the next one in line starts."}
 
 
+def name_text(e: TestEntry) -> str:
+    """A game's name with its upscalers and ray tracing (owner, 2026-11-04), else the name."""
+    from app.games.presets import features_text
+    from app.ui.run_tests import game_of
+    game = game_of(e)
+    features = features_text(game[0]) if game else ""
+    return f"{e.name}   ({features})" if features else e.name
+
+
 class TestsPage(QWidget):
     __test__ = False        # not a pytest class
     run_requested = Signal(list)      # [TestEntry], all can_run()
@@ -387,7 +396,7 @@ class TestsPage(QWidget):
             top.setFont(0, f)
             self.tree.addTopLevelItem(top)
             for e in members:
-                item = QTreeWidgetItem([e.name, state_text(e), MODE_TEXT.get(e.mode, e.mode),
+                item = QTreeWidgetItem([name_text(e), state_text(e), MODE_TEXT.get(e.mode, e.mode),
                                         "yes" if e.verified else "not yet",
                                         f"~{e.expected_minutes:g} min" if e.expected_minutes else "", ""])
                 item.setData(0, Qt.UserRole, e.id)

@@ -341,10 +341,12 @@ class AutomationPanel(QGroupBox):
             # one UAC prompt now for the whole run, so nobody has to stay at the PC (declined: each such test
             # asks for itself)
             from app.frames import admin_helper
-            self.status_label.setText("Asking Windows once for administrator permission for this run...")
-            why = admin_helper.begin()
-            if why:
-                self.status_label.setText(f"No administrator helper ({why}); each test that needs it will ask.")
+            if admin_helper.session() is None:     # a line of games may already have one: it stays theirs
+                self.status_label.setText("Asking Windows once for administrator permission for this run...")
+                why = admin_helper.begin()
+                self._own_helper = why is None
+                if why:
+                    self.status_label.setText(f"No administrator helper ({why}); each test that needs it will ask.")
         self.worker = AutomationWorker(self.db, sid, plan, self.output_root, cooldown,
                                        self.screenshot_box.isChecked(),
                                        telemetry_sources.new_sampler if self.telemetry_box.isChecked() else None,
@@ -636,7 +638,9 @@ class AutomationPanel(QGroupBox):
     @Slot(object)
     def _on_finished(self, summary):
         from app.frames import admin_helper
-        admin_helper.end()                  # the administrator helper ends with the run
+        if getattr(self, "_own_helper", False):
+            admin_helper.end()              # the helper this run started ends with it (a line's own one stays)
+        self._own_helper = False
         self.plan_ended_at = time.monotonic()
         self._set_running(False)
         self.last_summary = summary

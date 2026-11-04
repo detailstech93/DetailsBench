@@ -738,8 +738,8 @@ def test_a_plan_with_steam_games_runs_the_plan_then_each_game_and_a_general_repo
         w.frame_panel.data_dir = tmp_path / "data"
         monkeypatch.setattr(rt, "read_offered", lambda games, data_dir: dict(OFFERED))
         launched, shown, benched = [], [], []
-        monkeypatch.setattr(rt, "launch", lambda window, automatic, choice, opener, after=None, settings=None:
-                            launched.append([e.id for e in automatic]) or True)
+        monkeypatch.setattr(rt, "launch", lambda window, automatic, choice, opener, after=None, settings=None,
+                            confirm=None: launched.append(([e.id for e in automatic], confirm and confirm("x"))) or True)
         monkeypatch.setattr(rt, "start_other", lambda window, e, choice, after=None, confirmed=False:
                             benched.append((e.id, confirmed)) or True)
 
@@ -754,16 +754,29 @@ def test_a_plan_with_steam_games_runs_the_plan_then_each_game_and_a_general_repo
         assert benched == [("1", False)] and launched == []                    # the first in the list first
         assert [(x.entry.id, [e.id for e in x.prepared.automatic], x.prepared.confirmed) for x in w.run_line] == [
             ("cp", ["cp"], True), ("2", [], True)]
+        assert rt.begin(w, w.run_line[0].prepared) and launched == [(["cp"], True)]   # no second question
         written = []
-        monkeypatch.setattr("app.report_set.write_line_summary", lambda exports, root: written.append(len(exports))
-                            or tmp_path / "Summary.html")
+        monkeypatch.setattr("app.report_set.write_line_summary", lambda exports, root, failed:
+                            written.append((len(exports), [f["title"] for f in failed])) or tmp_path / "Summary.html")
         monkeypatch.setattr("app.export.build_session_export", lambda db, sid: {"sid": sid})
         opened = []
-        for sid in (84, 85, 86):
+        for sid in (84, 85, 86, {"title": "Far Cry 6"}):
             rt._line_session(w, sid)
         w.run_line.clear()
         rt.line_next(w)                                        # the last game is over
-        assert written == [3]
+        assert written == [(3, ["Far Cry 6"])]
         assert rt.line_summary(w, opener=opened.append) is None   # once only
     finally:
         w.close()
+
+
+def test_a_game_shows_its_upscalers_and_ray_tracing():
+    """Owner, 2026-11-04: next to each game, what upscaler it has and whether it runs with ray tracing."""
+    from app.ui.tests_page import name_text
+    rdr2 = entry("r", mode=ASSISTED, group="game", source="steam", ref={"app_id": "1174180", "name": "RDR2"})
+    sottr = entry("s", mode=ASSISTED, group="game", source="steam", ref={"app_id": 750920, "name": "SOTTR"})
+    bl3 = entry("b", mode=ASSISTED, group="game", source="steam", ref={"app_id": "397540", "name": "BL3"})
+    other = entry("o", mode=ASSISTED, group="game", source="steam", ref={"app_id": "1", "name": "Other"})
+    assert name_text(rdr2) == "r   (DLSS / FSR · No RT)" and name_text(sottr) == "s   (DLSS · RT ✓)"
+    assert name_text(bl3) == "b   (No upscaler · No RT)" and name_text(other) == "o"
+    assert name_text(entry("c")) == "c"

@@ -184,7 +184,7 @@ def write_report_set(export: Mapping, root: Path, only: Optional[str] = None, at
     return summary
 
 
-def write_line_summary(exports: List[Mapping], root: Path) -> Path:
+def write_line_summary(exports: List[Mapping], root: Path, failed=()) -> Path:
     """A line of games (and the plan before it) ran as one run (owner, 2026-11-04: a general report as for apps, plus
     each game's own): a folder with every test's report again and a final report of all of them. Returns it."""
     from app.export import write_export
@@ -199,6 +199,7 @@ def write_line_summary(exports: List[Mapping], root: Path) -> Path:
             title = titles.get(name, name)
             path = write_export(one_test(export, name), _free(folder / f"{safe_name(title)}_{when}.html"), "html")
             outcomes.append(dict(test_outcome(export, name), title=title, file=path.name))
+    outcomes += list(failed)                # games that stored no run: named, with why
     summary = folder / f"Summary_{stamp((first.get('session') or {}).get('created_at'))}.html"
     partial = summary.with_name(summary.name + ".partial")
     partial.write_text(render_summary_report(first, outcomes), encoding="utf-8")

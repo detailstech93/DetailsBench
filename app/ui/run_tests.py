@@ -704,6 +704,11 @@ def begin(window, p: Prepared, opener=open_report, after=None) -> bool:
         if any(w.entry.source == "steam" for w in getattr(window, "run_line", [])):
             _one_prompt_for_games(window)       # the games after a plan: one prompt for all of them
         return start_other(window, others[0], choice, after, confirmed=p.confirmed)
+    if p.confirmed:         # a plan test in a line: the run dialog was the owner's OK (owner, 2026-11-04)
+        def confirm(text: str) -> bool:
+            logger.info("In line, started without asking again: %s", text.splitlines()[0] if text else "")
+            return True
+        return launch(window, automatic, choice, opener, after=after, settings=p.settings, confirm=confirm)
     return launch(window, automatic, choice, opener, after=after, settings=p.settings)
 
 
@@ -837,7 +842,10 @@ def line_summary(window, opener=None) -> Optional[Path]:
     """The line is over (or stopped): one general report of its runs, with each test's report again (owner,
     2026-11-04). Nothing for fewer than two runs."""
     sessions, window.line_sessions = getattr(window, "line_sessions", None), None
-    if not sessions or len(sessions) < 2:
+    failed = [s for s in sessions or [] if isinstance(s, dict)]     # games that stored no run
+    sessions = [s for s in sessions or [] if not isinstance(s, dict)]
+    # shortcut: a line where every game failed gets no general report (it needs one session for the PC section)
+    if not sessions or len(sessions) + len(failed) < 2:
         return None
     from app.export import build_session_export
     from app.report_set import write_line_summary
@@ -846,7 +854,7 @@ def line_summary(window, opener=None) -> Optional[Path]:
     if folder is None:
         return None
     try:
-        path = write_line_summary([build_session_export(window.db, sid) for sid in sessions], folder)
+        path = write_line_summary([build_session_export(window.db, sid) for sid in sessions], folder, failed)
     except Exception as e:
         logger.exception("Could not write the general report")
         window.status_label.setText(f"{window.status_label.text()}  The general report could not be written: {e}")
@@ -1183,7 +1191,12 @@ def start_other(window, entry: TestEntry, choice: Optional[RunChoice] = None, af
         def game_over(sid, summary):
             report = game_report(window, sid, summary)
             stopped = bool(getattr(summary, "stopped", False)) and not skipped
-            _line_session(window, sid)
+            if getattr(summary, "records", None):
+                _line_session(window, sid)
+            else:                               # no run stored: the general report still names it (owner, 2026-11-04)
+                why = getattr(frame.worker, "capture_message", "") or str(summary or "") or "no run stored"
+                _line_session(window, {"title": entry.name, "passed": False, "skipped": "", "runs": "no run stored",
+                                       "result": f"FAILED: {why}"[:400], "time": "", "seconds": None})
             (after or (lambda s: line_next(window, s)))(stopped)
             if wants_shutdown(window, choice):
                 shutdown_when_done(window, sid, summary, report)

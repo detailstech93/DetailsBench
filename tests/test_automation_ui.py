@@ -307,3 +307,22 @@ def test_settings_chosen_at_queue_next_are_not_asked_again_when_the_test_starts(
     assert panel.start_plan(workloads=[wl], profile=profile, settings={wl.id: chosen}) is True
     assert asked == [] and wl.model == "google/gemma-4-12b-qat"
     panel.worker.wait(30000)
+
+
+def test_a_plan_ends_only_the_admin_helper_it_started(qapp, tmp_path, monkeypatch):
+    from app.frames import admin_helper
+    ended, live = [], {"s": object()}                     # a line of games already has a helper
+    monkeypatch.setattr(admin_helper, "session", lambda: live["s"])
+    monkeypatch.setattr(admin_helper, "begin", lambda: None)
+    monkeypatch.setattr(admin_helper, "end", lambda: ended.append(1))
+    wl = workload("selftest_a", "print('SCORE=7.5')")
+    wl.needs_admin = True
+    panel, _ = make_panel(tmp_path, [wl])
+    panel.set_checked("selftest_a")
+    assert panel.start_plan() is True
+    finish(qapp, panel)
+    assert ended == []                                    # the line's helper stays for its games
+    live["s"] = None                                      # no helper yet: the plan starts its own and ends it
+    assert panel.start_plan() is True
+    finish(qapp, panel)
+    assert ended == [1]

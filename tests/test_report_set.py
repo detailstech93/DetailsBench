@@ -252,11 +252,14 @@ def test_a_line_of_games_gets_a_general_report_of_all_its_sessions(tmp_path):
         export = build_session_export(db, sid)
         export["session"]["created_at"] = f"2026-11-04T15:{30 + len(exports)}:00"
         exports.append(export)
-    path = rs.write_line_summary(exports, tmp_path / "reports")
+    failed = [{"title": "Far Cry 6", "passed": False, "skipped": "", "runs": "no run stored",
+               "result": "FAILED: the UAC prompt was not answered within 120 s", "time": "", "seconds": None}]
+    path = rs.write_line_summary(exports, tmp_path / "reports", failed)
     folder = tmp_path / "reports" / "2026-11-04_15-30-00_games"
     assert path == folder / "Summary_2026-11-04_15-30-00.html"
     assert sorted(p.name for p in folder.iterdir()) == [
         "Summary_2026-11-04_15-30-00.html", "cyberpunk2077_builtin_benchmark_2026-11-04_15-30-00.html",
         "steam_397540_2026-11-04_15-31-00.html"]
     text = path.read_text(encoding="utf-8")
-    assert "2 <span>of 2</span>" in text and '<a href="steam_397540_2026-11-04_15-31-00.html">' in text
+    assert "2 <span>of 3</span>" in text and '<a href="steam_397540_2026-11-04_15-31-00.html">' in text
+    assert "Far Cry 6" in text and "UAC prompt was not answered" in text       # a game that stored no run is named

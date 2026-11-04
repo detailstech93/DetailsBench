@@ -218,6 +218,23 @@ GAME_TARGETS: Dict[str, Dict[str, Target]] = {
     },
 }
 
+# The upscalers each game offers, read with the owner; next to the game's name so a line of games can be foreseen
+# (owner, 2026-11-04). Every game checked together whose ray tracing exists, the app sets (ray_tracing above).
+GAME_UPSCALERS = {"1091500": "DLSS / FSR / XeSS", "1174180": "DLSS / FSR", "750920": "DLSS", "2369390": "FSR 1.0",
+             "397540": "No upscaler"}
+
+
+def features_text(app_id) -> str:
+    """'DLSS / FSR · RT ✓' for a game checked with the owner; only RT for one not checked yet; else ''."""
+    app_id = str(app_id)
+    parts = [GAME_UPSCALERS[app_id]] if app_id in GAME_UPSCALERS else []
+    if "ray_tracing" in GAME_TARGETS.get(app_id, {}):
+        parts.append("RT ✓")
+    elif app_id in GAME_UPSCALERS:
+        parts.append("No RT")
+    return " · ".join(parts)
+
+
 NO_SETTING = "this game has no such setting in the app"
 NOT_SEEN = ("the game was never seen using this value: choose it once in the game's own menu (then quit the "
             "game), and the app learns it")
