@@ -275,13 +275,19 @@ class StepPlayer:
         self.sleep(CLICK_SETTLE_SECONDS)
         # SOTTR, 2026-11-04: Options read at y 367 and clicked there opened Challenge Tombs (2026-10-29 it was
         # read at 443): its menu seems to grow when the mouse comes. Read again with the mouse there; follow a move
+        # only when two reads agree (2026-11-04: one read while SOTTR's Options page faded put 'graphics' 90 px off)
+        near = lambda a, b: abs(a[0] - b[0]) <= STILL_PIXELS and abs(a[1] - b[1]) <= STILL_PIXELS
+        seen = point
         for _ in range(HOVER_READS):
             self.sleep(LOOK_EVERY_SECONDS)
             lines, error = self.reader(self.desktop, self.folder / "screen.png")
             self._log(i, lines, error)
             now = None if error else word_center(lines, word)
-            if now is None or (abs(now[0] - point[0]) <= STILL_PIXELS and abs(now[1] - point[1]) <= STILL_PIXELS):
+            if now is None or near(now, point):
                 break
+            if not near(now, seen):         # a new place: the next read must find it there too
+                seen = now
+                continue
             self.notes.append(f"{word!r} moved under the mouse to {now[0]},{now[1]}")
             point = now
             self.desktop.mouse_to(*point)

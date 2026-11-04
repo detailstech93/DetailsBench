@@ -665,6 +665,30 @@ def test_a_menu_that_grows_when_the_mouse_comes_is_clicked_where_the_word_moved(
     assert "'options' moved under the mouse to 40,310" in p.summary()
 
 
+def test_a_word_read_once_elsewhere_under_the_mouse_is_clicked_where_it_held(tmp_path):
+    """SOTTR, 2026-11-04: one read while its Options page faded put 'graphics' elsewhere, the next read had no
+    words; the click followed that one read and missed. A move is followed only when two reads agree."""
+    clock = Clock()
+    desk = Desk(clock)
+    reads = []
+
+    def reader(desktop, path):
+        if any(e[0] == "mouse" for e in desk.events):
+            reads.append(1)
+            if len(reads) == 1:
+                return boxed(["Gameplay", "Mouse", "Display and Graphics"]), None      # fading: words elsewhere
+            if len(reads) == 2:
+                return [], None
+        return boxed(["Gameplay", "Display and Graphics"]), None
+    p = StepPlayer([{"see": "graphics", "within": 10, "click": "graphics"}], desk, lambda: True, tmp_path,
+                   clock=clock, sleep=clock.sleep, reader=reader)
+    p.run()
+    assert p.problem is None
+    assert [e for e in desk.events if e[0] == "mouse"] == [("mouse", (240, 110))]     # clicked where it held
+    assert [e[1] for e in desk.events if e[0] == "button"] == [True, False]
+    assert "moved under the mouse" not in p.summary()
+
+
 def test_a_word_that_never_holds_still_is_not_clicked(tmp_path):
     p, desk, clock = player(tmp_path, [{"see": "options", "within": 10, "click": "options"},
                                        {"see": "x", "within": 1, "mark": True}],
