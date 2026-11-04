@@ -761,6 +761,8 @@ def queue_tests(window, entries: List[TestEntry], licenses=check_licenses, ask=a
     window.status_label.setText(" ".join(parts) or "Nothing was queued.")
     if queued:
         window.tests_page.allow_skip(panel.skip_test)
+    elif later and window.frame_panel.is_running() and getattr(window, "skip_game", None):
+        window.tests_page.allow_skip(window.skip_game)     # a game going on now has a test to skip to
     return queued + later
 
 
@@ -1112,9 +1114,12 @@ def start_other(window, entry: TestEntry, choice: Optional[RunChoice] = None, af
         if not frame.select_game(game["app_id"]):
             QMessageBox.information(window, "Run tests", f"{game['name']} is not fully installed.")
             return False
+        skipped = []
+
         def game_over(sid, summary):
             report = game_report(window, sid, summary)
-            (after or (lambda s: line_next(window, s)))(bool(getattr(summary, "stopped", False)))
+            stopped = bool(getattr(summary, "stopped", False)) and not skipped
+            (after or (lambda s: line_next(window, s)))(stopped)
             if wants_shutdown(window, choice):
                 shutdown_when_done(window, sid, summary, report)
         frame.on_game_finished = game_over
@@ -1128,7 +1133,13 @@ def start_other(window, entry: TestEntry, choice: Optional[RunChoice] = None, af
                 running = frame.is_running() or frame.lhm.active()
                 return RunState(running, 0, None, frame.status_label.text(),
                                 marks={entry.id: "running"} if running else {})
-            window.tests_page.watch(game_state, frame.emergency_stop)
+
+            def skip_game():                    # owner, 2026-11-04: as Skip in a plan; the line goes on
+                skipped.append(True)
+                frame.emergency_stop()
+            window.skip_game = skip_game
+            window.tests_page.watch(game_state, frame.emergency_stop,
+                                    skip=skip_game if getattr(window, "run_line", []) else None, skip_what="game")
         else:
             frame.on_game_finished = None      # it never started: a later game must not open this report
         return True

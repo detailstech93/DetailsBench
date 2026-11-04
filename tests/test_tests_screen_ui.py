@@ -691,3 +691,35 @@ def test_a_line_of_games_asks_windows_once(monkeypatch):
     assert rt._one_prompt_for_games(w, "linux") == ""
     monkeypatch.setattr(elevation, "is_elevated", lambda platform=None: True)
     assert rt._one_prompt_for_games(w, "win32") == ""
+
+
+def test_skip_on_a_game_in_line_ends_only_that_game(qapp, tmp_path, monkeypatch):
+    """Owner, 2026-11-04: Skip works on games as on apps (here or from the phone): only the game going on ends,
+    the next one in line starts; Stop still ends the whole line."""
+    import app.ui.run_tests as rt
+    from app.games.presets import GamePreset
+    with patch.object(MainWindow, "start_scan"):
+        w = MainWindow(Database(str(tmp_path / "w.db")), {"cpu_brand": "quick name"})
+    try:
+        frame = w.frame_panel
+        frame.data_dir = tmp_path / "data"
+        monkeypatch.setattr(rt, "read_offered", lambda games, data_dir: dict(OFFERED))
+        now, stops, nexts = {"running": False}, [], []
+        monkeypatch.setattr(frame, "refresh_games", lambda: None)
+        monkeypatch.setattr(frame, "select_game", lambda app_id: True)
+        monkeypatch.setattr(frame, "benchmark_game", lambda **kw: now.update(running=True) or True)
+        monkeypatch.setattr(frame, "is_running", lambda: now["running"])
+        monkeypatch.setattr(frame, "emergency_stop", lambda: stops.append(1))
+        monkeypatch.setattr(rt, "when_free", lambda window, start: nexts.append(start))
+        games = [entry(i, mode=ASSISTED, group="game", source="steam",
+                       ref={"app_id": i, "name": f"Game {i}", "store": "steam"}) for i in ("1", "2")]
+        assert start_tests(w, games, ask=lambda *a: RunChoice(3, 1, 0, GamePreset()))
+        w.tests_page.timer.stop()
+        page = w.tests_page
+        assert page.can_skip() and page.skip_btn.text() == "Skip this game"
+        assert page.skip() and stops == [1]
+        frame.on_game_finished(None, type("S", (), {"stopped": True})())     # the skipped game ends as stopped
+        assert [x.entry.id for x in w.run_line] == ["2"] and len(nexts) == 1   # the line goes on
+    finally:
+        now["running"] = False
+        w.close()

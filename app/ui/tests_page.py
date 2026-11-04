@@ -110,7 +110,9 @@ def state_text(entry: TestEntry) -> str:
 
 
 SKIP_TIPS = {"test": "Ends only the test going on (the report says how far it got); the other tests go on.",
-             "download": "Ends only the download going on; the next one in line starts."}
+             "download": "Ends only the download going on; the next one in line starts.",
+             "game": "Ends only the game going on (its settings and saves are put back, its report says how far "
+                     "it got); the next one in line starts."}
 
 
 class TestsPage(QWidget):

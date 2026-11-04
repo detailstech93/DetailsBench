@@ -597,6 +597,8 @@ class RemoteApi:
                 return "Nothing to skip: Skip works while a plan of several tests runs."
             if getattr(page, "skip_what", "test") == "download":
                 return "Skipping the download going on; the next one in line starts."
+            if getattr(page, "skip_what", "test") == "game":
+                return "Skipping the game going on (its settings and saves are put back); the next one starts."
             return "Skipping the test going on; the other tests go on."
         return self.main.run(skip)
 
