@@ -217,8 +217,9 @@ class GameBenchmarkWorker(QThread):
 
     def __init__(self, spec, run_dir: Path, create_session: Callable, db, output_root: Path,
                  telemetry: Optional[Callable] = None, benchmark_factory: Optional[Callable] = None,
-                 forced=None):
+                 forced=None, saves=None):
         super().__init__()
+        self.saves = saves                      # app.games.save_guard.SaveGuard, or None
         self.forced = forced                    # app.games.settings_file.ForcedSettings, or None
         import threading
         self.stop_event = threading.Event()
@@ -263,6 +264,15 @@ class GameBenchmarkWorker(QThread):
                     self.finished_plan.emit(f"failed: {problem}; your settings were put back and the game "
                                             "was not started")
                     return
+            if self.saves is not None:
+                self.progress.emit("Copying the game's save folder...")
+                try:
+                    self.saves.begin()
+                except (OSError, ValueError) as e:
+                    if self.forced is not None:
+                        self.forced.finish()
+                    self.finished_plan.emit(f"failed: {e}; the game was not started")
+                    return
             factory = self.benchmark_factory or GameBenchmark
             capture, conditions = None, []
             self.started = time.time()          # the game's own report is the one written after this
@@ -274,6 +284,11 @@ class GameBenchmarkWorker(QThread):
             finally:
                 if self.forced is not None:          # the game is closed by now: check, then put the file back
                     self.forced.finish(stopped=self.stop_event.is_set())
+                if self.saves is not None:
+                    note = self.saves.finish()
+                    self.progress.emit(note)
+                    if capture is not None:
+                        capture.message = f"{capture.message}; {note}"
             if self.forced is not None:
                 mark_unverified(capture, self.forced.record)
             add_conditions(capture, conditions, getattr(self.forced, "requested", None))
@@ -407,6 +422,12 @@ class FrameCapturePanel(QGroupBox):
                                           "(resolution, preset, DLSS, Frame Generation, ray tracing).")
         self.game_settings_btn.clicked.connect(lambda: self.edit_game_settings())
         row3.addWidget(self.game_settings_btn)
+        self.save_folder_btn = QPushButton("Save folder...")
+        self.save_folder_btn.setToolTip("The selected game's save folder: copied before every benchmark of the "
+                                        "game and put back after, so a benchmark save or an autosave never "
+                                        "replaces yours. Nothing is deleted.")
+        self.save_folder_btn.clicked.connect(lambda: self.pick_save_folder())
+        row3.addWidget(self.save_folder_btn)
         row3.addWidget(self.game_btn)
         layout.addLayout(row3)
 
@@ -742,6 +763,28 @@ class FrameCapturePanel(QGroupBox):
             return False
         return True
 
+    def save_folder_for(self, app_id) -> Optional[str]:
+        from app.games.save_guard import SAVE_FOLDERS_KEY
+        every = load_settings(self.data_dir)[0].get(SAVE_FOLDERS_KEY)
+        folder = every.get(str(app_id)) if isinstance(every, dict) else None
+        return str(folder) if folder else None
+
+    def pick_save_folder(self) -> bool:
+        from app.games.save_guard import SAVE_FOLDERS_KEY
+        game = self.game_combo.currentData()
+        if not game:
+            self.status_label.setText("Pick a game first.")
+            return False
+        app_id = str(game.get("app_id"))
+        folder = QFileDialog.getExistingDirectory(self, "Select the game's save folder",
+                                                  self.save_folder_for(app_id) or "")
+        if not folder:
+            return False
+        if not self._save_choice(SAVE_FOLDERS_KEY, app_id, folder):
+            return False
+        self.status_label.setText(f"Saves of this game are copied before each run and put back after: {folder}")
+        return True
+
     def forced_settings_for(self, app_id) -> Dict[str, object]:
         from app.games.settings_file import saved_choice
         if not self.can_force(app_id):
@@ -962,6 +1005,10 @@ class FrameCapturePanel(QGroupBox):
                         "character does something unexpected."))
         if linux:
             text = self.linux_text(spec, profile, total, declared, forced_values, by_launch)
+        save_folder = None if linux else self.save_folder_for(spec.app_id)
+        if save_folder:
+            text += (f"\n\nYour saves in {save_folder} are copied before the run and put back after it "
+                     "(nothing is deleted).")
         if self.remote_check():
             text += "\n\n" + REMOTE_WARNING
         from app.environment import conditions as pc_now
@@ -984,11 +1031,16 @@ class FrameCapturePanel(QGroupBox):
             from app.games.settings_file import ForcedSettings
             forced = (self.forced_factory or ForcedSettings)(spec.app_id, forced_values, run_dir, self.data_dir)
 
+        saves = None
+        if save_folder:
+            from app.games.save_guard import SaveGuard
+            saves = SaveGuard(spec.app_id, save_folder, run_dir, self.data_dir)
+
         def create_session(capture) -> int:
             return self._create_game_session(spec, profile, environment, capture, forced, declared, now)
         self.worker = GameBenchmarkWorker(spec, run_dir, create_session, self.db, self.output_root,
                                           telemetry_sources.new_sampler if self.telemetry_box.isChecked() else None,
-                                          self.benchmark_factory, forced)
+                                          self.benchmark_factory, forced, saves)
         self.last_session_id, self.last_summary = None, None
         self.worker.progress.connect(self._on_progress)
         self.worker.finished_plan.connect(self._on_finished)
@@ -1149,7 +1201,8 @@ class FrameCapturePanel(QGroupBox):
 
     def _set_running(self, running: bool):
         for w in (self.capture_btn, self.select_btn, self.refresh_btn, self.process_combo, self.seconds_spin,
-                  self.telemetry_box, self.game_combo, self.settle_spin, self.still_box, self.game_btn, self.game_settings_btn):
+                  self.telemetry_box, self.game_combo, self.settle_spin, self.still_box, self.game_btn, self.game_settings_btn,
+                  self.save_folder_btn):
             w.setEnabled(not running)
         if not running:
             self._show_game_settings_state()

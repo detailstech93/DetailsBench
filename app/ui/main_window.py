@@ -360,6 +360,8 @@ class MainWindow(QMainWindow):
             from app.games.settings_file import recover_pending
             from app.paths import get_data_dir
             lines = recover_pending(get_data_dir(), running=_game_is_open)
+            from app.games.save_guard import recover_saves
+            lines += recover_saves(get_data_dir(), running=_game_is_open)
         except Exception as e:                      # never block the start of the app
             lines = [f"game settings left by an interrupted run could not be checked: {e}"]
         if lines:

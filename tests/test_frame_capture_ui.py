@@ -673,3 +673,26 @@ def test_declared_settings_for_a_game_the_app_cannot_force(qapp, panel):
     assert gs["declared"] == {"preset": "Ultra", "ray_tracing": False} and gs["verified"] is False
     assert all(r["status"] == "completed" for r in db.get_runs(session_id=sid, include_test=True))
     assert p.declared_settings_for("1091500") == {}                  # forced games never use declared values
+
+
+def test_a_picked_save_folder_is_copied_before_the_run_and_put_back_after(qapp, panel, monkeypatch):
+    from app.games.save_guard import SAVE_FOLDERS_KEY
+    from app.ui import frame_capture_panel as fcp
+    p, db = forced_panel(qapp, panel, {})
+    saves = panel[2] / "Saves"
+    saves.mkdir()
+    (saves / "a.sav").write_bytes(b"mine")
+    monkeypatch.setattr(fcp.QFileDialog, "getExistingDirectory", lambda *a: str(saves))
+    assert p.pick_save_folder() is True and p.save_folder_for("1091500") == str(saves)
+    bench = fake_benchmark()
+
+    class Overwrites(bench):
+        def run(self):
+            (saves / "a.sav").write_bytes(b"autosave")
+            return super().run()
+    p.benchmark_factory = Overwrites
+    run_bench(qapp, p)
+    assert f"Your saves in {saves} are copied" in p.asked[-1]
+    assert (saves / "a.sav").read_bytes() == b"mine"
+    assert "saves: 1 file(s) put back" in p.worker.capture_message
+    assert db.get_sessions(include_test=True)
