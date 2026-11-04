@@ -838,9 +838,10 @@ class FrameCapturePanel(QGroupBox):
         return False
 
     def benchmark_game(self, tools_ready: bool = False, ask_settings: bool = True,
-                       counts: Optional[Tuple[int, int]] = None) -> bool:
+                       counts: Optional[Tuple[int, int]] = None, confirmed: bool = False) -> bool:
         """ask_settings False: the settings already chosen (Tests screen preset) are used without the settings
-        window; counts (warm-up, measured) replace the profile's."""
+        window; counts (warm-up, measured) replace the profile's. confirmed: a game in a line of games the owner
+        already started (the first one asked): no question, so the line goes on alone."""
         """PresentMon and (with telemetry) LibreHardwareMonitor first, then one confirmation; the rest is automatic."""
         if self.is_running() or self.lhm.busy():
             return False
@@ -872,7 +873,7 @@ class FrameCapturePanel(QGroupBox):
         if self.is_windows() and self.telemetry_box.isChecked() and not tools_ready:
             started = []
             self.lhm.ensure(lambda: started.append(self.benchmark_game(tools_ready=True, ask_settings=ask_settings,
-                                                                       counts=counts)))
+                                                                       counts=counts, confirmed=confirmed)))
             return bool(started and started[0])
         from app.frames.game_benchmark import GameBenchmarkSpec
         profile = self.get_profile()
@@ -1019,7 +1020,9 @@ class FrameCapturePanel(QGroupBox):
             now = None
         if now and now["items"]:
             text += "\n\n" + pc_now.text(now["items"])
-        if not self.confirm(text):
+        if confirmed:
+            logger.info("Game in a line of games, started without a question: %s", text)
+        elif not self.confirm(text):
             self.status_label.setText("Cancelled; nothing was started.")
             return False
         environment = self.get_environment()

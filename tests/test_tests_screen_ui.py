@@ -333,7 +333,7 @@ def test_one_game_from_the_tests_screen_asks_counts_and_preset_then_starts_witho
         w.tests_page.timer.stop()
         monkeypatch.setattr(frame, "is_running", lambda: False)
         assert asked == [([("1091500", "Cyberpunk 2077")], GamePreset())]
-        assert calls == [("select", "1091500"), ("bench", {"ask_settings": False, "counts": (2, 5)})]
+        assert calls == [("select", "1091500"), ("bench", {"ask_settings": False, "counts": (2, 5), "confirmed": False})]
         saved, _ = load_settings(tmp_path / "data")
         assert saved[SAVED_KEY] == {"1091500": {"upscaler": "DLSS Quality", "ray_tracing": "Off", "preset": "Ultra"}}
         assert rt.last_preset(tmp_path / "data") == GamePreset("keep", "dlss", "off", "ultra")   # offered next time
@@ -341,6 +341,72 @@ def test_one_game_from_the_tests_screen_asks_counts_and_preset_then_starts_witho
     finally:
         w.close()
 
+
+
+def test_several_games_run_one_after_another_with_one_dialog(qapp, tmp_path, monkeypatch):
+    """Owner, 2026-11-04: Run on several games asks once (counts and settings for all or per game), then each
+    game runs alone after the one before; only the first asks to start, and stopping one stops the rest."""
+    import app.ui.run_tests as rt
+    from app.games.presets import GamePreset
+    with patch.object(MainWindow, "start_scan"):
+        w = MainWindow(Database(str(tmp_path / "w.db")), {"cpu_brand": "quick name"})
+    try:
+        frame = w.frame_panel
+        frame.data_dir = tmp_path / "data"
+        monkeypatch.setattr(rt, "read_offered", lambda games, data_dir: dict(OFFERED))
+        calls, now = [], {"running": False}
+        monkeypatch.setattr(frame, "refresh_games", lambda: None)
+        monkeypatch.setattr(frame, "select_game", lambda app_id: calls.append(("select", app_id)) or True)
+
+        def bench(**kw):
+            calls.append(("bench", kw))
+            now["running"] = True
+            return True
+        monkeypatch.setattr(frame, "benchmark_game", bench)
+        monkeypatch.setattr(frame, "is_running", lambda: now["running"])
+        asked = []
+
+        def ask(window, entries, profile, others, games, offered, initial):
+            asked.append(games)
+            return RunChoice(3, 1, 0, GamePreset(), game_presets={"1": GamePreset(quality="low")})
+        games = [entry(i, mode=ASSISTED, group="game", source="steam",
+                       ref={"app_id": i, "name": f"Game {i}", "store": "steam"}) for i in ("1", "2", "3")]
+        assert start_tests(w, games, ask=ask)
+        w.tests_page.timer.stop()
+        assert asked == [[("1", "Game 1"), ("2", "Game 2"), ("3", "Game 3")]]     # one dialog for all
+        assert calls == [("select", "1"), ("bench", {"ask_settings": False, "counts": (1, 3), "confirmed": False})]
+        assert [x.entry.id for x in w.run_line] == ["2", "3"]
+        assert "1 first; then, each alone: 2, 3. Stopping one stops the rest." in w.status_label.text()
+        now["running"] = False
+        monkeypatch.setattr(w.tests_page, "busy", True, raising=False)
+        assert rt.start_waiting(w) is True                     # what game 1's end does (line_next)
+        assert calls[-1] == ("bench", {"ask_settings": False, "counts": (1, 3), "confirmed": True})
+        assert calls[-2] == ("select", "2") and [x.entry.id for x in w.run_line] == ["3"]
+        rt.line_next(w, stopped=True)                          # game 2 stopped: game 3 never starts
+        assert w.run_line == []
+    finally:
+        now["running"] = False
+        w.close()
+
+
+def test_a_line_of_games_cancelled_at_the_first_leaves_nothing_in_line(qapp, tmp_path, monkeypatch):
+    import app.ui.run_tests as rt
+    from app.games.presets import GamePreset
+    with patch.object(MainWindow, "start_scan"):
+        w = MainWindow(Database(str(tmp_path / "w.db")), {"cpu_brand": "quick name"})
+    try:
+        frame = w.frame_panel
+        frame.data_dir = tmp_path / "data"
+        monkeypatch.setattr(rt, "read_offered", lambda games, data_dir: dict(OFFERED))
+        monkeypatch.setattr(frame, "refresh_games", lambda: None)
+        monkeypatch.setattr(frame, "select_game", lambda app_id: True)
+        monkeypatch.setattr(frame, "benchmark_game", lambda **kw: False)     # "Cancelled; nothing was started."
+        games = [entry(i, mode=ASSISTED, group="game", source="steam",
+                       ref={"app_id": i, "name": f"Game {i}", "store": "steam"}) for i in ("1", "2")]
+        assert not start_tests(w, games, ask=lambda *a: RunChoice(3, 1, 0, GamePreset()))
+        assert getattr(w, "run_line", []) == []
+    finally:
+        w.close()
 
 def test_game_of_finds_steam_games_and_game_scripts():
     from types import SimpleNamespace

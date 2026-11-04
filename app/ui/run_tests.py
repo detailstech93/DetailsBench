@@ -585,6 +585,8 @@ def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_re
         window.status_label.setText(f"Left out (they wait for a score typed by you; run each alone): {names}")
     automatic, others = split_entries(entries)
     lone_game = not automatic and len(others) == 1 and others[0].source == "steam"
+    # several Steam games: one dialog, then each runs alone, one after another (owner, 2026-11-04)
+    lone_game = lone_game or (not automatic and len(others) > 1 and all(e.source == "steam" for e in others))
     if not automatic and len(others) == 1 and not lone_game:
         return start_other(window, others[0])
     if not automatic and not lone_game:
@@ -607,6 +609,7 @@ class Prepared:
     games: List[Tuple[str, str]] = dataclasses.field(default_factory=list)
     offered: Offered = dataclasses.field(default_factory=dict)
     settings: Optional[Dict[str, dict]] = None      # {test id: its own settings} chosen at Queue next (AI test)
+    confirmed: bool = False                         # a game after the first of a line of games: no question
 
 
 def choose_run(window, automatic: List[TestEntry], others: List[TestEntry], lone_game: bool, ask=ask_choice,
@@ -635,7 +638,7 @@ def choose_run(window, automatic: List[TestEntry], others: List[TestEntry], lone
                      **extra)
     if choice is None:
         return None
-    return Prepared(automatic, [others[0]] if lone_game else others, choice, games, offered)
+    return Prepared(automatic, others, choice, games, offered)
 
 
 def begin(window, p: Prepared, opener=open_report, after=None) -> bool:
@@ -659,8 +662,19 @@ def begin(window, p: Prepared, opener=open_report, after=None) -> bool:
         except (OSError, ValueError) as e:
             QMessageBox.warning(window, "Run tests", f"The stress test length could not be saved: {e}")
             return False
+    if not automatic and len(others) > 1:           # a line of games: the first now, each next one when it ends
+        rest = [Waiting(e, dataclasses.replace(p, others=[e], confirmed=True)) for e in others[1:]]
+        line = line_of(window)
+        line[:0] = rest
+        start_other(window, others[0], choice, after)
+        if not (running(window) or window.frame_panel.lhm.active()):      # cancelled or refused: none of them
+            line[:] = [w for w in line if w not in rest]
+            return False
+        window.status_label.setText(f"{others[0].name} first; then, each alone: "
+                                    + ", ".join(e.name for e in others[1:]) + ". Stopping one stops the rest.")
+        return True
     if not automatic:
-        return start_other(window, others[0], choice, after)
+        return start_other(window, others[0], choice, after, confirmed=p.confirmed)
     return launch(window, automatic, choice, opener, after=after, settings=p.settings)
 
 
@@ -1060,7 +1074,8 @@ def game_report(window, session_id: Optional[int], summary, opener=None) -> Opti
     return path
 
 
-def start_other(window, entry: TestEntry, choice: Optional[RunChoice] = None, after=None) -> bool:
+def start_other(window, entry: TestEntry, choice: Optional[RunChoice] = None, after=None,
+                confirmed: bool = False) -> bool:
     """One assisted or manual test: hand it to the flow that already runs it. With a choice from the run
     dialog, a Steam game uses its counts and the preset saved for it (no settings window)."""
     if window.automation_panel.is_running() or window.frame_panel.is_running():
@@ -1084,7 +1099,8 @@ def start_other(window, entry: TestEntry, choice: Optional[RunChoice] = None, af
         if choice is None:
             frame.benchmark_game()
         else:
-            frame.benchmark_game(ask_settings=False, counts=(choice.warmup_runs, choice.repetitions))
+            frame.benchmark_game(ask_settings=False, counts=(choice.warmup_runs, choice.repetitions),
+                                 confirmed=confirmed)
         if frame.is_running() or frame.lhm.active():
             def game_state() -> RunState:      # a game on its own gets its blinking dot too (owner, 2026-10-22)
                 running = frame.is_running() or frame.lhm.active()
