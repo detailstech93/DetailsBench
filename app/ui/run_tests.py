@@ -599,6 +599,8 @@ def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_re
         QMessageBox.information(window, "Run tests", "A run is already going on; wait for it or stop it first.")
         return False
     prepared = choose_run(window, automatic, others, lone_game, ask, saved)
+    if prepared is not None:
+        prepared.order = [e.id for e in entries]
     return prepared is not None and begin(window, prepared, opener)
 
 
@@ -612,6 +614,7 @@ class Prepared:
     offered: Offered = dataclasses.field(default_factory=dict)
     settings: Optional[Dict[str, dict]] = None      # {test id: its own settings} chosen at Queue next (AI test)
     confirmed: bool = False                         # a game after the first of a line of games: no question
+    order: List[str] = dataclasses.field(default_factory=list)     # the tests' order in the list (a line runs so)
 
 
 def choose_run(window, automatic: List[TestEntry], others: List[TestEntry], lone_game: bool, ask=ask_choice,
@@ -664,17 +667,22 @@ def begin(window, p: Prepared, opener=open_report, after=None) -> bool:
         except (OSError, ValueError) as e:
             QMessageBox.warning(window, "Run tests", f"The stress test length could not be saved: {e}")
             return False
-    if automatic and others and all(e.source == "steam" for e in others):     # the plan, then the games in line
-        rest = [Waiting(e, dataclasses.replace(p, automatic=[], others=[e], confirmed=True)) for e in others]
+    if automatic and others and all(e.source == "steam" for e in others):
+        # plan tests and Steam games: each alone, in the order of the list (owner, 2026-11-04: the first one first)
+        rank = {i: n for n, i in enumerate(p.order)}
+        seq = sorted(automatic + others, key=lambda e: rank.get(e.id, len(rank)))
+        steps = [Waiting(e, dataclasses.replace(p, automatic=[e] if e in automatic else [],
+                                                others=[] if e in automatic else [e], confirmed=n > 0))
+                 for n, e in enumerate(seq)]
         line = line_of(window)
-        line[:0] = rest
+        line[:0] = steps[1:]
         window.line_sessions = []
-        if not launch(window, automatic, choice, opener, after=after, settings=p.settings):
-            line[:] = [w for w in line if w not in rest]
+        if not begin(window, steps[0].prepared, opener, after):
+            line[:] = [w for w in line if w not in steps]
             window.line_sessions = None
             return False
-        window.status_label.setText(f"{window.status_label.text()} After it, each alone: "
-                                    + ", ".join(e.name for e in others) + ".")
+        window.status_label.setText(f"{seq[0].name} first; then, each alone: "
+                                    + ", ".join(e.name for e in seq[1:]) + ". Stopping one stops the rest.")
         return True
     if not automatic and len(others) > 1:           # a line of games: the first now, each next one when it ends
         rest = [Waiting(e, dataclasses.replace(p, others=[e], confirmed=True)) for e in others[1:]]
@@ -693,7 +701,7 @@ def begin(window, p: Prepared, opener=open_report, after=None) -> bool:
                                     + (f" {helper}" if helper else ""))
         return True
     if not automatic:
-        if p.confirmed and any(w.entry.source == "steam" for w in getattr(window, "run_line", [])):
+        if any(w.entry.source == "steam" for w in getattr(window, "run_line", [])):
             _one_prompt_for_games(window)       # the games after a plan: one prompt for all of them
         return start_other(window, others[0], choice, after, confirmed=p.confirmed)
     return launch(window, automatic, choice, opener, after=after, settings=p.settings)

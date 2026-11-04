@@ -737,9 +737,11 @@ def test_a_plan_with_steam_games_runs_the_plan_then_each_game_and_a_general_repo
     try:
         w.frame_panel.data_dir = tmp_path / "data"
         monkeypatch.setattr(rt, "read_offered", lambda games, data_dir: dict(OFFERED))
-        launched, shown = [], []
+        launched, shown, benched = [], [], []
         monkeypatch.setattr(rt, "launch", lambda window, automatic, choice, opener, after=None, settings=None:
                             launched.append([e.id for e in automatic]) or True)
+        monkeypatch.setattr(rt, "start_other", lambda window, e, choice, after=None, confirmed=False:
+                            benched.append((e.id, confirmed)) or True)
 
         def ask(window, entries, profile, others, games, offered, initial):
             shown.append(([e.id for e in entries], others))
@@ -747,10 +749,11 @@ def test_a_plan_with_steam_games_runs_the_plan_then_each_game_and_a_general_repo
         cp = entry("cp", group="game")
         games = [entry(i, mode=ASSISTED, group="game", source="steam",
                        ref={"app_id": i, "name": f"Game {i}", "store": "steam"}) for i in ("1", "2")]
-        assert start_tests(w, [cp] + games, ask=ask)
-        assert shown == [(["cp", "1", "2"], [])] and launched == [["cp"]]      # in the plan, not "Not in this plan"
-        assert [(x.entry.id, x.prepared.automatic, x.prepared.confirmed) for x in w.run_line] == [
-            ("1", [], True), ("2", [], True)]
+        assert start_tests(w, [games[0], cp, games[1]], ask=ask)              # the order of the list
+        assert shown == [(["cp", "1", "2"], [])]                               # one dialog, nothing left out
+        assert benched == [("1", False)] and launched == []                    # the first in the list first
+        assert [(x.entry.id, [e.id for e in x.prepared.automatic], x.prepared.confirmed) for x in w.run_line] == [
+            ("cp", ["cp"], True), ("2", [], True)]
         written = []
         monkeypatch.setattr("app.report_set.write_line_summary", lambda exports, root: written.append(len(exports))
                             or tmp_path / "Summary.html")
