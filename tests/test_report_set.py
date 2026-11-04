@@ -240,3 +240,23 @@ def test_a_skipped_test_says_why_in_the_report():
     out = test_outcome({"runs": runs, "summaries": {}}, "m")
     assert out["result"] == "Skipped: not enough memory: Gemma 4 12B QAT needs about 8.6 GB"
     assert out["skipped"] and not out["passed"]
+
+
+def test_a_line_of_games_gets_a_general_report_of_all_its_sessions(tmp_path):
+    """Owner, 2026-11-04: a plan and the games after it (each its own session) end with one general report."""
+    db = Database(str(tmp_path / "r.db"))
+    exports = []
+    for name, score in (("cyberpunk2077_builtin_benchmark", 98.5), ("steam_397540", 120.0)):
+        sid = db.create_session(name)
+        db.create_result(sid, name, "game", score, unit="fps", status="completed", run_index=1, duration_seconds=90)
+        export = build_session_export(db, sid)
+        export["session"]["created_at"] = f"2026-11-04T15:{30 + len(exports)}:00"
+        exports.append(export)
+    path = rs.write_line_summary(exports, tmp_path / "reports")
+    folder = tmp_path / "reports" / "2026-11-04_15-30-00_games"
+    assert path == folder / "Summary_2026-11-04_15-30-00.html"
+    assert sorted(p.name for p in folder.iterdir()) == [
+        "Summary_2026-11-04_15-30-00.html", "cyberpunk2077_builtin_benchmark_2026-11-04_15-30-00.html",
+        "steam_397540_2026-11-04_15-31-00.html"]
+    text = path.read_text(encoding="utf-8")
+    assert "2 <span>of 2</span>" in text and '<a href="steam_397540_2026-11-04_15-31-00.html">' in text

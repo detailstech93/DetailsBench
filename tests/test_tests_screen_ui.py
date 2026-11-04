@@ -686,6 +686,8 @@ def test_a_line_of_games_asks_windows_once(monkeypatch):
             self.text = text
     w = type("W", (), {"status_label": Label()})()
     assert rt._one_prompt_for_games(w, "win32") == "" and begun == [1]
+    assert rt._one_prompt_for_games(w, "win32") == "" and begun == [1]          # once per line
+    w.helper_asked = False                                                       # a new line
     monkeypatch.setattr(admin_helper, "begin", lambda: "the administrator prompt was declined")
     assert "each game asks for itself" in rt._one_prompt_for_games(w, "win32")
     assert rt._one_prompt_for_games(w, "linux") == ""
@@ -722,4 +724,43 @@ def test_skip_on_a_game_in_line_ends_only_that_game(qapp, tmp_path, monkeypatch)
         assert [x.entry.id for x in w.run_line] == ["2"] and len(nexts) == 1   # the line goes on
     finally:
         now["running"] = False
+        w.close()
+
+
+def test_a_plan_with_steam_games_runs_the_plan_then_each_game_and_a_general_report(qapp, tmp_path, monkeypatch):
+    """Owner, 2026-11-04: Cyberpunk (a plan test) with four Steam games ran Cyberpunk only; now the games follow it
+    in line, one dialog for all, and the line ends with one general report of every session."""
+    import app.ui.run_tests as rt
+    from app.games.presets import GamePreset
+    with patch.object(MainWindow, "start_scan"):
+        w = MainWindow(Database(str(tmp_path / "w.db")), {"cpu_brand": "quick name"})
+    try:
+        w.frame_panel.data_dir = tmp_path / "data"
+        monkeypatch.setattr(rt, "read_offered", lambda games, data_dir: dict(OFFERED))
+        launched, shown = [], []
+        monkeypatch.setattr(rt, "launch", lambda window, automatic, choice, opener, after=None, settings=None:
+                            launched.append([e.id for e in automatic]) or True)
+
+        def ask(window, entries, profile, others, games, offered, initial):
+            shown.append(([e.id for e in entries], others))
+            return RunChoice(3, 1, 0, GamePreset())
+        cp = entry("cp", group="game")
+        games = [entry(i, mode=ASSISTED, group="game", source="steam",
+                       ref={"app_id": i, "name": f"Game {i}", "store": "steam"}) for i in ("1", "2")]
+        assert start_tests(w, [cp] + games, ask=ask)
+        assert shown == [(["cp", "1", "2"], [])] and launched == [["cp"]]      # in the plan, not "Not in this plan"
+        assert [(x.entry.id, x.prepared.automatic, x.prepared.confirmed) for x in w.run_line] == [
+            ("1", [], True), ("2", [], True)]
+        written = []
+        monkeypatch.setattr("app.report_set.write_line_summary", lambda exports, root: written.append(len(exports))
+                            or tmp_path / "Summary.html")
+        monkeypatch.setattr("app.export.build_session_export", lambda db, sid: {"sid": sid})
+        opened = []
+        for sid in (84, 85, 86):
+            rt._line_session(w, sid)
+        w.run_line.clear()
+        rt.line_next(w)                                        # the last game is over
+        assert written == [3]
+        assert rt.line_summary(w, opener=opened.append) is None   # once only
+    finally:
         w.close()

@@ -587,6 +587,8 @@ def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_re
     lone_game = not automatic and len(others) == 1 and others[0].source == "steam"
     # several Steam games: one dialog, then each runs alone, one after another (owner, 2026-11-04)
     lone_game = lone_game or (not automatic and len(others) > 1 and all(e.source == "steam" for e in others))
+    # a plan with Steam games: the plan first, then each game alone in line (owner, 2026-11-04)
+    lone_game = lone_game or bool(automatic and others and all(e.source == "steam" for e in others))
     if not automatic and len(others) == 1 and not lone_game:
         return start_other(window, others[0])
     if not automatic and not lone_game:
@@ -634,8 +636,8 @@ def choose_run(window, automatic: List[TestEntry], others: List[TestEntry], lone
             return None
         choice = RunChoice(count, 0, 0)     # no warm-up: each run's page opens and the owner types its score
     else:
-        choice = ask(window, automatic or others, profile, [] if lone_game else others, games, offered, initial,
-                     **extra)
+        shown = automatic + others if lone_game and automatic else automatic or others     # games after a plan
+        choice = ask(window, shown, profile, [] if lone_game else others, games, offered, initial, **extra)
     if choice is None:
         return None
     return Prepared(automatic, others, choice, games, offered)
@@ -662,21 +664,37 @@ def begin(window, p: Prepared, opener=open_report, after=None) -> bool:
         except (OSError, ValueError) as e:
             QMessageBox.warning(window, "Run tests", f"The stress test length could not be saved: {e}")
             return False
+    if automatic and others and all(e.source == "steam" for e in others):     # the plan, then the games in line
+        rest = [Waiting(e, dataclasses.replace(p, automatic=[], others=[e], confirmed=True)) for e in others]
+        line = line_of(window)
+        line[:0] = rest
+        window.line_sessions = []
+        if not launch(window, automatic, choice, opener, after=after, settings=p.settings):
+            line[:] = [w for w in line if w not in rest]
+            window.line_sessions = None
+            return False
+        window.status_label.setText(f"{window.status_label.text()} After it, each alone: "
+                                    + ", ".join(e.name for e in others) + ".")
+        return True
     if not automatic and len(others) > 1:           # a line of games: the first now, each next one when it ends
         rest = [Waiting(e, dataclasses.replace(p, others=[e], confirmed=True)) for e in others[1:]]
         line = line_of(window)
         line[:0] = rest
+        window.line_sessions = []
         helper = _one_prompt_for_games(window)
         start_other(window, others[0], choice, after)
         if not (running(window) or window.frame_panel.lhm.active()):      # cancelled or refused: none of them
             line[:] = [w for w in line if w not in rest]
-            _end_helper()
+            _end_helper(window)
+            window.line_sessions = None
             return False
         window.status_label.setText(f"{others[0].name} first; then, each alone: "
                                     + ", ".join(e.name for e in others[1:]) + ". Stopping one stops the rest."
                                     + (f" {helper}" if helper else ""))
         return True
     if not automatic:
+        if p.confirmed and any(w.entry.source == "steam" for w in getattr(window, "run_line", [])):
+            _one_prompt_for_games(window)       # the games after a plan: one prompt for all of them
         return start_other(window, others[0], choice, after, confirmed=p.confirmed)
     return launch(window, automatic, choice, opener, after=after, settings=p.settings)
 
@@ -785,16 +803,51 @@ def _one_prompt_for_games(window, platform: str = sys.platform) -> str:
     (owner, 2026-11-04). Declined or failed: each game asks for itself, as before. Returns a note for the status."""
     from app import elevation
     from app.frames import admin_helper
-    if platform != "win32" or elevation.is_elevated(platform):
+    if platform != "win32" or elevation.is_elevated(platform) or getattr(window, "helper_asked", False):
         return ""
+    window.helper_asked = True                  # asked once per line, even when declined
     window.status_label.setText("Asking Windows once for administrator permission for the games in line...")
     why = admin_helper.begin()
     return f"No administrator helper ({why}): each game asks for itself." if why else ""
 
 
-def _end_helper():
+def _end_helper(window=None):
     from app.frames import admin_helper
     admin_helper.end()
+    if window is not None:
+        window.helper_asked = False
+
+
+def _line_session(window, session_id) -> None:
+    """A run of a line of games is over: its session joins the line's general report."""
+    sessions = getattr(window, "line_sessions", None)
+    if sessions is not None and session_id is not None and session_id not in sessions:
+        sessions.append(session_id)
+
+
+def line_summary(window, opener=None) -> Optional[Path]:
+    """The line is over (or stopped): one general report of its runs, with each test's report again (owner,
+    2026-11-04). Nothing for fewer than two runs."""
+    sessions, window.line_sessions = getattr(window, "line_sessions", None), None
+    if not sessions or len(sessions) < 2:
+        return None
+    from app.export import build_session_export
+    from app.report_set import write_line_summary
+    from app.ui import reports_folder
+    folder = reports_folder.folder(window)
+    if folder is None:
+        return None
+    try:
+        path = write_line_summary([build_session_export(window.db, sid) for sid in sessions], folder)
+    except Exception as e:
+        logger.exception("Could not write the general report")
+        window.status_label.setText(f"{window.status_label.text()}  The general report could not be written: {e}")
+        return None
+    window.last_report_path = path
+    window.status_label.setText(f"{window.status_label.text()}  General report: {path}")
+    window.tests_page.offer_report(lambda: (opener or open_report)(path))
+    (opener or open_report)(path)
+    return path
 
 
 def line_next(window, stopped: bool = False, start=None):
@@ -802,14 +855,16 @@ def line_next(window, stopped: bool = False, start=None):
     run ends the line: what you stop, the tests after it do not start."""
     line = getattr(window, "run_line", None)
     if not line:
-        _end_helper()                   # the line is over: the administrator helper of a games line ends
+        _end_helper(window)             # the line is over: the administrator helper of a games line ends
+        line_summary(window)
         return
     if stopped:
-        _end_helper()
+        _end_helper(window)
         names = ", ".join(w.entry.name for w in line)
         line.clear()
         window.status_label.setText(f"{window.status_label.text()} Stopped: the tests in line were not started "
                                     f"({names}).".strip())
+        line_summary(window)
         return
     when_free(window, start or start_waiting)
 
@@ -903,6 +958,7 @@ def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_re
         from app.library.sync import after_run
         after_run(window, session_id)           # the results library (in the background; never raises)
         stopped = bool(getattr(getattr(panel, "last_summary", None), "stopped", False))
+        _line_session(window, session_id)
         go_on = after or (lambda s: line_next(window, s))           # the tests in line
         if len(automatic) == 1 and automatic[0].waits_for_typed_score() and not stopped:
             if typed_followup(window, automatic[0], session_id, opener, after=go_on) is None:
@@ -1119,6 +1175,7 @@ def start_other(window, entry: TestEntry, choice: Optional[RunChoice] = None, af
         def game_over(sid, summary):
             report = game_report(window, sid, summary)
             stopped = bool(getattr(summary, "stopped", False)) and not skipped
+            _line_session(window, sid)
             (after or (lambda s: line_next(window, s)))(stopped)
             if wants_shutdown(window, choice):
                 shutdown_when_done(window, sid, summary, report)
