@@ -141,7 +141,8 @@ def _note_parts(note: Any) -> dict:
     out = {}
     for part in str(note or "").split("; "):
         key, sep, value = part.partition(": ")
-        if sep and key in ("Settings used", "Forced", "Readings", "Proof screenshot", "Measured"):
+        if sep and key in ("Settings used", "Forced", "Readings", "Proof screenshot", "Measured", "Scene",
+                           "Scene shot"):
             out[key] = value
     return out
 
@@ -158,6 +159,7 @@ PROOF_SHOTS = {
     "benchmark_started.png": ("When the benchmark started", "The game's screen when its benchmark started",
                               "The screen the app read when the game's own benchmark began; the measured windows "
                               "count from this moment."),
+    "scene.png": ("Scene", "The game's screen just after the skipped seconds", ""),
 }
 
 
@@ -193,6 +195,17 @@ def _proof_html(paths: list) -> str:
                       f"<figcaption>Run {n}</figcaption></figure>" for n, (_, data) in shots)
     return (f"<h4>{heading}</h4>" f'<div class="shots">{figures}</div>'
             f'<p class="muted">{text} Click a picture to see it large; click beside it to close it.</p>')
+
+
+def _scene_html(parts: Mapping) -> str:
+    """A game with no benchmark of its own: what was measured, and that it is one scene (owner's plan step 5)."""
+    if not parts.get("Scene"):
+        return ""
+    shot = _proof_png(parts.get("Scene shot"))
+    return ("<h4>Scene</h4>" f'<p dir="auto">Measured in {esc(parts["Scene"])}.</p>'
+            + (f'<img class="proof" alt="{PROOF_SHOTS["scene.png"][1]}" data-proof="{shot[1]}">' if shot else "")
+            + '<p class="muted">One scene of the game, not the whole game: other places in it can run faster or '
+              "slower. Compare only results of the same scene.</p>")
 
 
 def _game_runs(export: Mapping) -> dict:
@@ -440,6 +453,7 @@ def _game_section(export: Mapping) -> str:
             f'<p class="muted">{esc(runs_text)}.</p>'
             + own_html
             + "<h4>Test conditions</h4>" + settings_html
+            + _scene_html(parts)
             + _proof_html([_note_parts(r.get("note")).get("Proof screenshot") for r in runs])
             + "<h4>During the benchmark</h4>"
             f'<p class="muted">Readings over {esc(span)}.</p>'

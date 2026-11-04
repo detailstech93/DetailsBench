@@ -470,3 +470,18 @@ def test_the_games_own_numbers_go_next_to_the_apps():
     assert "<td>Average</td><td>76 FPS</td><td>129 FPS</td>" in game
     assert "<td>101 FPS (1% low)</td><td>109 FPS (slowest second)</td>" in game
     assert "Each run&#58; the game&#x27;s whole benchmark (60 s from its start)" in game
+
+
+def test_a_game_measured_in_its_own_scene_gets_a_scene_card(tmp_path):
+    shot = tmp_path / "scene.png"
+    shot.write_bytes(b"\x89PNG\r\n\x1a\n" + b"pixels")
+    export = _game_export(f"Scene: a still scene, keyboard and mouse not touched, 20 s per run after the first 30 s; "
+                          f"Scene shot: {shot}", {})
+    game = render_session_report(export)
+    game = game[game.index("Game results"):game.index("<h2>Summary")]
+    assert "<h4>Scene</h4>" in game and "Measured in a still scene, keyboard and mouse not touched" in game
+    assert "One scene of the game, not the whole game" in game
+    assert 'alt="The game\'s screen just after the skipped seconds"' in game
+    assert "data:image/png;base64,iVBORw0KGgpwaXhlbHM=\"" in game
+    plain = render_session_report(_game_export("Measured: the game's whole benchmark", {}))
+    assert "<h4>Scene</h4>" not in plain

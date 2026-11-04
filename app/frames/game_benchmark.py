@@ -62,6 +62,7 @@ RESULT_WAIT_SECONDS = 60.0
 RESULT_LOOK_SECONDS = 2.0
 RESULT_SETTLE_SECONDS = 3.0       # its words show before the results fade in (SOTTR, 2026-10-29): look again
 RESULT_SHOT = "benchmark_result.png"
+SCENE_SHOT = "scene.png"       # a game with no benchmark of its own: the screen just after the skipped seconds
 CLOSE_SECONDS = 60.0              # closing a game: politely, by force after 30 s (app/frames/game_close.py)
 PASS_GAP_SECONDS = 10.0           # between two runs of a whole benchmark: Steam sees the game closed first
 
@@ -300,6 +301,7 @@ class GameBenchmark:
         self.screen_reader = screen_reader      # app/frames/screen_text.read_screen (tests pass a fake)
         self.display_mode: Optional[str] = None
         self.result_shot: Optional[str] = None
+        self.scene_shot: Optional[str] = None      # "" once tried and failed
         self.shots_dir = self.run_dir               # a whole benchmark: one folder of screenshots per run
         self.own_result = own_result                # the game's own numbers (tests pass a fake)
 
@@ -587,6 +589,8 @@ class GameBenchmark:
                     player.tick(elapsed)
                 if spec.still:
                     self._note_input(t0)
+                if self.scene_shot is None and self._is_scene() and elapsed >= spec.settle_seconds + 1:
+                    self._keep_scene_shot()
                 if int(elapsed) != shown:
                     shown = int(elapsed)
                     try:
@@ -660,6 +664,31 @@ class GameBenchmark:
                            windows=out, command=command,
                            telemetry_unavailable=dict(tel.unavailable) if tel else {}, display_mode=self.display_mode)
 
+    def _is_scene(self) -> bool:
+        """A game measured in a scene of its own (no built-in benchmark the app walks to or starts with keys)."""
+        return not self.spec.steps and not self.spec.start_keys
+
+    def _keep_scene_shot(self) -> None:
+        """One screenshot of the scene for the report's scene card (sends nothing to the game)."""
+        path = self.run_dir / SCENE_SHOT
+        try:
+            self._desk().screenshot(path)
+            self.scene_shot = str(path) if path.is_file() else ""
+        except Exception:                   # only for the report: the run goes on without it
+            self.scene_shot = ""
+
+    def _scene_note(self) -> str:
+        spec = self.spec
+        each = f"{spec.seconds} s per run after the first {spec.settle_seconds} s"
+        if spec.still:
+            text = f"a still scene, keyboard and mouse not touched, {each}"
+        elif spec.route:
+            text = f"the app's route ({spec.route.get('note') or 'held keys and mouse moves'}), {each}"
+        else:
+            text = f"a scene of your own (the app did not watch whether the game was played or still), {each}"
+        note = "Scene: " + text.replace("; ", ", ")
+        return note + (f"; Scene shot: {self.scene_shot}" if self.scene_shot else "")
+
     def _marked_windows(self, frametimes, windows, mark_shift):
         """The windows moved to the benchmark's start; for a game marked at its Start click (BL3), its loading frames."""
         end = None
@@ -683,6 +712,8 @@ class GameBenchmark:
             a, b = windows[k]
             result = self._window_result(frames, a, b, recorded, stopped, remote, command,
                                          self.result_shot or getattr(steps, "started_shot", None))
+            if result.status == "completed" and self._is_scene():
+                result.note = "; ".join(x for x in [result.note, self._scene_note()] if x)
             out.append(WindowOutcome(is_warmup, run_index, result, sample_windows[k],
                                      frames=list(frames) if frames else []))
         return out

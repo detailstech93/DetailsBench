@@ -395,3 +395,32 @@ def test_without_still_scene_input_is_not_watched(tmp_path):
     cap = bench.run()
     assert [w.result.status for w in cap.windows] == ["completed"] * 3 and bench.inputs == []
     assert fronts                                                   # the game is brought to the front as before
+
+
+def test_scene_shot_is_kept_once_and_the_runs_say_which_scene(tmp_path):
+    class ShotDesk:
+        def screenshot(self, path):
+            shots.append(fakes.now[0])
+            path.write_bytes(b"\x89PNG\r\n\x1a\n")
+            return (1, 1)
+    shots = []
+    fakes = Fakes(tmp_path)
+    bench, _ = still_bench(tmp_path, fakes)
+    bench._desktop = ShotDesk()
+    cap = bench.run()
+    assert len(shots) == 1 and shots[0] >= 11                   # once, after the 10 skipped seconds
+    note = cap.windows[1].result.note
+    assert "Scene: a still scene, keyboard and mouse not touched, 20 s per run after the first 10 s" in note
+    assert f"Scene shot: {tmp_path / 'run' / 'scene.png'}" in note
+
+
+def test_a_built_in_benchmark_started_with_keys_has_no_scene_note(tmp_path):
+    fakes = Fakes(tmp_path)
+    desk = FakeDesktop(fakes, [(0, 7)])
+    s = spec(install_path=str(fakes.install), start_keys=[(5.0, "enter")])
+    bench = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=False, elevated_runner=fakes.elevated,
+                          launcher=fakes.launcher, snapshot=fakes.snapshot, clock=fakes.clock, sleep=fakes.sleep,
+                          folder_procs=fakes.folder_procs, closer=fakes.closer,
+                          exe_lister=lambda folder: ["Game.exe"], desktop=desk)
+    cap = bench.run()
+    assert all("Scene" not in (w.result.note or "") for w in cap.windows)

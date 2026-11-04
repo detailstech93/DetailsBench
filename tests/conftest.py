@@ -42,6 +42,16 @@ def _screen_never_locked(monkeypatch, request):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_scene_shot(monkeypatch, request):
+    """A game run with no benchmark of its own keeps one screenshot of its scene. Tests must not take one of this
+    computer's screen: none is taken, except in tests about it (named scene_shot), which pass a fake desktop."""
+    if "scene_shot" in request.node.name:
+        return
+    from app.frames.game_benchmark import GameBenchmark
+    monkeypatch.setattr(GameBenchmark, "_keep_scene_shot", lambda self: setattr(self, "scene_shot", ""))
+
+
+@pytest.fixture(autouse=True)
 def _no_real_conditions_check(monkeypatch):
     """A plan reads the PC's power and background load before it asks to start. Tests must not depend on this
     computer: nothing is read here; app/environment/conditions.py is tested with fakes."""
