@@ -393,6 +393,11 @@ class FrameCapturePanel(QGroupBox):
         self.settle_spin.setValue(30)
         self.settle_spin.setToolTip("Loading screens and menus at the start are not measured.")
         row3.addWidget(self.settle_spin)
+        self.still_box = QCheckBox("Still scene")
+        self.still_box.setToolTip("Games with no built-in benchmark: load your save during the skipped seconds, "
+                                  "then do not touch the keyboard or mouse. A run in which they are used is "
+                                  "marked invalid, so every run measures the same still scene.")
+        row3.addWidget(self.still_box)
         self.game_btn = QPushButton("Benchmark game...")
         self.game_btn.setToolTip("Starts PresentMon (one UAC prompt), launches the game through Steam, finds its "
                                  "process and captures every run by itself.")
@@ -860,6 +865,8 @@ class FrameCapturePanel(QGroupBox):
                 spec.route = route
                 # nothing before the route starts is measured
                 spec.settle_seconds = max(spec.settle_seconds, int(route["loop_from"]))
+        # a still scene is only for a game the app does not drive itself (no menu steps, keys or route)
+        spec.still = bool(self.still_box.isChecked() and not linux and not (spec.steps or spec.start_keys or spec.route))
         if linux and (spec.steps or spec.start_keys or spec.route) and not self.linux_steps_ready(spec):
             return False
         fitted = None
@@ -915,8 +922,12 @@ class FrameCapturePanel(QGroupBox):
                    f"   The app presses {', '.join(c for _, c in spec.start_keys)} in the game to reach the scene "
                    f"(only while the game is in front; these keys are not checked on a real run yet). Keep the "
                    f"game in front.\n" if spec.start_keys else
-                   f"   Get to the scene you want to measure during the first {spec.settle_seconds} s and keep the "
-                   f"game in front.\n") +
+                   (f"   Still scene: load your save during the first {spec.settle_seconds} s and keep the game "
+                    f"in front, then do not touch the keyboard or mouse until the game closes. The app sends "
+                    f"nothing to the game; a run in which the keyboard or mouse is used is marked invalid.\n"
+                    if spec.still else
+                    f"   Get to the scene you want to measure during the first {spec.settle_seconds} s and keep the "
+                    f"game in front.\n")) +
                 f"4. Then the app closes the game: first like clicking its close button, by force after 30 s. "
                 f"Unsaved progress in the game is lost. Only processes started inside the game's folder are "
                 f"closed, never Steam or anything else. PresentMon then ends by itself and the runs are stored.\n\n"
@@ -1138,7 +1149,7 @@ class FrameCapturePanel(QGroupBox):
 
     def _set_running(self, running: bool):
         for w in (self.capture_btn, self.select_btn, self.refresh_btn, self.process_combo, self.seconds_spin,
-                  self.telemetry_box, self.game_combo, self.settle_spin, self.game_btn, self.game_settings_btn):
+                  self.telemetry_box, self.game_combo, self.settle_spin, self.still_box, self.game_btn, self.game_settings_btn):
             w.setEnabled(not running)
         if not running:
             self._show_game_settings_state()

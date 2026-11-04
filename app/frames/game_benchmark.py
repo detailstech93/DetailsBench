@@ -119,6 +119,20 @@ def game_exe_names(folder: str, walk: Callable = os.walk, limit: int = MAX_EXE_N
     return sorted(names.values(), key=str.lower)[:limit]
 
 
+def input_age_seconds() -> Optional[float]:
+    """Seconds since the last keyboard or mouse input in this Windows session (GetLastInputInfo), or None."""
+    if sys.platform != "win32":
+        return None
+    import ctypes
+
+    class LASTINPUTINFO(ctypes.Structure):
+        _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_uint)]
+    info = LASTINPUTINFO(ctypes.sizeof(LASTINPUTINFO), 0)
+    if not ctypes.windll.user32.GetLastInputInfo(ctypes.byref(info)):
+        return None
+    return ((ctypes.windll.kernel32.GetTickCount() - info.dwTime) & 0xFFFFFFFF) / 1000.0
+
+
 @dataclass
 class GameBenchmarkSpec:
     game_name: str
@@ -139,6 +153,7 @@ class GameBenchmarkSpec:
     quit_steps: Optional[list] = None   # menu steps after its window is asked to close (answer "quit?")
     version: Optional[str] = None       # the game's build: Steam's buildid from its appmanifest (app/steam/library)
     relaunches: bool = False            # its first process ends and its launcher starts it again (Far Cry 6)
+    still: bool = False                 # still scene: nothing sent, a run touched by keyboard or mouse is invalid
 
     @property
     def count(self) -> int:
@@ -273,6 +288,9 @@ class GameBenchmark:
         self._before: Optional[dict] = None
         self._started: dict = {}
         self._desktop = desktop                 # app/simulation/desktop.py; made on the first key
+        self.input_age = input_age_seconds      # still scene: seconds since the last keyboard or mouse input
+        self.inputs: List[float] = []           # still scene: input times, s after the launch
+        self.touched_at: List[float] = []       # the same in game seconds (from the first frame)
         self.key_notes: List[str] = []
         self.step_player = step_player          # makes the menu step player (tests pass a fake)
         self.remote_session = remote_session or is_remote_session
@@ -363,6 +381,18 @@ class GameBenchmark:
                 self.key_notes.append(f"pressed {chord} at {elapsed:.0f} s")
             else:
                 self.key_notes.append(f"{chord} at {at:g} s not sent: the game was not in front")
+
+    def _note_input(self, t0: float) -> None:
+        """Still scene: remember when the keyboard or mouse was last used (s after the launch)."""
+        try:
+            age = self.input_age()
+        except Exception:
+            age = None
+        if age is None:
+            return
+        t = (self.clock() - t0) - age
+        if t >= 0 and (not self.inputs or t > self.inputs[-1] + 0.5):     # inputs before the launch don't count
+            self.inputs.append(t)
 
     def _note_started(self):
         """Remember processes in the game's folder that were not running before the launch."""
@@ -555,10 +585,13 @@ class GameBenchmark:
                         pending.clear()
                 if player is not None:
                     player.tick(elapsed)
+                if spec.still:
+                    self._note_input(t0)
                 if int(elapsed) != shown:
                     shown = int(elapsed)
                     try:
-                        self._game_in_front()       # brings it back when it lost the front (its benchmark loading)
+                        if not spec.still:          # a still scene sends nothing, not even the focus key
+                            self._game_in_front()   # brings it back when it lost the front (its benchmark loading)
                     except Exception:
                         pass
                     self.on_progress(f"{spec.game_name}: {elapsed:.0f} of {wait:.0f} s. The first "
@@ -617,6 +650,7 @@ class GameBenchmark:
         frame_windows = split_frames(frametimes, windows)
         # the game stops presenting when it is asked to close, so its first frame was `recorded` s earlier
         offset = first_frame_offset(t_close, recorded)
+        self.touched_at = [t - offset for t in self.inputs]
         if t_mark is not None:          # windows count from the benchmark's start, not the game's first frame
             windows = self._marked_windows(frametimes, windows, max(0.0, (t_mark - t0) - offset))
             frame_windows = split_frames(frametimes, windows)
@@ -667,6 +701,11 @@ class GameBenchmark:
         if remote:              # a number, but not this PC's: never stored as a score
             return WorkloadResult(status="invalid", error=f"{REMOTE_TEXT} (it showed {stats.avg_fps:.1f} "
                                   "FPS; not stored)", **common)
+        touched = next((t for t in self.touched_at if a <= t <= b), None)
+        if touched is not None:     # the scene was not still: not the same scene as the other runs
+            return WorkloadResult(status="invalid", error=(
+                f"still scene: the keyboard or mouse was used {touched:.0f} s into the game, inside this run "
+                f"({a:g}-{b:g} s; it showed {stats.avg_fps:.1f} FPS; not stored)"), **common)
         metrics = stats_to_metrics(stats)
         metrics["window_start_s"] = (float(a), "s")
         result = WorkloadResult(status="completed", score=stats.avg_fps, unit="FPS",

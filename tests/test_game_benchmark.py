@@ -356,3 +356,42 @@ def test_a_game_that_restarts_itself_does_not_end_the_capture():
     assert "--terminate_on_proc_exit" in capture_game_args("x.csv", ["Game.exe"], 60)
     assert "--terminate_on_proc_exit" not in capture_game_args("x.csv", ["Game.exe"], 60, until_exit=False)
     assert relaunches_for(2369390) and not relaunches_for(1174180) and not relaunches_for("x")
+
+
+def still_bench(tmp_path, fakes, still=True, touch_at=None):
+    s = spec(install_path=str(fakes.install), still=still)
+    bench = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=False, elevated_runner=fakes.elevated,
+                          launcher=fakes.launcher, snapshot=fakes.snapshot, clock=fakes.clock, sleep=fakes.sleep,
+                          folder_procs=fakes.folder_procs, closer=fakes.closer,
+                          exe_lister=lambda folder: ["Game.exe"])
+    # the last keyboard or mouse input happened at wall time touch_at (none before it)
+    bench.input_age = lambda: fakes.now[0] - touch_at if touch_at is not None and fakes.now[0] >= touch_at else 9999.0
+    fronts = []
+    bench._game_in_front = lambda *a, **k: fronts.append(fakes.now[0])
+    return bench, fronts
+
+
+def test_still_scene_marks_only_the_run_the_keyboard_or_mouse_touched(tmp_path):
+    fakes = Fakes(tmp_path)
+    bench, fronts = still_bench(tmp_path, fakes, touch_at=None)
+    clean = bench.run()
+    assert [w.result.status for w in clean.windows] == ["completed"] * 3 and fronts == []   # nothing sent
+    fakes = Fakes(tmp_path)
+    bench, _ = still_bench(tmp_path, fakes, touch_at=None)
+    bench.input_age = lambda: None                                   # no reading: never invalid
+    assert [w.result.status for w in bench.run().windows] == ["completed"] * 3
+    fakes = Fakes(tmp_path)
+    bench, _ = still_bench(tmp_path, fakes, touch_at=45.0)             # one touch, 45 s after the launch
+    cap = bench.run()
+    (touched,) = bench.touched_at                                     # the same moment in game seconds
+    assert [w.result.status for w in cap.windows] == ["completed", "invalid", "completed"]   # 30-50 s
+    bad = next(w.result for w in cap.windows if w.result.status == "invalid")
+    assert bad.score is None and "still scene" in bad.error and f"{touched:.0f} s into the game" in bad.error
+
+
+def test_without_still_scene_input_is_not_watched(tmp_path):
+    fakes = Fakes(tmp_path)
+    bench, fronts = still_bench(tmp_path, fakes, still=False, touch_at=35.0)
+    cap = bench.run()
+    assert [w.result.status for w in cap.windows] == ["completed"] * 3 and bench.inputs == []
+    assert fronts                                                   # the game is brought to the front as before
