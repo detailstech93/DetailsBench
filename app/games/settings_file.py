@@ -95,7 +95,12 @@ def recover_pending(data_dir: Path, app_ids=None, env: Optional[Mapping[str, str
             lines.append(f"{_game_name(app_id)}: still open; its settings are put back after it is closed")
             continue
         try:
-            adapter.store(_env_for(app_id, env), reg).restore(Path(backup))
+            store = adapter.store(_env_for(app_id, env), reg)
+            if _changed_since(adapter, store, Path(backup)):
+                pending.pop(app_id)
+                lines.append(f"{_game_name(app_id)}: its settings no longer hold the forced values (already put back, or changed since); left as they are")
+                continue
+            store.restore(Path(backup))
         except (OSError, ValueError) as e:
             lines.append(f"{_game_name(app_id)}: your settings could not be put back ({e}); the copy is {backup}")
             continue
@@ -103,6 +108,19 @@ def recover_pending(data_dir: Path, app_ids=None, env: Optional[Mapping[str, str
         lines.append(f"{_game_name(app_id)}: a run was cut off before your settings were put back; they are back now")
     _write_pending(data_dir, pending)
     return lines
+
+
+def _changed_since(adapter, store, backup: Path) -> bool:
+    """The forced values are no longer in the game's file (the user changed them since): not put back over that.
+    Without the run's record (an older run) the file is put back as before."""
+    try:
+        rec = json.loads((backup.parent / RECORD_NAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    forced = {k: v for k, v in (rec.get("requested") or {}).items() if k not in (rec.get("refused") or {})}
+    if not forced or rec.get("launch_args") or not store.exists():
+        return False                        # launch arguments write nothing to check against
+    return any(actual is not None for _, actual in adapter.module.verify(store.read(), forced).values())
 
 
 def documents_dir(env: Mapping[str, str]) -> Optional[Path]:
@@ -479,8 +497,10 @@ class ForcedSettings:
         if self.record.mismatch_after_run is not None:
             self.record.mismatch_after_run.update(_mismatches(mod.report_mismatches(report, accepted)))
 
-    def finish(self, restore: bool = True) -> SettingsRecord:
-        """Read what the game left, then put the backup back (only if we wrote anything)."""
+    def finish(self, restore: bool = True, stopped: bool = False) -> SettingsRecord:
+        """Read what the game left, then put the backup back (only if we wrote anything). A stopped run keeps its
+        mark: a game its launcher started after the stop writes the forced values back when it quits (RDR2,
+        2026-10-29), so the next run or the app's next start checks the file again (recover_pending)."""
         mod = self.adapter.module
         if self._launch:
             self._finish_launch(mod)
@@ -497,7 +517,8 @@ class ForcedSettings:
             try:
                 self.store.restore(self.backup)
                 self.record.restored = True
-                self._clear_pending()
+                if not stopped:
+                    self._clear_pending()
             except (OSError, ValueError) as e:
                 self.record.restored = False
                 self.record.notes.append(f"your settings were not put back ({e}); the copy is {self.backup}")

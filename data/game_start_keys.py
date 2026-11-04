@@ -41,7 +41,7 @@ GAME_MENU_STEPS: Dict[int, dict] = {
         # answers it (not seen yet here; optional, so a game that just closes goes on)
         "quit_steps": [{"see": ["quit", "exit"], "within": 15, "optional": True, "settle": 1, "press": "enter"}],
         "benchmark_seconds": 270,       # about 4.5 min from "Stop Benchmarking" to the results (MarkBench)
-        "verified": False,
+        "verified": True,       # passed real runs with the owner (2026-10/11)
         "note": "Settings, Graphics, hold X on Run Benchmark Test, confirm; measuring starts when "
                 "'Stop Benchmarking' shows. The whole benchmark takes about 4.5 min.",
     },
@@ -64,7 +64,7 @@ GAME_MENU_STEPS: Dict[int, dict] = {
         # closing its window asks whether to quit (owner, 2026-10-29: left unanswered, it was closed by force)
         "quit_steps": [{"see": "yes", "within": 15, "settle": 1, "click": "yes"}],
         "benchmark_seconds": 150,       # about 150 s, then its results screen (MarkBench)
-        "verified": False,
+        "verified": True,       # passed real runs with the owner (2026-10/11)
         "note": "Options, Display and Graphics, R for the benchmark; measuring starts when its FPS shows. "
                 "The benchmark takes about 2.5 min.",
     },
@@ -96,7 +96,7 @@ GAME_MENU_STEPS: Dict[int, dict] = {
         # FarCry6.exe ends after about 5 s and Ubisoft Connect starts it again (2026-10-23): the first exit is not
         # the game closing
         "relaunches": True,
-        "verified": False,
+        "verified": True,       # passed real runs with the owner (2026-10/11)
         "note": "Options, Video, two tabs right, F5 for the benchmark; measuring starts when 'Toggle UI' shows. "
                 "The benchmark takes about a minute.",
     },
@@ -131,7 +131,7 @@ GAME_MENU_STEPS: Dict[int, dict] = {
         # measuring starts at the loading frames after the Start click and stops before the loading frame back to
         # the menu (owner, 2026-10-29)
         "starts_after_loading": True,
-        "verified": False,
+        "verified": True,       # passed real runs with the owner (2026-10/11)
         "note": "Options, Visuals, the Benchmark tab, Start Benchmark; measuring runs from its loading screen to the next one; then its Benchmark tab (the last result) is shot and it is closed. "
                 "The benchmark takes about 2 min.",
     },

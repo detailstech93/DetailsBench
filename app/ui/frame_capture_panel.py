@@ -273,7 +273,7 @@ class GameBenchmarkWorker(QThread):
                 conditions = self.conditions(capture)
             finally:
                 if self.forced is not None:          # the game is closed by now: check, then put the file back
-                    self.forced.finish()
+                    self.forced.finish(stopped=self.stop_event.is_set())
             if self.forced is not None:
                 mark_unverified(capture, self.forced.record)
             add_conditions(capture, conditions, getattr(self.forced, "requested", None))

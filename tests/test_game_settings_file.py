@@ -178,6 +178,34 @@ def test_recover_at_start_waits_while_the_game_is_open(env):
     assert path.read_bytes() == original and not (data_dir / PENDING_FILE).exists()
 
 
+def test_a_stopped_run_is_checked_again_later(env):
+    """RDR2, 2026-10-29: stopped while its launcher started it; the game wrote the forced values back after they
+    were put back, and the next run kept them as the user's."""
+    from app.games.settings_file import PENDING_FILE, recover_pending
+    e, path, data_dir, run_dir = env
+    original = path.read_bytes()
+    fs = ForcedSettings(APP, {"dlss_frame_gen": False}, run_dir, data_dir, env=e)
+    fs.apply()
+    forced = path.read_bytes()
+    fs.finish(stopped=True)
+    assert path.read_bytes() == original and (data_dir / PENDING_FILE).is_file()
+    path.write_bytes(forced)                                    # the game, quitting late, writes the forced values
+    assert "back now" in recover_pending(data_dir, env=e)[0]
+    assert path.read_bytes() == original and not (data_dir / PENDING_FILE).exists()
+
+
+def test_a_value_the_user_changed_since_is_not_put_back(env):
+    from app.games.settings_file import PENDING_FILE, recover_pending
+    e, path, data_dir, run_dir = env
+    fs = ForcedSettings(APP, {"dlss_frame_gen": False}, run_dir, data_dir, env=e)
+    fs.apply()
+    fs.finish(stopped=True)
+    mine = path.read_bytes().replace(b'"Balanced"', b'"Quality"')      # the user's own change, frame gen still on
+    path.write_bytes(mine)
+    assert "left as they are" in recover_pending(data_dir, env=e)[0]
+    assert path.read_bytes() == mine and not (data_dir / PENDING_FILE).exists()
+
+
 def test_nothing_written_leaves_no_marker(env):
     from app.games.settings_file import PENDING_FILE
     e, path, data_dir, run_dir = env

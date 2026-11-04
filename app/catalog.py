@@ -11,6 +11,7 @@ Pure functions: callers pass the loaded objects and the environment profile dict
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
+from data.game_start_keys import GAME_MENU_STEPS
 from data.steam_benchmarks import DROPPED_GAMES, STEAM_BENCHMARK_APPS
 from data.test_catalog import STEAM_STORE_URL, TEST_INFO
 
@@ -214,11 +215,13 @@ def steam_entries(games: List[dict], environment: Optional[dict], covered_app_id
             continue
         game = installed.get(app_id)
         ok, comp = check_platform({"supported_os": ["windows", "linux"]}, environment)
+        steps = GAME_MENU_STEPS.get(int(app_id))     # the app walks its menus and starts the benchmark itself
         entries.append(TestEntry(
             id=f"steam_{app_id}", name=f"{app['store_name']} (built-in benchmark)", group="game",
-            mode=ASSISTED, state=INSTALLED if game else MISSING,
+            mode=AUTOMATIC if steps else ASSISTED, state=INSTALLED if game else MISSING,
             state_reason="installed in Steam" if game else "not installed in Steam",
-            compatible=ok, compatibility_reason=comp, verified=app.get("builtin_benchmark") == "verified",
+            compatible=ok, compatibility_reason=comp,
+            verified=app.get("builtin_benchmark") == "verified" or bool(steps and steps.get("verified")),
             official_url=STEAM_STORE_URL.format(app_id=app_id), source="steam", ref=game or dict(app)))
     return entries
 

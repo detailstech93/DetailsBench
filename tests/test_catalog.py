@@ -91,7 +91,8 @@ def test_steam_games_installed_missing_and_covered_by_a_script():
                           script={"steam_app": 1091500, "steps": []})
     entries = build_catalog([script], [], games, WIN_X64)
     e = by_id(entries)
-    assert e["steam_750920"].state == INSTALLED and e["steam_750920"].mode == ASSISTED
+    assert e["steam_750920"].state == INSTALLED and e["steam_750920"].mode == AUTOMATIC   # menu steps
+    assert e["steam_750920"].verified is True              # watched on real runs with the owner
     assert e["steam_397540"].state == MISSING
     assert e["steam_397540"].official_url == "https://store.steampowered.com/app/397540/"
     assert "steam_1091500" not in e                         # the script covers it

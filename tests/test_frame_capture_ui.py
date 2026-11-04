@@ -513,7 +513,7 @@ class FakeForced:
         self.record.changed = [k for k in self.values if k not in self.refused]
         return self.record
 
-    def finish(self, restore=True):
+    def finish(self, restore=True, stopped=False):
         self.log.append("finish")
         self.record.mismatch_after_run = {} if self.after is None else self.after
         self.record.restored = True
