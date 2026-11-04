@@ -670,3 +670,24 @@ def test_a_test_skipped_in_line_can_be_queued_again(qapp):
     page.watch(lambda: RunState(True, 0, 2, "x", marks={"tool_a": "running", "tool_b": "skipped"}), lambda: None)
     page.refresh_progress()
     assert page.queueable(page.entry("tool_b")) and not page.queueable(page.entry("tool_a"))
+
+
+def test_a_line_of_games_asks_windows_once(monkeypatch):
+    """Owner, 2026-11-04: one UAC prompt at the start of a games line, not one per game."""
+    import app.ui.run_tests as rt
+    from app import elevation
+    from app.frames import admin_helper
+    begun = []
+    monkeypatch.setattr(admin_helper, "begin", lambda: begun.append(1))
+    monkeypatch.setattr(elevation, "is_elevated", lambda platform=None: False)
+
+    class Label:
+        def setText(self, text):
+            self.text = text
+    w = type("W", (), {"status_label": Label()})()
+    assert rt._one_prompt_for_games(w, "win32") == "" and begun == [1]
+    monkeypatch.setattr(admin_helper, "begin", lambda: "the administrator prompt was declined")
+    assert "each game asks for itself" in rt._one_prompt_for_games(w, "win32")
+    assert rt._one_prompt_for_games(w, "linux") == ""
+    monkeypatch.setattr(elevation, "is_elevated", lambda platform=None: True)
+    assert rt._one_prompt_for_games(w, "win32") == ""

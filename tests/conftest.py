@@ -79,6 +79,16 @@ def _screen_modes_unknown(monkeypatch, request):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_admin_prompt(monkeypatch, request):
+    """A line of games asks Windows once for the administrator helper. Tests never show that prompt: here it is
+    never started; tests/test_admin_helper.py checks the helper with fakes."""
+    if request.module.__name__.endswith("test_admin_helper"):
+        return
+    from app.frames import admin_helper
+    monkeypatch.setattr(admin_helper, "begin", lambda helper=None: "not in tests")
+
+
+@pytest.fixture(autouse=True)
 def _no_real_plan_files(monkeypatch, tmp_path):
     """Every run from the Tests screen saves its plan file (app/experiment.py) in the data folder: in tests it goes
     to the test's own temporary folder, never this PC's data."""

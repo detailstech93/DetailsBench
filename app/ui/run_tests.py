@@ -666,12 +666,15 @@ def begin(window, p: Prepared, opener=open_report, after=None) -> bool:
         rest = [Waiting(e, dataclasses.replace(p, others=[e], confirmed=True)) for e in others[1:]]
         line = line_of(window)
         line[:0] = rest
+        helper = _one_prompt_for_games(window)
         start_other(window, others[0], choice, after)
         if not (running(window) or window.frame_panel.lhm.active()):      # cancelled or refused: none of them
             line[:] = [w for w in line if w not in rest]
+            _end_helper()
             return False
         window.status_label.setText(f"{others[0].name} first; then, each alone: "
-                                    + ", ".join(e.name for e in others[1:]) + ". Stopping one stops the rest.")
+                                    + ", ".join(e.name for e in others[1:]) + ". Stopping one stops the rest."
+                                    + (f" {helper}" if helper else ""))
         return True
     if not automatic:
         return start_other(window, others[0], choice, after, confirmed=p.confirmed)
@@ -775,13 +778,32 @@ def unqueue(window, entry: TestEntry) -> Optional[str]:
     return why
 
 
+def _one_prompt_for_games(window, platform: str = sys.platform) -> str:
+    """A line of games on Windows, not administrator: one UAC prompt now, for PresentMon in every game of the line
+    (owner, 2026-11-04). Declined or failed: each game asks for itself, as before. Returns a note for the status."""
+    from app import elevation
+    from app.frames import admin_helper
+    if platform != "win32" or elevation.is_elevated(platform):
+        return ""
+    window.status_label.setText("Asking Windows once for administrator permission for the games in line...")
+    why = admin_helper.begin()
+    return f"No administrator helper ({why}): each game asks for itself." if why else ""
+
+
+def _end_helper():
+    from app.frames import admin_helper
+    admin_helper.end()
+
+
 def line_next(window, stopped: bool = False, start=None):
     """The run before is over: the next test in line starts (after the run's own callbacks are done). A stopped
     run ends the line: what you stop, the tests after it do not start."""
     line = getattr(window, "run_line", None)
     if not line:
+        _end_helper()                   # the line is over: the administrator helper of a games line ends
         return
     if stopped:
+        _end_helper()
         names = ", ".join(w.entry.name for w in line)
         line.clear()
         window.status_label.setText(f"{window.status_label.text()} Stopped: the tests in line were not started "

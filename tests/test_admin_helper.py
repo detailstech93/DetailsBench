@@ -113,3 +113,70 @@ def test_a_declined_prompt_starts_nothing():
     h = admin_helper.AdminHelper(api=Api())
     assert h.start() == "the administrator prompt was declined" and not h.active()
     assert admin_helper.begin(h) == "the administrator prompt was declined" and admin_helper.session() is None
+
+
+def test_presentmon_job_takes_only_the_apps_capture_flags(tmp_path):
+    """Owner, 2026-11-04: a line of games asks once; the helper runs PresentMon with checked flags only."""
+    from app.frames.presentmon import capture_game_args
+    args = capture_game_args(r"C:\Users\x\run\presentmon.csv", ["Game.exe", "Launcher (x64).exe"], 600)
+    out = admin_helper.presentmon_args(args, r"C:\Windows\Temp\pcbm-1\r.csv")
+    assert out[out.index("--output_file") + 1] == r"C:\Windows\Temp\pcbm-1\r.csv"
+    assert out.count("--process_name") == 2 and "--terminate_on_proc_exit" in out
+    for bad in (["--process_name", r"..\x.exe", "--output_file", "a"], ["--output_file", "a"],
+                ["--process_name", "g.exe", "--output_file", "a", "--etl_file", "b"],
+                ["--process_name", "g.exe", "--output_file", "a", "--session_name", "Other"]):
+        with pytest.raises(ValueError):
+            admin_helper.presentmon_args(bad, "x")
+
+    work = tmp_path / "admin-only"
+    program = tmp_path / "PresentMon-2.6.0-x64.exe"
+    program.write_bytes(b"MZ")
+    seen = {}
+
+    class Proc:
+        def __init__(self, command, cwd=None, creationflags=0):
+            seen["command"] = command
+            Path(command[command.index("--output_file") + 1]).write_text("Application,MsBetweenPresents\n")
+            self.returncode = 0
+
+        def poll(self):
+            return self.returncode
+
+    def make():
+        work.mkdir()
+        return work
+    started = threading.Event()
+    answer = admin_helper._presentmon_job(str(program), args, 60, threading.Event(), started, popen=Proc,
+                                          folder_maker=make)
+    assert answer["status"] == "exited" and answer["text"] == "Application,MsBetweenPresents\n"
+    assert started.is_set() and Path(seen["command"][seen["command"].index("--output_file") + 1]).parent == work
+    assert not work.exists()
+    other = tmp_path / "cmd.exe"
+    other.write_bytes(b"MZ")
+    assert admin_helper._presentmon_job(str(other), args, 60, threading.Event(), threading.Event(), popen=Proc,
+                                        folder_maker=make)["status"] == "refused"
+
+
+def test_a_capture_through_the_helper_comes_back_in_parts(tmp_path, monkeypatch):
+    monkeypatch.setattr(admin_helper, "PART", 5)
+    app_end, helper_end = Pipe()
+
+    def job(program, args, timeout, stop, started):
+        started.set()
+        import time
+        time.sleep(0.5)
+        return {"op": "done", "status": "exited", "exit_code": 0, "duration_seconds": 1.0, "text": "a,b\n1,2\n3,4\n"}
+    t = threading.Thread(target=admin_helper.serve, args=(helper_end,), kwargs={"presentmon_job": job}, daemon=True)
+    t.start()
+    app_end.recv_bytes()
+    h = admin_helper.AdminHelper(api=object())
+    h._conn = app_end
+    monkeypatch.setattr(admin_helper, "_session", h)
+    out = tmp_path / "presentmon.csv"
+    began = []
+    outcome = admin_helper.run_presentmon("PresentMon.exe", ["--process_name", "g.exe", "--output_file", str(out)],
+                                          None, 60, on_started=lambda: began.append(1))
+    assert outcome.status == "exited" and outcome.exit_code == 0 and began == [1]
+    assert out.read_text() == "a,b\n1,2\n3,4\n"
+    h.close()
+    t.join(5)

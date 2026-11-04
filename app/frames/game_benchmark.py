@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
 from app.automation.workload import RunContext, Workload, WorkloadResult
-from app.frames.elevated import run_elevated
+from app.frames.admin_helper import run_presentmon
 from app.frames.presentmon import CSV_NAME, START_MARGIN_SECONDS, capture_game_args, workload_id_for
 from app.frames.presentmon_csv import parse_presentmon_csv, summarize_processes
 from app.frames.segments import (
@@ -256,7 +256,7 @@ class GameBenchmark:
     def __init__(self, spec: GameBenchmarkSpec, run_dir: Path, stop_event: Optional[threading.Event] = None,
                  on_progress: Callable[[str], None] = lambda m: None,
                  sampler_factory: Optional[Callable[[], object]] = None,
-                 elevated_runner: Callable = run_elevated, launcher: Optional[Callable] = None,
+                 elevated_runner: Callable = run_presentmon, launcher: Optional[Callable] = None,
                  snapshot: Optional[Callable] = None, clock: Callable[[], float] = time.monotonic,
                  sleep: Callable[[float], None] = time.sleep, poll_seconds: float = 1.0,
                  folder_procs: Optional[Callable[[], dict]] = None, closer: Optional[Callable[[dict], str]] = None,
