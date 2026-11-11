@@ -44,11 +44,20 @@ if ($engine -eq $null) { [Console]::Error.WriteLine('no OCR language is installe
 $result = Await ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
 $stream.Dispose()
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+# tilted text (SOTTR's menus, about 6 degrees) comes back in the straightened picture: turn each box's middle
+# back by TextAngle around the picture's middle (2026-11-11: Options read 80 px above where it is drawn)
+$angle = 0.0
+if ($result.TextAngle -ne $null) { $angle = [double]$result.TextAngle * [Math]::PI / 180 }
+$cos = [Math]::Cos($angle); $sin = [Math]::Sin($angle)
+$cx = $bitmap.PixelWidth / 2; $cy = $bitmap.PixelHeight / 2
 foreach ($line in $result.Lines) {
     $parts = @($line.Text)
     foreach ($w in $line.Words) {
         $r = $w.BoundingRect
-        $parts += ('{0}|{1}|{2}|{3}|{4}' -f [int]$r.X, [int]$r.Y, [int]$r.Width, [int]$r.Height, $w.Text)
+        $mx = $r.X + $r.Width / 2 - $cx; $my = $r.Y + $r.Height / 2 - $cy
+        $x = $mx * $cos - $my * $sin + $cx - $r.Width / 2
+        $y = $mx * $sin + $my * $cos + $cy - $r.Height / 2
+        $parts += ('{0}|{1}|{2}|{3}|{4}' -f [int]$x, [int]$y, [int]$r.Width, [int]$r.Height, $w.Text)
     }
     [Console]::Out.WriteLine($parts -join [char]0x1f)
 }

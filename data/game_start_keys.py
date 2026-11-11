@@ -50,7 +50,8 @@ GAME_MENU_STEPS: Dict[int, dict] = {
         "steps": [
             # a popup about the graphics adapter or an unavailable feature may come first: Enter closes it
             # 2026-11-04: three runs clicked Options where it was read (the menu did not move) and the game opened
-            # Challenge Tombs, the item above: its mouse lands one item high. Keys instead. 2026-11-11: the menu
+            # Challenge Tombs, the item above (2026-11-11: Windows OCR gave tilted words' boxes ~80 px high; fixed in
+            # screen_text). Keys instead. 2026-11-11: the menu
             # once opened on Options, Down Down reached Quit Game: arrow keys until Options is the lit item
             {"see": "options", "within": 240, "dismiss": {"adapter": "enter", "unavailable": "enter"},
              "settle": 12, "pick": "options", "tap": 0.15, "wait": 3,
