@@ -677,8 +677,12 @@ def begin(window, p: Prepared, opener=open_report, after=None) -> bool:
         line = line_of(window)
         line[:0] = steps[1:]
         window.line_sessions = []
+        # ask Windows now, while the owner is here: with a plan test first it was asked only when the first game
+        # came, and nobody answered it (2026-11-11: Cyberpunk then RDR2)
+        _one_prompt_for_games(window)
         if not begin(window, steps[0].prepared, opener, after):
             line[:] = [w for w in line if w not in steps]
+            _end_helper(window)
             window.line_sessions = None
             return False
         window.status_label.setText(f"{seq[0].name} first; then, each alone: "

@@ -695,6 +695,31 @@ def test_a_line_of_games_asks_windows_once(monkeypatch):
     assert rt._one_prompt_for_games(w, "win32") == ""
 
 
+def test_a_line_that_starts_with_a_plan_test_asks_windows_before_it(qapp, tmp_path, monkeypatch):
+    """2026-11-11: Cyberpunk (a plan test) then RDR2: the one UAC prompt came only when RDR2 started and nobody
+    was there to answer it. It is asked before the first test now."""
+    import app.ui.run_tests as rt
+    from app.database import Database
+    from app.ui.main_window import MainWindow
+    with patch.object(MainWindow, "start_scan"):
+        w = MainWindow(Database(str(tmp_path / "w.db")), {"cpu_brand": "quick name"})
+    try:
+        w.frame_panel.data_dir = tmp_path / "data"
+        order = []
+        monkeypatch.setattr(rt, "_one_prompt_for_games", lambda window: order.append("prompt") or "")
+        monkeypatch.setattr(rt, "launch", lambda window, automatic, *a, **k: order.append(
+            ("launch", automatic[0].id)) or True)
+        plan = entry("cp", group="game")
+        game = entry("2", mode=ASSISTED, group="game", source="steam",
+                     ref={"app_id": "2", "name": "Game 2", "store": "steam"})
+        p = rt.Prepared([plan], [game], RunChoice(3, 1, 0), order=["cp", "2"])
+        assert rt.begin(w, p)
+        assert order == ["prompt", ("launch", "cp")]
+        assert [x.entry.id for x in w.run_line] == ["2"]
+    finally:
+        w.close()
+
+
 def test_skip_on_a_game_in_line_ends_only_that_game(qapp, tmp_path, monkeypatch):
     """Owner, 2026-11-04: Skip works on games as on apps (here or from the phone): only the game going on ends,
     the next one in line starts; Stop still ends the whole line."""
