@@ -66,6 +66,7 @@ SCENE_SHOT = "scene.png"       # a game with no benchmark of its own: the screen
 CLOSE_SECONDS = 60.0              # closing a game: politely, by force after 30 s (app/frames/game_close.py)
 PASS_GAP_SECONDS = 10.0           # between two runs of a whole benchmark: Steam sees the game closed first
 MENUS_MISSED = "the app did not reach the game's benchmark"
+LATE_SECONDS = 1.0                # a recording that begins this long after the benchmark's start is not the whole of it
 
 
 def steps_bound_seconds(steps) -> int:
@@ -880,6 +881,13 @@ class GameBenchmark:
                                      f"start), the game started anew, {spec.warmup_runs} warm-up run(s) before "
                                      "were not counted")
                     result.note = "; ".join(x for x in [result.note, measured_text] if x)
+                # RDR2, 2026-11-11: PresentMon had one launch's frames only from 135 s on, after its benchmark had
+                # started; the run was stored with 252 of its 270 s. Not the whole benchmark: never a score
+                if pick and mark < -LATE_SECONDS and result.status == "completed":
+                    result = WorkloadResult(status="invalid", command=command, error=(
+                        f"PresentMon has this run's frames only from {-mark:.0f} s after its benchmark started "
+                        f"({recorded:.0f} s recorded), so the benchmark was not measured whole (the frames it has "
+                        f"measured {result.score:.1f} FPS; not stored)"))
                 self._add_own(result, done["own"])
             out.append(WindowOutcome(is_warmup, run_index, result, samples, frames=list(frames) if frames else []))
         measured = f"{len([p for p in passes if p['t_mark'] is not None])} of {spec.count} runs reached the benchmark"

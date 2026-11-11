@@ -549,6 +549,34 @@ def test_a_built_in_benchmark_is_measured_whole_once_per_launch(tmp_path):
         assert "Game's own result: Average 48, Minimum 45, Maximum 55 FPS" in w.result.note
 
 
+def test_a_run_recorded_only_from_after_its_benchmark_started_is_invalid(tmp_path):
+    """RDR2, 2026-11-11: PresentMon had run 1's frames only from 135 s after the launch; its window came out as
+    -17.8..252 s and was stored as a run."""
+    fakes = PassFakes(tmp_path)
+    desk = SimpleNamespace(foreground_pid=lambda: 100 + fakes.run)
+    whole = fakes.elevated
+
+    def elevated(exe, args, cwd, timeout, halt, on_started=None):
+        out = whole(exe, args, cwd, timeout, halt, on_started)
+        path = args[args.index("--output_file") + 1]
+        rows = open(path, encoding="utf-8").read().splitlines()
+        late = [r for r in rows if r.startswith("Game.exe,101,")][-2000:]         # only its last 42 s
+        rows = [r for r in rows if not r.startswith("Game.exe,101,")] + late
+        open(path, "w", encoding="utf-8").write("".join(r + chr(10) for r in rows if r))
+        return out
+
+    s = spec(install_path=str(fakes.install), steps=[{"see": "stop", "within": 60, "mark": True}],
+             benchmark_seconds=60)
+    cap = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=False, elevated_runner=elevated,
+                        launcher=fakes.launcher, snapshot=lambda: [], clock=fakes.clock, sleep=fakes.sleep,
+                        folder_procs=fakes.folder_procs, closer=fakes.closer, desktop=desk,
+                        exe_lister=lambda folder: ["Game.exe"],
+                        step_player=lambda st: FakeSteps(fakes, mark_after=30)).run()
+    assert [w.result.status for w in cap.windows] == ["completed", "invalid", "completed"], cap.message
+    bad = cap.windows[1].result
+    assert bad.score is None and "after its benchmark started" in bad.error and "not stored" in bad.error
+
+
 def test_a_run_whose_results_screen_never_shows_is_invalid(tmp_path):
     """SOTTR, 2026-11-11: a "Content is currently installing" box ended the warm-up's benchmark after 55 s; the menu
     behind it ran at 550 FPS for the rest of the measured time and the run would have been a score."""
