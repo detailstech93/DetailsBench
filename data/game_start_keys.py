@@ -26,7 +26,7 @@ GAME_MENU_STEPS: Dict[int, dict] = {
             {"see": "settings", "within": 300, "dismiss": {"strange": "enter"}, "settle": 3, "press": "z", "wait": 3},
             # the settings menu starts on the item used last (Display, Camera, ...): click Graphics where it is read
             {"see": "graphics", "within": 30, "again": {"press": "z", "every": 5}, "settle": 1, "click": "graphics",
-             "wait": 3},
+             "stay": 1, "wait": 3},
             # the mouse highlights Graphics; if the click did not open it, Enter (Select) does
             # holding X 1.5 s started it once and not the next time (2026-10-19): hold longer, and again while the
             # Graphics page (its "Run Benchmark Test") is still there

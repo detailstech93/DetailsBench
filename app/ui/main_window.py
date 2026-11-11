@@ -435,17 +435,11 @@ class MainWindow(QMainWindow):
         # --- Main Tabbed Views ---
         self.tabs = QTabWidget()
         
-        # 1. Dashboard View
+        # Dashboard, Benchmark Library and Steam are built but not shown: This PC, Tests and Games show the same
+        # (owner, 2026-11-11). Their tables still fill, and the Tests and Games screens run through run_tab's panels.
         self.dashboard_tab = self._create_dashboard_tab()
-        self.tabs.addTab(self.dashboard_tab, "Dashboard")
-        
-        # 2. Benchmark Library View
         self.library_tab = self._create_library_tab()
-        self.tabs.addTab(self.library_tab, "Benchmark Library")
-        
-        # 3. Run Benchmarks View
         self.run_tab = self._create_run_tab()
-        self.tabs.addTab(self.run_tab, "Run Benchmarks")
         
         # 4. Session History View
         self.history_tab = self._create_history_tab()
@@ -458,7 +452,6 @@ class MainWindow(QMainWindow):
 
         # 6. Steam View
         self.steam_tab = self._create_steam_tab()
-        self.tabs.addTab(self.steam_tab, "Steam")
 
         # 7. Updates of the app itself
         from app.ui.update_ui import UpdatesTab
@@ -468,6 +461,7 @@ class MainWindow(QMainWindow):
         from app.ui.library_tab import LibraryTab
         self.results_library_tab = LibraryTab(lambda: self.frame_panel.data_dir, window=self)
         self.tabs.addTab(self.results_library_tab, "Results library")
+        self.tabs.addTab(self.run_tab, "Tools")       # what only Advanced has: PresentMon, any program, plans, tools
         self.tabs.addTab(self.updates_tab, "Updates")                     # the last tab (owner, 2026-10-25)
         
         from app.ui.this_pc_page import ThisPcPage
@@ -781,7 +775,7 @@ class MainWindow(QMainWindow):
             theader.setSectionResizeMode(col, QHeaderView.ResizeToContents)
         theader.setSectionResizeMode(4, QHeaderView.Stretch)
         tools_layout.addWidget(self.tools_table)
-        layout.addWidget(tools_group, 1)
+        self.tools_group = tools_group      # shown on the Tools tab (_create_run_tab)
         return tab
 
     def refresh_tools_view(self):
@@ -1133,8 +1127,7 @@ class MainWindow(QMainWindow):
         tab = QWidget()
         layout = QVBoxLayout(tab)
         
-        desc = QLabel("Select an installed benchmark to launch or record scores:")
-        layout.addWidget(desc)
+
         
         session_row = QHBoxLayout()
         self.session_label = QLabel("Session: none yet (created with the first recorded result)")
@@ -1165,7 +1158,8 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(4, QHeaderView.Stretch)
         header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
 
-        layout.addWidget(self.run_table, 1)
+        self.run_table.setVisible(False)    # the old launch table: the Tests screen runs these now (2026-11-11)
+        layout.addWidget(self.run_table)
 
         from app.ui.automation_panel import AutomationPanel
         self.automation_panel = AutomationPanel(
@@ -1199,8 +1193,9 @@ class MainWindow(QMainWindow):
         self.run_log.setReadOnly(True)
         self.run_log.setMaximumHeight(140)
         self.run_log.setPlaceholderText("Execution notes and launch confirmations will appear here...")
+        self.run_log.setVisible(False)      # notes of the hidden launch table
         layout.addWidget(self.run_log)
-        
+        layout.addWidget(self.tools_group, 1)
         return tab
     
     def emergency_stop_all(self):

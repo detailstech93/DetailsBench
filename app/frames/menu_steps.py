@@ -51,7 +51,6 @@ PARK_POINT = (1, 1)                 # the mouse waits here after a click: a menu
 CLICK_HOLD_SECONDS = 0.15           # button down this long: a game that reads the mouse once a frame sees it
 STILL_PIXELS = 8                    # a word read twice this close is not moving
 STILL_READS = 10                    # reads to wait for a menu that is still sliding in
-PARK_AFTER_SECONDS = 1.0            # the mouse stays on a clicked word this long before it leaves the menu
 HOVER_READS = 3                     # reads with the mouse on the word: a menu may change when the mouse comes
 PICK_READS = 5                      # reads to tell the lit item before a pick gives up
 FRONT_GRACE_SECONDS = 10.0          # the game may lose the front briefly while it changes video mode
@@ -210,7 +209,7 @@ class StepPlayer:
                 self.result_shot = self._keep_shot(f"{step['shot']}.png")
                 self.notes.append(f"kept the results screen at {self._at()}")
             if "click" in step:
-                self._click(i, str(step["click"]))
+                self._click(i, str(step["click"]), float(step.get("stay", 0)))
             if "pick" in step:
                 self._pick(i, step)
         for chord in [c.strip() for c in str(step.get("press", "")).split(",") if c.strip()]:
@@ -326,7 +325,7 @@ class StepPlayer:
             moves += 1
             self.sleep(PAUSE_SECONDS)
 
-    def _click(self, i: int, word: str) -> None:
+    def _click(self, i: int, word: str, stay: float = 0.0) -> None:
         point = word_center(self._lines, word)
         if point is None:
             raise _Stop(f"step {i}: {word!r} was read but not where it is on the screen; nothing clicked")
@@ -380,9 +379,11 @@ class StepPlayer:
         finally:
             self.desktop.mouse_button(False)
         self.notes.append(f"clicked {word!r} at {point[0]},{point[1]}")
-        # RDR2 acts on a click a moment later, where the mouse is then: parked at once, its Graphics click opened
-        # nothing (2026-11-11; on 2026-10-29 the mouse stayed on it and it opened)
-        self.sleep(PARK_AFTER_SECONDS)
+        # a step's "stay": RDR2 acts on a click a moment later, where the mouse is then (its Graphics click opened
+        # nothing when parked at once, 2026-11-11). Only there: BL3's Start click sits where Options comes back,
+        # and a mouse left there 1 s kept Options lit and unread (2026-11-11 15:40)
+        if stay:
+            self.sleep(stay)
         self.desktop.mouse_to(*PARK_POINT)
 
     def _hold(self, chord: str, seconds: float) -> None:

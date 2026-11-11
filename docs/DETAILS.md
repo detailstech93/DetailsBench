@@ -145,8 +145,9 @@ Storage, AI and Web:
 - Assisted and manual tests keep their own flows (frame capture for Steam games, launch and record for the library).
   When they are selected together with automatic tests, they are listed to start after the plan.
 
-Everything earlier (Dashboard, Library, Run Benchmarks with the automation and frame-capture sections, History,
-Compare, Steam) is under **Advanced**. The catalog is `app/catalog.py`; official links and platform data per test are
+**Advanced** has Session History, Results library, Tools (the automation and frame-capture sections, the run
+profile and the detected tools list) and Updates. The earlier Dashboard, Benchmark Library, Steam and launch table are
+not shown since 2026-11-11: This PC, Tests and Games show the same. The catalog is `app/catalog.py`; official links and platform data per test are
 in `data/test_catalog.py`.
 
 ### Environment Profile
@@ -171,7 +172,7 @@ Linux: detection logic is tested with mocked inputs only, unverified on real har
 
 ### Detected Tools and Games
 
-Shown in the Benchmark Library tab under "Detected tools and games", refreshed by Rescan, saved per scan in
+Shown in Advanced > Tools under "Detected tools and games", refreshed by Rescan, saved per scan in
 `discovery_snapshots` (linked to the environment snapshot). Real-machine check: `python scripts/verify_discovery.py`.
 
 Privacy: installed programs are matched against `data/known_software.py` (the benchmark suites, browsers,

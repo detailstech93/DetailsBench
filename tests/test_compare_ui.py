@@ -71,4 +71,4 @@ def test_tab_hidden_and_updates_last(window):
     w, _, _ = window
     names = [w.tabs.tabText(i) for i in range(w.tabs.count())]
     assert "Compare Results" not in names and w.tabs.indexOf(w.compare_tab) == -1
-    assert names[-1] == "Updates" and names[-2] == "Results library"
+    assert names == ["Session History", "Results library", "Tools", "Updates"]      # owner, 2026-11-11
