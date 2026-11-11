@@ -26,7 +26,6 @@ class Clock:
 class Desk:
     def __init__(self, clock):
         self.clock, self.events, self.parked = clock, [], 0
-        self.nudges, self._nudged = 0, False
 
     def press(self, codes):
         self.events.append(("press", codes))
@@ -39,13 +38,8 @@ class Desk:
 
     def mouse_to(self, x, y):
         from app.frames.menu_steps import PARK_POINT
-        last = next((e[1] for e in reversed(self.events) if e[0] == "mouse"), None)
         if (x, y) == PARK_POINT:            # out of the way after a click: counted, not in the key events
             self.parked += 1
-        elif last == (x - 1, y):            # the pixel nudge before a click: counted, not in the events
-            self.nudges, self._nudged = self.nudges + 1, True
-        elif self._nudged and last == (x, y):
-            self._nudged = False            # back from the nudge
         else:
             self.events.append(("mouse", (x, y)))
 
@@ -395,15 +389,15 @@ def test_borderlands_3_path(tmp_path):
     from app.frames.game_benchmark import after_mark_seconds
     assert after_mark_seconds(menu_steps_for(397540)) >= 60 + 115 + 180 + 30 + 40      # not cut on its Visuals page
     keys = [e[1] if e[0] == "press" else (e[0], e[1]) for e in desk.events]
-    after = keys[16:]                   # back from its main menu: Options and Visuals clicked, Start never
+    after = keys[14:]                   # back from its main menu: Options and Visuals clicked, Start never
     assert after[:6] == [("mouse", (40, 110)), ("button", True), ("button", False),
                          ("mouse", (40, 10)), ("button", True), ("button", False)]
     assert all(k[0] in ("down", "up") for k in after[6:])
-    keys = keys[:16]
+    keys = keys[:14]
     assert keys == [parse_chord("enter"),
                     ("mouse", (40, 110)), ("button", True), ("button", False),
                     ("mouse", (40, 10)), ("button", True), ("button", False),
-                    *[("down", parse_chord("c")), ("up", parse_chord("c"))] * 3,
+                    *[("down", parse_chord("c")), ("up", parse_chord("c"))] * 2,     # 1 s on Visuals after its click
                     ("mouse", (40, 10)), ("button", True), ("button", False)]
     assert "benchmark started ('start benchmark' seen at 6" in p.summary() and "'start benchmark' gone at 7" in p.summary()
     from data.game_start_keys import shows_results_for
@@ -724,7 +718,23 @@ def test_a_word_read_to_the_side_under_the_mouse_is_not_followed(tmp_path):
     assert p.problem is None
     assert [e for e in desk.events if e[0] == "mouse"] == [("mouse", (40, 110))]      # clicked on the row
     assert "'start' also read at 820,100, to the side: not followed" in p.summary()
-    assert desk.nudges == 1     # RDR2, 2026-11-11: the mouse moved a pixel just before the click
+
+
+def test_the_mouse_stays_on_a_clicked_word_a_moment_before_it_leaves(tmp_path):
+    """RDR2, 2026-11-11: the mouse left Graphics the moment the button came up and the page never opened (it
+    stayed there on 2026-10-29 and the page opened)."""
+    from app.frames.menu_steps import PARK_AFTER_SECONDS
+    clock = Clock()
+    desk = Desk(clock)
+    parked_at = []
+    to = desk.mouse_to
+    desk.mouse_to = lambda x, y: (parked_at.append(clock.now) if (x, y) == (1, 1) else None, to(x, y))
+    p = StepPlayer([{"see": "graphics", "within": 10, "click": "graphics"}], desk, lambda: True, tmp_path,
+                   clock=clock, sleep=clock.sleep, reader=lambda d, path: (boxed(["Graphics"]), None))
+    p.run()
+    assert p.problem is None
+    up = [e[2] for e in desk.events if e[:2] == ("button", False)]
+    assert len(up) == 1 and parked_at and parked_at[-1] - up[0] >= PARK_AFTER_SECONDS >= 1.0
 
 
 def test_sottr_menu_that_opens_on_options_gets_only_enter(tmp_path):
