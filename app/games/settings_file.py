@@ -595,6 +595,18 @@ def game_own_result(app_id, since: Optional[float] = None, env: Optional[Mapping
     return adapter.module.own_numbers(report) or None if report else None
 
 
+def game_setting(app_id, key: str, env: Optional[Mapping[str, str]] = None, reg=None):
+    """One value of the game's settings file as it is now (e.g. "resolution"), or None. Read only; never raises."""
+    adapter = adapter_for(app_id)
+    if adapter is None or adapter.base == "launch":
+        return None
+    try:
+        store = adapter.store(_env_for(app_id, env), reg)
+        return (adapter.module.read_settings(store.read()) or {}).get(key) if store.exists() else None
+    except Exception:
+        return None
+
+
 def game_conditions(app_id, display_mode: Optional[str] = None, env: Optional[Mapping[str, str]] = None,
                     reg=None, since: Optional[float] = None) -> List[str]:
     """["label: value", ...] for the report: the screen's mode during the benchmark and the graphics settings the

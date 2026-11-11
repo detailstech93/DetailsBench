@@ -416,6 +416,11 @@ class ScriptRun:
                                   if text is not None]
             if self.settings_used:
                 self.note("settings used: " + ", ".join(self.settings_used))
+            if "drawn_size" in s:
+                asked = game_setting(self.script.get("steam_app"), "resolution")
+                why = size_problem(data, s["drawn_size"], asked)
+                if why:
+                    raise StepError("invalid", why)
         elif kind == "read_frames":
             source = self.sources[s["file"]].parent / s["csv"]
             if not source.is_file():
@@ -530,6 +535,32 @@ class ScriptRun:
         if self.window is not None:
             parts.append(f"Readings: the benchmark scene only ({self.window[1] - self.window[0]:.0f} s)")
         return "; ".join(parts) or None
+
+
+def game_setting(app_id, key):
+    """The game's settings file value now (app/games/settings_file.py); a name tests replace."""
+    from app.games.settings_file import game_setting as read
+    return read(app_id, key) if app_id is not None else None
+
+
+def size_problem(data, spec: dict, asked) -> Optional[str]:
+    """Why a run's numbers are not at the resolution its settings ask, or None. Cyberpunk 2077 asked 2560x1440 on a
+    1920x1080 screen drew at 1024x768 and its runs were stored as valid (2026-11-04..11). Checked only in full
+    screen with no upscaler and no dynamic resolution (then the drawn size is the asked one)."""
+    when = spec.get("only_when")
+    if when and _at(data, when["path"]) not in when["in"]:
+        return None
+    if any(_at(data, p) is True for p in spec.get("skip_if_true", [])):
+        return None
+    w, h = (_at(data, p) for p in spec["size"])
+    m = re.match(r"^\s*(\d+)\s*x\s*(\d+)\s*$", str(asked or ""))
+    if not m or not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (w, h)):
+        return None
+    if (int(w), int(h)) == (int(m.group(1)), int(m.group(2))):
+        return None
+    return (f"the game drew at {int(w)}x{int(h)}, not at {m.group(1)}x{m.group(2)} set in its settings: the screen "
+            f"does not offer that size and the game fell back to its own. Choose the screen's resolution in the "
+            f"game's video settings once, then run again")
 
 
 def _at(data, path):

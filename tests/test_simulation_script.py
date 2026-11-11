@@ -226,8 +226,9 @@ class GameDesktop(FakeDesktop):
         Path(path).write_bytes(b"png")
 
 
-def run_game(tmp_path, monkeypatch, steam, timeout=60, **kw):
+def run_game(tmp_path, monkeypatch, steam, timeout=60, asked=None, **kw):
     monkeypatch.setattr(sim.ScriptRun, "pause", lambda self, s: None)
+    monkeypatch.setattr(sim, "game_setting", lambda app_id, key: asked)       # never this PC's game file
     steam.write_to = tmp_path / "home" / "Documents" / "CD Projekt Red" / "Cyberpunk 2077" / "benchmarkResults" / "b1" / "summary.json"
     wl = sim.SimulationWorkload(GAME, env={"USERPROFILE": str(tmp_path / "home")}, desktop=GameDesktop(),
                                 find_game=lambda appid: "Z:/Steam/common/Cyberpunk 2077" if appid == 1091500 else None,
@@ -297,6 +298,21 @@ def test_frame_generation_on_takes_the_frames_shown_on_screen(tmp_path, monkeypa
     _, four, _ = run_game(tmp_path / "x4", monkeypatch, FakeSteam(json.dumps(summary), frames_text=frames))
     assert "Frame generation: DLSS 4x" in four.note
     assert "frame generation on" in (out / sim.LOG_FILE).read_text(encoding="utf-8")
+
+
+def test_a_game_that_drew_at_another_size_than_its_settings_is_invalid(tmp_path, monkeypatch):
+    """2026-11-11: Cyberpunk set to 2560x1440 on a 1920x1080 screen drew at 1024x768; runs were stored as valid."""
+    summary = json.loads(json.dumps(SUMMARY))
+    summary["Data"].update(renderWidth=1024, renderHeight=768, windowMode=2, DLSSEnabled=False)
+    _, bad, _ = run_game(tmp_path, monkeypatch, FakeSteam(json.dumps(summary)), asked="2560x1440")
+    assert bad.status == "invalid" and bad.score is None
+    assert "drew at 1024x768, not at 2560x1440" in bad.error
+    summary["Data"].update(renderWidth=2560, renderHeight=1440)
+    _, good, _ = run_game(tmp_path / "ok", monkeypatch, FakeSteam(json.dumps(summary)), asked="2560x1440")
+    assert good.status == "completed"
+    summary["Data"].update(renderWidth=1280, renderHeight=720, DLSSEnabled=True)       # upscaled: not compared
+    _, dlss, _ = run_game(tmp_path / "dlss", monkeypatch, FakeSteam(json.dumps(summary)), asked="2560x1440")
+    assert dlss.status == "completed"
 
 
 def test_game_without_frames_file_still_scores(tmp_path, monkeypatch):

@@ -33,7 +33,11 @@
       "Path tracing": {"path": ["Data", "rayTracedPathTracingEnabled"]},
       "VSync": {"path": ["Data", "verticalSync"]},
       "Game version": {"path": ["Data", "gameVersion"]}
-    }},
+    }, "drawn_size": {"size": [["Data", "renderWidth"], ["Data", "renderHeight"]],
+                      "only_when": {"path": ["Data", "windowMode"], "in": [2]},
+                      "skip_if_true": [["Data", "DLSSEnabled"], ["Data", "DLAAEnabled"], ["Data", "FSR2Enabled"],
+                                       ["Data", "FSR3Enabled"], ["Data", "FSR4Enabled"], ["Data", "XeSSEnabled"],
+                                       ["Data", "MFXEnabled"], ["Data", "FSREnabled"], ["Data", "DRSEnabled"]]}},
     {"do": "read_frames", "file": "result", "csv": "frames.csv", "column": "Frame time (ms)", "shown": {
       "DLSS Frame Generation (ms)": ["Data", "DLSSFrameGenEnabled"],
       "FSR3 Frame Generation (ms)": ["Data", "FSR3FrameGenEnabled"],
