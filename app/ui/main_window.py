@@ -1187,6 +1187,12 @@ class MainWindow(QMainWindow):
         self.stop_shortcut = QShortcut(QKeySequence(STOP_SHORTCUT), self)
         self.stop_shortcut.setContext(Qt.WindowShortcut)
         self.stop_shortcut.activated.connect(self.emergency_stop_all)
+        # the same keys while a game is in front (a full-screen game keeps the window's shortcut from it)
+        from PySide6.QtWidgets import QApplication
+        from app.ui.global_stop import GlobalStop
+        self.global_stop = GlobalStop(self, lambda: self.automation_panel.is_running() or self.frame_panel.is_running(),
+                                      self.emergency_stop_all)
+        QApplication.instance().installNativeEventFilter(self.global_stop)
         
         # Status / Feedback area
         self.run_log = QTextEdit()
@@ -1366,6 +1372,8 @@ class MainWindow(QMainWindow):
         """Clean shutdown: wait for or cancel workers before closing."""
         if hasattr(self, "remote"):
             self.remote.stop()                 # remote start is never left open
+        if hasattr(self, "global_stop"):
+            self.global_stop.close()           # the stop hotkey goes back to Windows
         self.automation_panel.shutdown()   # emergency stop; only our own child processes end
         self.frame_panel.shutdown()        # same for a running PresentMon capture
         if self._scan_worker is not None and self._scan_worker.isRunning():

@@ -65,6 +65,7 @@ RESULT_SHOT = "benchmark_result.png"
 SCENE_SHOT = "scene.png"       # a game with no benchmark of its own: the screen just after the skipped seconds
 CLOSE_SECONDS = 60.0              # closing a game: politely, by force after 30 s (app/frames/game_close.py)
 PASS_GAP_SECONDS = 10.0           # between two runs of a whole benchmark: Steam sees the game closed first
+MENUS_MISSED = "the app did not reach the game's benchmark"
 
 
 def steps_bound_seconds(steps) -> int:
@@ -169,8 +170,8 @@ class GameBenchmarkSpec:
 
     def max_record_seconds(self) -> int:
         """PresentMon's --timed upper limit; normally it ends earlier, when the game is closed."""
-        if self.whole_benchmark:
-            return int(UAC_WAIT_SECONDS + self.pass_seconds() * self.count + 120)
+        if self.whole_benchmark:       # one launch more: the second try of a run whose menus missed
+            return int(UAC_WAIT_SECONDS + self.pass_seconds() * (self.count + 1) + 120)
         front = FRONT_WAIT_SECONDS if self.route or self.start_keys or self.steps else 0
         return int(UAC_WAIT_SECONDS + LAUNCH_TIMEOUT_SECONDS + front + self.steps_seconds() + self.wait_seconds() + 120)
 
@@ -304,6 +305,7 @@ class GameBenchmark:
         self.scene_shot: Optional[str] = None      # "" once tried and failed
         self.shots_dir = self.run_dir               # a whole benchmark: one folder of screenshots per run
         self.own_result = own_result                # the game's own numbers (tests pass a fake)
+        self.results_missing: Optional[str] = None  # what the screen showed when the results never came
 
     def _keep_result_screen(self) -> None:
         """The game's own results screen, kept for the report: looked for up to RESULT_WAIT_SECONDS by its words;
@@ -317,6 +319,8 @@ class GameBenchmark:
         self.on_progress(f"{self.spec.game_name}: waiting for its results screen (up to {RESULT_WAIT_SECONDS:.0f} s) "
                          "to keep it for the report...")
         seen = None
+        self.results_missing = None
+        looked = []                     # what the game's own screen showed, each time it could be read
         while not self.stop_event.is_set():
             try:
                 front = self._game_in_front()      # brought back first: a shot of this app is not its results
@@ -330,6 +334,8 @@ class GameBenchmark:
                 self.key_notes.append(f"results screen not kept ({error})")
                 return
             seen = None if error or not front else find_word(lines, list(RESULT_WORDS))
+            if front and not error:
+                looked.append(", ".join(lines)[:200])
             if seen:
                 self.sleep(RESULT_SETTLE_SECONDS)
                 try:
@@ -344,6 +350,10 @@ class GameBenchmark:
             self.result_shot = str(path)
             self.key_notes.append(f"results screen kept ({seen!r} seen)" if seen else
                                   "results screen not recognized; the last screenshot was kept")
+        # the game was read and never showed its results: its benchmark did not end as one (SOTTR, 2026-11-11: a
+        # "Content is currently installing" box ended it after 55 s and its menu ran at 550 FPS for the rest)
+        if not seen and looked and not self.stop_event.is_set():
+            self.results_missing = looked[-1] or "(no words)"
 
     def _desk(self):
         if self._desktop is None:
@@ -796,12 +806,22 @@ class GameBenchmark:
                 self.on_progress(f"telemetry not started: {e}")
         t_start = self.clock()              # the telemetry's time 0
         passes = []
+        tried_again = False
         for k in range(spec.count):
             if self.stop_event.is_set() or not thread.is_alive():
                 break
             label = ("the warm-up run (not counted)" if k < spec.warmup_runs else
                      f"run {k - spec.warmup_runs + 1} of {spec.repetitions}")
             done = self._one_pass(k, label)
+            # one missed click ended the whole game (RDR2's Graphics, 2026-11-11): the game is started once more,
+            # once per game. Only for menus that missed: a game that did not start is not started again
+            if (done["error"] == MENUS_MISSED and not tried_again and not self.stop_event.is_set()
+                    and thread.is_alive()):
+                tried_again = True
+                first = done["notes"]
+                self.sleep(PASS_GAP_SECONDS)
+                done = self._one_pass(k, label + ", second try", folder=f"run_{k}_again")
+                done["notes"] = f"first try: {first}; second try: {done['notes']}"
             passes.append(done)
             if done["stopped"] or done["error"]:
                 break
@@ -850,6 +870,11 @@ class GameBenchmark:
                 result = (self._window_result(frames, a, b, recorded, False, remote, command, done["shot"])
                           if pick else WorkloadResult(status="invalid", error="PresentMon recorded no frames from "
                                                       "the game in this run", command=command))
+                if done["no_results"] and result.status == "completed":     # never a score: not the whole benchmark
+                    result = WorkloadResult(status="invalid", command=command, error=(
+                        f"the game did not show its results within {RESULT_WAIT_SECONDS:.0f} s after its benchmark, "
+                        f"so the benchmark did not run whole (the screen showed: {done['no_results']}; the frames "
+                        f"measured {result.score:.1f} FPS; not stored)"))
                 if result.status == "completed":
                     measured_text = (f"Measured: the game's whole benchmark ({spec.benchmark_seconds} s from its "
                                      f"start), the game started anew, {spec.warmup_runs} warm-up run(s) before "
@@ -873,12 +898,12 @@ class GameBenchmark:
         if shown:
             result.note = "; ".join(x for x in [result.note, f"Game's own result: {shown} FPS"] if x)
 
-    def _one_pass(self, k: int, label: str) -> dict:
+    def _one_pass(self, k: int, label: str, folder: Optional[str] = None) -> dict:
         """One launch: through the menus to the benchmark, its whole length, its results screen kept, closed."""
         spec = self.spec
         done = {"started": {}, "t_mark": None, "t_close": None, "stopped": False, "error": None, "shot": None,
-                "own": None, "notes": ""}
-        self.shots_dir = self.run_dir / f"run_{k}"
+                "own": None, "notes": "", "no_results": None}
+        self.shots_dir = self.run_dir / (folder or f"run_{k}")
         self.shots_dir.mkdir(parents=True, exist_ok=True)
         self.result_shot, self.key_notes, self._started = None, [], {}
         self._before = self.folder_procs()
@@ -915,7 +940,7 @@ class GameBenchmark:
                     if steps.mark_time is not None:
                         done["t_mark"] = steps.mark_time
                     elif steps.done.is_set():
-                        done["error"] = "the app did not reach the game's benchmark"
+                        done["error"] = MENUS_MISSED
                         break
                     else:
                         if int(now - t_launch) != shown:
@@ -948,6 +973,7 @@ class GameBenchmark:
                 self.result_shot = steps.result_shot
             elif shows_results_for(spec.app_id):
                 self._keep_result_screen()
+                done["no_results"] = self.results_missing
             try:
                 done["own"] = (self.own_result or _own_result)(spec.app_id, since)
             except Exception:

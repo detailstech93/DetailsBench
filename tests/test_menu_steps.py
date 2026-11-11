@@ -549,6 +549,30 @@ def test_a_built_in_benchmark_is_measured_whole_once_per_launch(tmp_path):
         assert "Game's own result: Average 48, Minimum 45, Maximum 55 FPS" in w.result.note
 
 
+def test_a_run_whose_results_screen_never_shows_is_invalid(tmp_path):
+    """SOTTR, 2026-11-11: a "Content is currently installing" box ended the warm-up's benchmark after 55 s; the menu
+    behind it ran at 550 FPS for the rest of the measured time and the run would have been a score."""
+    fakes = PassFakes(tmp_path)
+    desk = SimpleNamespace(foreground_pid=lambda: 100 + fakes.run)
+
+    def reader(desktop, path):
+        path.write_bytes(b"png")
+        return (["Content is currently installing"] if fakes.run == 1 else ["Results", "Average FPS 50"]), None
+
+    s = spec(install_path=str(fakes.install), steps=[{"see": "stop", "within": 60, "mark": True}],
+             benchmark_seconds=60)
+    cap = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=False, elevated_runner=fakes.elevated,
+                        launcher=fakes.launcher, snapshot=lambda: [], clock=fakes.clock, sleep=fakes.sleep,
+                        folder_procs=fakes.folder_procs, closer=fakes.closer, desktop=desk,
+                        exe_lister=lambda folder: ["Game.exe"],
+                        step_player=lambda st: FakeSteps(fakes, mark_after=30), screen_reader=reader).run()
+    assert cap.status == "recorded", cap.message
+    assert [w.result.status for w in cap.windows] == ["completed", "invalid", "completed"]      # the others count
+    bad = cap.windows[1].result
+    assert bad.score is None and "did not show its results within 60 s" in bad.error
+    assert "Content is currently installing" in bad.error
+
+
 def test_a_run_that_does_not_reach_the_benchmark_ends_the_runs(tmp_path):
     fakes = PassFakes(tmp_path)
     desk = SimpleNamespace(foreground_pid=lambda: 100 + fakes.run)
@@ -564,9 +588,32 @@ def test_a_run_that_does_not_reach_the_benchmark_ends_the_runs(tmp_path):
                         launcher=fakes.launcher, snapshot=lambda: [], clock=fakes.clock, sleep=fakes.sleep,
                         folder_procs=fakes.folder_procs, closer=fakes.closer, desktop=desk,
                         exe_lister=lambda folder: ["Game.exe"], step_player=player).run()
-    assert fakes.launches == 2 and [w.result.status for w in cap.windows] == ["completed", "invalid", "invalid"]
+    # the run whose menus missed is started once more (RDR2, 2026-11-11); missed again, the runs end
+    assert fakes.launches == 3 and [w.result.status for w in cap.windows] == ["completed", "invalid", "invalid"]
     assert "did not reach the game's benchmark" in cap.windows[1].result.error
     assert "earlier run did not complete" in cap.windows[2].result.error
+    assert "first try: " in cap.message and "second try: " in cap.message
+
+
+def test_a_run_whose_menus_missed_once_is_started_again_and_counts(tmp_path):
+    """RDR2, 2026-11-11: one click that opened nothing ended the whole game. The run is started once more."""
+    fakes = PassFakes(tmp_path)
+    desk = SimpleNamespace(foreground_pid=lambda: 100 + fakes.run)
+    made = []
+
+    def player(st):
+        made.append(FakeSteps(fakes, problem="no 'stop' seen") if len(made) == 1 else FakeSteps(fakes, mark_after=30))
+        return made[-1]
+
+    s = spec(install_path=str(fakes.install), steps=[{"see": "stop", "within": 60, "mark": True}],
+             benchmark_seconds=60)
+    cap = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=False, elevated_runner=fakes.elevated,
+                        launcher=fakes.launcher, snapshot=lambda: [], clock=fakes.clock, sleep=fakes.sleep,
+                        folder_procs=fakes.folder_procs, closer=fakes.closer, desktop=desk,
+                        exe_lister=lambda folder: ["Game.exe"], step_player=player).run()
+    assert fakes.launches == 4, cap.message                 # warm-up, run 1 missed, run 1 again, run 2
+    assert [w.result.status for w in cap.windows] == ["completed", "completed", "completed"]
+    assert (tmp_path / "run" / "run_1_again").is_dir() and "second try: " in cap.message
 
 
 def test_sottr_answers_its_quit_question_and_the_closer_gets_it():
