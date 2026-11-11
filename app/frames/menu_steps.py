@@ -360,6 +360,11 @@ class StepPlayer:
             now = None if error else word_center(lines, word)
             if now is None or near(now, point):
                 break
+            # a growing menu moves its words up or down; a word far to the side is another copy of it: BL3's side
+            # panel heads "Start Benchmark" while its row read "S or Benchmark", and that click missed (2026-11-11)
+            if abs(now[0] - point[0]) > max(STILL_PIXELS, abs(now[1] - point[1]) / 4):
+                self.notes.append(f"{word!r} also read at {now[0]},{now[1]}, to the side: not followed")
+                break
             if not near(now, seen):         # a new place: the next read must find it there too
                 seen = now
                 continue

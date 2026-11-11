@@ -698,6 +698,28 @@ def test_a_word_read_once_elsewhere_under_the_mouse_is_clicked_where_it_held(tmp
     assert "moved under the mouse" not in p.summary()
 
 
+def test_a_word_read_to_the_side_under_the_mouse_is_not_followed(tmp_path):
+    """BL3, 2026-11-11: with the mouse on 'Start Benchmark' its side panel showed the same words as a heading and
+    the row read "S or Benchmark"; the click followed the panel and the benchmark never started."""
+    clock = Clock()
+    desk = Desk(clock)
+
+    def reader(desktop, path):
+        lines = boxed(["Report Type", "Start Benchmark"])
+        if any(e[0] == "mouse" for e in desk.events):
+            lines = boxed(["Report Type", "S or Benchmark"])
+            panel = screen_text.Line("Start Benchmark")
+            panel.words = (("Start", 780, 90, 80, 20), ("Benchmark", 880, 90, 80, 20))
+            lines.append(panel)
+        return lines, None
+    p = StepPlayer([{"see": "start benchmark", "within": 10, "click": "start"}], desk, lambda: True, tmp_path,
+                   clock=clock, sleep=clock.sleep, reader=reader)
+    p.run()
+    assert p.problem is None
+    assert [e for e in desk.events if e[0] == "mouse"] == [("mouse", (40, 110))]      # clicked on the row
+    assert "'start' also read at 820,100, to the side: not followed" in p.summary()
+
+
 def test_sottr_menu_that_opens_on_options_gets_only_enter(tmp_path):
     """2026-11-11: the menu opened with Options lit; Down Down reached Quit Game and the game quit. Now the lit
     item is read first: Options lit, so Enter alone."""
