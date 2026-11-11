@@ -1155,6 +1155,7 @@ class FrameCapturePanel(QGroupBox):
 
     def _create_game_session(self, spec, profile, environment, capture, forced=None, declared=None,
                              conditions=None) -> int:
+        from app.frames.presentmon import workload_id_for
         from app.games.settings_file import declared_record
         from app.manifest import build_manifest, git_commit
         name = f"{spec.game_name} {datetime.now().strftime('%Y-%m-%d %H:%M')}"
@@ -1176,7 +1177,12 @@ class FrameCapturePanel(QGroupBox):
         manifest = build_manifest(
             {"id": sid, "name": name, "is_test": False, "is_manual": False},
             run_settings=settings, environment=environment,
-            benchmarks_used=[{"name": tool.lower(), "display_name": tool, "version": version,
+            # the game itself, by the name its runs are stored under: the report shows the game's full name
+            # (owner, 2026-11-11: "Red Dead Redemption 2", not "frames_rdr2")
+            benchmarks_used=[{"name": workload_id_for(capture.process[0] if capture.process else spec.game_name),
+                              "display_name": spec.game_name, "version": spec.version,
+                              "detection_method": f"Steam app {spec.app_id}"},
+                             {"name": tool.lower(), "display_name": tool, "version": version,
                               "executable_path": spec.presentmon_path, "detection_method": "found or downloaded"}],
             commit=git_commit(), conditions=conditions)
         try:

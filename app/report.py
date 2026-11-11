@@ -973,9 +973,20 @@ def _emulated(export: Mapping) -> set:
     return {str(b.get("name")) for b in used if isinstance(b, Mapping) and b.get("comparable_to_native") is False}
 
 
-def _label(name: str, emulated: set) -> str:
-    """The test's name with "(emulated)" next to it when it ran emulated (owner, 2026-10-23: inside the report too)."""
-    return f"{name} (emulated)" if name in emulated else name
+def _label(name: str, emulated: set, titles: Optional[Mapping] = None) -> str:
+    """The test's name with "(emulated)" next to it when it ran emulated (owner, 2026-10-23: inside the report too);
+    a game by its full name (titles: _game_titles)."""
+    shown = (titles or {}).get(name, name)
+    return f"{shown} (emulated)" if name in emulated else shown
+
+
+def _game_titles(export: Mapping) -> dict:
+    """{stored name: the game's full name} for the session's game runs, from its manifest (owner, 2026-11-11:
+    "Red Dead Redemption 2" in the report, not "frames_rdr2"). Other tests keep their names."""
+    used = (_mapping(export.get("manifest")) or {}).get("benchmarks") or []
+    titles = {str(b.get("name")): str(b.get("display_name")).split(" (")[0] for b in used
+              if isinstance(b, Mapping) and b.get("display_name")}
+    return {name: titles[name] for name in _game_runs(export) if name in titles}
 
 
 def _tested_names(export: Mapping) -> list:
@@ -993,7 +1004,8 @@ def _tested_names(export: Mapping) -> list:
 def _tested_title(export: Mapping) -> str:
     """What was tested, for the big title (owner, 2026-10-19: not "Automated <date>"); "" when no run."""
     emulated = _emulated(export)
-    names = [_label(n, emulated) for n in _tested_names(export)]
+    titles = _game_titles(export)
+    names = [_label(n, emulated, titles) for n in _tested_names(export)]
     if len(names) > 4:
         names = names[:3] + [f"and {len(names) - 3} more"]
     return esc(" · ".join(names))
@@ -1098,7 +1110,7 @@ def _summary_section(export: Mapping) -> str:
         stat_rows = "".join(f"<tr><th>{k}</th><td>{v}</td></tr>" for k, v in numbers)
         cards.append(
             '<div class="sum-card">'
-            f'<h3 dir="auto">{esc(_label(name, emulated))}</h3>'
+            f'<h3 dir="auto">{esc(_label(name, emulated, _game_titles(export)))}</h3>'
             '<table class="sum">'
             f"<tbody>{run_rows}{average}{stat_rows}</tbody>"
             "</table>"
@@ -1117,6 +1129,7 @@ def _summary_section(export: Mapping) -> str:
 
 def _runs_section(export: Mapping) -> str:
     emulated = _emulated(export)
+    titles = _game_titles(export)
     runs = export.get("runs")
     if not isinstance(runs, list) or not runs:
         return (
@@ -1130,7 +1143,7 @@ def _runs_section(export: Mapping) -> str:
     for run in runs:
         mapping = _mapping(run) or {}
 
-        benchmark = _text(_label(str(mapping.get("benchmark_name") or ""), emulated) or None, "-")
+        benchmark = _text(_label(str(mapping.get("benchmark_name") or ""), emulated, titles) or None, "-")
         run_index = _text(mapping.get("run_index"), "-")
         status = mapping.get("status")
         status_text = _text(status, "-")
@@ -1235,6 +1248,7 @@ def _metrics_section(export: Mapping) -> str:
     summaries = _mapping(export.get("metric_summaries"))
     if not summaries:
         return ""
+    titles = _game_titles(export)
     rows = []
     for bench in sorted(summaries, key=str):
         metrics = _mapping(summaries.get(bench)) or {}
@@ -1246,7 +1260,7 @@ def _metrics_section(export: Mapping) -> str:
                 numbers = "".join(f"<td>{_format_number(m.get(k))}</td>" for k in ("mean", "min", "max"))
             rows.append(
                 "<tr>"
-                f"<td>{_text(bench)}</td>"
+                f"<td>{_text(titles.get(bench, bench))}</td>"
                 f"<td>{_metric_group(name)}</td>"
                 f"<td>{_text(name)}</td>"
                 f"{numbers}"
@@ -1359,6 +1373,7 @@ def _earlier_section(export: Mapping) -> str:
     rows = [m for m in (_mapping(r) for r in export.get("earlier") or []) if m]
     if not rows:
         return ""
+    titles = _game_titles(export)
     body = []
     for r in rows:
         unit = esc(r.get("unit") or "")
@@ -1372,7 +1387,8 @@ def _earlier_section(export: Mapping) -> str:
         history = ", ".join(f"{_format_number(e.get('mean'))} ({esc(str(e.get('created_at') or '')[:10])})"
                             for e in earlier)
         body.append(
-            f"<tr><td>{esc(r.get('benchmark'))}</td><td>{_format_number(r.get('now'))} {unit}</td>"
+            f"<tr><td>{esc(titles.get(r.get('benchmark'), r.get('benchmark')))}</td>"
+            f"<td>{_format_number(r.get('now'))} {unit}</td>"
             f"<td>{_format_number(earlier[0].get('mean'))} {unit}<br><span class=\"muted\">"
             f"{esc(earlier[0].get('name'))}</span></td>"
             f"<td>{'not comparable' if blocked else change}</td>"

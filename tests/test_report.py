@@ -329,6 +329,24 @@ def _game_export(note, metrics, is_test=False):
             "manifest": {"benchmarks": [{"name": "cp", "display_name": "Cyberpunk 2077 built-in benchmark (assisted)"}]}}
 
 
+def test_a_game_is_shown_by_its_full_name_everywhere_in_the_report():
+    """Owner, 2026-11-11: "Red Dead Redemption 2" in the report, not the stored short name ("frames_rdr2")."""
+    export = _game_export("", {"low_1pct_fps": (57.8, "FPS")})
+    for part in (export["runs"][0], ):
+        part["benchmark_name"] = "frames_rdr2"
+    export["summaries"] = {"frames_rdr2": export["summaries"]["cp"]}
+    export["metric_summaries"] = {"frames_rdr2": export["metric_summaries"]["cp"]}
+    export["manifest"] = {"benchmarks": [{"name": "frames_rdr2", "display_name": "Red Dead Redemption 2"},
+                                         {"name": "presentmon", "display_name": "PresentMon"}]}
+    export["earlier"] = [{"benchmark": "frames_rdr2", "now": 81.7, "unit": "FPS",
+                          "earlier": [{"mean": 81.6, "name": "before", "created_at": "2026-11-11 14:43"}]}]
+    page = render_session_report(export)
+    assert "frames_rdr2" not in page and page.count("Red Dead Redemption 2") >= 5
+    other = render_session_report({"manifest": {"benchmarks": [{"name": "7zip", "display_name": "7-Zip benchmark"}]},
+                                   "runs": [_run("7zip", 1, 1)]})
+    assert "<td>7zip</td>" in other            # other tests keep their stored names in the tables
+
+
 def test_game_section_whole_numbers_settings_and_readings():
     export = _game_export(
         "Settings used: Resolution: 2560x1440, Frame generation: Off; Forced: upscaler DLSS; "
