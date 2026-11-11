@@ -12,6 +12,11 @@ the step expects was read on the screen (app/frames/screen_text.py), and only in
     {"see": "graphics", "within": 30, "click": "graphics"}
         click the middle of that word where it was read (a menu that remembers its last item is not reached
         the same way by arrow keys each time).
+    {"see": "options", "within": 30, "pick": "options", "menu": ["new game", "challenge tombs", "options"]}
+        arrow keys to an item of a menu, then Enter only once that item is the lit one (an orange-red bar
+        behind it, SOTTR): the lit item is read again after each Down or Up. A menu that opens on another
+        item than last time (SOTTR, 2026-11-11: Down Down from a lit Options reached Quit Game) is still
+        reached; when no lit item can be told, nothing is pressed and the run stops
     {"press": "up, up, left, left, down, enter"}      chords one after another (PAUSE_SECONDS apart)
     {"hold": "x", "seconds": 1.5}                    hold a key (some menus need a long press)
     {"wait": 3}                                      let the menu open
@@ -47,6 +52,7 @@ CLICK_HOLD_SECONDS = 0.15           # button down this long: a game that reads t
 STILL_PIXELS = 8                    # a word read twice this close is not moving
 STILL_READS = 10                    # reads to wait for a menu that is still sliding in
 HOVER_READS = 3                     # reads with the mouse on the word: a menu may change when the mouse comes
+PICK_READS = 5                      # reads to tell the lit item before a pick gives up
 FRONT_GRACE_SECONDS = 10.0          # the game may lose the front briefly while it changes video mode
 LOG_NAME = "screen_log.txt"          # what every read saw
 
@@ -79,12 +85,49 @@ def step_problems(steps, marked: bool = True) -> List[str]:
             out.append(f"step {i}: 'shot' needs 'see'")
         if "click" in s and "see" not in s:
             out.append(f"step {i}: 'click' needs 'see'")
+        if "pick" in s and not ("see" in s and isinstance(s.get("menu"), list)
+                                and str(s["pick"]).lower() in [str(m).lower() for m in s["menu"]]):
+            out.append(f"step {i}: 'pick' needs 'see' and a 'menu' list that holds it")
         if ("see" in s or "gone" in s) and not (isinstance(s.get("within"), (int, float)) and s["within"] > 0):
             out.append(f"step {i}: {'see' if 'see' in s else 'gone'!r} needs 'within' seconds")
     if marked and not any(s.get("mark") for s in steps if isinstance(s, dict)):
         out.append("no step marks the start of the benchmark")
     return out
 
+
+
+def _word_box(lines, word):
+    for line in lines:
+        for text, x, y, w, h in getattr(line, "words", ()):
+            if word.lower() in text.lower():
+                return x, y, w, h
+    return None
+
+
+def lit_word(image_path, lines, menu) -> Optional[str]:
+    """The item of `menu` with an orange-red bar behind it (SOTTR's lit item), or None when none clearly is.
+    An item is found by its first word (OCR may misread the rest)."""
+    from PySide6.QtGui import QImage
+    image = QImage(str(image_path))
+    if image.isNull():
+        return None
+    scores = {}
+    for item in menu:
+        box = _word_box(lines, item.split()[0])
+        if box is None:
+            continue
+        x, y, w, h = box
+        hits = total = 0
+        for px in range(max(0, x - 10), min(image.width(), x + w + 10), 3):
+            for py in range(max(0, y), min(image.height(), y + h), 3):
+                c = image.pixelColor(px, py)
+                total += 1
+                hits += c.red() > 120 and c.red() > 1.6 * c.green() and c.red() > 1.8 * c.blue()
+        scores[item] = hits / total if total else 0.0
+    best = max(scores, key=scores.get, default=None)
+    if best is None or scores[best] < 0.15 or any(v > scores[best] / 2 for k, v in scores.items() if k != best):
+        return None
+    return best
 
 
 def _front_name(desktop) -> str:
@@ -98,8 +141,9 @@ def _front_name(desktop) -> str:
 class StepPlayer:
     def __init__(self, steps: List[dict], desktop, in_front: Callable[[], bool], folder: Path,
                  clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep,
-                 reader: Callable = read_screen, stop: Optional[threading.Event] = None):
+                 reader: Callable = read_screen, stop: Optional[threading.Event] = None, lit: Callable = lit_word):
         self.steps = steps
+        self.lit = lit
         self.desktop = desktop
         self.in_front = in_front
         self.folder = Path(folder)
@@ -166,6 +210,8 @@ class StepPlayer:
                 self.notes.append(f"kept the results screen at {self._at()}")
             if "click" in step:
                 self._click(i, str(step["click"]))
+            if "pick" in step:
+                self._pick(i, step)
         for chord in [c.strip() for c in str(step.get("press", "")).split(",") if c.strip()]:
             self._press(chord, step.get("tap"))
             self.sleep(PAUSE_SECONDS)
@@ -249,6 +295,35 @@ class StepPlayer:
         self._check_front(chord)
         self.desktop.press(parse_chord(chord))
         self.notes.append(f"pressed {chord}")
+
+    def _pick(self, i: int, step: dict) -> None:
+        menu = [str(m).lower() for m in step["menu"]]
+        target = str(step["pick"]).lower()
+        self.desktop.mouse_to(*PARK_POINT)          # an item under the mouse lights up
+        moves = misses = 0
+        while True:
+            if self.stop.is_set():
+                raise _Stop("stopped")
+            lines, error = self.reader(self.desktop, self.folder / "screen.png")
+            self._log(i, lines, error)
+            lit = None if error else self.lit(self.folder / "screen.png", lines, menu)
+            if lit is None:
+                misses += 1
+                if misses >= PICK_READS:
+                    raise _Stop(f"step {i}: the lit item of the menu could not be told; Enter not pressed")
+                self.sleep(LOOK_EVERY_SECONDS)
+                continue
+            misses = 0
+            if lit == target:
+                self._press("enter", step.get("tap"))
+                self.notes.append(f"{target!r} lit after {moves} arrow key(s), Enter at {self._at()}")
+                return
+            if moves >= 2 * len(menu):
+                raise _Stop(f"step {i}: {target!r} did not light up after {moves} arrow keys ({lit!r} lit); "
+                            "Enter not pressed")
+            self._press("down" if menu.index(lit) < menu.index(target) else "up", step.get("tap"))
+            moves += 1
+            self.sleep(PAUSE_SECONDS)
 
     def _click(self, i: int, word: str) -> None:
         point = word_center(self._lines, word)

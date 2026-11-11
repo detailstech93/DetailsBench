@@ -50,10 +50,11 @@ GAME_MENU_STEPS: Dict[int, dict] = {
         "steps": [
             # a popup about the graphics adapter or an unavailable feature may come first: Enter closes it
             # 2026-11-04: three runs clicked Options where it was read (the menu did not move) and the game opened
-            # Challenge Tombs, the item above: its mouse lands one item high. Keys instead: New Game is lit when the
-            # menu comes (owner's photo), Down twice is Options (Continue/Load Game sit above New Game)
+            # Challenge Tombs, the item above: its mouse lands one item high. Keys instead. 2026-11-11: the menu
+            # once opened on Options, Down Down reached Quit Game: arrow keys until Options is the lit item
             {"see": "options", "within": 240, "dismiss": {"adapter": "enter", "unavailable": "enter"},
-             "settle": 12, "press": "down, down, enter", "tap": 0.15, "wait": 3},
+             "settle": 12, "pick": "options", "tap": 0.15, "wait": 3,
+             "menu": ["continue", "load game", "new game", "challenge tombs", "options", "credits", "quit game"]},
             # menus remember the last item: click the word where it is read, then Enter if the click was missed
             {"see": "graphics", "within": 30, "again": {"press": "enter", "every": 5, "while": "options"},
              "settle": 1, "click": "graphics", "wait": 3},

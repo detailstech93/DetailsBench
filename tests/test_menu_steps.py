@@ -69,6 +69,14 @@ def screens(clock, timeline):
     return reader
 
 
+def lit_by_keys(desk, first):
+    """A fake lit item: `first` when the menu opens, one item lower per Down held, one higher per Up."""
+    def lit(path, lines, menu):
+        moved = sum((e[1] == parse_chord("down")) - (e[1] == parse_chord("up")) for e in desk.events if e[0] in ("down", "press"))
+        return menu[menu.index(first) + moved]
+    return lit
+
+
 def player(tmp_path, steps, timeline, front=lambda: True):
     clock = Clock()
     desk = Desk(clock)
@@ -329,6 +337,7 @@ def test_shadow_of_the_tomb_raider_path_and_launch(tmp_path):
                 (32, ["Continue", "New Game", "Options", "Exit"]), (48, ["Display and Graphics", "Audio"]),
                 (58, ["Display", "Graphics", "Run Benchmark"]), (68, ["Loading"]), (78, ["FPS 141"])]
     p, desk, clock = player(tmp_path, menu_steps_for(750920), timeline)
+    p.lit = lit_by_keys(desk, "new game")
     p.run()
     assert p.problem is None and 78 <= p.mark_time < 80
     keys = [e[1] if e[0] == "press" else (e[0], e[1]) for e in desk.events]
@@ -687,6 +696,51 @@ def test_a_word_read_once_elsewhere_under_the_mouse_is_clicked_where_it_held(tmp
     assert [e for e in desk.events if e[0] == "mouse"] == [("mouse", (240, 110))]     # clicked where it held
     assert [e[1] for e in desk.events if e[0] == "button"] == [True, False]
     assert "moved under the mouse" not in p.summary()
+
+
+def test_sottr_menu_that_opens_on_options_gets_only_enter(tmp_path):
+    """2026-11-11: the menu opened with Options lit; Down Down reached Quit Game and the game quit. Now the lit
+    item is read first: Options lit, so Enter alone."""
+    steps = [menu_steps_for(750920)[0]]
+    p, desk, clock = player(tmp_path, steps, [(0, ["New Game", "Challenge Tombs", "Options", "Quit Game"])])
+    p.lit = lit_by_keys(desk, "options")
+    p.run()
+    assert p.problem is None
+    enter = parse_chord("enter")
+    assert [e[:2] for e in desk.events] == [("down", enter), ("up", enter)]
+    assert "'options' lit after 0 arrow key(s)" in p.summary() and desk.parked == 1    # mouse out of the way
+
+
+def test_a_pick_goes_up_from_below_and_never_presses_enter_when_nothing_is_lit(tmp_path):
+    step = {"see": "options", "within": 10, "pick": "options", "menu": ["new game", "options", "credits", "quit"]}
+    p, desk, clock = player(tmp_path, [step], [(0, ["New Game", "Options", "Credits", "Quit"])])
+    p.lit = lit_by_keys(desk, "quit")
+    p.run()
+    assert p.problem is None
+    assert [e[1] for e in desk.events] == [parse_chord("up"), parse_chord("up"), parse_chord("enter")]
+    p, desk, clock = player(tmp_path, [step], [(0, ["New Game", "Options", "Credits", "Quit"])])
+    p.lit = lambda path, lines, menu: None
+    p.run()
+    assert "the lit item of the menu could not be told; Enter not pressed" in p.problem and desk.events == []
+    assert step_problems([dict(step, menu=["new game"]), {"see": "x", "within": 5, "mark": True}]) == [
+        "step 1: 'pick' needs 'see' and a 'menu' list that holds it"]
+
+
+def test_lit_word_finds_the_item_on_an_orange_bar(tmp_path):
+    from PySide6.QtGui import QColor, QImage
+    from app.frames.menu_steps import lit_word
+    image = QImage(400, 300, QImage.Format.Format_RGB32)
+    image.fill(QColor(20, 22, 18))
+    for x in range(40, 300):
+        for y in range(100, 140):
+            image.setPixelColor(x, y, QColor(190, 60, 30))          # the bar behind the second item
+    path = tmp_path / "screen.png"
+    image.save(str(path))
+    lines = boxed(["Gamepad", "Gameplay", "Mouse"])                 # y 0, 100, 200
+    assert lit_word(path, lines, ["gamepad", "gameplay", "mouse"]) == "gameplay"
+    image.fill(QColor(20, 22, 18))
+    image.save(str(path))
+    assert lit_word(path, lines, ["gamepad", "gameplay", "mouse"]) is None    # nothing lit: no guess
 
 
 def test_a_word_that_never_holds_still_is_not_clicked(tmp_path):
