@@ -51,6 +51,7 @@ PARK_POINT = (1, 1)                 # the mouse waits here after a click: a menu
 CLICK_HOLD_SECONDS = 0.15           # button down this long: a game that reads the mouse once a frame sees it
 STILL_PIXELS = 8                    # a word read twice this close is not moving
 STILL_READS = 10                    # reads to wait for a menu that is still sliding in
+NUDGE_SECONDS = 0.1                 # a small mouse move just before a click, so the game sees the mouse alive
 HOVER_READS = 3                     # reads with the mouse on the word: a menu may change when the mouse comes
 PICK_READS = 5                      # reads to tell the lit item before a pick gives up
 FRONT_GRACE_SECONDS = 10.0          # the game may lose the front briefly while it changes video mode
@@ -372,6 +373,12 @@ class StepPlayer:
             point = now
             self.desktop.mouse_to(*point)
             self.sleep(CLICK_SETTLE_SECONDS)
+        # the hover reads leave the mouse still for seconds; RDR2 then drops its highlight and the click opened
+        # nothing (2026-11-11; it clicked at once and worked on 2026-10-29): move it a pixel and back first
+        self.desktop.mouse_to(point[0] + 1, point[1])
+        self.sleep(NUDGE_SECONDS)
+        self.desktop.mouse_to(*point)
+        self.sleep(NUDGE_SECONDS)
         self._check_front(f"click on {word!r}")
         self.desktop.mouse_button(True)
         try:

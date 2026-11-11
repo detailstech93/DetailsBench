@@ -26,6 +26,7 @@ class Clock:
 class Desk:
     def __init__(self, clock):
         self.clock, self.events, self.parked = clock, [], 0
+        self.nudges, self._nudged = 0, False
 
     def press(self, codes):
         self.events.append(("press", codes))
@@ -38,8 +39,13 @@ class Desk:
 
     def mouse_to(self, x, y):
         from app.frames.menu_steps import PARK_POINT
+        last = next((e[1] for e in reversed(self.events) if e[0] == "mouse"), None)
         if (x, y) == PARK_POINT:            # out of the way after a click: counted, not in the key events
             self.parked += 1
+        elif last == (x - 1, y):            # the pixel nudge before a click: counted, not in the events
+            self.nudges, self._nudged = self.nudges + 1, True
+        elif self._nudged and last == (x, y):
+            self._nudged = False            # back from the nudge
         else:
             self.events.append(("mouse", (x, y)))
 
@@ -718,6 +724,7 @@ def test_a_word_read_to_the_side_under_the_mouse_is_not_followed(tmp_path):
     assert p.problem is None
     assert [e for e in desk.events if e[0] == "mouse"] == [("mouse", (40, 110))]      # clicked on the row
     assert "'start' also read at 820,100, to the side: not followed" in p.summary()
+    assert desk.nudges == 1     # RDR2, 2026-11-11: the mouse moved a pixel just before the click
 
 
 def test_sottr_menu_that_opens_on_options_gets_only_enter(tmp_path):
