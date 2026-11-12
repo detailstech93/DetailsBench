@@ -383,7 +383,9 @@ def _own_result_html(app_avg, app_low, game_avg, game_min, game_max) -> str:
             "every frame PresentMon saw from the benchmark's start for its length; the game counts its own frames "
             "and its start and end may differ by a second or so, so a difference of 1-2 % is normal. The game's "
             "low and high are its slowest and fastest whole second; the app's 1% low is the average of its "
-            "slowest 1% of frames, which shows short stutters a per-second number hides.</p>")
+            "slowest 1% of frames, which shows short stutters a per-second number hides.</p>"
+            + ('<p class="muted">Here they differ by more than 3 %: the game works out its average its own way (Red Dead Redemption 2, checked on 2026-11-12: no span of the frames PresentMon saw gives its number, the highest is about 2 % under it). The app\'s number is the one stored and compared.</p>'
+               if app_avg and abs(game_avg / app_avg - 1) > 0.03 else ""))
 
 
 def _game_section(export: Mapping) -> str:
@@ -432,6 +434,12 @@ def _game_section(export: Mapping) -> str:
         own_html = _own_result_html(stats.get("mean"), mean_of("low_1pct_fps"), mean_of("game_avg_fps"),
                                     mean_of("game_min_fps"), mean_of("game_max_fps"))
         if parts.get("Settings used"):
+            # Cyberpunk calls its Ultra "Custom" once the upscaler is off (2026-11-12); the app wrote the whole preset
+            wrote = re.search(r"(?:^|, )preset ([^,]+)", parts.get("Forced") or "")
+            if wrote:
+                parts["Settings used"] = re.sub(r"(^|, )(Preset|Quality preset): Custom(?=,|$)",
+                                                lambda m: f"{m.group(1)}{m.group(2)}: {wrote.group(1)} (set by the app; "
+                                                          "the game shows Custom)", parts["Settings used"])
             settings_rows = "".join(
                 "<tr><th>{}</th><td>{}</td></tr>".format(*(esc(x) for x in item.partition(": ")[::2]))
                 for item in parts["Settings used"].split(", "))

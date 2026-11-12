@@ -24,6 +24,7 @@ the warm-up (shaders and files loaded the first time) and is not counted. One Pr
 import logging
 import os
 import subprocess
+import re
 import sys
 import threading
 import time
@@ -70,6 +71,7 @@ LATE_SECONDS = 1.0                # a recording that begins this long after the 
 # a run measured over less than this share of its benchmark is not the whole of it: the owner's whole runs had
 # 97.7-100% (BL3 107.4-110 of 110 s), the bad ones 68% (BL3, a long frame mid-benchmark taken for its end) and 93%
 WHOLE_SHARE = 0.95
+END_EARLY_SECONDS = 5.0      # a span up to the load before the results may begin this much before the mark
 
 
 def steps_bound_seconds(steps) -> int:
@@ -243,6 +245,13 @@ def _own_result(app_id, since: float) -> Optional[dict]:
     return game_own_result(app_id, since)
 
 
+def screen_numbers(lines) -> Optional[dict]:
+    """{"avg": ...} from a results screen's text, e.g. "Average FPS: 89.2 1 82" (OCR splits digits: 89.2182)."""
+    found = re.search(r"average fps\W*(\d[\d ]*\.[\d ]*\d)", " ".join(lines or []), re.I)
+    value = float(found.group(1).replace(" ", "")) if found else None
+    return {"avg": value} if value and 1 <= value <= 2000 else None
+
+
 def after_mark_seconds(steps) -> float:
     """How long the steps after the benchmark's start may take, when they go back to a results page ("shot"
     step); 0 otherwise. BL3 was stopped on its Visuals page by a fixed 120 s (2026-10-30)."""
@@ -343,9 +352,10 @@ class GameBenchmark:
             if seen:
                 self.sleep(RESULT_SETTLE_SECONDS)
                 try:
-                    reader(self._desk(), path)      # the shot kept is this later one
+                    lines = reader(self._desk(), path)[0] or lines      # the shot kept is this later one
                 except Exception:
                     pass
+                self.result_lines = lines
                 break
             if self.clock() >= deadline:
                 break
@@ -711,6 +721,14 @@ class GameBenchmark:
             start, end = loading_bounds(frametimes, mark_shift)
             if start is not None:
                 mark_shift = start
+        from data.game_start_keys import ends_at_loading
+        if ends_at_loading(self.spec.app_id):
+            from app.frames.segments import next_loading
+            stop = next_loading(frametimes, mark_shift)
+            # SOTTR, 2026-11-12: its 33,686 frames are the 157 s before that load; 150 s from the mark missed
+            # its slow last 15 s (+2 %). Only when the span starts near the mark (not a benchmark cut short)
+            if stop is not None and all(stop - (b - a) >= mark_shift - END_EARLY_SECONDS for a, b in windows):
+                return [(stop - (b - a), stop) for a, b in windows]
         windows = [(a + mark_shift, b + mark_shift) for a, b in windows]
         return [(a, min(b, end)) if end is not None and end > a else (a, b) for a, b in windows]
 
@@ -926,7 +944,7 @@ class GameBenchmark:
                 "own": None, "notes": "", "no_results": None}
         self.shots_dir = self.run_dir / (folder or f"run_{k}")
         self.shots_dir.mkdir(parents=True, exist_ok=True)
-        self.result_shot, self.key_notes, self._started = None, [], {}
+        self.result_shot, self.key_notes, self._started, self.result_lines = None, [], {}, []
         self._before = self.folder_procs()
         since = time.time()
         self.on_progress(f"{spec.game_name}, {label}: launching it through Steam...")
@@ -1004,6 +1022,9 @@ class GameBenchmark:
                 done["no_results"] = self.results_missing
             try:
                 done["own"] = (self.own_result or _own_result)(spec.app_id, since)
+                from data.game_start_keys import screen_average
+                if not done["own"] and screen_average(spec.app_id):
+                    done["own"] = screen_numbers(self.result_lines)
             except Exception:
                 logger.exception("Could not read the game's own result")
         done["shot"] = self.result_shot or getattr(steps, "started_shot", None)

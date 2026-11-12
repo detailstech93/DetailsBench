@@ -190,6 +190,9 @@ def cool_down(stop, say: Callable[[str], object] = lambda text: None, read=None,
         began = began or temps
         waited = clock() - start
         if not hot(temps) and waited < COOL_EVERY * COOL_READS + 1:
+            if into is not None:    # 2026-11-12: the report said 98 C and "waits" with no wait shown
+                into.setdefault("items", []).append(_item("Cooling wait", "not needed: the lowest of "
+                    f"{COOL_READS} readings was " + ", ".join(f"{k} {v:.0f} C" for k, v in temps.items()), True))
             return ""               # it was one hot reading, not a hot PC
         shown = ", ".join(f"{k} {v:.0f} C" for k, v in temps.items())
         if not hot(temps) or waited >= COOL_MAX_SECONDS:
@@ -236,8 +239,9 @@ def temperature_item(read=None) -> Optional[dict]:
         return None
     if warm:
         return _item("Start temperature", ", ".join(parts), False,
-                     f"{' and '.join(warm)} still warm (above {WARM_CPU_C:g} C CPU / {WARM_GPU_C:g} C GPU): the app waits for "
-                     f"it to cool before each test, at most {COOL_MAX_SECONDS / 60:g} minutes")
+                     f"{' and '.join(warm)} read warm (above {WARM_CPU_C:g} C CPU / {WARM_GPU_C:g} C GPU) once: before each test "
+                     f"the app reads it {COOL_READS} times and waits, at most {COOL_MAX_SECONDS / 60:g} minutes, "
+                     "while the lowest is still above (one reading can jump 25 C)")
     return _item("Start temperature", ", ".join(parts), True)
 
 

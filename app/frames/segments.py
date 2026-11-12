@@ -122,6 +122,16 @@ LOADING_FRAME_MS = 200.0        # a frame this long is a loading screen, not a h
 LOAD_CLUSTER_SECONDS = 2.0      # loading frames this close are one load
 
 
+def next_loading(frametimes_ms: List[float], after_seconds: float) -> Optional[float]:
+    """When (game seconds) the first loading frame after after_seconds began, or None."""
+    running_ms = 0.0
+    for frame_ms in frametimes_ms:
+        running_ms += frame_ms
+        if frame_ms >= LOADING_FRAME_MS and (running_ms - frame_ms) / 1000.0 >= after_seconds:
+            return (running_ms - frame_ms) / 1000.0
+    return None
+
+
 def loading_bounds(frametimes_ms: List[float], after_seconds: float, end_margin_seconds: float = 3.0,
                    within_seconds: float = 60.0) -> Tuple[Optional[float], Optional[float]]:
     """(start, end) in game seconds of a benchmark between two loading frames.

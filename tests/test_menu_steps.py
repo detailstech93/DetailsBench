@@ -330,7 +330,7 @@ def test_shadow_of_the_tomb_raider_path_and_launch(tmp_path):
     from data.game_start_keys import benchmark_seconds_for, menu_launch_args
     from data.steam_benchmarks import STEAM_BENCHMARK_APPS_BY_ID
     assert menu_launch_args(750920) == ["-nolauncher"] and game_launch_args(750920) == ["-nolauncher"]
-    assert benchmark_seconds_for(750920) == 150 and benchmark_seconds_for(1174180) == 270
+    assert benchmark_seconds_for(750920) == 157 and benchmark_seconds_for(1174180) == 270
     assert benchmark_seconds_for(1) is None and menu_launch_args("x") == []
     assert STEAM_BENCHMARK_APPS_BY_ID[750920]["exe"] == "SOTTR.exe"
     timeline = [(0, ["Square Enix"]), (30, ["Your graphics adapter is not supported"]),

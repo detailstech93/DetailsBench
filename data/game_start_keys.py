@@ -41,6 +41,7 @@ GAME_MENU_STEPS: Dict[int, dict] = {
         # answers it (not seen yet here; optional, so a game that just closes goes on)
         "quit_steps": [{"see": ["quit", "exit"], "within": 15, "optional": True, "settle": 1, "press": "enter"}],
         "benchmark_seconds": 270,       # about 4.5 min from "Stop Benchmarking" to the results (MarkBench)
+        "screen_average": True,         # it wrote no results file on 2026-11-12; its screen shows the average
         "verified": True,       # passed real runs with the owner (2026-10/11)
         "note": "Settings, Graphics, hold X on Run Benchmark Test, confirm; measuring starts when "
                 "'Stop Benchmarking' shows. The whole benchmark takes about 4.5 min.",
@@ -68,7 +69,9 @@ GAME_MENU_STEPS: Dict[int, dict] = {
         ],
         # closing its window asks whether to quit (owner, 2026-10-29: left unanswered, it was closed by force)
         "quit_steps": [{"see": "yes", "within": 15, "settle": 1, "click": "yes"}],
-        "benchmark_seconds": 150,       # about 150 s, then its results screen (MarkBench)
+        # 2026-11-12: its "Frames rendered" (33,633-33,834) are the ~157 s before the load to its results
+        "benchmark_seconds": 157,
+        "ends_at_loading": True,
         "verified": True,       # passed real runs with the owner (2026-10/11)
         "note": "Options, Display and Graphics, R for the benchmark; measuring starts when its FPS shows. "
                 "The benchmark takes about 2.5 min.",
@@ -173,6 +176,16 @@ def benchmark_seconds_for(app_id) -> Optional[int]:
     """About how long the game's built-in benchmark runs after the step marked as its start, or None."""
     value = _menu_entry(app_id).get("benchmark_seconds")
     return int(value) if isinstance(value, (int, float)) and value > 0 else None
+
+
+def ends_at_loading(app_id) -> bool:
+    """Measuring is the benchmark's length up to the loading frame before its results (Shadow of the Tomb Raider)."""
+    return _menu_entry(app_id).get("ends_at_loading") is True
+
+
+def screen_average(app_id) -> bool:
+    """The game's own average is read from its results screen ("Average FPS: 88.9376"; Red Dead Redemption 2)."""
+    return _menu_entry(app_id).get("screen_average") is True
 
 
 def starts_after_loading(app_id) -> bool:
