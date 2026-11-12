@@ -670,6 +670,40 @@ def test_a_run_whose_menus_missed_once_is_started_again_and_counts(tmp_path):
     assert (tmp_path / "run" / "run_1_again").is_dir() and "second try: " in cap.message
 
 
+def test_a_run_whose_menus_missed_after_its_benchmark_is_started_again(tmp_path, monkeypatch):
+    """BL3, 2026-11-11 15:32: after run 0's benchmark, Options on its main menu was never read (180 s), so its
+    results page was not reached and the other runs never ran. Missed menus too: started once more, once."""
+    import data.game_start_keys as keys
+    monkeypatch.setattr(keys, "shows_results_for", lambda app_id: False)     # its results page is a menu step
+    fakes = PassFakes(tmp_path)
+    desk = SimpleNamespace(foreground_pid=lambda: 100 + fakes.run)
+
+    class MissedAfter(FakeSteps):
+        def start(self):
+            super().start()
+            self.done = SimpleNamespace(is_set=lambda: self.fakes.now[0] >= self.t + 90)   # at its end
+            return self
+
+    made = []
+
+    def player(st):
+        made.append(MissedAfter(fakes, mark_after=30, problem="step 6: 'options' did not appear")
+                    if len(made) in (1, 3) else FakeSteps(fakes, mark_after=30))
+        return made[-1]
+
+    s = spec(install_path=str(fakes.install), steps=[{"see": "stop", "within": 60, "mark": True}],
+             benchmark_seconds=60)
+    cap = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=False, elevated_runner=fakes.elevated,
+                        launcher=fakes.launcher, snapshot=lambda: [], clock=fakes.clock, sleep=fakes.sleep,
+                        folder_procs=fakes.folder_procs, closer=fakes.closer, desktop=desk,
+                        exe_lister=lambda folder: ["Game.exe"], step_player=player).run()
+    # warm-up, run 1 missed after its benchmark, run 1 again, run 2 missed: no third try, never a score
+    assert fakes.launches == 4, cap.message
+    assert [w.result.status for w in cap.windows] == ["completed", "completed", "invalid"], cap.message
+    assert "results page" in cap.windows[2].result.error and cap.windows[2].result.score is None
+    assert (tmp_path / "run" / "run_1_again").is_dir() and "second try: " in cap.message
+
+
 def test_sottr_answers_its_quit_question_and_the_closer_gets_it():
     from data.game_start_keys import quit_steps_for
     from app.frames.game_close import close_game

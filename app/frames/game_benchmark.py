@@ -879,6 +879,10 @@ class GameBenchmark:
                         f"the game did not show its results within {RESULT_WAIT_SECONDS:.0f} s after its benchmark, "
                         f"so the benchmark did not run whole (the screen showed: {done['no_results']}; the frames "
                         f"measured {result.score:.1f} FPS; not stored)"))
+                if done["error"] == MENUS_MISSED and result.status == "completed":
+                    result = WorkloadResult(status="invalid", command=command, error=(
+                        "the app did not reach the game's results page after its benchmark, so the game's own result "
+                        f"was not kept (the frames measured {result.score:.1f} FPS; not stored)"))
                 if result.status == "completed":
                     measured_text = (f"Measured: the game's whole benchmark ({spec.benchmark_seconds} s from its "
                                      f"start), the game started anew, {spec.warmup_runs} warm-up run(s) before "
@@ -969,6 +973,13 @@ class GameBenchmark:
                 elapsed = now - done["t_mark"]
                 if steps.done.is_set() and getattr(steps, "result_shot", None):
                     break               # its results page was kept after the benchmark (BL3): close now
+                # BL3, 2026-11-11 15:32: after its benchmark, Options on its main menu was never read, so its results
+                # page was never reached. Missed menus too: started once more, and never a score without that page
+                from data.game_start_keys import shows_results_for
+                if (steps.done.is_set() and getattr(steps, "problem", None)
+                        and not shows_results_for(spec.app_id)):
+                    done["error"] = MENUS_MISSED
+                    break
                 if elapsed >= spec.benchmark_seconds + after_mark_seconds(spec.steps):
                     break
                 if int(elapsed) != shown:
