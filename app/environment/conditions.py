@@ -23,12 +23,14 @@ SAMPLE_SECONDS = 1.0
 POWER_SAVER_GUID = "a1841308-3541-4fab-bc81-f71556f20b4a"      # Windows' built-in Power saver scheme
 SCHEME = re.compile(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\s*\(([^)]*)\)")
 IDLE_NAMES = {"system idle process", "idle"}
-WARM_CPU_C = 60.0               # a CPU above this before a run is called still warm
-WARM_GPU_C = 55.0
+# a CPU above this before a run is called still warm: the cooling wait's limits (trust fix 3c, owner 2026-11-12: at
+# 60 / 55 it showed on nearly every test, and starts up to 97 C did not lower a score on this PC)
+WARM_CPU_C = 90.0
+WARM_GPU_C = 80.0
 # trust fix 3b (owner, 2026-11-12): before each test, wait while the PC is this hot, at most COOL_MAX_SECONDS. An
 # estimate: no start temperature seen on this PC (up to 97 C) lowered a score; it is a safety net
-HOT_CPU_C = 90.0
-HOT_GPU_C = 80.0
+HOT_CPU_C = WARM_CPU_C
+HOT_GPU_C = WARM_GPU_C
 COOL_MAX_SECONDS = 180.0
 COOL_READS = 3          # at rest the CPU reads 54-58 C but single readings jump to 60-83 C: the lowest of a few
 COOL_EVERY = 2.0
@@ -234,8 +236,8 @@ def temperature_item(read=None) -> Optional[dict]:
         return None
     if warm:
         return _item("Start temperature", ", ".join(parts), False,
-                     f"{' and '.join(warm)} still warm (above {WARM_CPU_C:g} C CPU / {WARM_GPU_C:g} C GPU): wait a few "
-                     "minutes or use a longer pause, or the first run may score lower")
+                     f"{' and '.join(warm)} still warm (above {WARM_CPU_C:g} C CPU / {WARM_GPU_C:g} C GPU): the app waits for "
+                     f"it to cool before each test, at most {COOL_MAX_SECONDS / 60:g} minutes")
     return _item("Start temperature", ", ".join(parts), True)
 
 

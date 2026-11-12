@@ -49,10 +49,10 @@ def test_start_temperature():
     cool = c.temperature_item(lambda: {"cpu_temperature_hottest": (41.0, "C"), "gpu0_temperature": (38.0, "C"),
                                        "ram_used": (20.0, "%")})
     assert cool == c._item("Start temperature", "CPU 41 C, GPU 38 C", True)
-    warm = c.temperature_item(lambda: {"cpu_temperature_hottest": (72.4, "C"), "gpu0_temperature": (40.0, "C"),
-                                       "gpu1_temperature": (66.0, "C")})
-    assert warm["value"] == "CPU 72 C, GPU 0 40 C, GPU 1 66 C" and not warm["ok"]
+    warm = c.temperature_item(lambda: {"cpu_temperature_hottest": (92.4, "C"), "gpu0_temperature": (40.0, "C"),
+                                       "gpu1_temperature": (86.0, "C")})
+    assert warm["value"] == "CPU 92 C, GPU 0 40 C, GPU 1 86 C" and not warm["ok"]
     assert warm["advice"].startswith("CPU and GPU 1 still warm")
     items = c.check("win32", battery=lambda: None, plan=lambda: "", sample=lambda: (1.0, []),
-                    temps=lambda: {"gpu0_temperature": (70.0, "C")})
+                    temps=lambda: {"gpu0_temperature": (85.0, "C")})
     assert [i["name"] for i in items] == ["Background load", "Start temperature"] and not items[1]["ok"]
