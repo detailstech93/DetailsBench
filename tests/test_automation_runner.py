@@ -388,3 +388,28 @@ def test_a_test_taken_out_of_the_line_does_not_cancel_the_shutdown(db, tmp_path)
     assert shutdown_after.why_not_now(database, 1, summary, report) is None
     summary.records.append(rec(SKIPPED_BY_USER))
     assert "skipped" in shutdown_after.why_not_now(database, 1, summary, report)
+
+
+def test_the_cooling_wait_comes_once_before_each_test_and_is_kept_on_its_first_run(db, tmp_path):
+    # trust fix 3b (owner, 2026-11-12): before every test of a line, not between the runs of one test
+    database, sid = db
+    asked = []
+
+    def cool(stop, say):
+        asked.append(len(asked))
+        return "waited 40 s for the PC to cool: CPU 93 -> 86 C" if len(asked) == 2 else ""
+    AutomationRunner(database, sid, [PlanItem(Scripted("x", [ok(1.0), ok(2.0)]), 2, 0),
+                                     PlanItem(Scripted("y", [ok(3.0), ok(4.0)]), 2, 0)],
+                     tmp_path / "o", cool=cool).run()
+    assert len(asked) == 2
+    notes = [r["note"] for r in database.get_runs(sid)]
+    assert notes == [None, None, "Before it: waited 40 s for the PC to cool: CPU 93 -> 86 C", None]
+
+
+def test_stop_during_the_cooling_wait_starts_nothing(db, tmp_path):
+    database, sid = db
+    stop = threading.Event()
+    wl = Scripted("x", [ok(1.0)])
+    summary = AutomationRunner(database, sid, [PlanItem(wl, 1, 0)], tmp_path / "o", stop_event=stop,
+                               cool=lambda s, say: stop.set() or "").run()
+    assert summary.stopped and wl.contexts == [] and database.get_runs(sid) == []

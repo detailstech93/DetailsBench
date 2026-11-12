@@ -25,6 +25,13 @@ SCHEME = re.compile(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{
 IDLE_NAMES = {"system idle process", "idle"}
 WARM_CPU_C = 60.0               # a CPU above this before a run is called still warm
 WARM_GPU_C = 55.0
+# trust fix 3b (owner, 2026-11-12): before each test, wait while the PC is this hot, at most COOL_MAX_SECONDS. An
+# estimate: no start temperature seen on this PC (up to 97 C) lowered a score; it is a safety net
+HOT_CPU_C = 90.0
+HOT_GPU_C = 80.0
+COOL_MAX_SECONDS = 180.0
+COOL_READS = 3          # at rest the CPU reads 54-58 C but single readings jump to 60-83 C: the lowest of a few
+COOL_EVERY = 2.0
 
 
 def _item(name: str, value: str, ok: bool, advice: str = "") -> dict:
@@ -131,6 +138,77 @@ def _read_temperatures() -> dict:
         except Exception:
             pass                    # a sensor that cannot be read is left out
     return out
+
+
+def _hot_parts(reading: dict) -> dict:
+    out = {}
+    cpu = reading.get("cpu_temperature_hottest")
+    if cpu:
+        out["CPU"] = float(cpu[0])
+    gpus = [v[0] for k, v in reading.items() if k.startswith("gpu") and k.endswith("_temperature") and v]
+    if gpus:
+        out["GPU"] = float(max(gpus))
+    return out
+
+
+def cool_down(stop, say: Callable[[str], object] = lambda text: None, read=None, clock=time.monotonic,
+              into: Optional[dict] = None) -> str:
+    """Before a test: while the CPU is above HOT_CPU_C or the GPU above HOT_GPU_C, wait (at most COOL_MAX_SECONDS),
+    saying so through say. stop: an Event (wait/is_set; the Stop and Skip buttons end the wait). Nothing is changed
+    in Windows. Returns what happened, "" when there was no wait (no reading: no wait); into: a timed_check() dict,
+    whose items get a "Cooling wait" row for the report."""
+    read = read or _read_temperatures
+
+    def lowest(first: dict) -> Optional[dict]:
+        low = dict(first)
+        for _ in range(COOL_READS - 1):
+            if stop.wait(COOL_EVERY):
+                return None
+            try:
+                now = _hot_parts(read())
+            except Exception:
+                now = {}
+            low = {k: min(v, now.get(k, v)) for k, v in low.items()}
+        return low
+
+    def hot(temps: dict) -> dict:
+        return {k: v for k, v in temps.items() if v > (HOT_CPU_C if k == "CPU" else HOT_GPU_C)}
+
+    try:
+        temps = _hot_parts(read())
+    except Exception:
+        return ""
+    if not hot(temps):              # one reading under the limits is enough: a jump only reads hotter
+        return ""
+    start, began = clock(), None
+    while True:
+        temps = lowest(temps)
+        if temps is None:
+            return ""               # stopped or skipped
+        began = began or temps
+        waited = clock() - start
+        if not hot(temps) and waited < COOL_EVERY * COOL_READS + 1:
+            return ""               # it was one hot reading, not a hot PC
+        shown = ", ".join(f"{k} {v:.0f} C" for k, v in temps.items())
+        if not hot(temps) or waited >= COOL_MAX_SECONDS:
+            from app.report_set import duration_text
+            cooled = not hot(temps)
+            text = (f"waited {duration_text(waited)} for the PC to cool: "
+                    + ", ".join(f"{k} {began[k]:.0f} -> {v:.0f} C" for k, v in temps.items() if k in began)
+                    + ("" if cooled else f"; still above {HOT_CPU_C:g} C CPU / {HOT_GPU_C:g} C GPU, went on"))
+            say(text[0].upper() + text[1:])
+            if into is not None:
+                into.setdefault("items", []).append(_item("Cooling wait", text, cooled,
+                                                          "the PC was still hot when the test started"))
+            return text
+        say(f"Cooling: {shown}, waiting until under {HOT_CPU_C:g} C CPU / {HOT_GPU_C:g} C GPU "
+            f"({COOL_MAX_SECONDS - waited:.0f} s left at most)")
+        try:
+            temps = _hot_parts(read())
+        except Exception:
+            temps = {}
+        if not temps:
+            return ""
 
 
 def temperature_item(read=None) -> Optional[dict]:

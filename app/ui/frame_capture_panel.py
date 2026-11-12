@@ -217,8 +217,9 @@ class GameBenchmarkWorker(QThread):
 
     def __init__(self, spec, run_dir: Path, create_session: Callable, db, output_root: Path,
                  telemetry: Optional[Callable] = None, benchmark_factory: Optional[Callable] = None,
-                 forced=None, saves=None):
+                 forced=None, saves=None, cool: Optional[Callable] = None):
         super().__init__()
+        self.cool = cool                        # before the game starts: wait while the PC is hot (trust fix 3b)
         self.saves = saves                      # app.games.save_guard.SaveGuard, or None
         self.forced = forced                    # app.games.settings_file.ForcedSettings, or None
         import threading
@@ -249,6 +250,15 @@ class GameBenchmarkWorker(QThread):
         from app.automation.runner import AutomationRunner
         from app.frames.game_benchmark import GameBenchmark, plan_for
         try:
+            if self.cool is not None:
+                try:
+                    self.cool(self.stop_event, self.progress.emit)
+                except Exception:               # a wait that fails must never stop a test
+                    logger.exception("Cooling wait not possible")
+                if self.stop_event.is_set():
+                    self.finished_plan.emit("stopped: stopped while waiting for the PC to cool; the game was not "
+                                            "started")
+                    return
             if self.forced is not None:
                 self.progress.emit("Writing the forced game settings...")
                 try:
@@ -1043,7 +1053,8 @@ class FrameCapturePanel(QGroupBox):
             return self._create_game_session(spec, profile, environment, capture, forced, declared, now)
         self.worker = GameBenchmarkWorker(spec, run_dir, create_session, self.db, self.output_root,
                                           telemetry_sources.new_sampler if self.telemetry_box.isChecked() else None,
-                                          self.benchmark_factory, forced, saves)
+                                          self.benchmark_factory, forced, saves,
+                                          cool=lambda stop, say: pc_now.cool_down(stop, say, into=now))
         self.last_session_id, self.last_summary = None, None
         self.worker.progress.connect(self._on_progress)
         self.worker.finished_plan.connect(self._on_finished)

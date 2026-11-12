@@ -132,8 +132,9 @@ class AutomationRunner:
                  interrupted: Optional[Tuple[str, int, bool]] = None, stamp: Optional[str] = None,
                  on_step: Optional[Callable[[int, int, str], None]] = None,
                  screen_locked: Optional[Callable[[], Optional[bool]]] = None,
-                 keep_awake: Optional[Callable] = None):
+                 keep_awake: Optional[Callable] = None, cool: Optional[Callable] = None):
         self.db = db
+        self.cool = cool                    # conditions.cool_down: before each test's first run (trust fix 3b)
         self.screen_locked = screen_locked or awake.screen_locked
         self.keep_awake = keep_awake or awake.keep_awake
         self.on_step = on_step or (lambda done, total, text: None)   # runs finished, runs planned, now doing
@@ -444,6 +445,17 @@ class AutomationRunner:
                     summary.stopped = True
                     summary.not_started = len(schedule) - position
                     break
+            cooled = ""
+            if self.cool is not None and not any(s[0].workload.id == item.workload.id for s in schedule[:position]):
+                try:
+                    cooled = self.cool(either, lambda text: (self.on_progress(text),
+                                                             self.on_step(position, total, text)))
+                except Exception as e:      # a wait that fails must never stop a test
+                    self.on_progress(f"cooling wait not possible: {e}")
+                if self.stop_event.is_set():
+                    summary.stopped = True
+                    summary.not_started = len(schedule) - position
+                    break
             if self.skip_target is not None and not any(s[0].workload.id == self.skip_target
                                                         for s in schedule[position:]):
                 self.skip_target = None             # that test was over already: nothing to skip
@@ -498,7 +510,8 @@ class AutomationRunner:
                 self.session_id, wl.id, wl.benchmark_type, result.score, unit=result.unit or "points",
                 benchmark_version=wl.version(), is_test=wl.is_test, is_manual=False,
                 status=result.status, is_warmup=is_warmup, run_index=run_index,
-                note="; ".join(p for p in (why, result.error or result.note) if p) or None,
+                note="; ".join(p for p in (why, result.error or result.note, cooled and f"Before it: {cooled}")
+                               if p) or None,
                 duration_seconds=result.duration_seconds)
             if result.status == "completed" and (result.metrics or telemetry_metrics):
                 self._store_metrics(record.result_id, {**telemetry_metrics, **(result.metrics or {})})

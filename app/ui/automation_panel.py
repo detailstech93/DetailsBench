@@ -48,6 +48,11 @@ TELEMETRY_TIP = ("Every second during each run: CPU load and memory (psutil), NV
                  "recorded as 0. Saved as telemetry.csv in each run folder.")
 
 
+def _cool(stop, say):
+    from app.environment.conditions import cool_down
+    return cool_down(stop, say)
+
+
 class AutomationWorker(QThread):
     progress = Signal(str)
     step = Signal(int, int, str)                # runs finished, runs planned, what is happening
@@ -63,7 +68,7 @@ class AutomationWorker(QThread):
             db, session_id, plan, output_root, cooldown_seconds=cooldown_seconds,
             stop_event=self.stop_event, on_progress=self.progress.emit,
             screenshot=self._screenshot if take_screenshots else None, telemetry=telemetry,
-            on_step=self.step.emit, **resume)
+            on_step=self.step.emit, cool=_cool, **resume)
 
     def stop(self):
         self.stop_event.set()
