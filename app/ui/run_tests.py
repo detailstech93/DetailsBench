@@ -417,6 +417,18 @@ def write_report(db, session_id: int, folder: Path, only: Optional[str] = None, 
     return write_report_set(build_session_export(db, session_id), folder, only, at)
 
 
+def run_again_note(db, session_id) -> str:
+    """The "Run again: other programs were using the CPU" line for the end of a test (Tests screen, phone)."""
+    try:
+        from app.export import build_session_export
+        from app.report_set import run_again_text
+        text = run_again_text(build_session_export(db, session_id))
+    except Exception:
+        logger.exception("Could not check the runs for other programs")
+        return ""
+    return f" {text}" if text else ""
+
+
 def open_report(path: Path) -> bool:
     """Open the HTML file in the default browser (on Windows the file's own handler, as a double-click does)."""
     if sys.platform == "win32":
@@ -1003,7 +1015,7 @@ def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_re
             result["final"] = (done, total, f"{first} The report could not be written: {e}")
             window.status_label.setText(f"Session #{session_id} done; the report could not be written: {e}")
             return None
-        result["final"] = (done, total, f"{first} Report opened: {path.name}")
+        result["final"] = (done, total, f"{first} Report opened: {path.name}{run_again_note(window.db, session_id)}")
         window.last_report_path = path
         window.status_label.setText(f"Session #{session_id} done. Report: {path}")
         window.tests_page.offer_report(lambda: opener(path))
@@ -1169,6 +1181,12 @@ def game_report(window, session_id: Optional[int], summary, opener=None) -> Opti
     opener = opener or open_report
     window.last_report_path = path
     window.status_label.setText(f"Session #{session_id} done. Report: {path}")
+    note = run_again_note(window.db, session_id)
+    frame = getattr(window, "frame_panel", None)
+    if note and frame is not None:                  # the game's last line on the Tests screen and the phone
+        frame.status_label.setText(frame.status_label.text() + note)
+        if getattr(window.tests_page, "get_state", None) is not None:
+            window.tests_page.refresh_progress()
     window.tests_page.offer_report(lambda: opener(path))
     opener(path)
     return path

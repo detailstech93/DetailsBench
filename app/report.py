@@ -1028,7 +1028,13 @@ def _header_section(export: Mapping) -> str:
     if _truthy(session.get("is_test")):
         parts.append('<p class="badge test">TEST DATA - not real results</p>')
 
-    from app.report_set import skipped_note
+    from app.report_set import busy_runs, skipped_note
+    titles = _game_titles(export)
+    for name in _tested_names(export):        # seen at once, above the numbers (owner, 2026-11-12)
+        busy = busy_runs(export, name)
+        if busy:
+            parts.append(f'<p class="badge again">Run again: other programs were using the CPU during '
+                         f'{esc(_label(name, _emulated(export), titles))}: {esc("; ".join(busy))}</p>')
     for name in _tested_names(export):        # the Skip button: how far the test got (owner, 2026-10-20)
         note = skipped_note([_mapping(r) or {} for r in export.get("runs") or []
                              if (_mapping(r) or {}).get("benchmark_name") == name])
@@ -1534,6 +1540,7 @@ def _style_block() -> str:
         "color:var(--test);"
         "border:1px solid var(--test);"
         "}"
+        ".badge.again{display:block;border-radius:8px;color:#fff;background:#b45309;font-size:1rem;}"
         ".badge.manual{"
         "color:var(--manual);"
         "border:1px solid var(--manual);"
@@ -1606,8 +1613,14 @@ def render_summary_report(export: Mapping, outcomes: list) -> str:
                  '<span class="good-text">Passed</span>' if o.get("passed") else '<span class="bad-text">FAILED</span>')
         link = f'<a href="{esc(o.get("file"))}">{esc(o.get("title"))}</a>' if o.get("file") else esc(o.get("title"))
         details = f'<div class="muted">{esc(o.get("details"))}</div>' if o.get("details") else ""
+        if o.get("busy"):
+            state += '<div class="uneven">Run again</div>'
+            details += f'<div class="uneven">Other programs were using the CPU: {esc("; ".join(o["busy"]))}</div>'
         rows.append(f"<tr><td>{link}</td><td>{state}</td><td>{esc(o.get('result'))}{details}</td>"
                     f"<td>{esc(o.get('runs'))}</td><td>{esc(o.get('time'))}</td></tr>")
+    again = [o.get("title") for o in outcomes if o.get("busy")]
+    again = (f'<p class="badge again">Run again (other programs were using the CPU): {esc(" · ".join(again))}</p>'
+             if again else "")
     passed = sum(1 for o in outcomes if o.get("passed"))
     skipped = sum(1 for o in outcomes if o.get("skipped"))
     seconds = sum(o["seconds"] for o in outcomes if isinstance(o.get("seconds"), (int, float)))
@@ -1630,7 +1643,7 @@ def render_summary_report(export: Mapping, outcomes: list) -> str:
         + '<section class="header"><h1 dir="auto" class="tested">Summary of the run: '
           f"{len(outcomes)} tests</h1><p class=\"session\" dir=\"auto\">"
           f"{_session_name(export_mapping.get('session'))} · started "
-          f"{_text((_mapping(export_mapping.get('session')) or {}).get('created_at'), '-')}</p></section>"
+          f"{_text((_mapping(export_mapping.get('session')) or {}).get('created_at'), '-')}</p>" + again + "</section>"
         + _environment_section(export_mapping)
         + _conditions_section(export_mapping)
         + "<section><h2>Tests in this run</h2>" + tiles

@@ -123,6 +123,37 @@ def skipped_note(runs) -> str:
                  and str(r.get("note") or "").startswith(SKIPPED_BY_USER)), "")
 
 
+# a run where programs that are not the test used this share of the whole CPU on average: run it again. An estimate
+# (owner, 2026-11-12, to check on the next line): idle is 0.3-1.7%; the low BL3/SOTTR runs had 12-24 points more load
+BUSY_PERCENT = 5.0
+OTHER = "tel_cpu_other_"
+
+
+def busy_runs(export: Mapping, name: str) -> List[str]:
+    """Each measured run of the test where other programs kept the CPU busy: "run 2: 12% (chrome.exe 9%)"."""
+    out = []
+    for r in export.get("runs") or []:
+        if r.get("benchmark_name") != name or r.get("is_warmup"):
+            continue
+        m = r.get("metrics") or {}
+        share = (m.get("tel_cpu_other_avg") or {}).get("value")
+        if not isinstance(share, (int, float)) or share < BUSY_PERCENT:
+            continue
+        named = sorted(((k[len(OTHER):-len("_avg")], v.get("value")) for k, v in m.items()
+                        if k.startswith(OTHER) and k.endswith("_avg") and k != "tel_cpu_other_avg"
+                        and isinstance(v.get("value"), (int, float))), key=lambda p: -p[1])[:3]
+        which = ", ".join(f"{n} {v:.0f}%" for n, v in named)
+        out.append(f"run {r.get('run_index')}: {share:.0f}%" + (f" ({which})" if which else ""))
+    return out
+
+
+def run_again_text(export: Mapping) -> str:
+    """One line for the app and the phone when a test of this session needs running again, else ""."""
+    titles = display_names(export)
+    busy = [f"{titles.get(n, n)} ({'; '.join(b)})" for n in tested_names(export) for b in [busy_runs(export, n)] if b]
+    return ("Run again: other programs were using the CPU: " + " · ".join(busy)) if busy else ""
+
+
 def test_outcome(export: Mapping, name: str) -> dict:
     """How one test went: runs, a short result, passed, skipped (Skip button) or not, and the time it took."""
     runs = [r for r in export.get("runs") or [] if r.get("benchmark_name") == name]
@@ -155,7 +186,8 @@ def test_outcome(export: Mapping, name: str) -> dict:
         f", {warmups} warm-up" if warmups else "")
     return {"name": name, "passed": bool(done) and not skipped, "skipped": skipped, "result": result, "runs": count,
             "details": key_numbers(export, name) if done else "",
-            "seconds": sum(times) if times else None, "time": duration_text(sum(times) if times else None)}
+            "seconds": sum(times) if times else None, "time": duration_text(sum(times) if times else None),
+            "busy": busy_runs(export, name)}
 
 
 def write_report_set(export: Mapping, root: Path, only: Optional[str] = None, at: Optional[str] = None) -> Path:

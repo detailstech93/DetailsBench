@@ -215,9 +215,10 @@ def test_psutil_linux_temperature_and_clock():
 
 
 def test_default_sources_per_platform():
-    assert [s.name for s in default_sources("win32")] == ["psutil", "nvidia-smi", "GPU memory", "LibreHardwareMonitor"]
+    assert [s.name for s in default_sources("win32")] == ["psutil", "nvidia-smi", "GPU memory", "other programs",
+                                                          "LibreHardwareMonitor"]
     assert [s.name for s in default_sources("linux")] == ["thermal zones", "psutil", "nvidia-smi", "GPU memory",
-                                                          "RAPL"]
+                                                          "other programs", "RAPL"]
 
 
 def test_thermal_zones_give_cpu_and_gpu_temperature_and_the_gpu_clock():
