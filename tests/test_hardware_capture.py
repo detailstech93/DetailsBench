@@ -145,7 +145,8 @@ def test_windows_capture_reads_the_drive_letter(tmp_path, no_nvidia):
         return SimpleNamespace(returncode=0, stdout=json.dumps(WIN), stderr="")
     hw = hardware.capture(tmp_path, platform_name="win32", run=run)
     assert isinstance(seen["cmd"], list) and seen["timeout"]
-    assert f"-DriveLetter '{str(tmp_path.resolve())[0].upper()}'" in seen["cmd"][-1]
+    first = str(tmp_path.resolve())[0].upper()
+    assert f"-DriveLetter '{first if first.isalpha() else 'C'}'" in seen["cmd"][-1]     # Linux /tmp: C
     assert hardware.app_data_drive(hw)["model"] == "FORESEE XP2300F002T"
 
 
