@@ -108,10 +108,27 @@ def build_packages(export: Mapping, read_ai_run: Callable[[str], Optional[dict]]
         if not attr["library"]:
             left.append((test_id, attr["why_not"]))
             continue
+        name = _display_name(manifest, test_id)
+        group_of = settings
+        if group == "game":
+            from app.library import games
+            if str(session.get("created_at") or "").replace(" ", "T") < games.FROM:
+                left.append((test_id, "a game measured before its numbers were checked against the game's own "
+                                      f"(the library takes games from {games.FROM.replace('T', ' ')} on)"))
+                continue
+            g = games.game_settings(name, note, "whole benchmark" in (note or "") or test_id.endswith("_benchmark"))
+            if g is None:
+                left.append((test_id, "not a built-in benchmark of a game the library takes, or its resolution or "
+                                      "preset was not recorded"))
+                continue
+            settings["game"] = g
+            name = games.group_name(name, g)
+            group_of = {"game": [g[k] for k in ("game", "build", "resolution", "level")],
+                        "version": settings.get("version")}
         stats = (summary or {}).get("stats") or {}
         cv = stats.get("cv_percent")
         units = {r.get("unit") for r in measured}
-        fingerprint = hashlib.sha256(json.dumps({"test": test_id, **settings}, sort_keys=True,
+        fingerprint = hashlib.sha256(json.dumps({"test": test_id, **group_of}, sort_keys=True,
                                                 default=str).encode()).hexdigest()[:16]
         pkg = {
             "format": FORMAT, "format_version": FORMAT_VERSION, "readable_by": READABLE_BY,
@@ -121,7 +138,7 @@ def build_packages(export: Mapping, read_ai_run: Callable[[str], Optional[dict]]
             "pc": {"unit_id": hw["unit_id"], "device": hw.get("device"), "os": hw.get("os"),
                    "system_key": (system_part(hw) or {}).get("part_key")},
             "session": {k: session.get(k) for k in ("id", "name", "created_at")},
-            "test": {"id": test_id, "name": _display_name(manifest, test_id), "group": group, "version": measured[0].get("benchmark_version"),
+            "test": {"id": test_id, "name": name, "group": group, "version": measured[0].get("benchmark_version"),
                      "unit": units.pop() if len(units) == 1 else None, "settings": settings,
                      "fingerprint": fingerprint},
             "attribution": attr,

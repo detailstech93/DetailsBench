@@ -13,7 +13,7 @@ import re
 from datetime import datetime
 from typing import Dict, List, Mapping, Optional
 
-from app.library import view
+from app.library import games, view
 
 LOWER_IS_BETTER = {"s", "sec", "seconds", "ms", "min", "minutes"}       # time to finish: less is faster
 SKIP_KINDS = {"info", "stress"}                                          # text and load checks: no score to line up
@@ -72,7 +72,10 @@ def os_family(pkg: Mapping) -> str:
 
 def _test_key(pkg: Mapping) -> tuple:
     a = pkg["attribution"]
-    return (a.get("test_id") or pkg["test"]["id"], os_family(pkg), pkg["test"].get("unit") or "")
+    test = a.get("test_id") or pkg["test"]["id"]
+    if games.of(pkg):                   # the game + build + resolution + preset level
+        test = f"{test}@{pkg['test'].get('fingerprint')}"
+    return (test, os_family(pkg), pkg["test"].get("unit") or "")
 
 
 def _test_name(pkg: Mapping) -> str:
@@ -100,9 +103,12 @@ def device_kind(pkg: Mapping) -> str:
     return (pkg["pc"].get("device") or {}).get("kind") or ""
 
 
-def filtered(results: List[Mapping], os: str = "", kind: Optional[str] = None) -> List[Mapping]:
-    """Only one OS family ('' = all) and one kind of device (None = all, '' = not recorded)."""
-    return [p for p in results if (not os or os_family(p) == os) and (kind is None or device_kind(p) == kind)]
+def filtered(results: List[Mapping], os: str = "", kind: Optional[str] = None, rt: str = "",
+             upscaling: str = "") -> List[Mapping]:
+    """Only one OS family ('' = all) and one kind of device (None = all, '' = not recorded); games: ray tracing
+    and upscaling ('' any, 'on', 'off')."""
+    return [p for p in results if (not os or os_family(p) == os) and (kind is None or device_kind(p) == kind)
+            and games.passes(p, rt, upscaling)]
 
 
 def _chosen(pkgs: List[Mapping], with_os: bool = True) -> Dict[tuple, Mapping]:
@@ -227,7 +233,8 @@ def _rows(parts: List[dict], chosen: Mapping[str, Mapping[tuple, Mapping]]) -> L
             r = p["result"]
             cells.append({"mean": mean, "text": view._number(mean), "diff": diff, "runs": r.get("runs"),
                           "accuracy": r.get("accuracy") or "", "software": view.software(p),
-                          "variant": p["attribution"].get("variant") or "",
+                          "variant": "; ".join(x for x in (p["attribution"].get("variant"), games.options_text(p))
+                                             if x),
                           "date": (p["session"].get("created_at") or p.get("created_at") or "")[:10],
                           "package_id": p["package_id"]})
             if r.get("runs") == 1 or "low confidence" in (r.get("accuracy") or ""):

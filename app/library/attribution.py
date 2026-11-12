@@ -22,7 +22,7 @@ from typing import List, Mapping, Optional
 from data.test_catalog import GROUP_PARTS, TEST_PARTS
 
 STRESS_PARTS = {"stress_cpu": "cpu", "stress_gpu": "gpu", "stress_cpu_gpu": "system"}
-GAMES_READY = False             # owner, 2026-10-24: game results join the library once the Games section is ready
+GAMES_READY = True              # owner, 2026-11-12: the five games' built-in benchmarks (app/library/games.py)
 GPU_BACKEND = re.compile(r"cuda|vulkan|rocm|hip|metal|opencl|sycl|directml|\bdml\b", re.I)
 NOISE = re.compile(r"\((?:R|TM|C)\)|\bCPU\b|\bProcessor\b|@\s*[\d.]+\s*GHz|\d+-Core", re.I)
 

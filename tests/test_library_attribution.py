@@ -83,9 +83,9 @@ def test_web_test_keeps_the_browser():
     assert b["context"]["browser"] is None and not b["ranked"]
 
 
-def test_games_wait_for_the_games_section():
+def test_games_are_filed_with_the_gpu():
     a = at.attribute("cyberpunk2077_builtin_benchmark", "game", LAPTOP)
-    assert a["part"] == "gpu" and not a["library"] and "Games section" in a["why_not"]
+    assert a["part"] == "gpu" and a["library"]
     assert [x["part"] for x in a["linked"]] == ["cpu"]
 
 

@@ -58,7 +58,7 @@ def test_one_package_per_finished_test():
     assert p["attribution"]["part"] == "cpu" and p["result"]["metrics"] == {"monster": {"mean": 50.0}}
     assert pk.check(p) is None
     why = dict(left)
-    assert "Games section" in why["cyberpunk2077_builtin_benchmark"] and "stress_cpu" not in why
+    assert "before its numbers were checked" in why["cyberpunk2077_builtin_benchmark"] and "stress_cpu" not in why
     assert why["vray_benchmark"] == "no measured run"            # a failure is never a score
 
 

@@ -94,7 +94,15 @@ class LibraryTab(QWidget):
         self.kind_filter = QComboBox()
         self.kind_filter.addItem("All devices", None)
         self.kind_filter.currentIndexChanged.connect(lambda _: self.load())
-        for w in (self.os_filter, self.kind_filter):
+        self.rt_filter, self.up_filter = QComboBox(), QComboBox()       # games (owner, 2026-11-12)
+        for box, choices in ((self.rt_filter, (("Games: any ray tracing", ""), ("Ray tracing on", "on"),
+                                               ("Ray tracing off", "off"))),
+                             (self.up_filter, (("Games: any upscaling", ""), ("Upscaler or frame gen on", "on"),
+                                               ("Native (no upscaler, no frame gen)", "off")))):
+            for text, value in choices:
+                box.addItem(text, value)
+            box.currentIndexChanged.connect(lambda _: self.load())
+        for w in (self.os_filter, self.kind_filter, self.rt_filter, self.up_filter):
             filters.addWidget(w)
         filters.addStretch()
         layout.addLayout(filters)
@@ -285,7 +293,8 @@ class LibraryTab(QWidget):
             self.all_results, self.names = [], {}
         self._kinds()
         self.results = compare.filtered(self.all_results, self.os_filter.currentData() or "",
-                                        self.kind_filter.currentData())
+                                        self.kind_filter.currentData(), self.rt_filter.currentData() or "",
+                                        self.up_filter.currentData() or "")
         self._rank_tests()
         current = self._current_key()
         selected = {p["key"] for p in self._selected_parts()}

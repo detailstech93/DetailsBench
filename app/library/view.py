@@ -4,6 +4,8 @@ with their driver, accuracy and the PC they ran on. Pure, so the screen only lay
 import re
 from typing import Dict, List, Mapping, Optional
 
+from app.library import games
+
 KINDS = (("system", "Devices"), ("cpu", "Processors"), ("gpu", "Graphics cards"), ("memory", "Memory"),
          ("storage", "Storage"))
 CONTEXT_KEYS = (("driver", "Driver"), ("firmware", "Firmware"), ("browser", "Browser"), ("ai_runtime", "AI runtime"),
@@ -130,7 +132,7 @@ def rows(results: List[Mapping], part_key: str, names: Optional[Mapping[str, str
                     "result": (r.get("text") or "-") if a.get("kind") == "info" else stress_text(p) if stress
                     else f"{_number(r.get('mean'))} {p['test'].get('unit') or ''}".strip(),
                     "accuracy": "" if stress else r.get("accuracy") or "", "software": software(p),
-                    "variant": a.get("variant") or "",
+                    "variant": "; ".join(x for x in (a.get("variant"), games.options_text(p)) if x),
                     "pc": pc_name(p, names, devices),
                     "date": (p["session"].get("created_at") or p.get("created_at") or "")[:16].replace("T", " "),
                     "notes": ", ".join(flags), "stress": stress,
