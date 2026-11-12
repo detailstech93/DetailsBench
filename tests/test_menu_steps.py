@@ -577,6 +577,32 @@ def test_a_run_recorded_only_from_after_its_benchmark_started_is_invalid(tmp_pat
     assert bad.score is None and "after its benchmark started" in bad.error and "not stored" in bad.error
 
 
+def test_a_run_measured_over_part_of_its_benchmark_is_invalid(tmp_path, monkeypatch):
+    """BL3, 2026-11-11 15:41: a 7.5 s frame 83 s into run 3's benchmark was taken for the fade back to its menu
+    (loading_bounds cut the window there) and the run was stored with 75 of its 110 s."""
+    from app.frames.game_benchmark import GameBenchmark as GB
+    whole, calls = GB._marked_windows, []
+
+    def cut(self, frametimes, windows, mark_shift):          # the second run's window ends early, as BL3's did
+        out = whole(self, frametimes, windows, mark_shift)
+        calls.append(1)
+        return [(a, a + 40.0) for a, b in out] if len(calls) == 2 else out
+
+    monkeypatch.setattr(GB, "_marked_windows", cut)
+    fakes = PassFakes(tmp_path)
+    desk = SimpleNamespace(foreground_pid=lambda: 100 + fakes.run)
+    s = spec(install_path=str(fakes.install), steps=[{"see": "stop", "within": 60, "mark": True}],
+             benchmark_seconds=60)
+    cap = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=False, elevated_runner=fakes.elevated,
+                        launcher=fakes.launcher, snapshot=lambda: [], clock=fakes.clock, sleep=fakes.sleep,
+                        folder_procs=fakes.folder_procs, closer=fakes.closer, desktop=desk,
+                        exe_lister=lambda folder: ["Game.exe"],
+                        step_player=lambda st: FakeSteps(fakes, mark_after=30)).run()
+    assert [w.result.status for w in cap.windows] == ["completed", "invalid", "completed"], cap.message
+    bad = cap.windows[1].result
+    assert bad.score is None and "only 40 s of the benchmark's 60 s" in bad.error and "not stored" in bad.error
+
+
 def test_a_run_whose_results_screen_never_shows_is_invalid(tmp_path):
     """SOTTR, 2026-11-11: a "Content is currently installing" box ended the warm-up's benchmark after 55 s; the menu
     behind it ran at 550 FPS for the rest of the measured time and the run would have been a score."""
@@ -693,7 +719,7 @@ def test_bl3_whole_benchmark_is_measured_between_its_loads_and_closed_after_its_
         def elevated(self, exe, args, cwd, timeout, halt, on_started=None):
             on_started()
             halt.wait(10)
-            rows = (["Game.exe,100,10.0"] * 3000 + ["Game.exe,100,250.0"] + ["Game.exe,100,20.0"] * 5000
+            rows = (["Game.exe,100,10.0"] * 3000 + ["Game.exe,100,250.0"] + ["Game.exe,100,20.0"] * 5700     # 114 s, as BL3's
                     + ["Game.exe,100,6800.0"] + ["Game.exe,100,3.0"] * 2000)
             with open(args[args.index("--output_file") + 1], "w", encoding="utf-8") as f:
                 f.write("Application,ProcessID,MsBetweenPresents\n" + "\n".join(rows) + "\n")
@@ -702,7 +728,7 @@ def test_bl3_whole_benchmark_is_measured_between_its_loads_and_closed_after_its_
     fakes = Bl3Fakes(tmp_path)
     steps = FakeSteps(fakes, mark_after=25)                 # its Start click, 5 s before its load
     steps.result_shot = str(tmp_path / "benchmark_result.png")
-    steps.done = SimpleNamespace(is_set=lambda: fakes.now[0] >= steps.t + 150)
+    steps.done = SimpleNamespace(is_set=lambda: fakes.now[0] >= steps.t + 164)
     s = spec(app_id="397540", install_path=str(fakes.install), warmup_runs=0, repetitions=1,
              steps=[{"see": "start", "within": 60, "mark": True}, {"see": "start", "within": 9, "shot": "x"}],
              benchmark_seconds=110)
@@ -715,7 +741,7 @@ def test_bl3_whole_benchmark_is_measured_between_its_loads_and_closed_after_its_
     assert w.status == "completed", w.error
     assert abs(w.score - 50.0) < 0.01                       # the benchmark's 20 ms frames only
     assert abs(w.metrics["window_start_s"][0] - (30.25 + 5)) < 0.01
-    assert abs(w.metrics["duration_seconds"][0] - (100.0 - 5 - 3)) < 0.1
+    assert abs(w.metrics["duration_seconds"][0] - (114.0 - 5 - 3)) < 0.1
     assert f"Proof screenshot: {steps.result_shot}" in w.note
     assert fakes.now[0] < steps.t + 200                     # closed after its results page, not the whole wait
 

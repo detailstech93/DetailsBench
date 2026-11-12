@@ -67,6 +67,9 @@ CLOSE_SECONDS = 60.0              # closing a game: politely, by force after 30 
 PASS_GAP_SECONDS = 10.0           # between two runs of a whole benchmark: Steam sees the game closed first
 MENUS_MISSED = "the app did not reach the game's benchmark"
 LATE_SECONDS = 1.0                # a recording that begins this long after the benchmark's start is not the whole of it
+# a run measured over less than this share of its benchmark is not the whole of it: the owner's whole runs had
+# 97.7-100% (BL3 107.4-110 of 110 s), the bad ones 68% (BL3, a long frame mid-benchmark taken for its end) and 93%
+WHOLE_SHARE = 0.95
 
 
 def steps_bound_seconds(steps) -> int:
@@ -888,6 +891,12 @@ class GameBenchmark:
                         f"PresentMon has this run's frames only from {-mark:.0f} s after its benchmark started "
                         f"({recorded:.0f} s recorded), so the benchmark was not measured whole (the frames it has "
                         f"measured {result.score:.1f} FPS; not stored)"))
+                # BL3, 2026-11-11 15:41: a 7.5 s frame 83 s into its benchmark was taken for the fade to the menu
+                # (loading_bounds) and the run was stored with 75 of its 110 s
+                if result.status == "completed" and b - a < WHOLE_SHARE * float(spec.benchmark_seconds):
+                    result = WorkloadResult(status="invalid", command=command, error=(
+                        f"only {b - a:.0f} s of the benchmark's {spec.benchmark_seconds} s were measured, so it was "
+                        f"not measured whole (the frames measured {result.score:.1f} FPS; not stored)"))
                 self._add_own(result, done["own"])
             out.append(WindowOutcome(is_warmup, run_index, result, samples, frames=list(frames) if frames else []))
         measured = f"{len([p for p in passes if p['t_mark'] is not None])} of {spec.count} runs reached the benchmark"
