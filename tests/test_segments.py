@@ -160,3 +160,20 @@ def test_the_start_click_measures_from_the_load_after_it_to_the_next_one():
     assert loading_bounds(stutter, 5.0)[1] == pytest.approx(10.8 + 90.0 - 3.0)
     assert loading_bounds(stutter, 5.0, min_seconds=95.0)[1] == pytest.approx(10.8 + 100.288 - 3.0)
     assert starts_after_loading(397540) and not starts_after_loading(1174180)
+
+
+def test_fades_between_scenes_are_left_out_and_the_measure_runs_that_much_longer():
+    """RDR2 on a NucBox K10, 2026-11-13: 250 FPS black fades of 5-9 s between 26 FPS scenes made 26 read 42."""
+    from app.frames.segments import scene_frames, split_frames
+    scene, fade = [40.0] * 500, [4.0] * 1500            # 20 s at 25 FPS, 6 s at 250 FPS
+    frames = [40.0] * 250 + scene + fade + scene + fade + scene * 3     # 10 s of menu first
+    plain = split_frames(frames, [(10.0, 60.0)])[0]
+    assert 1000 * len(plain) / sum(plain) > 60          # what was stored
+    kept, cut = scene_frames(frames, 10.0, 60.0)
+    assert cut == 12.0 and set(kept) == {40.0}
+    assert abs(sum(kept) / 1000 - 50.0) < 0.05          # still 50 s of the benchmark
+    # a short fast stretch (under 1 s) is the game's own frames and stays; no fade, nothing changes
+    quick = [40.0] * 500 + [4.0] * 100 + [40.0] * 1000
+    kept, cut = scene_frames(quick, 0.0, 50.0)
+    assert cut == 0.0 and kept.count(4.0) == 100
+    assert scene_frames([40.0] * 100, 0.0, 50.0) == (None, 0.0)         # the capture ended before the window

@@ -893,6 +893,12 @@ class GameBenchmark:
                 settle = MARK_SETTLE_SECONDS if starts_after_loading(spec.app_id) else 0.0    # its load hitches
                 (a, b), = self._marked_windows(frametimes, [(settle, settle + float(spec.benchmark_seconds))], mark)
                 frames = split_frames(frametimes, [(a, b)])[0] if pick else None
+                from data.game_start_keys import scene_fades
+                if frames and scene_fades(spec.app_id):
+                    from app.frames.segments import scene_frames
+                    frames, cut = scene_frames(frametimes, a, b)
+                    if cut:
+                        logger.info("Run %d: %.1f s of fades between scenes left out of the measure", k, cut)
                 start = done["t_mark"] - t_start + (a - mark)
                 samples = slice_samples(tel.samples if tel else [], 0.0, [(start, start + b - a)])[0]
                 result = (self._window_result(frames, a, b, recorded, False, remote, command, done["shot"])

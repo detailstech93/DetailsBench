@@ -46,6 +46,9 @@ GAME_MENU_STEPS: Dict[int, dict] = {
         "after_crash_close": ["RockstarErrorHandler.exe", "Launcher.exe"],
         "benchmark_seconds": 270,       # about 4.5 min from "Stop Benchmarking" to the results (MarkBench)
         "screen_average": True,         # it wrote no results file on 2026-11-12; its screen shows the average
+        # black fades between its five scenes ran at 250 FPS for 5-9 s each on a NucBox K10 (2026-11-13) and made
+        # 26 FPS read 42: they are left out and the measured time runs that much longer
+        "scene_fades": True,
         "verified": True,       # passed real runs with the owner (2026-10/11)
         "note": "Settings, Graphics, hold X on Run Benchmark Test, confirm; measuring starts when "
                 "'Stop Benchmarking' shows. The whole benchmark takes about 4.5 min.",
@@ -195,6 +198,11 @@ def screen_average(app_id) -> bool:
 def starts_after_loading(app_id) -> bool:
     """Measuring runs from the loading frame before the marked step to the next one (Borderlands 3)."""
     return _menu_entry(app_id).get("starts_after_loading") is True
+
+
+def scene_fades(app_id) -> bool:
+    """Its benchmark has fast fades between scenes that are not part of the measure (Red Dead Redemption 2)."""
+    return _menu_entry(app_id).get("scene_fades") is True
 
 
 def after_crash_close(app_id) -> list:

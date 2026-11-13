@@ -73,6 +73,50 @@ def slice_samples(
     return result
 
 
+FADE_SPEED = 3.0       # frames this many times shorter than the scenes' own are a fade between scenes
+FADE_SECONDS = 1.0     # a faster stretch shorter than this stays (a look at the sky)
+
+
+def scene_frames(frametimes_ms: List[float], a: float, b: float) -> Tuple[Optional[List[float]], float]:
+    """The first b - a seconds of frames after `a` that are not a fade between scenes, and the seconds left out.
+
+    RDR2 on a NucBox K10 (Intel UHD, 2026-11-13): the black fades between its five scenes ran at 250 FPS for
+    5-9 s each, the scenes at 26; 270 s from the mark gave 42 FPS where the game's own average was 26.3.
+    shortcut: a fade under 3x the scenes' speed is not told from a scene (a fast GPU, where fades last 1-2 s);
+    upgrade to the game's own scene marks if it ever gives them.
+    """
+    window = split_frames(frametimes_ms, [(a, b)])[0]
+    if not window:
+        return window, 0.0
+    half, run, typical = sum(window) / 2.0, 0.0, 0.0
+    for typical in sorted(window):          # the frame time half of the window's time is spent under
+        run += typical
+        if run >= half:
+            break
+    limit, want_ms = typical / FADE_SPEED, (b - a) * 1000.0
+    kept: List[float] = []
+    fade: List[float] = []
+    kept_ms = dropped_ms = at_ms = 0.0
+    for ms in frametimes_ms:
+        at_ms += ms
+        if at_ms <= a * 1000.0:
+            continue
+        if ms < limit:
+            fade.append(ms)
+            continue
+        if sum(fade) >= FADE_SECONDS * 1000.0:
+            dropped_ms += sum(fade)
+        else:
+            kept += fade
+            kept_ms += sum(fade)
+        fade = []
+        kept.append(ms)
+        kept_ms += ms
+        if kept_ms >= want_ms:
+            break
+    return kept, dropped_ms / 1000.0
+
+
 def pick_game_process(summary: List[dict], exe_names) -> Optional[Tuple[str, Optional[int]]]:
     if exe_names is None:
         return None

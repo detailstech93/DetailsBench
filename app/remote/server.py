@@ -378,6 +378,8 @@ def _handler(server: "RemoteServer"):
                     self._json(400, {"error": why})
                     return
                 ok, text = server.api.start(**request)
+                if not ok:      # owner, 2026-11-14: Start tapped three times on the phone, nothing in the log said why
+                    logger.info("Start from the remote page refused: %s", text)
                 self._json(200 if ok else 409, {"ok": ok, "text": text})
             except Exception as e:
                 logger.exception("Remote request failed")
