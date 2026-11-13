@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFileDia
                                QLabel, QPushButton, QSplitter, QTabWidget, QTreeWidget,
                                QTreeWidgetItem, QVBoxLayout, QWidget)
 
-from app.library import compare, store, sync, view
+from app.library import compare, games, store, sync, view
 from app.library.index import LibraryIndex
 
 logger = logging.getLogger(__name__)
@@ -292,7 +292,7 @@ class LibraryTab(QWidget):
             logger.exception("Results library: index not read")
             self.all_results, self.names = [], {}
         self._kinds()
-        self.results = compare.filtered(self.all_results, self.os_filter.currentData() or "",
+        self.results = compare.filtered(games.with_cpu(self.all_results), self.os_filter.currentData() or "",
                                         self.kind_filter.currentData(), self.rt_filter.currentData() or "",
                                         self.up_filter.currentData() or "")
         self._rank_tests()

@@ -74,7 +74,7 @@ def _test_key(pkg: Mapping) -> tuple:
     a = pkg["attribution"]
     test = a.get("test_id") or pkg["test"]["id"]
     if games.of(pkg):                   # the game + build + resolution + preset level
-        test = f"{test}@{pkg['test'].get('fingerprint')}"
+        test = f"{test}@{pkg['test'].get('fingerprint')}#{a.get('part')}"
     return (test, os_family(pkg), pkg["test"].get("unit") or "")
 
 
@@ -185,7 +185,9 @@ def tests(results: List[Mapping]) -> List[tuple]:
     for p in power(results):
         if _scorable(p):
             key = _test_key(p)
-            out.setdefault(key, f"{_test_name(p)} ({key[1] or 'OS not recorded'})")
+            by = {"cpu": " - processors", "gpu": " - graphics cards"}.get(p["attribution"].get("part"), "") \
+                if games.of(p) else ""
+            out.setdefault(key, f"{_test_name(p)}{by} ({key[1] or 'OS not recorded'})")
     return sorted(out.items(), key=lambda kv: kv[1].lower())
 
 

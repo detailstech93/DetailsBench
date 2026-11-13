@@ -41,6 +41,23 @@ def test_upscaling_and_rt_are_columns_not_other_tests():
         native["test"]["name"].endswith("1920x1080, Max (Ultra), build 2.5")
     assert native["test"]["fingerprint"] == dlss["test"]["fingerprint"]       # one group
     assert compare._test_key(native) == compare._test_key(dlss)
-    assert games.options_text(dlss) == "RT on, upscaler DLSS Quality, frame gen Off"
+    assert games.options_text(dlss).startswith("RT on, upscaler DLSS Quality, frame gen Off")
     both = [native, dlss]
     assert compare.filtered(both, upscaling="off") == [native] and compare.filtered(both, rt="on") == [dlss]
+
+
+def test_a_game_result_is_shown_under_its_cpu_too():
+    """Owner, 2026-11-13: a game compares processors as well as graphics cards."""
+    from app.library import view
+    gpu, = _pkgs("Off", "Off")
+    shown = games.with_cpu([gpu])
+    cpu = shown[1]["attribution"]
+    assert len(shown) == 2 and cpu["part"] == "cpu" and cpu["part_key"] == gpu["attribution"]["linked"][0]["part_key"]
+    assert shown[1]["package_id"] == gpu["package_id"] and gpu["attribution"]["part"] == "gpu"   # original untouched
+    assert f"with {gpu['attribution']['linked'][0]['part_name']}" in games.options_text(gpu)
+    assert f"with {gpu['attribution']['part_name']}" in games.options_text(shown[1])
+    assert [p["key"] for p in view.parts(shown, {})["cpu"]] == [cpu["part_key"]]
+    assert len(view.rows(shown, cpu["part_key"])) == 1
+    labels = [label for _, label in compare.tests(shown)]
+    assert any("- processors" in x for x in labels) and any("- graphics cards" in x for x in labels)
+    assert compare.ranking(shown, compare._test_key(shown[1]))["parts"][0]["key"] == cpu["part_key"]

@@ -98,14 +98,38 @@ def of(pkg: Mapping) -> Optional[dict]:
     return (pkg.get("test", {}).get("settings") or {}).get("game")
 
 
+def paired(pkg: Mapping) -> Optional[str]:
+    """The other part a game result ran with: the CPU on a graphics card's page, the card on a CPU's page."""
+    a = pkg.get("attribution") or {}
+    if a.get("paired"):
+        return a["paired"]
+    return next((x.get("part_name") for x in a.get("linked") or [] if x.get("part") == "cpu"), None)
+
+
 def options_text(pkg: Mapping) -> str:
-    """'RT off, upscaler Off, frame gen Off' next to a game result; '' for any other result."""
+    """'RT off, upscaler Off, frame gen Off, with <the other part>' next to a game result; '' for any other."""
     g = of(pkg)
     if not g:
         return ""
     show = lambda v: v or "not recorded"
+    other = paired(pkg)
     return (f"RT {show(g.get('ray_tracing')).lower()}, upscaler {show(g.get('upscaler'))}, "
-            f"frame gen {show(g.get('frame_gen'))}")
+            f"frame gen {show(g.get('frame_gen'))}" + (f", with {other}" if other else ""))
+
+
+def with_cpu(results):
+    """The results plus each game result again under its CPU (owner, 2026-11-13: a game compares processors as
+    well as graphics cards). The copy keeps the package id; only the library screen uses it."""
+    out = list(results)
+    for p in results:
+        a = p.get("attribution") or {}
+        cpu = next((x for x in a.get("linked") or [] if x.get("part") == "cpu"), None)
+        if of(p) and cpu and a.get("part") == "gpu":
+            out.append(dict(p, attribution=dict(a, part="cpu", part_key=cpu["part_key"],
+                                                 part_name=cpu["part_name"], variant=None,
+                                                 context=dict(cpu.get("context") or {}), linked=[],
+                                                 paired=a.get("variant") or a.get("part_name"))))
+    return out
 
 
 def group_name(name: str, g: Mapping) -> str:
