@@ -210,6 +210,9 @@ class StepPlayer:
                 self.notes.append(f"kept the results screen at {self._at()}")
             if "click" in step:
                 self._click(i, str(step["click"]), float(step.get("stay", 0)))
+                if step.get("mark"):        # marked at its click, not where its word was first read: on a NucBox
+                    self.mark_time = self.clock()       # K10 (2026-11-13) BL3's click came 8 s later, and a menu
+                    self.notes.append(f"marked at the click ({self._at()})")    # stutter between was taken for its load
             if "pick" in step:
                 self._pick(i, step)
         for chord in [c.strip() for c in str(step.get("press", "")).split(",") if c.strip()]:

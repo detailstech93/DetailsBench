@@ -155,4 +155,8 @@ def test_the_start_click_measures_from_the_load_after_it_to_the_next_one():
     assert end == pytest.approx(10.8 + 100.0 - 3.0)
     assert loading_bounds(frames, after_seconds=5.0, within_seconds=4.0) == (None, None)    # no load: no window
     assert loading_bounds([5.0] * 100, 0.3) == (None, None)
+    # NucBox K10, 2026-11-13: a lone stutter before 95 % of the benchmark is not its end; the fade after it is
+    stutter = frames[:1004] + [5.0] * 18000 + [288.0] + [5.0] * 2000 + [220.0] + [3.0] * 1000
+    assert loading_bounds(stutter, 5.0)[1] == pytest.approx(10.8 + 90.0 - 3.0)
+    assert loading_bounds(stutter, 5.0, min_seconds=95.0)[1] == pytest.approx(10.8 + 100.288 - 3.0)
     assert starts_after_loading(397540) and not starts_after_loading(1174180)

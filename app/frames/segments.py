@@ -133,13 +133,13 @@ def next_loading(frametimes_ms: List[float], after_seconds: float) -> Optional[f
 
 
 def loading_bounds(frametimes_ms: List[float], after_seconds: float, end_margin_seconds: float = 3.0,
-                   within_seconds: float = 60.0) -> Tuple[Optional[float], Optional[float]]:
+                   within_seconds: float = 60.0, min_seconds: float = 0.0) -> Tuple[Optional[float], Optional[float]]:
     """(start, end) in game seconds of a benchmark between two loading frames.
 
     start is where the load after `after_seconds` (the Start click) ended; its loading frames come in a cluster
     (BL3: 223 ms then 244 ms, 0.3 s apart), so the last of them. It must begin within within_seconds of the
     click. end is end_margin_seconds before the next loading frame begins (the fade back to the menu). Either
-    is None when there is no such frame.
+    is None when there is no such frame. A long frame that would end it under min_seconds is a stutter inside it.
     """
     start: Optional[float] = None
     end: Optional[float] = None
@@ -158,6 +158,8 @@ def loading_bounds(frametimes_ms: List[float], after_seconds: float, end_margin_
             start = t
         elif began - start <= LOAD_CLUSTER_SECONDS:
             start = t
+        elif began - end_margin_seconds - start < min_seconds:
+            continue        # NucBox K10, 2026-11-13: a 288 ms frame 107 s into BL3's 110 s was taken for the fade
         else:
             end = began - end_margin_seconds
             break

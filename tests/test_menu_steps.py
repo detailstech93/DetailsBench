@@ -382,7 +382,8 @@ def test_borderlands_3_path(tmp_path):
                 (220, ["Start Benchmark", "Average FPS 165"])]
     p, desk, clock = player(tmp_path, menu_steps_for(397540), timeline)
     p.run()
-    assert p.problem is None and 60 <= p.mark_time < 62       # at its Start click, not its late "fps"
+    assert p.problem is None and 60 <= p.mark_time < 66       # after its Start click, not its late "fps"
+    assert "marked at the click" in p.summary()
     assert b"Average FPS 165" in (tmp_path / "benchmark_result.png").read_bytes()
     assert p.result_shot == str(tmp_path / "benchmark_result.png")
     assert desk.parked == 5          # after each click the mouse leaves the menu (Options sat under Start's spot)

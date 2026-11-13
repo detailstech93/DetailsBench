@@ -718,7 +718,8 @@ class GameBenchmark:
         end = None
         from data.game_start_keys import starts_after_loading
         if starts_after_loading(self.spec.app_id):
-            start, end = loading_bounds(frametimes, mark_shift)
+            start, end = loading_bounds(frametimes, mark_shift,
+                                        min_seconds=WHOLE_SHARE * min((b - a for a, b in windows), default=0.0))
             if start is not None:
                 mark_shift = start
         from data.game_start_keys import ends_at_loading
