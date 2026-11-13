@@ -55,6 +55,7 @@ def test_the_dialog_offers_what_was_matched_with_the_owner():
 
 def test_a_resolution_the_screen_offers_is_written_in_exclusive_full_screen(monkeypatch):
     from app.games import screen_modes
+    monkeypatch.setattr(sotr._rt, "_desktop", lambda: "1920x1080")
     monkeypatch.setattr(screen_modes, "resolutions", lambda: {(1920, 1080), (2560, 1440)})
     assert "2560x1440" in sotr.choices(REG, {})["resolution"]
     changes, refused = sotr.plan(REG, {"resolution": "2560x1440"}, {})
@@ -62,6 +63,9 @@ def test_a_resolution_the_screen_offers_is_written_in_exclusive_full_screen(monk
     assert not refused and (new["FullscreenWidth"], new["ExclusiveFullscreen"]) == (2560, 1)
     assert sotr.plan(REG, {"resolution": "3840x2160"}, {})[1] == {"resolution": sotr._rt.NOT_SEEN}
     assert [c.key for c in sotr.plan(REG, {"dlss": "Off"}, {})[0]] == ["dlss"]
+    windowed_full = dict(REG, FullscreenWidth=1280, FullscreenHeight=720)       # the screen already has 1080p:
+    changes, _ = sotr.plan(windowed_full, {"resolution": "1920x1080"}, {"resolution": {"1920x1080": 0}})
+    assert [c.key for c in changes] == ["resolution"]                          # full screen kept as it is
 
 
 def test_what_was_written_is_kept_in_the_run_folder(tmp_path):

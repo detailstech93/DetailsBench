@@ -941,3 +941,14 @@ def test_bl3_results_shot_is_one_the_report_shows():
     from app.report import PROOF_SHOTS
     shots = [s["shot"] for s in menu_steps_for(397540) if s.get("shot")]
     assert shots and all(f"{s}.png" in PROOF_SHOTS for s in shots)
+
+
+def test_marks_glued_to_a_word_do_not_move_it():
+    """NucBox K10, 2026-11-13: BL3's Options read now as "OPTIONS", now as "(zVOPTIONS" (a wider box), so its middle
+    moved and the click gave up; the middle of its own letters stays put."""
+    plain, glued = screen_text.Line("OPTIONS"), screen_text.Line("(zVOPTIONS")
+    plain.words, glued.words = (("OPTIONS", 120, 400, 91, 20),), (("(zVOPTIONS", 81, 400, 130, 20),)
+    assert screen_text.word_center([glued], "options") == (146, 410)                 # the whole box: 19 px off
+    a = screen_text.word_center([plain], "options", own_letters=True)
+    b = screen_text.word_center([glued], "options", own_letters=True)
+    assert a == (165, 410) and abs(a[0] - b[0]) <= 1

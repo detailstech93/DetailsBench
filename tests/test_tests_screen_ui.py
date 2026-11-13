@@ -745,8 +745,15 @@ def test_skip_on_a_game_in_line_ends_only_that_game(qapp, tmp_path, monkeypatch)
         page = w.tests_page
         assert page.can_skip() and page.skip_btn.text() == "Skip this game"
         assert page.skip() and stops == [1]
+        sent = []
+        monkeypatch.setattr("app.library.sync.after_run", lambda window, sid: sent.append(sid))
         frame.on_game_finished(None, type("S", (), {"stopped": True})())     # the skipped game ends as stopped
         assert [x.entry.id for x in w.run_line] == ["2"] and len(nexts) == 1   # the line goes on
+        assert sent == []                                                       # no session: nothing to send
+        now["running"] = False
+        nexts[0](w)                                                             # the next game starts
+        frame.on_game_finished(7, type("S", (), {"stopped": False})())          # and ends with session 7
+        assert sent == [7]                                                      # which goes to the library
     finally:
         now["running"] = False
         w.close()

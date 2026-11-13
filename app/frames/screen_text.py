@@ -84,11 +84,17 @@ def parse_line(raw: str) -> Line:
     return line
 
 
-def word_center(lines: List[str], word: str) -> Optional[Tuple[int, int]]:
-    """Screen point in the middle of the first word containing `word` (case-insensitive), or None."""
+def word_center(lines: List[str], word: str, own_letters: bool = False) -> Optional[Tuple[int, int]]:
+    """Screen point in the middle of the first word containing `word` (case-insensitive), or None. own_letters:
+    the middle of `word`'s own letters within the box instead, so marks the read glued to it ("(zVOPTIONS") do not
+    move it: BL3's Options read with and without such marks moved 20+ px and "did not hold still" (NucBox K10,
+    2026-11-13)."""
     for line in lines:
         for text, x, y, w, h in getattr(line, "words", ()):
-            if word.lower() in text.lower():
+            at = text.lower().find(word.lower())
+            if at >= 0:
+                if own_letters:
+                    return x + (w * (2 * at + len(word))) // (2 * len(text)), y + h // 2
                 return x + w // 2, y + h // 2
     return None
 

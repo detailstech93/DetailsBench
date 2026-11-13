@@ -165,6 +165,14 @@ def choices(data, known):
 
 
 FULL_SCREEN = "0"           # video/windowed: 0 exclusive full screen, 1 windowed, 2 borderless
+BORDERLESS = "2"
+
+
+def _desktop():
+    """The main screen's resolution now, "1920x1080" (None when unknown). 2026-11-13, a NucBox K10 (Intel UHD,
+    Vulkan): switched from borderless to exclusive full screen, every screenshot came out black for 300 s."""
+    from app.games import screen_modes
+    return screen_modes.desktop_resolution()
 SHOWN = {"window_mode": {"0": "Full screen", "1": "Windowed", "2": "Borderless"}}     # named in the game report
 NOT_FULL_SCREEN = ("windowed or borderless mode (video/windowed {mode}) draws at the screen's own resolution and "
                    "resets this value (seen 2026-10-19: 2560x1440 asked, 1024x768 after the run); leave the window "
@@ -183,6 +191,8 @@ def plan(data, desired, known):
         if "window_mode" in desired and str(mode) != FULL_SCREEN:
             refused["resolution"] = NOT_FULL_SCREEN.format(mode=mode)
             changes = [c for c in changes if c.key != "resolution"]
+        elif str(mode) == BORDERLESS and _desktop() == want:
+            pass    # borderless already draws at it; exclusive full screen screenshots black on Intel + Vulkan
         else:
             # exclusive full screen, so the game surely runs at it (borderless ran at the desktop's resolution);
             # the game's own window mode is put back after the run like the rest

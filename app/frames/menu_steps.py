@@ -326,7 +326,7 @@ class StepPlayer:
             self.sleep(PAUSE_SECONDS)
 
     def _click(self, i: int, word: str, stay: float = 0.0) -> None:
-        point = word_center(self._lines, word)
+        point = word_center(self._lines, word, own_letters=True)    # marks glued to it do not move it
         if point is None:
             raise _Stop(f"step {i}: {word!r} was read but not where it is on the screen; nothing clicked")
         # read again: a menu still sliding in moves its words, and BL3's Quit Game was clicked for Options
@@ -337,7 +337,7 @@ class StepPlayer:
             self.sleep(LOOK_EVERY_SECONDS)
             lines, error = self.reader(self.desktop, self.folder / "screen.png")
             self._log(i, lines, error)
-            now = None if error else word_center(lines, word)
+            now = None if error else word_center(lines, word, own_letters=True)
             if now is None:
                 continue
             if abs(now[0] - point[0]) <= STILL_PIXELS and abs(now[1] - point[1]) <= STILL_PIXELS:
@@ -357,7 +357,7 @@ class StepPlayer:
             self.sleep(LOOK_EVERY_SECONDS)
             lines, error = self.reader(self.desktop, self.folder / "screen.png")
             self._log(i, lines, error)
-            now = None if error else word_center(lines, word)
+            now = None if error else word_center(lines, word, own_letters=True)
             if now is None or near(now, point):
                 break
             # a growing menu moves its words up or down; a word far to the side is another copy of it: BL3's side

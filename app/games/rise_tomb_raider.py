@@ -119,6 +119,11 @@ def _screen() -> set:
     return {f"{w}x{h}" for w, h in screen_modes.resolutions() or ()}
 
 
+def _desktop() -> Optional[str]:
+    from app.games import screen_modes
+    return screen_modes.desktop_resolution()
+
+
 def plan(data, desired: Dict[str, object], known, spec=None) -> Tuple[List[Change], Dict[str, str]]:
     spec = spec or SETTINGS
     now = read_settings(data, spec)
@@ -150,10 +155,12 @@ def plan(data, desired: Dict[str, object], known, spec=None) -> Tuple[List[Chang
             changes.append(Change(key, now[key], want))
     # a chosen resolution in exclusive full screen, so the game surely runs at it (owner, 2026-10-29: it ran at
     # the desktop's 1080p); the game's own window mode is put back after the run like the rest
+    # not when the screen already has it: a NucBox K10 (Intel UHD, DX11, 2026-11-13) switched to exclusive 1080p
+    # ran all four runs at its old 1280x720 Lowest instead (cause not proven; full screen already draws at it)
     desired = desired or {}
     if ("resolution" in desired and "resolution" not in refused and "exclusive_fullscreen" in spec
             and now.get("fullscreen") is True and now.get("exclusive_fullscreen") is False
-            and "exclusive_fullscreen" not in desired):
+            and "exclusive_fullscreen" not in desired and _desktop() != desired["resolution"]):
         changes.append(Change("exclusive_fullscreen", False, True))
     return changes, refused
 

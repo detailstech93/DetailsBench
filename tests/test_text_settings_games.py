@@ -1,3 +1,4 @@
+import pytest
 from app.games import red_dead_redemption2 as rdr2
 from app.games import witcher3 as w3
 from app.games.settings_file import ForcedSettings
@@ -13,6 +14,21 @@ RDR2 = ('<?xml version="1.0" encoding="UTF-8"?>\r\n\r\n<rage__fwuiSystemSettings
 W3 = ('[Viewport]\r\nVSync=true\r\nResolution="2560x1440"\r\nFullScreenMode=1\r\n'
       '[Rendering/RT]\r\nEnableRT=true\r\n[Rendering/RT/PathTracer]\r\nPTEnable=false\r\n'
       '[PostProcess]\r\nDLSSGMode=0\r\n')
+
+
+@pytest.fixture(autouse=True)
+def _no_desktop(monkeypatch):
+    monkeypatch.setattr(rdr2, "_desktop", lambda: None)      # never the host's own screen
+
+
+def test_rdr2_borderless_is_kept_when_the_screen_already_has_the_resolution(monkeypatch):
+    monkeypatch.setattr(rdr2, "_desktop", lambda: "1920x1080")
+    borderless = RDR2.replace('<vSync value="1" />', '<vSync value="1" />\r\n    <windowed value="2" />')
+    changes, refused = rdr2.plan(borderless, {"resolution": "1920x1080"}, {"resolution": {"1920x1080": 0}})
+    assert "window_mode" not in {c.key for c in changes} and not refused
+    monkeypatch.setattr(rdr2, "_desktop", lambda: "2560x1440")     # another resolution: exclusive full screen
+    changes, _ = rdr2.plan(borderless, {"resolution": "1920x1080"}, {"resolution": {"1920x1080": 0}})
+    assert [c.new for c in changes if c.key == "window_mode"] == ["0"]
 
 
 def test_rdr2_read_and_plan():

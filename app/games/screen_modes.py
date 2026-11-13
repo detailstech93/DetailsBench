@@ -106,6 +106,11 @@ def current_mode() -> Optional[str]:
         return None
 
 
+def desktop_resolution() -> Optional[str]:
+    """The main screen's resolution now, "1920x1080", or None when unknown."""
+    return (current_mode() or "").split(" ")[0] or None
+
+
 def refusal(value, modes: Optional[Set[Tuple[int, int]]]) -> Optional[str]:
     """Why a forced resolution cannot be used on these screens, or None (offered, unknown, or not a size)."""
     size = parse(value)

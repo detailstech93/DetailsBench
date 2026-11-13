@@ -1212,6 +1212,9 @@ def start_other(window, entry: TestEntry, choice: Optional[RunChoice] = None, af
 
         def game_over(sid, summary):
             report = game_report(window, sid, summary)
+            if sid is not None:     # a game's results go to the library too, like the Tests screen's (2026-11-13)
+                from app.library.sync import after_run
+                after_run(window, sid)
             stopped = bool(getattr(summary, "stopped", False)) and not skipped
             if getattr(summary, "records", None):
                 _line_session(window, sid)
