@@ -485,9 +485,10 @@ class ForcedSettings:
     def _check_game_report(self, mod) -> None:
         """Games that do not write their settings back (Far Cry 6): the game's own end-of-benchmark report decides
         what it ran with, since the file still holds what was written even when the game ignored it."""
-        if not hasattr(mod, "game_report") or not self.record.changed:
+        if not hasattr(mod, "game_report") or not getattr(mod, "REPORT_VERIFIES_SETTINGS", False) \
+                or not self.record.changed:
             return
-        report = mod.game_report(self.store.where, getattr(self, "started", None))
+        report = mod.game_report(self.store.where, getattr(self, "started", None), self.env)
         if report is None:
             self.record.notes.append("the game wrote no report of its own for this run, so what it used "
                                      "could not be checked")
@@ -586,12 +587,13 @@ def _shown(value) -> str:
 def game_own_result(app_id, since: Optional[float] = None, env: Optional[Mapping[str, str]] = None,
                     reg=None) -> Optional[Dict[str, float]]:
     """The game's own numbers ({"avg", "min", "max", "frames"}) from the report it wrote at or after since, for a
-    game whose adapter reads one (Far Cry 6); None otherwise. Read only."""
+    game whose adapter reads one (Far Cry 6, Cyberpunk 2077); None otherwise. Read only."""
     adapter = adapter_for(app_id)
     if adapter is None or not hasattr(adapter.module, "own_numbers") or adapter.base == "launch":
         return None
-    store = adapter.store(_env_for(app_id, env), reg)
-    report = adapter.module.game_report(store.where, since)
+    env = _env_for(app_id, env)
+    store = adapter.store(env, reg)
+    report = adapter.module.game_report(store.where, since, env)
     return adapter.module.own_numbers(report) or None if report else None
 
 
@@ -620,7 +622,7 @@ def game_conditions(app_id, display_mode: Optional[str] = None, env: Optional[Ma
             store = adapter.store(_env_for(app_id, env), reg)
             if store.exists():
                 values = adapter.module.read_settings(store.read()) or {}
-            report = adapter.module.game_report(store.where, since) if hasattr(
+            report = adapter.module.game_report(store.where, since, _env_for(app_id, env)) if hasattr(
                 adapter.module, "game_report") else None
             if report:
                 values = {k: v for k, v in values.items() if k not in adapter.module.REPORT_KEYS}

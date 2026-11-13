@@ -540,3 +540,23 @@ def test_a_chosen_resolution_runs_in_exclusive_full_screen():
     assert changes == [] and refused["resolution"].startswith("FSR frame generation has no full screen")
     assert cp.plan(data, {"resolution": "1280x720", "window_mode": "BorderlessWindowed"}, known)[0] == [
         Change("resolution", "1920x1080", "1280x720", 6)]                  # a window mode asked for is kept
+
+
+def test_the_games_own_result_is_read_from_its_benchmark_report(tmp_path):
+    """Owner feedback, 2026-11-13: Cyberpunk should store its own average FPS like the other games do."""
+    import json
+    from app.games import cyberpunk2077 as cp
+    from app.games.settings_file import game_own_result
+    folder = tmp_path / "CD Projekt Red" / "Cyberpunk 2077" / "benchmarkResults" / "benchmark_2026-11-12_16-55-53"
+    folder.mkdir(parents=True)
+    (folder / "summary.json").write_text(json.dumps({"RootType": "worldBenchmarkSummary", "Data": {
+        "presetName": "Custom", "averageFps": 138.2021942138672, "minFps": 100.7536392211914,
+        "maxFps": 175.8118133544922, "frameNumber": 8880}}), encoding="utf-8")
+    report = cp.game_report(None, since=0, env={"PCBM_DOCUMENTS": str(tmp_path)})
+    assert report["averageFps"] == 138.2021942138672
+    assert cp.game_report(None, since=4102444800, env={"PCBM_DOCUMENTS": str(tmp_path)}) is None  # older than the run
+    assert cp.own_numbers(report) == {"avg": 138.2021942138672, "min": 100.7536392211914,
+                                      "max": 175.8118133544922, "frames": 8880.0}
+    assert game_own_result(1091500, 0, env={"PCBM_DOCUMENTS": str(tmp_path)}) == {
+        "avg": 138.2021942138672, "min": 100.7536392211914, "max": 175.8118133544922, "frames": 8880.0}
+    assert game_own_result(1091500, 4102444800, env={"PCBM_DOCUMENTS": str(tmp_path)}) is None

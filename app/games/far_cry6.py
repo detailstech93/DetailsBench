@@ -137,9 +137,10 @@ REPORT_SHOWN = ("Window Mode", "Display Resolution", "Refresh Rate", "Graphics Q
 _OPTION = re.compile(r'option_name">\s*([^<]*?):?\s*</div>\s*<div class\s*=\s*"option_value[^"]*">\s*([^<]*?)\s*<')
 
 
-def game_report(settings_path, since: Optional[float] = None) -> Optional[Dict[str, str]]:
+def game_report(settings_path, since: Optional[float] = None, env=None) -> Optional[Dict[str, str]]:
     """{"Graphics Quality": "Low", "Average FPS": "129", ...} from the newest report the game wrote at or after
-    since (seconds, time.time()); None when there is none. Read only."""
+    since (seconds, time.time()); None when there is none. Read only. env: unused (the report sits next to this
+    game's own settings file; only Cyberpunk 2077 needs it, to find a report filed elsewhere)."""
     folder = Path(settings_path).parent / REPORT_DIR
     try:
         found = [f for f in folder.glob("*/" + REPORT_NAME)
@@ -173,6 +174,7 @@ def report_mismatches(report: Dict[str, str], desired) -> Dict[str, tuple]:
 
 
 OWN_NUMBERS = {"avg": "Average FPS", "min": "Minimum FPS", "max": "Maximum FPS", "frames": "Frames Rendered"}
+REPORT_VERIFIES_SETTINGS = True     # this game ignores its forced settings file, so only its report shows what ran
 
 
 def own_numbers(report: Dict[str, str]) -> Dict[str, float]:

@@ -10,8 +10,10 @@ Shape checked on a real file (version 140) on 2026-10-18. Drafted by the local a
 
 import copy
 import json
+import os
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from pathlib import Path
+from typing import Dict, List, Mapping, Optional, Tuple
 
 APP_ID = 1091500
 # Passed to this launch only (steam://run): skip REDlauncher and the "press any key" start screen.
@@ -433,3 +435,57 @@ def choices(data, known: Dict[str, Dict[str, int]]) -> Dict[str, list]:
         if all(find_option(data, g, n) for g, n in options):
             out[key] = list(table) + [v for v in out.get(key, []) if v not in table]
     return out
+
+
+# The game's own end-of-benchmark report (owner feedback, 2026-11-13): unlike UserSettings.json, it sits under
+# Documents, not %LOCALAPPDATA%, so game_report takes the env the settings file was read with (settings_file.py)
+# rather than deriving the folder from settings_path. No settings are read back from it (verify() already checks
+# UserSettings.json, which this game does write to), only its own FPS numbers.
+REPORT_DIR = os.path.join("CD Projekt Red", "Cyberpunk 2077", "benchmarkResults")
+REPORT_NAME = "summary.json"
+REPORT_KEYS: Dict[str, str] = {}
+OWN_NUMBERS = {"avg": "averageFps", "min": "minFps", "max": "maxFps", "frames": "frameNumber"}
+
+
+def game_report(settings_path, since: Optional[float] = None, env: Optional[Mapping[str, str]] = None) -> Optional[dict]:
+    """The newest benchmarkResults/*/summary.json "Data" written at or after since (seconds, time.time()); None
+    when there is none. Read only."""
+    from app.games.settings_file import documents_dir
+    docs = documents_dir(env if env is not None else os.environ)
+    if docs is None:
+        return None
+    folder = docs / REPORT_DIR
+    try:
+        found = [f for f in folder.glob("*/" + REPORT_NAME)
+                 if since is None or os.path.getmtime(f) >= since - 1]
+        if not found:
+            return None
+        text = max(found, key=os.path.getmtime).read_text(encoding="utf-8", errors="replace")
+        return json.loads(text).get("Data") or None
+    except (OSError, ValueError):
+        return None
+
+
+def own_numbers(report: dict) -> Dict[str, float]:
+    """The game's own result: its benchmark's average, minimum and maximum FPS, and its frame count."""
+    out = {}
+    for key, field in OWN_NUMBERS.items():
+        try:
+            out[key] = float(report[field])
+        except (KeyError, TypeError, ValueError):
+            continue
+    return out
+
+
+REPORT_VERIFIES_SETTINGS = False    # UserSettings.json is written and verified directly (verify()); unlike Far
+                                     # Cry 6, this game does not ignore it, so no report of its own is needed for
+                                     # that (REPORT_VERIFIES_SETTINGS keeps a missing/late benchmark report from
+                                     # being read as "this run's settings could not be checked")
+
+
+def report_mismatches(report: dict, desired) -> Dict[str, tuple]:
+    return {}       # never called while REPORT_VERIFIES_SETTINGS is False; kept since game_report exists
+
+
+def report_conditions(report: dict) -> List[str]:
+    return []
