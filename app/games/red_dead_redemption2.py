@@ -166,6 +166,16 @@ def choices(data, known):
 
 FULL_SCREEN = "0"           # video/windowed: 0 exclusive full screen, 1 windowed, 2 borderless
 BORDERLESS = "2"
+WINDOWED = "1"
+
+
+def _fits_inside(want, desktop) -> bool:
+    """A resolution smaller than the screen's: it fits in a window on it."""
+    try:
+        (w, h), (dw, dh) = (tuple(int(n) for n in s.split("x")) for s in (want, desktop))
+    except (AttributeError, ValueError):
+        return False
+    return w <= dw and h <= dh and (w, h) != (dw, dh)
 
 
 def _desktop():
@@ -193,6 +203,12 @@ def plan(data, desired, known):
             changes = [c for c in changes if c.key != "resolution"]
         elif str(mode) == BORDERLESS and _desktop() == want:
             pass    # borderless already draws at it; exclusive full screen screenshots black on Intel + Vulkan
+        elif _fits_inside(want, _desktop()):
+            # under the screen's resolution: in a window, which draws at it and can be read. NucBox K10 (Intel UHD,
+            # Vulkan), 2026-11-13: 1280x720 on a 1920x1080 screen in exclusive full screen showed its menu on the
+            # screen while every screenshot was black, so no key was pressed
+            if mode is not None and str(mode) != WINDOWED:
+                changes.append(Change("window_mode", mode, WINDOWED))
         else:
             # exclusive full screen, so the game surely runs at it (borderless ran at the desktop's resolution);
             # the game's own window mode is put back after the run like the rest

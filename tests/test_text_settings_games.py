@@ -26,9 +26,17 @@ def test_rdr2_borderless_is_kept_when_the_screen_already_has_the_resolution(monk
     borderless = RDR2.replace('<vSync value="1" />', '<vSync value="1" />\r\n    <windowed value="2" />')
     changes, refused = rdr2.plan(borderless, {"resolution": "1920x1080"}, {"resolution": {"1920x1080": 0}})
     assert "window_mode" not in {c.key for c in changes} and not refused
-    monkeypatch.setattr(rdr2, "_desktop", lambda: "2560x1440")     # another resolution: exclusive full screen
+    monkeypatch.setattr(rdr2, "_desktop", lambda: "2560x1440")     # a larger screen
     changes, _ = rdr2.plan(borderless, {"resolution": "1920x1080"}, {"resolution": {"1920x1080": 0}})
-    assert [c.new for c in changes if c.key == "window_mode"] == ["0"]
+    assert [c.new for c in changes if c.key == "window_mode"] == ["1"]      # under the screen's: in a window
+    # NucBox K10, 2026-11-13: 1280x720 on a 1920x1080 screen in exclusive full screen screenshotted black; a
+    # resolution under the screen's runs in a window
+    monkeypatch.setattr(rdr2, "_desktop", lambda: "1920x1080")
+    changes, refused = rdr2.plan(borderless, {"resolution": "1280x720"}, {"resolution": {"1280x720": 0}})
+    assert [(c.key, c.new) for c in changes if c.key in ("resolution", "window_mode")] == [
+        ("resolution", "1280x720"), ("window_mode", "1")] and not refused
+    changes, _ = rdr2.plan(borderless, {"resolution": "2560x1440"}, {"resolution": {"2560x1440": 0}})
+    assert [c.new for c in changes if c.key == "window_mode"] == ["0"]     # over the screen's: exclusive, as before
 
 
 def test_rdr2_read_and_plan():
