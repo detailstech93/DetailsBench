@@ -124,13 +124,16 @@ def remote_listing(entries: List[TestEntry], platform: str = sys.platform,
     warning or ""), in the order of the Tests screen's groups. Tests run by hand (score typed, game played) are left
     out. No administrator warning while the app runs as administrator (nothing asks then)."""
     from app import elevation
+    from app.catalog import AUTOMATIC
     from app.ui.run_tests import game_of
     asks = platform == "win32" and not (elevation.is_elevated(platform) if elevated is None else elevated)
     out = []
     for e in entries:
         if not e.compatible:
             continue                            # not for this PC at all
-        if e.waits_for_typed_score() or e.source != "workload":
+        # a Steam built-in benchmark the app walks itself is shown too (owner, 2026-11-13: only Cyberpunk was)
+        steam_auto = e.source == "steam" and e.mode == AUTOMATIC and game_of(e) is not None
+        if e.waits_for_typed_score() or (e.source != "workload" and not steam_auto):
             continue                            # run by hand at the PC: not shown on the phone (owner, 2026-10-21)
         ref, why, warning = e.ref, "", ""
         if not e.can_run():
@@ -258,7 +261,14 @@ def remote_start(window, ids: List[str], repetitions: int, warmup_runs: int, coo
     def confirm(text: str) -> bool:
         logger.info("Run started from the remote page:\n%s", text)
         return True
-    started = (launch or run_tests.launch)(window, entries, choice, confirm=confirm, tools_ready=tools_ready)
+    if any(e.source == "steam" for e in entries):   # Steam games each run alone, in line, as from the PC's dialog
+        prepared = run_tests.Prepared([e for e in entries if e.source != "steam"],
+                                      [e for e in entries if e.source == "steam"], choice, games,
+                                      run_tests.read_offered(games, data_dir), confirmed=True, order=list(ids),
+                                      tools_ready=tools_ready)
+        started = (launch or run_tests.begin)(window, prepared)
+    else:
+        started = (launch or run_tests.launch)(window, entries, choice, confirm=confirm, tools_ready=tools_ready)
     if not started:
         return False, panel.status_label.text() or "Not started."
     window.status_label.setText(f"Started from the remote page: {len(entries)} test(s).")

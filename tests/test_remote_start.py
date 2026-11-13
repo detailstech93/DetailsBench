@@ -779,3 +779,17 @@ def test_the_page_gets_each_games_own_lists_and_none_while_a_run_goes(monkeypatc
     assert list(lists) == ["steam_750920"] and lists["steam_750920"]["qualities"][0] == ["lowest", "Lowest"]
     monkeypatch.setattr(run_tests, "running", lambda window: True)
     assert rc.game_lists(w) == {}
+
+
+def test_steam_built_in_benchmarks_show_on_the_phone_and_start_in_line(tmp_path, monkeypatch):
+    """Owner, 2026-11-13 (NucBox K10): the phone's Games showed only Cyberpunk, the one game run as a script."""
+    from app.ui import remote_control as rc, run_tests
+    bench = _entry("steam_397540", source="steam", ref={"app_id": 397540, "name": "BL3"}, group="game")
+    played = _entry("steam_1", source="steam", ref={"app_id": 1, "name": "X"}, group="game", mode="assisted")
+    assert [e.id for e, _, _ in rc.remote_listing([bench, played], platform="linux")] == ["steam_397540"]
+    monkeypatch.setattr(run_tests, "save_preset", lambda *a, **k: [])
+    monkeypatch.setattr(run_tests, "read_offered", lambda games, d: {})
+    seen = []
+    ok, _ = rc.remote_start(_window(tmp_path, [bench, played]), ["steam_397540"], 3, 1, 0,
+                            launch=lambda window, p: seen.append(p) or True)
+    assert ok and seen[0].others == [bench] and seen[0].automatic == [] and seen[0].confirmed   # no question at the PC

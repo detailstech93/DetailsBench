@@ -771,7 +771,7 @@ def test_a_plan_with_steam_games_runs_the_plan_then_each_game_and_a_general_repo
         monkeypatch.setattr(rt, "read_offered", lambda games, data_dir: dict(OFFERED))
         launched, shown, benched = [], [], []
         monkeypatch.setattr(rt, "launch", lambda window, automatic, choice, opener, after=None, settings=None,
-                            confirm=None: launched.append(([e.id for e in automatic], confirm and confirm("x"))) or True)
+                            confirm=None, tools_ready=False: launched.append(([e.id for e in automatic], confirm and confirm("x"))) or True)
         monkeypatch.setattr(rt, "start_other", lambda window, e, choice, after=None, confirmed=False:
                             benched.append((e.id, confirmed)) or True)
 

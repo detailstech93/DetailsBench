@@ -627,6 +627,7 @@ class Prepared:
     settings: Optional[Dict[str, dict]] = None      # {test id: its own settings} chosen at Queue next (AI test)
     confirmed: bool = False                         # a game after the first of a line of games: no question
     order: List[str] = dataclasses.field(default_factory=list)     # the tests' order in the list (a line runs so)
+    tools_ready: bool = False                       # the phone's start: no LibreHardwareMonitor question at the PC
 
 
 def choose_run(window, automatic: List[TestEntry], others: List[TestEntry], lone_game: bool, ask=ask_choice,
@@ -684,7 +685,8 @@ def begin(window, p: Prepared, opener=open_report, after=None) -> bool:
         rank = {i: n for n, i in enumerate(p.order)}
         seq = sorted(automatic + others, key=lambda e: rank.get(e.id, len(rank)))
         steps = [Waiting(e, dataclasses.replace(p, automatic=[e] if e in automatic else [],
-                                                others=[] if e in automatic else [e], confirmed=n > 0))
+                                                others=[] if e in automatic else [e],
+                                                confirmed=p.confirmed or n > 0))
                  for n, e in enumerate(seq)]
         line = line_of(window)
         line[:0] = steps[1:]
@@ -706,7 +708,7 @@ def begin(window, p: Prepared, opener=open_report, after=None) -> bool:
         line[:0] = rest
         window.line_sessions = []
         helper = _one_prompt_for_games(window)
-        start_other(window, others[0], choice, after)
+        start_other(window, others[0], choice, after, confirmed=p.confirmed)     # the phone's start: no question
         if not (running(window) or window.frame_panel.lhm.active()):      # cancelled or refused: none of them
             line[:] = [w for w in line if w not in rest]
             _end_helper(window)
@@ -724,7 +726,8 @@ def begin(window, p: Prepared, opener=open_report, after=None) -> bool:
         def confirm(text: str) -> bool:
             logger.info("In line, started without asking again: %s", text.splitlines()[0] if text else "")
             return True
-        return launch(window, automatic, choice, opener, after=after, settings=p.settings, confirm=confirm)
+        return launch(window, automatic, choice, opener, after=after, settings=p.settings, confirm=confirm,
+                      tools_ready=p.tools_ready)
     return launch(window, automatic, choice, opener, after=after, settings=p.settings)
 
 
