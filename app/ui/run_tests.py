@@ -1238,7 +1238,10 @@ def start_other(window, entry: TestEntry, choice: Optional[RunChoice] = None, af
         if frame.is_running() or frame.lhm.active():
             def game_state() -> RunState:      # a game on its own gets its blinking dot too (owner, 2026-10-22)
                 running = frame.is_running() or frame.lhm.active()
-                return RunState(running, 0, None, frame.status_label.text(),
+                # owner, 2026-11-13: the phone showed a full bar and no count in a line of 5 games
+                done = len(getattr(window, "line_sessions", None) or [])
+                return RunState(running, done, done + 1 + len(getattr(window, "run_line", [])),
+                                frame.status_label.text(),
                                 marks={entry.id: "running"} if running else {})
 
             def skip_game():                    # owner, 2026-11-04: as Skip in a plan; the line goes on

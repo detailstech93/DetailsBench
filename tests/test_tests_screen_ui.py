@@ -744,6 +744,8 @@ def test_skip_on_a_game_in_line_ends_only_that_game(qapp, tmp_path, monkeypatch)
         w.tests_page.timer.stop()
         page = w.tests_page
         assert page.can_skip() and page.skip_btn.text() == "Skip this game"
+        state = page.get_state()
+        assert (state.done, state.total) == (0, 2)      # game 1 of 2, not a full bar with no count (2026-11-13)
         assert page.skip() and stops == [1]
         sent = []
         monkeypatch.setattr("app.library.sync.after_run", lambda window, sid: sent.append(sid))
@@ -752,6 +754,7 @@ def test_skip_on_a_game_in_line_ends_only_that_game(qapp, tmp_path, monkeypatch)
         assert sent == []                                                       # no session: nothing to send
         now["running"] = False
         nexts[0](w)                                                             # the next game starts
+        assert (page.get_state().done, page.get_state().total) == (1, 2)        # game 2 of 2
         frame.on_game_finished(7, type("S", (), {"stopped": False})())          # and ends with session 7
         assert sent == [7]                                                      # which goes to the library
     finally:

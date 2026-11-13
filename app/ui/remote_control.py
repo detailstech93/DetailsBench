@@ -497,7 +497,8 @@ class RemoteApi:
             out.update(running=s.running, text=s.text, percent=percent, can_skip=s.running and page.can_skip(),
                        skip_what=getattr(page, "skip_what", "test"))
             if s.running and s.total:
-                out["step"] = f"Run {min(s.done + 1, s.total)} of {s.total}"
+                what = {"game": "Game", "download": "Install"}.get(out["skip_what"], "Run")
+                out["step"] = f"{what} {min(s.done + 1, s.total)} of {s.total}"
         started = getattr(panel, "plan_started_at", None)
         if started is not None and (running or panel.is_running() or getattr(panel, "plan_ended_at", None)):
             ended = None if running else getattr(panel, "plan_ended_at", None)
