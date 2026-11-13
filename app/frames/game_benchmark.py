@@ -594,7 +594,7 @@ class GameBenchmark:
                         if now != shown:
                             shown = now
                             self.on_progress(f"{spec.game_name}: going through its menus to the benchmark "
-                                             f"({now} s); keep the game in front.")
+                                             f"({now} s); keep the game in front. {getattr(steps, 'waiting', '')}".strip())
                         self.sleep(self.poll_seconds)
                         continue
                 elapsed = self.clock() - (t_mark if t_mark is not None else t_front)
@@ -986,7 +986,7 @@ class GameBenchmark:
                         if int(now - t_launch) != shown:
                             shown = int(now - t_launch)
                             self.on_progress(f"{spec.game_name}, {label}: going through its menus to the benchmark "
-                                             f"({shown} s); keep the game in front.")
+                                             f"({shown} s); keep the game in front. {getattr(steps, 'waiting', '')}".strip())
                         self.sleep(self.poll_seconds)
                         continue
                 elapsed = now - done["t_mark"]
@@ -1145,7 +1145,7 @@ class GameBenchmark:
                         if int(elapsed) != shown:
                             shown = int(elapsed)
                             self.on_progress(f"{spec.game_name}: going through its menus to the benchmark "
-                                             f"({elapsed:.0f} s); keep the game in front.")
+                                             f"({elapsed:.0f} s); keep the game in front. {getattr(steps, 'waiting', '')}".strip())
                         self.sleep(self.poll_seconds)
                         continue
                     if self.clock() - t_mark >= spec.wait_seconds():

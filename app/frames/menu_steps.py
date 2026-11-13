@@ -54,6 +54,10 @@ STILL_READS = 10                    # reads to wait for a menu that is still sli
 HOVER_READS = 3                     # reads with the mouse on the word: a menu may change when the mouse comes
 PICK_READS = 5                      # reads to tell the lit item before a pick gives up
 FRONT_GRACE_SECONDS = 10.0          # the game may lose the front briefly while it changes video mode
+# Windows' own questions over a new game (the Firewall's "allow networks to access this app?", NucBox K10
+# 2026-11-13: RDR2 failed twice behind it). Someone must answer it at the PC: the app waits, says so, never answers
+WINDOWS_PROMPTS = {"pickerhost.exe"}
+PROMPT_WAIT_SECONDS = 600.0
 LOG_NAME = "screen_log.txt"          # what every read saw
 
 
@@ -160,6 +164,7 @@ class StepPlayer:
         self._thread: Optional[threading.Thread] = None
         self._t0 = None
         self._lines: List[str] = []            # the last screen read
+        self.waiting = ""                       # a Windows question in front of the game, for the run's status
 
     # thread
     def start(self) -> "StepPlayer":
@@ -285,10 +290,23 @@ class StepPlayer:
 
     def _check_front(self, what: str) -> None:
         deadline = self.clock() + FRONT_GRACE_SECONDS
-        while not self.in_front():
-            if self.clock() >= deadline or self.stop.is_set():
-                raise _Stop(f"{what} not sent: the game was not in front ({_front_name(self.desktop)} was)")
-            self.sleep(0.5)
+        asked = None
+        try:
+            while not self.in_front():
+                front = _front_name(self.desktop)
+                if asked is None and front.lower() in WINDOWS_PROMPTS:
+                    asked = self.clock()
+                    deadline = asked + PROMPT_WAIT_SECONDS
+                    self.waiting = ("A Windows question is in front of the game (the Firewall's?): answer it at "
+                                    "the PC, the run goes on after it.")
+                    self.notes.append(f"waited for a Windows question in front of the game ({front}, at {self._at()})")
+                if self.clock() >= deadline or self.stop.is_set():
+                    raise _Stop(f"{what} not sent: the game was not in front ({front} was)"
+                                + (f"; a Windows question waited {PROMPT_WAIT_SECONDS:.0f} s unanswered"
+                                   if asked is not None else ""))
+                self.sleep(0.5)
+        finally:
+            self.waiting = ""
 
     def _press(self, chord: str, tap: Optional[float] = None) -> None:
         if tap:
