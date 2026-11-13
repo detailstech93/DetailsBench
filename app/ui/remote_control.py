@@ -298,6 +298,9 @@ def plan_tests(panel, db, running: bool, line=()) -> List[dict]:
     except Exception:
         logger.exception("Could not read the session's results")
         rows = []
+    # a game in line runs after the plan is over: the plan's last test is done, not "running now" (owner, NucBox
+    # K10 2026-11-13: Cyberpunk 3/3 showed as running while Far Cry 6 ran)
+    running = running and getattr(panel, "is_running", lambda: True)()
     now = panel.step[2] if running else ""
     out = []
     dropped = getattr(runner, "dropped", set())

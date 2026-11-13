@@ -730,6 +730,8 @@ def test_the_page_shows_tests_queued_skipped_and_in_line():
     assert [(t["id"], t["state"], t["can_unqueue"]) for t in tests] == [
         ("a", "running", False), ("b", "waiting", True), ("c", "skipped", False), ("d", "waiting", True),
         ("g", "queued", True)]
+    panel.is_running = lambda: False                    # a game of the line runs now, the plan is over
+    assert [t["state"] for t in plan_tests(panel, db, True, line)][:2] == ["not run", "not run"]
 
 
 def test_the_phone_queues_only_what_needs_nobody_at_the_pc(qapp, monkeypatch):
