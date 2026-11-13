@@ -527,6 +527,8 @@ class RemoteApi:
         out["queued"] = list(w.queued_installs()) if hasattr(w, "queued_installs") else []
         flow = getattr(w, "run_all_flow", None)     # owner, 2026-11-13: installed ones kept their Install button
         out["installed"] = list(getattr(flow, "installed_ids", [])) if flow is not None and flow.busy() else []
+        from app.frames import windows_prompt
+        out["windows_question"] = windows_prompt.asked()     # a Firewall question over a game (2026-11-13)
         if out["scanning"]:
             out["text"] = SCANNING_TEXT
         return out
@@ -581,6 +583,14 @@ class RemoteApi:
                 logger.info("%s taken out of the line from the remote page", test_id)
             return why is None, self.window.status_label.text()
         return self.main.run(run)
+
+    def answer_windows(self, choice: str) -> Tuple[bool, str]:
+        """The owner's tap on a Windows question over a game: clicked on the PC by the game's menu steps."""
+        from app.frames import windows_prompt
+        if not windows_prompt.answer(choice):
+            return False, "That question is no longer on the PC's screen."
+        logger.info("Windows question over the game: %s tapped on the phone page", choice)
+        return True, f"{choice}: clicking it on the PC..."
 
     def set_shutdown(self, on: bool) -> Tuple[bool, str]:
         def run():

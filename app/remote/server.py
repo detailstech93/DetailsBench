@@ -311,7 +311,7 @@ def _handler(server: "RemoteServer"):
                 return
             path = self.path.split("?")[0]
             if path not in ("/api/start", "/api/stop", "/api/skip", "/api/question", "/api/act", "/api/queue",
-                            "/api/unqueue", "/api/shutdown"):
+                            "/api/unqueue", "/api/shutdown", "/api/windows"):
                 self._json(404, {"error": "not found"})
                 return
             try:
@@ -346,6 +346,14 @@ def _handler(server: "RemoteServer"):
                         self._json(400, {"error": "no test named"})
                         return
                     ok, text = (server.api.queue if path == "/api/queue" else server.api.unqueue)(test_id)
+                    self._json(200 if ok else 409, {"ok": ok, "text": text})
+                    return
+                if path == "/api/windows":         # a Windows question over a game: the owner's tap
+                    choice = body.get("choice") if isinstance(body, dict) else None
+                    if not isinstance(choice, str) or not 0 < len(choice) <= 40:
+                        self._json(400, {"error": "no choice"})
+                        return
+                    ok, text = server.api.answer_windows(choice)
                     self._json(200 if ok else 409, {"ok": ok, "text": text})
                     return
                 if path == "/api/shutdown":

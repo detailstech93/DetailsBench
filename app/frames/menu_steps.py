@@ -56,8 +56,22 @@ PICK_READS = 5                      # reads to tell the lit item before a pick g
 FRONT_GRACE_SECONDS = 10.0          # the game may lose the front briefly while it changes video mode
 # Windows' own questions over a new game (the Firewall's "allow networks to access this app?", NucBox K10
 # 2026-11-13: RDR2 failed twice behind it). Someone must answer it at the PC: the app waits, says so, never answers
+# The phone page shows its words and buttons (app/frames/windows_prompt.py); the owner's tap is clicked here
 WINDOWS_PROMPTS = {"pickerhost.exe"}
 PROMPT_WAIT_SECONDS = 600.0
+PROMPT_CHOICES = ("Allow", "Cancel")
+
+
+def prompt_text(lines: List[str]) -> str:
+    """The question's own words out of a screen read: from "Do you want" up to its buttons or "Show more"."""
+    low = [x.lower() for x in lines]
+    start = next((k for k, x in enumerate(low) if "do you want" in x), 0)
+    out = []
+    for line in lines[start:start + 8]:
+        if line.strip().lower() in ("show more",) + tuple(c.lower() for c in PROMPT_CHOICES):
+            break
+        out.append(line.strip())
+    return " ".join(out)[:400]
 LOG_NAME = "screen_log.txt"          # what every read saw
 
 
@@ -291,22 +305,50 @@ class StepPlayer:
     def _check_front(self, what: str) -> None:
         deadline = self.clock() + FRONT_GRACE_SECONDS
         asked = None
+        from app.frames import windows_prompt
         try:
             while not self.in_front():
                 front = _front_name(self.desktop)
                 if asked is None and front.lower() in WINDOWS_PROMPTS:
                     asked = self.clock()
                     deadline = asked + PROMPT_WAIT_SECONDS
-                    self.waiting = ("A Windows question is in front of the game (the Firewall's?): answer it at "
-                                    "the PC, the run goes on after it.")
-                    self.notes.append(f"waited for a Windows question in front of the game ({front}, at {self._at()})")
+                    lines, error = self.reader(self.desktop, self.folder / "screen.png")
+                    self._log(0, lines, error)
+                    lines = [] if error else lines
+                    choices = [c for c in PROMPT_CHOICES if word_center(lines, c, own_letters=True)]
+                    windows_prompt.ask(prompt_text(lines) or "A Windows question is in front of the game.", choices)
+                    self.waiting = ("A Windows question is in front of the game: answer it on the phone page or at "
+                                    "the PC; the run goes on after it.")
+                    self.notes.append(f"a Windows question came in front of the game ({front}, at {self._at()}): "
+                                      f"{prompt_text(lines)[:120]!r}")
+                choice = windows_prompt.take() if asked is not None else None
+                if choice:
+                    lines, error = self.reader(self.desktop, self.folder / "screen.png")
+                    point = None if error else word_center(lines, choice, own_letters=True)
+                    if point is None:
+                        self.notes.append(f"{choice!r} answered on the phone, but not read on the screen: not clicked")
+                    else:
+                        self.desktop.mouse_to(*point)
+                        self.sleep(CLICK_SETTLE_SECONDS)
+                        self.desktop.mouse_button(True)
+                        try:
+                            self.sleep(CLICK_HOLD_SECONDS)
+                        finally:
+                            self.desktop.mouse_button(False)
+                        self.desktop.mouse_to(*PARK_POINT)
+                        self.notes.append(f"clicked {choice!r} on the Windows question: the owner's answer on the "
+                                          f"phone page ({self._at()})")
+                        windows_prompt.clear()
+                        deadline = self.clock() + FRONT_GRACE_SECONDS   # the game comes back in front
                 if self.clock() >= deadline or self.stop.is_set():
                     raise _Stop(f"{what} not sent: the game was not in front ({front} was)"
                                 + (f"; a Windows question waited {PROMPT_WAIT_SECONDS:.0f} s unanswered"
-                                   if asked is not None else ""))
+                                   if asked is not None and windows_prompt.asked() else ""))
                 self.sleep(0.5)
         finally:
             self.waiting = ""
+            if asked is not None:
+                windows_prompt.clear()
 
     def _press(self, chord: str, tap: Optional[float] = None) -> None:
         if tap:

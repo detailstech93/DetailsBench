@@ -25,6 +25,7 @@ section { background:var(--card); border:1px solid var(--line); border-radius:12
 .muted { color:var(--muted); font-size:13px; }
 .hidden { display:none !important; }
 .shutdown { color:var(--stop); font-weight:600; font-size:1.1em; }
+.winq { border:2px solid var(--stop); border-radius:12px; padding:12px; margin:12px 0; }
 input[type=text], input[type=number], select { font:inherit; padding:8px; border:1px solid var(--line);
   border-radius:8px; background:var(--bg); color:var(--text); width:100%; }
 button, .btn { font:inherit; padding:9px 14px; border-radius:8px; border:1px solid var(--line); background:var(--bg);
@@ -119,6 +120,8 @@ a { color:var(--accent); }
     <div id="stepText" class="muted"></div>
     <div class="bar"><div id="bar"></div><span id="barText"></span></div>
     <div class="times muted"><span id="elapsed"></span><span id="left"></span></div>
+    <div id="winq" class="winq hidden"><b>Windows asks at the PC</b><p id="winqText"></p>
+      <div class="row" id="winqButtons"></div></div>
     <div id="plan" class="plan hidden"></div>
     <div class="row" style="margin-top:12px">
       <button id="skip" class="hidden">Skip this test</button>
@@ -595,6 +598,29 @@ function showReportBody(open) {
   if (open) loadFrame(); else $("reportFrame").removeAttribute("src");
 }
 
+// a Windows question over a game (the Firewall's, NucBox K10 2026-11-13): answered here, clicked on the PC
+let winqShown = "";
+function showWindowsQuestion(q) {
+  $("winq").classList.toggle("hidden", !q);
+  if (!q) { winqShown = ""; document.title = "DetailsBench: remote"; return; }
+  if (q.text === winqShown) return;
+  winqShown = q.text;
+  $("winqText").textContent = q.text;
+  $("winqButtons").replaceChildren(...q.choices.map((c) => {
+    const b = el("button", c);
+    if (c === "Allow") b.className = "go";
+    b.onclick = async () => {
+      try { $("message").textContent = (await (await call("/api/windows", { choice: c })).json()).text || ""; }
+      catch (e) { if (e.message !== "code") $("message").textContent = "The PC does not answer."; }
+      refresh();
+    };
+    return b;
+  }));
+  if (!q.choices.length) $("winqButtons").append(el("span", "Its buttons were not read: answer it at the PC."));
+  document.title = "! Windows asks - DetailsBench";
+  try { navigator.vibrate && navigator.vibrate([400, 150, 400]); } catch (e) {}
+}
+
 function showState(s) {
   running = s.running;
   $("pill").textContent = s.running ? "running" : "idle";
@@ -608,6 +634,7 @@ function showState(s) {
   $("left").textContent = s.left ? "Left: " + s.left : "";
   showPlan(s.tests);
   showQueueNext(s.can_queue);
+  showWindowsQuestion(s.windows_question);
   if (s.shutdown_box && !offSending) {
     $("off").checked = s.shutdown_box.on;
     $("off").disabled = !s.shutdown_box.offered;

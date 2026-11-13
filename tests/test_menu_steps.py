@@ -121,19 +121,36 @@ def test_no_key_when_the_game_is_not_in_front(tmp_path):
     assert desk.events == [] and p.problem == "enter not sent: the game was not in front (another window was)"
 
 
-def test_a_windows_question_over_the_game_is_waited_for(tmp_path, monkeypatch):
-    # NucBox K10, 2026-11-13: the Firewall's question came over RDR2 and both tries failed after 10 s
+def test_a_windows_question_over_the_game_is_shown_on_the_phone_and_the_owners_tap_clicked(tmp_path, monkeypatch):
+    # NucBox K10, 2026-11-13: the Firewall's question came over RDR2 and both tries failed after 10 s, with the run
+    # started from the phone and nobody at the PC
     import app.frames.menu_steps as ms
+    from app.frames import windows_prompt
     monkeypatch.setattr(ms, "_front_name", lambda desk: "PickerHost.exe")
-    p, desk, clock = player(tmp_path, [{"press": "enter"}], [], front=lambda: clock.now > 200
-                            or (seen.append(p.waiting) and False))
+    shown = ["Far Cry 6", "Windows Security", "Do you want to allow public and private",
+             "networks to access this app?", "Red Dead Redemption 2", "Show more", "Allow", "Cancel"]
     seen = []
+
+    def front():
+        q = windows_prompt.asked()
+        if q and not seen:
+            seen.append((q, p.waiting))
+            assert not windows_prompt.answer("Delete")          # only its own buttons
+            assert windows_prompt.answer("Allow")               # the owner's tap on the phone
+        return any(e[0] == "button" for e in desk.events)       # the game is back once the button is clicked
+    p, desk, clock = player(tmp_path, [{"press": "enter"}], [(0, shown)], front=front)
     p.run()
-    assert p.problem is None and 200 < clock.now < 210 and p.waiting == ""
-    assert "answer it at the PC" in seen[-1] and "waited for a Windows question" in p.summary()
-    p, desk, clock = player(tmp_path, [{"press": "enter"}], [], front=lambda: False)
+    q, waiting = seen[0]
+    assert q == {"text": "Do you want to allow public and private networks to access this app? Red Dead Redemption 2",
+                 "choices": ["Allow", "Cancel"]}
+    assert "answer it on the phone page" in waiting and p.waiting == "" and windows_prompt.asked() is None
+    assert p.problem is None and "clicked 'Allow' on the Windows question" in p.summary()
+    assert [e[0] for e in desk.events][:3] == ["mouse", "button", "button"]
+    # nobody answers: the run stops after 10 min and says why
+    p, desk, clock = player(tmp_path, [{"press": "enter"}], [(0, shown)], front=lambda: False)
     p.run()
     assert p.problem.endswith("(PickerHost.exe was); a Windows question waited 600 s unanswered")
+    assert windows_prompt.asked() is None
 
 
 def test_optional_word_and_a_black_screen(tmp_path):

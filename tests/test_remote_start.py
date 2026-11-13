@@ -795,3 +795,31 @@ def test_steam_built_in_benchmarks_show_on_the_phone_and_start_in_line(tmp_path,
     ok, _ = rc.remote_start(_window(tmp_path, [bench, played]), ["steam_397540"], 3, 1, 0,
                             launch=lambda window, p: seen.append(p) or True)
     assert ok and seen[0].others == [bench] and seen[0].automatic == [] and seen[0].confirmed   # no question at the PC
+
+
+def test_a_windows_question_is_answered_from_the_page(served):
+    """Owner, NucBox K10 2026-11-13: the Firewall's question over RDR2, answered from the phone (nobody at the PC)."""
+    api, server, base = served
+    seen = []
+    api.answer_windows = lambda choice: seen.append(choice) or (choice == "Allow", "ok")
+    status, _, body = call(base + "/api/windows", "ABCD2345", {"choice": "Allow"})
+    assert status == 200 and json.loads(body)["ok"]
+    assert call(base + "/api/windows", "ABCD2345", {"choice": "Cancel"})[0] == 409
+    assert call(base + "/api/windows", "ABCD2345", {"choice": 5})[0] == 400
+    assert call(base + "/api/windows", None, {"choice": "Allow"})[0] == 401
+    assert seen == ["Allow", "Cancel"]
+    page = call(base + "/")[2].decode()
+    assert "showWindowsQuestion(s.windows_question)" in page and "/api/windows" in page
+
+
+def test_the_windows_question_reaches_the_page_and_only_its_buttons_answer_it():
+    from app.frames import windows_prompt
+    from app.ui.remote_control import RemoteApi
+    api = RemoteApi(None, None)
+    assert api.answer_windows("Allow")[0] is False              # no question on the screen
+    windows_prompt.ask("Do you want to allow ...?", ["Allow", "Cancel"])
+    try:
+        assert api.answer_windows("Allow") == (True, "Allow: clicking it on the PC...")
+        assert windows_prompt.take() == "Allow" and windows_prompt.take() is None
+    finally:
+        windows_prompt.clear()
