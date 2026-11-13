@@ -248,7 +248,21 @@ class Win32Desktop:
             gdi32.DeleteObject(bmp)
             gdi32.DeleteDC(mem)
             self.user32.ReleaseDC(0, screen)
-        write_png(path, width, height, pixels.raw)
+        bgra = pixels.raw
+        from app.simulation import display_capture
+        if display_capture.mostly_black(bgra):
+            # a game drawn straight to the display (RDR2 on a NucBox K10, 2026-11-13): read the display itself
+            try:
+                shown = display_capture.capture()
+            except Exception as e:          # not offered (locked screen, remote session...): the GDI picture
+                shown = None
+                if not getattr(self, "_capture_failed", False):
+                    self._capture_failed = True
+                    import logging
+                    logging.getLogger(__name__).warning("Display capture not available: %s", e)
+            if shown is not None:
+                width, height, bgra = shown
+        write_png(path, width, height, bgra)
         return width, height
 
 
