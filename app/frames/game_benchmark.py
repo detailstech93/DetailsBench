@@ -67,6 +67,10 @@ SCENE_SHOT = "scene.png"       # a game with no benchmark of its own: the screen
 CLOSE_SECONDS = 60.0              # closing a game: politely, by force after 30 s (app/frames/game_close.py)
 PASS_GAP_SECONDS = 10.0           # between two runs of a whole benchmark: Steam sees the game closed first
 MENUS_MISSED = "the app did not reach the game's benchmark"
+# RDR2 at Ultra on Intel UHD (NucBox K10, 2026-11-13): "ERR_GFX_D3D_DEFERRED_MEM Out of memory" and the game closed;
+# the next runs at the same settings would crash the same, so they are not run
+OUT_OF_MEMORY = ("the game ran out of graphics memory at these settings and closed; try a lower preset or "
+                 "resolution")
 LATE_SECONDS = 1.0                # a recording that begins this long after the benchmark's start is not the whole of it
 # a run measured over less than this share of its benchmark is not the whole of it: the owner's whole runs had
 # 97.7-100% (BL3 107.4-110 of 110 s), the bad ones 68% (BL3, a long frame mid-benchmark taken for its end) and 93%
@@ -300,6 +304,7 @@ class GameBenchmark:
         from app.frames import game_close
         self.folder_procs = folder_procs or (lambda: game_close.processes_in_folder(spec.install_path))
         self.closer = closer or game_close.close_game
+        self.close_named = None                 # tests: ends programs by name after a crash
         self._before: Optional[dict] = None
         self._started: dict = {}
         self._desktop = desktop                 # app/simulation/desktop.py; made on the first key
@@ -893,7 +898,11 @@ class GameBenchmark:
                 result = (self._window_result(frames, a, b, recorded, False, remote, command, done["shot"])
                           if pick else WorkloadResult(status="invalid", error="PresentMon recorded no frames from "
                                                       "the game in this run", command=command))
-                if done["no_results"] and result.status == "completed":     # never a score: not the whole benchmark
+                if done["error"] == OUT_OF_MEMORY:
+                    result = WorkloadResult(status="invalid", command=command, error=(
+                        f"{OUT_OF_MEMORY} (the screen showed: {done['no_results']}; the frames measured "
+                        f"{result.score or 0:.1f} FPS until then; not stored)"))
+                elif done["no_results"] and result.status == "completed":   # never a score: not the whole benchmark
                     result = WorkloadResult(status="invalid", command=command, error=(
                         f"the game did not show its results within {RESULT_WAIT_SECONDS:.0f} s after its benchmark, "
                         f"so the benchmark did not run whole (the screen showed: {done['no_results']}; the frames "
@@ -1021,6 +1030,9 @@ class GameBenchmark:
             elif shows_results_for(spec.app_id):
                 self._keep_result_screen()
                 done["no_results"] = self.results_missing
+                if "out of memory" in (self.results_missing or "").lower():
+                    done["error"] = OUT_OF_MEMORY      # the game's own crash: the next runs would crash the same
+                    done["crashed"] = True
             try:
                 done["own"] = (self.own_result or _own_result)(spec.app_id, since)
                 from data.game_start_keys import screen_average
@@ -1032,6 +1044,15 @@ class GameBenchmark:
         done["t_close"] = self.clock()
         closed = self._close_game()
         done["started"] = dict(self._started)
+        from data.game_start_keys import after_crash_close
+        names = after_crash_close(spec.app_id) if done.get("crashed") else []
+        if names:
+            try:
+                ended = (self.close_named or game_close.close_named)(names)
+            except Exception as e:
+                ended = []
+                logger.warning("Could not close %s after the crash: %s", names, e)
+            closed += f"; after the crash, closed {', '.join(ended) or 'nothing (not running)'}"
         notes = list(self.key_notes) + ([steps.summary()] if steps is not None else [])
         done["notes"] = "; ".join(n for n in notes + [closed.lstrip("; ")] if n)
         return done

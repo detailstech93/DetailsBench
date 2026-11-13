@@ -14,7 +14,7 @@ import os
 import sys
 import time
 from dataclasses import dataclass
-from typing import Callable, Dict, Iterable, Optional
+from typing import Callable, Dict, Iterable, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +125,21 @@ def terminate(info: ProcInfo) -> Optional[str]:
         return "access denied (the game runs as administrator?)"
     except Exception as e:
         return str(e)
+
+
+def close_named(names, iter_procs=None) -> List[str]:
+    """End the running programs with these file names (a crashed game's launcher); the names of those ended."""
+    import psutil
+    wanted = {n.lower() for n in names}
+    ended = []
+    for proc in (iter_procs or psutil.process_iter)(["pid", "name", "create_time"]):
+        try:
+            name = proc.info.get("name") or ""
+            if name.lower() in wanted and terminate(ProcInfo(proc.info["pid"], proc.info["create_time"], name)) is None:
+                ended.append(name)
+        except Exception:
+            continue
+    return ended
 
 
 def close_game(started: Dict[int, ProcInfo], grace_seconds: float = GRACE_SECONDS,

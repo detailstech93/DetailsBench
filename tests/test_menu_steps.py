@@ -660,6 +660,35 @@ def test_a_run_whose_results_screen_never_shows_is_invalid(tmp_path):
     assert "Content is currently installing" in bad.error
 
 
+def test_an_out_of_memory_crash_is_named_ends_the_runs_and_closes_the_launcher(tmp_path, monkeypatch):
+    """RDR2 at Ultra on a NucBox K10, 2026-11-13: "ERR_GFX_D3D_DEFERRED_MEM Out of memory" in the warm-up, and
+    Rockstar's launcher, left open, kept the next run from starting for 300 s."""
+    import data.game_start_keys as keys
+    monkeypatch.setattr(keys, "after_crash_close", lambda app_id: ["Launcher.exe"])
+    fakes = PassFakes(tmp_path)
+    desk = SimpleNamespace(foreground_pid=lambda: 100 + fakes.run)
+
+    def reader(desktop, path):
+        path.write_bytes(b"png")
+        return (["ERR_GFX_D3D_DEFERRED_MEM", "Out of memory"] if fakes.run == 1 else ["Results", "Average FPS 50"]), None
+
+    s = spec(install_path=str(fakes.install), steps=[{"see": "stop", "within": 60, "mark": True}],
+             benchmark_seconds=60)
+    bench = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=False, elevated_runner=fakes.elevated,
+                          launcher=fakes.launcher, snapshot=lambda: [], clock=fakes.clock, sleep=fakes.sleep,
+                          folder_procs=fakes.folder_procs, closer=fakes.closer, desktop=desk,
+                          exe_lister=lambda folder: ["Game.exe"],
+                          step_player=lambda st: FakeSteps(fakes, mark_after=30), screen_reader=reader)
+    asked = []
+    bench.close_named = lambda names: asked.append(names) or ["Launcher.exe"]
+    cap = bench.run()
+    assert asked == [["Launcher.exe"]]
+    bad = cap.windows[1].result
+    assert bad.score is None and "ran out of graphics memory" in bad.error and "not stored" in bad.error
+    assert [w.result.status for w in cap.windows[2:]] and all(w.result.status != "completed" for w in cap.windows[2:])
+    assert "after the crash, closed Launcher.exe" in cap.message
+
+
 def test_a_run_that_does_not_reach_the_benchmark_ends_the_runs(tmp_path):
     fakes = PassFakes(tmp_path)
     desk = SimpleNamespace(foreground_pid=lambda: 100 + fakes.run)

@@ -40,6 +40,10 @@ GAME_MENU_STEPS: Dict[int, dict] = {
         # it writes its results file only when it quits (2026-10-18): if closing its window asks to quit, Enter
         # answers it (not seen yet here; optional, so a game that just closes goes on)
         "quit_steps": [{"see": ["quit", "exit"], "within": 15, "optional": True, "settle": 1, "press": "enter"}],
+        # after it crashed (out of memory at Ultra on a NucBox K10, 2026-11-13) Rockstar's launcher stayed open
+        # outside the game folder and Steam did not start the game again for 300 s: closed after a crash only
+        # (owner's OK, 2026-11-13)
+        "after_crash_close": ["RockstarErrorHandler.exe", "Launcher.exe"],
         "benchmark_seconds": 270,       # about 4.5 min from "Stop Benchmarking" to the results (MarkBench)
         "screen_average": True,         # it wrote no results file on 2026-11-12; its screen shows the average
         "verified": True,       # passed real runs with the owner (2026-10/11)
@@ -191,6 +195,11 @@ def screen_average(app_id) -> bool:
 def starts_after_loading(app_id) -> bool:
     """Measuring runs from the loading frame before the marked step to the next one (Borderlands 3)."""
     return _menu_entry(app_id).get("starts_after_loading") is True
+
+
+def after_crash_close(app_id) -> list:
+    """Programs outside the game folder that keep the game from starting again after it crashed (its launcher)."""
+    return list(_menu_entry(app_id).get("after_crash_close") or [])
 
 
 def shows_results_for(app_id) -> bool:
