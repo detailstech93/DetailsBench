@@ -740,6 +740,7 @@ def test_a_skipped_download_says_skipped_and_the_rest_install(qapp, monkeypatch)
              Item(entry("handbrake_x264_1080p"), {"kind": "zip", "folder": "h"})]
     flow.pending, flow.installing = items, True
     assert flow._install(items) == ["cinebench_2026: skipped, not installed.", "handbrake_x264_1080p installed."]
+    assert flow.installed_ids == ["handbrake_x264_1080p"]      # the phone shows it installed before the line ends
 
 
 def test_tests_of_one_program_show_its_line_and_dot_together(qapp, monkeypatch):

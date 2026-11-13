@@ -511,6 +511,8 @@ class RemoteApi:
         out["scanning"] = bool(getattr(page, "scanning", False)) and not running
         out["queue_open"] = bool(w.install_queue_open()) if hasattr(w, "install_queue_open") else False
         out["queued"] = list(w.queued_installs()) if hasattr(w, "queued_installs") else []
+        flow = getattr(w, "run_all_flow", None)     # owner, 2026-11-13: installed ones kept their Install button
+        out["installed"] = list(getattr(flow, "installed_ids", [])) if flow is not None and flow.busy() else []
         if out["scanning"]:
             out["text"] = SCANNING_TEXT
         return out

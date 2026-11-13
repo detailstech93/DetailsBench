@@ -213,6 +213,7 @@ class RunAllFlow(QObject):
         self.lines: List[str] = []
         self.stop_event = threading.Event()
         self.item_cancel = threading.Event()        # the item going on: Stop or Skip ends its download
+        self.installed_ids: List[str] = []
         self.pending: List[Item] = []               # what is being installed, in order (more can join: enqueue)
         self.position = 0
         self.installing = False
@@ -230,6 +231,7 @@ class RunAllFlow(QObject):
         self.install_only, self.confirmed = install_only or confirmed, confirmed
         self.stop_event = threading.Event()
         self.pending, self.position, self.installing = [], 0, False
+        self.installed_ids = []        # installed in this line so far: the phone shows them at once
         install_only = self.install_only
         items, self.steam_missing = collect(entries, page.host)
         if not items:
@@ -365,19 +367,25 @@ class RunAllFlow(QObject):
             try:
                 if item.plan["kind"] == "zip":
                     outcome = self.install_zip(item)
+                    ok = outcome.ok
                     skipped = not outcome.ok and self.item_cancel.is_set() and not self.stop_event.is_set()
                     # Skip read as "stopped by user" and looked like the whole install had stopped (owner, 2026-10-22)
                     lines.append(f"{item.entry.name}: skipped, not installed." if skipped else outcome.message)
                 elif item.plan["kind"] == "lmstudio_app":
                     from app.ai import lmstudio_linux
                     result = self.run_commands(item.commands) if item.commands else "done"
-                    lines.append(lmstudio_linux.install(windows=item.plan["windows"]).message if result == "done"
+                    out = lmstudio_linux.install(windows=item.plan["windows"]) if result == "done" else None
+                    ok = out is not None and out.ok
+                    lines.append(out.message if out is not None
                                  else f"LM Studio was not installed: libatomic could not be installed ({result}).")
                 elif item.plan["kind"] == "lmstudio":
                     from app.ai.model_set import install
-                    lines.append(install(item.plan["test_id"], stop=self.item_cancel).message)
+                    out = install(item.plan["test_id"], stop=self.item_cancel)
+                    ok = out.ok
+                    lines.append(out.message)
                 elif item.package is not None:
                     out = self.install_fn(item.package)
+                    ok = out.ok
                     lines.append(out.message)
                 else:
                     from app.install import chrome_linux
@@ -385,10 +393,14 @@ class RunAllFlow(QObject):
                     why = chrome_linux.prepare(item.plan)
                     result = self.run_commands(item.commands) if why is None else why
                     chrome_linux.cleanup(item.plan)
+                    ok = result == "done"
                     lines.append(f"{what} installed." if result == "done" else f"{what} was not installed: {result}")
+                if ok:      # every test this program serves (Cinebench's two runs, PassMark's marks)
+                    self.installed_ids += [i.entry.id for i in items if install_key(i) == key]
             except Exception as e:
                 logger.exception("Install failed")
                 lines.append(f"{item.entry.name}: the install failed ({e})")
+            logger.info("Install line: %s", lines[-1][:300] if lines else item.entry.name)   # followed in the log too
         return lines
 
     def install_zip(self, item: Item) -> "winget.Outcome":

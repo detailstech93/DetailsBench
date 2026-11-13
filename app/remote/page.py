@@ -390,7 +390,7 @@ function showInfo(info) {
 // owner, 2026-10-22: while the PC runs a test, installs or scans, every choice here is greyed out until it ends
 // (an Install pressed during an install was taken but never done)
 // owner, 2026-10-22: during an install, Install still works for downloads that can wait in line ("In line (n)")
-let frozen = false, queueOpen = false, queued = [];
+let frozen = false, queueOpen = false, queued = [], installedNow = [];
 function freeze(busy) {
   frozen = busy;
   document.querySelectorAll("#tests button.act:not(.qn), #installMany, #all, #none").forEach((b) => b.disabled = busy);
@@ -399,6 +399,10 @@ function freeze(busy) {
     const n = queued.indexOf(b.dataset.queue);
     b.textContent = n >= 0 ? "In line (" + (n + 1) + ")" : "Install";
     b.disabled = busy && (n >= 0 || !queueOpen);
+  });
+  // installed in the line going on: no Install button left until the PC checks the tests again (owner, 2026-11-13)
+  document.querySelectorAll("#tests button[data-inst]").forEach((b) => {
+    if (installedNow.includes(b.dataset.inst)) { b.textContent = "Installed"; b.disabled = true; }
   });
   $("busyNote").textContent = busy && queueOpen
     ? "An install is going on: Install still works for downloads that can wait in line; the rest comes back when it ends."
@@ -409,6 +413,7 @@ function freeze(busy) {
 function actButton(label, t, what) {
   const b = el("button", label, "act go");
   if (what === "install" && t.queueable) b.dataset.queue = t.id;
+  if (what === "install") b.dataset.inst = t.id;
   b.addEventListener("click", (e) => { e.preventDefault(); askFor(t, what); });
   return b;
 }
@@ -618,6 +623,7 @@ function showState(s) {
   $("start").disabled = s.running || !!s.scanning;   // nothing starts while the PC scans for tests
   queueOpen = !!s.queue_open && !s.scanning;
   queued = s.queued || [];
+  installedNow = s.installed || [];
   freeze(!!(s.running || s.scanning));
   $("pill").textContent = s.running ? "running" : s.shutdown_pending ? "shutting down" :
                           (s.scanning ? "scanning" : "idle");
