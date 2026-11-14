@@ -59,3 +59,49 @@ choices = partial(_rt.choices, spec=SETTINGS)
 plan = partial(_rt.plan, spec=SETTINGS)
 apply = partial(_rt.apply, spec=SETTINGS)
 verify = partial(_rt.verify, spec=SETTINGS)
+
+
+# The game's own result: Documents\Shadow of the Tomb Raider\SOTTR_<PC>_<date>.txt (NucBox K10, 2026-11-13: "Average
+# Benchmark Statistics ... Average FPS: 32.7"). Its Min FPS reads 0.0 (the load), so only the average is taken.
+REPORT_DIR = "Shadow of the Tomb Raider"
+REPORT_KEYS: Dict[str, str] = {}
+
+
+def game_report(settings_path, since=None, env=None):
+    """{"avg": ..., "frames": ...} from the newest result file written at or after since; None when there is none."""
+    import os
+    from app.games.settings_file import documents_dir
+    docs = documents_dir(env if env is not None else os.environ)
+    if docs is None:
+        return None
+    try:
+        found = [f for f in (docs / REPORT_DIR).glob("SOTTR_*.txt") if "frametimes" not in f.name.lower()
+                 and (since is None or os.path.getmtime(f) >= since - 1)]
+        if not found:
+            return None
+        text = max(found, key=os.path.getmtime).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    out, frames, in_average = {}, 0, False
+    for line in text.splitlines():
+        line = line.strip()
+        try:
+            if line.startswith("Average Benchmark Statistics"):
+                in_average = True
+            elif line.startswith("Num Frames:"):
+                frames += int(float(line.split(":", 1)[1]))
+            elif in_average and line.startswith("Average FPS:"):
+                out["avg"] = float(line.split(":", 1)[1])
+        except ValueError:
+            return None
+    if frames:
+        out["frames"] = frames
+    return out if "avg" in out else None
+
+
+def own_numbers(report):
+    return dict(report)
+
+
+def report_conditions(report) -> List[str]:
+    return []

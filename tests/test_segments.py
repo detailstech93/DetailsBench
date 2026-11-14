@@ -199,3 +199,50 @@ def test_the_last_scene_is_checked_against_the_games_own_average():
     assert "26.32 FPS, the game 26.34 (-0.1%: they match)" in text and r.metrics["last_scene_fps"] == (26.32, "FPS")
     assert "DO NOT MATCH" in GameBenchmark._last_scene_check(r, [30.0] * 1000, {"avg": 26.34})
     assert GameBenchmark._last_scene_check(r, [38.0] * 1000, None).endswith("26.32 FPS")   # its number not read
+
+
+def test_borderlands3_own_result_is_read_from_its_benchmark_report(tmp_path):
+    """NucBox K10, session 19 (2026-11-14): BenchmarkData_<time>.txt says 31.13, its .csv lists every frame."""
+    import os
+    from app.games import borderlands3 as bl3
+    settings = tmp_path / "Saved" / "Config" / "WindowsNoEditor" / "GameUserSettings.ini"
+    data = tmp_path / "Saved" / "BenchmarkData"
+    data.mkdir(parents=True)
+    old = data / "BenchmarkData_2026-11-13_16-22-21.txt"
+    old.write_text("BenchmarkResults  x\n - FramesPerSecondAvg:   99.00\n", encoding="utf-8")
+    os.utime(old, (1000, 1000))
+    new = data / "BenchmarkData_2026-11-14_15-09-07.txt"
+    new.write_text("BenchmarkResults                    2026-11-14_15-09-07\n - FramesPerSecondAvg:              31.13\n"
+                   " - FrameTimeMsAvg:                  32.12\nGPU:                                Intel(R) UHD Graphics\n",
+                   encoding="utf-8")
+    rows = ["TimeInSeconds,FrameTimeMs,FPS"] + [f"{i * 0.032:.5f},32.00,31.25" for i in range(100)]
+    new.with_suffix(".csv").write_text("\n".join(rows), encoding="utf-8")       # 3.2 s: 32, 31, 31 and a partial
+    report = bl3.game_report(settings, since=2000)
+    assert report["GPU"] == "Intel(R) UHD Graphics"
+    assert bl3.own_numbers(report) == {"avg": 31.13, "min": 31.0, "max": 32.0}
+    assert bl3.game_report(settings, since=time_far_future()) is None and bl3.report_conditions(report) == []
+    assert bl3.own_numbers({"FramesPerSecondAvg": "31.13"}) == {"avg": 31.13}        # no frame list
+
+
+def time_far_future():
+    import time
+    return time.time() + 3600
+
+
+def test_sottr_own_result_is_its_average_benchmark_statistics(tmp_path):
+    """NucBox K10, 2026-11-13: SOTTR_<PC>_<date>.txt says Average FPS 32.7; its Min FPS 0.0 is not taken."""
+    import os
+    from app.games import shadow_tomb_raider as sottr
+    folder = tmp_path / "Shadow of the Tomb Raider"
+    folder.mkdir()
+    (folder / "SOTTR_PC_2026-11-13_22.35.45.txt").write_text(
+        "Raw Benchmark Statistics for 1 run:\n\n\tBenchmark Statistics (Run No. 1):\n\t\tMin FPS: 0.0\n"
+        "\t\tMax FPS: 98.7\n\t\tAverage FPS: 33.1\n\t\tNum Frames: 5145\n\n"
+        "Average Benchmark Statistics for 1 runs with 0 extremes excluded:\n\tMin FPS: 0.0\n\tMax FPS: 98.7\n"
+        "\tAverage FPS: 32.7\n\n\nSettings:\n\nFullscreen=true\n")
+    (folder / "SOTTR_PC_2026-11-13_22.35.45_frametimes_1.txt").write_bytes(b"\x00\x01")
+    env = {"PCBM_DOCUMENTS": str(tmp_path)}
+    report = sottr.game_report(None, None, env)
+    assert sottr.own_numbers(report) == {"avg": 32.7, "frames": 5145}
+    assert sottr.game_report(None, time_far_future(), env) is None
+    assert sottr.report_conditions(report) == []

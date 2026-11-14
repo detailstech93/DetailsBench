@@ -243,6 +243,13 @@ def _current_screen_mode() -> Optional[str]:
     return screen_modes.current_mode()
 
 
+def _match_text(app: float, game: float) -> str:
+    """"X FPS, the game Y (+Z%: they match)" for the app's number next to the game's own."""
+    off = 100.0 * (app - game) / game
+    return (f"{app:.2f} FPS, the game {game:g} ({off:+.1f}%: " + ("they match" if abs(off) <= LAST_SCENE_MATCH else
+            "THEY DO NOT MATCH, check this run's frames") + ")")
+
+
 def _own_result(app_id, since: float) -> Optional[dict]:
     """The game's own numbers for the run started at since (time.time()), from the report it writes; None when it
     writes none the app can read (app/games/settings_file.py)."""
@@ -938,6 +945,9 @@ class GameBenchmark:
                                          f"{spec.warmup_runs} warm-up run(s) before were not counted")
                         if scenes_spec.get("own_is_last_scene"):
                             measured_text += "; " + self._last_scene_check(result, scenes[-1], done["own"])
+                    elif result.score and (done["own"] or {}).get("avg"):     # owner, 2026-11-14: as RDR2's
+                        measured_text += ("; the game's own average next to the app's: the app " +
+                                          _match_text(float(result.score), float(done["own"]["avg"])))
                     result.note = "; ".join(x for x in [result.note, measured_text] if x)
                 # RDR2, 2026-11-11: PresentMon had one launch's frames only from 135 s on, after its benchmark had
                 # started; the run was stored with 252 of its 270 s. Not the whole benchmark: never a score
@@ -966,9 +976,7 @@ class GameBenchmark:
         text = f"the game's own average covers only its last scene: the app measured that scene at {fps:.2f} FPS"
         game = (own or {}).get("avg")
         if game:
-            off = 100.0 * (fps - float(game)) / float(game)
-            text += (f", the game {float(game):g} ({off:+.1f}%: " + ("they match" if abs(off) <= LAST_SCENE_MATCH else
-                     "THEY DO NOT MATCH, check this run's frames") + ")")
+            text += ", " + _match_text(fps, float(game)).split(", ", 1)[1]
         return text
 
     @staticmethod

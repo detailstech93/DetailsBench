@@ -580,6 +580,7 @@ def test_a_built_in_benchmark_is_measured_whole_once_per_launch(tmp_path):
         assert w.result.metrics["game_avg_fps"] == (48.0, "FPS")
         assert "Measured: the game's whole benchmark (60 s" in w.result.note
         assert "Game's own result: Average 48, Minimum 45, Maximum 55 FPS" in w.result.note
+        assert f"the game's own average next to the app's: the app {w.result.score:.2f} FPS, the game 48 (" in w.result.note
 
 
 def test_a_run_recorded_only_from_after_its_benchmark_started_is_invalid(tmp_path):

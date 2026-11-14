@@ -533,3 +533,56 @@ def verify(data: IniData, desired: Dict[str, object]) -> Dict[str, Tuple[object,
             mismatches[key] = (expected, actual)
 
     return mismatches
+
+
+# The game's own result: after each benchmark it writes Saved/BenchmarkData/BenchmarkData_<time>.txt with
+# "FramesPerSecondAvg: 31.13" and a .csv of every frame ("TimeInSeconds,FrameTimeMs,FPS"). NucBox K10, session 19
+# (2026-11-14): its 31.16 / 31.20 / 31.22 / 31.13 against the app's 31.16 / 31.20 / 31.23 / 31.15.
+REPORT_KEYS: Dict[str, str] = {}        # the settings are read from the game's own file, not from its report
+
+
+def game_report(settings_path, since: Optional[float] = None, env=None) -> Optional[Dict[str, str]]:
+    """{"FramesPerSecondAvg": "31.13", ..., "per_second": [33, 32, ...]} from the newest report the game wrote at
+    or after since (time.time()); None when there is none. Read only."""
+    import os
+    from pathlib import Path
+    folder = Path(settings_path).parents[2] / "BenchmarkData"      # .../Saved/Config/WindowsNoEditor/<file>
+    try:
+        found = [f for f in folder.glob("BenchmarkData_*.txt") if since is None or os.path.getmtime(f) >= since - 1]
+        if not found:
+            return None
+        newest = max(found, key=os.path.getmtime)
+        text = newest.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    report: Dict[str, object] = {}
+    for line in text.splitlines():
+        name, sep, value = line.lstrip(" -").partition(":")
+        if sep and name.strip() and value.strip():
+            report.setdefault(name.strip(), value.strip())
+    counts: Dict[int, int] = {}
+    try:
+        for row in newest.with_suffix(".csv").read_text(encoding="utf-8", errors="replace").splitlines()[1:]:
+            counts[int(float(row.split(",")[0]))] = counts.get(int(float(row.split(",")[0])), 0) + 1
+    except (OSError, ValueError, IndexError):
+        counts = {}
+    if counts:
+        report["per_second"] = [counts.get(s, 0) for s in range(max(counts))]   # the last, partial second left out
+    return report or None
+
+
+def own_numbers(report: Dict[str, object]) -> Dict[str, float]:
+    """The game's own average; its minimum and maximum frames in a second, from its frame list."""
+    out: Dict[str, float] = {}
+    try:
+        out["avg"] = float(report["FramesPerSecondAvg"])
+    except (KeyError, ValueError, TypeError):
+        pass
+    seconds = report.get("per_second") or []
+    if seconds:
+        out["min"], out["max"] = float(min(seconds)), float(max(seconds))
+    return out
+
+
+def report_conditions(report) -> List[str]:
+    return []
