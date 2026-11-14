@@ -55,6 +55,8 @@ GAME_MENU_STEPS: Dict[int, dict] = {
                 "'Stop Benchmarking' shows. The whole benchmark takes about 4.5 min.",
     },
     750920: {       # Shadow of the Tomb Raider: main menu -> Options -> Display and Graphics -> Run Benchmark
+        # its results screen shows "Average FPS: 32" (owner, 2026-11-14), read when its results file is not found
+        "screen_average": True,
         "launch_args": ["-nolauncher"],         # skips the game's own launcher window (MarkBench)
         "steps": [
             # a popup about the graphics adapter or an unavailable feature may come first: Enter closes it

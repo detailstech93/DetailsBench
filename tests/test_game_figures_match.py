@@ -19,6 +19,15 @@ def test_rdr2_average_from_its_results_screen():
     assert screen_numbers(["(no words)"]) is None
 
 
+def test_sottr_average_from_its_results_screen_is_a_cut_whole_number():
+    """Owner, 2026-11-14: its screen shows "Average FPS: 32" where its file says 32.7."""
+    from app.frames.game_benchmark import _match_text
+    assert screen_average(750920)
+    assert screen_numbers(["Frames rendered: 5024", "Average FPS: 32", "Game Version"]) == {"avg": 32.0}
+    assert "they match" in _match_text(32.7, 32.0) and "DO NOT MATCH" in _match_text(33.1, 32.0)
+    assert "DO NOT MATCH" in _match_text(29.04, 28.0)      # Far Cry 6, session 21: its file's whole 28
+
+
 def test_report_says_why_a_far_game_average_differs_and_names_the_written_preset():
     from app.report import _own_result_html
     assert "more than 3 %" in _own_result_html(84.0, 60.0, 89.0, None, None)

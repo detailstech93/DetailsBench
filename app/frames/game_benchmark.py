@@ -244,9 +244,11 @@ def _current_screen_mode() -> Optional[str]:
 
 
 def _match_text(app: float, game: float) -> str:
-    """"X FPS, the game Y (+Z%: they match)" for the app's number next to the game's own."""
+    """"X FPS, the game Y (+Z%: they match)" for the app's number next to the game's own. A whole number is the
+    game's cut one (SOTTR's screen: 32 where its file says 32.7), so up to 1 FPS over it still matches."""
     off = 100.0 * (app - game) / game
-    return (f"{app:.2f} FPS, the game {game:g} ({off:+.1f}%: " + ("they match" if abs(off) <= LAST_SCENE_MATCH else
+    whole = game == int(game) and 0 <= app - game < 1
+    return (f"{app:.2f} FPS, the game {game:g} ({off:+.1f}%: " + ("they match" if abs(off) <= LAST_SCENE_MATCH or whole else
             "THEY DO NOT MATCH, check this run's frames") + ")")
 
 
@@ -258,8 +260,9 @@ def _own_result(app_id, since: float) -> Optional[dict]:
 
 
 def screen_numbers(lines) -> Optional[dict]:
-    """{"avg": ...} from a results screen's text, e.g. "Average FPS: 89.2 1 82" (OCR splits digits: 89.2182)."""
-    found = re.search(r"average fps\W*(\d[\d ]*\.[\d ]*\d)", " ".join(lines or []), re.I)
+    """{"avg": ...} from a results screen's text, e.g. "Average FPS: 89.2 1 82" (OCR splits digits: 89.2182), or
+    a whole "Average FPS: 32" (Shadow of the Tomb Raider)."""
+    found = re.search(r"average fps\W*(\d[\d ]*\.[\d ]*\d|\d+)", " ".join(lines or []), re.I)
     value = float(found.group(1).replace(" ", "")) if found else None
     return {"avg": value} if value and 1 <= value <= 2000 else None
 
