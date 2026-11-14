@@ -744,12 +744,17 @@ class GameBenchmark:
         from data.game_start_keys import ends_at_loading
         if ends_at_loading(self.spec.app_id):
             from app.frames.segments import next_loading
-            stop = next_loading(frametimes, mark_shift)
+            span = max((b - a for a, b in windows), default=0.0)
+            # the load before the results, not the one into the benchmark: session 25 (2026-11-14) read 'fps'
+            # before that one (59 s; loads at 63 and 241 s) and measured 3 s
+            stop = next_loading(frametimes, mark_shift + span - END_EARLY_SECONDS)
             # SOTTR, 2026-11-12: its 33,686 frames are the 157 s before that load; 150 s from the mark missed
-            # its slow last 15 s (+2 %). Only when the span starts near the mark (not a benchmark cut short)
-            if stop is not None and all(stop - (b - a) >= mark_shift - END_EARLY_SECONDS for a, b in windows):
+            # its slow last 15 s (+2 %). Only when the span starts near the mark and holds no load (not a benchmark
+            # cut short)
+            if stop is not None and next_loading(frametimes, stop - span + 1.0) == stop and                     all(stop - (b - a) >= mark_shift - END_EARLY_SECONDS for a, b in windows):
                 return [(stop - (b - a), stop) for a, b in windows]
-            end = stop      # never past that load: session 23's 157 s from a late mark took the 66 FPS results
+            end = next_loading(frametimes, mark_shift + 1.0)    # never past a load: session 23's 157 s from a
+            # late mark took the 66 FPS results
         windows = [(a + mark_shift, b + mark_shift) for a, b in windows]
         return [(a, min(b, end)) if end is not None and end > a else (a, b) for a, b in windows]
 

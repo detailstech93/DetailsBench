@@ -64,3 +64,7 @@ def test_sottr_span_up_to_its_load_takes_a_mark_read_late_and_never_runs_past_th
     assert (a, b) == (pytest.approx(83.0), pytest.approx(240.0))
     (a, b), = GameBenchmark._marked_windows(me, frames, [(0.0, 157.0)], 110.0)   # far later: a benchmark cut short
     assert (a, b) == (pytest.approx(110.0), pytest.approx(240.0))
+    # session 25: 'fps' read at 59 s, before the load into the benchmark (63 s); the results' load at 240 s
+    frames = [30.0] * 2100 + [500.0] + [30.0] * 5883 + [500.0] + [15.0] * 2000
+    (a, b), = GameBenchmark._marked_windows(me, frames, [(0.0, 157.0)], 59.0)
+    assert (a, b) == (pytest.approx(83.0, abs=0.1), pytest.approx(240.0, abs=0.1))
