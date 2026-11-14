@@ -49,6 +49,15 @@ def test_a_forced_preset_sets_the_games_own_full_resolution_scale():
                          {"preset": ["Ultra"], "resolution_scale": ["Scale_175"]})[0] == {"preset": "Ultra"}
     fc6 = {"preset": ["Ultra"], "resolution_scale": ["1"]}
     assert p.plan_preset("2369390", p.GamePreset(quality="ultra"), fc6)[0]["resolution_scale"] == "1"
+    # RDR2's scalingMode is a ratio (1o2 is 50%, not 1) and SOTTR's ResolutionModifier 1000 is 100%
+    rdr2 = {"preset": ["Ultra"], "resolution_scale": ["kSettingScale_Mode1o2", "kSettingScale_Mode1o1"]}
+    assert p.plan_preset("1174180", p.GamePreset(quality="ultra"), rdr2)[0]["resolution_scale"] ==         "kSettingScale_Mode1o1"
+    sottr = {"preset": ["Highest"], "resolution_scale": [500, 1000]}
+    assert p.plan_preset("750920", p.GamePreset(quality="ultra"), sottr)[0]["resolution_scale"] == 1000
+    from app.games import red_dead_redemption2 as rdr, shadow_tomb_raider as sotr
+    assert rdr.read_settings("<graphics><scalingMode>kSettingScale_Mode3o2</scalingMode></graphics>") == {
+        "resolution_scale": "kSettingScale_Mode3o2"}
+    assert sotr.read_settings({"ResolutionModifier": 1000})["resolution_scale"] == 1000
 
 
 def test_a_game_without_the_asked_upscaler_is_left_out():

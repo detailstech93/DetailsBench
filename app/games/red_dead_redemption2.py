@@ -105,6 +105,8 @@ SETTINGS = {
     "upscaler": Setting("map", ("graphics/dlssIndex", "graphics/dlssQuality", "graphics/fsr2Index"), UPSCALERS),
     "preset": Setting("map", tuple(r for r, _, _ in PRESET_RANGES) + ("advancedGraphics/locked",), PRESETS),
     "motion_blur": Setting("map", ("advancedGraphics/motionBlur",), ON_OFF),
+    # <scalingMode>kSettingScale_Mode1o1</scalingMode>: 1/1 is 100% (owner's laptop, 2026-11-14)
+    "resolution_scale": Setting("learned", ("graphics/scalingMode",)),
 }
 
 

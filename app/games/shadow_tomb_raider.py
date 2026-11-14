@@ -37,6 +37,7 @@ SETTINGS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     "fullscreen": ("bool", ("Fullscreen",)),
     "exclusive_fullscreen": ("bool", ("ExclusiveFullscreen",)),
     "vsync": ("learned", ("VSync",)),
+    "resolution_scale": ("learned", ("ResolutionModifier",)),     # 1000 is 100% (owner's laptop, 2026-11-14)
     "graphics_api": ("api", ("EnableDX12",)),
     "ray_tracing": ("named", ("RayTracing",), RAY_TRACING),
     "dlss": ("named", ("DLSS",), DLSS),

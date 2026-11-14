@@ -296,14 +296,18 @@ def plan_preset(app_id, preset: GamePreset, offered: Dict[str, list]) -> Tuple[D
     # a preset is measured at the resolution it names: BL3 kept the owner's 175% and drew 3360x1890 for "1080p"
     # (owner, 2026-11-14). The game's own 100% value, when the app has seen it in the game's file
     if requested and "resolution_scale" in offered:
-        full = [v for v in offered["resolution_scale"] if _scale_number(v) in (1.0, 100.0)]
+        full = [v for v in offered["resolution_scale"] if _scale_number(v) in (1.0, 100.0, 1000.0)]
         if full:
             requested["resolution_scale"] = full[0]
     return requested, skipped
 
 
 def _scale_number(value) -> Optional[float]:
-    """The number in a resolution scale value ("Scale_175" -> 175.0, "1" -> 1.0), or None."""
+    """The number in a resolution scale value ("Scale_175" -> 175.0, "1" -> 1.0, SOTTR's 1000 -> 1000.0), or
+    None. RDR2's "kSettingScale_Mode1o2" is a ratio: 0.5, never its first 1."""
+    ratio = re.search(r"(\d+)o(\d+)$", str(value))
+    if ratio and int(ratio.group(2)):
+        return int(ratio.group(1)) / int(ratio.group(2))
     found = re.search(r"\d+(?:\.\d+)?", str(value))
     return float(found.group()) if found else None
 
