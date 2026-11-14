@@ -1,6 +1,8 @@
 """Owner, 2026-11-12: before the five games go to the library, the app's numbers and the games' own must agree or
 say why (SOTTR +2 %, RDR2 -5.5 %, Cyberpunk's "Custom", a 98 C start with no wait shown)."""
 
+import pytest
+
 from app.environment import conditions as C
 from app.frames.game_benchmark import screen_numbers
 from app.frames.segments import next_loading
@@ -47,3 +49,16 @@ def test_one_hot_reading_is_shown_as_no_wait_needed():
     assert C.cool_down(Stop(), read=lambda: {"cpu_temperature_hottest": (next(spikes), "C")}, clock=lambda: 0.0,
                        into=into) == ""
     assert into["items"][-1]["name"] == "Cooling wait" and "not needed" in into["items"][-1]["value"]
+
+
+def test_sottr_span_up_to_its_load_takes_a_mark_read_late_and_never_runs_past_the_load():
+    """Session 23 (NucBox K10, 2026-11-14, 1080p): 'fps' was read 6-7 s into the benchmark, the span was taken from
+    the mark and ran 10 s into the 66 FPS results screen (35.4 FPS stored, the game's own 32.0)."""
+    from types import SimpleNamespace
+    from app.frames.game_benchmark import GameBenchmark
+    frames = [30.0] * 8000 + [500.0] + [15.0] * 2000          # 240 s, the load before the results, the results
+    me = SimpleNamespace(spec=SimpleNamespace(app_id=750920))
+    (a, b), = GameBenchmark._marked_windows(me, frames, [(0.0, 157.0)], 90.0)
+    assert (a, b) == (pytest.approx(83.0), pytest.approx(240.0))
+    (a, b), = GameBenchmark._marked_windows(me, frames, [(0.0, 157.0)], 110.0)   # far later: a benchmark cut short
+    assert (a, b) == (pytest.approx(110.0), pytest.approx(240.0))

@@ -76,7 +76,9 @@ LATE_SECONDS = 1.0                # a recording that begins this long after the 
 # 97.7-100% (BL3 107.4-110 of 110 s), the bad ones 68% (BL3, a long frame mid-benchmark taken for its end) and 93%
 WHOLE_SHARE = 0.95
 LAST_SCENE_MATCH = 2.0       # % the app's last scene may differ from the game's own average (session 18: 0.0-0.1%)
-END_EARLY_SECONDS = 5.0      # a span up to the load before the results may begin this much before the mark
+# a span up to the load before the results may begin this much before the mark (SOTTR at 1080p on a NucBox K10,
+# session 23, 2026-11-14: 'fps' was read 6-7 s into its benchmark)
+END_EARLY_SECONDS = 15.0
 
 
 def steps_bound_seconds(steps) -> int:
@@ -746,6 +748,7 @@ class GameBenchmark:
             # its slow last 15 s (+2 %). Only when the span starts near the mark (not a benchmark cut short)
             if stop is not None and all(stop - (b - a) >= mark_shift - END_EARLY_SECONDS for a, b in windows):
                 return [(stop - (b - a), stop) for a, b in windows]
+            end = stop      # never past that load: session 23's 157 s from a late mark took the 66 FPS results
         windows = [(a + mark_shift, b + mark_shift) for a, b in windows]
         return [(a, min(b, end)) if end is not None and end > a else (a, b) for a, b in windows]
 
