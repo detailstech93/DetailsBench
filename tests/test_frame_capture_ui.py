@@ -708,3 +708,18 @@ def test_the_games_steam_build_is_stored_with_every_result(qapp, panel):
     sid = db.get_sessions(include_test=True)[0]["id"]
     runs = db.get_runs(session_id=sid, include_test=True)
     assert runs and {r["benchmark_version"] for r in runs} == {"15427801"}
+
+
+def test_a_change_found_after_the_last_run_marks_only_that_run_when_each_run_was_checked():
+    from types import SimpleNamespace
+    from app.ui.frame_capture_panel import mark_unverified
+    from app.automation.workload import WorkloadResult
+
+    def cap():
+        return SimpleNamespace(message="m", windows=[SimpleNamespace(result=WorkloadResult(status="completed", score=1.0))])
+    rec = SimpleNamespace(unchecked=[], mismatch_after_run={"dlss": ["Off", "Quality"]})
+    each, whole = cap(), cap()
+    mark_unverified(each, rec, each_run=True)       # the run's own check already judged it
+    mark_unverified(whole, rec)
+    assert each.windows[0].result.status == "completed" and "dlss was 'Quality', not 'Off'" in each.message
+    assert whole.windows[0].result.status == "invalid"

@@ -27,7 +27,7 @@ import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Mapping, Optional
+from typing import Dict, List, Mapping, Optional, Tuple
 
 from app.games import (borderlands3, counter_strike2, cyberpunk2077, doom2016, far_cry6, red_dead_redemption2,
                        rise_tomb_raider, shadow_tomb_raider, witcher3)
@@ -443,6 +443,46 @@ class ForcedSettings:
         accepted = {k: v for k, v in self.requested.items() if k not in refused}
         self.record.mismatch_before_launch = _mismatches(mod.verify(self.store.read(), accepted))
         return self._kept()
+
+    def rewrite(self) -> Tuple[str, Optional[str]]:
+        """Before each launch of a game run several times: (note, problem). A setting changed since it was written
+        is written again (owner's laptop, 2026-11-14: NVIDIA App "optimized" SOTTR 5 s after the app wrote it,
+        RT Ultra and DLSS Quality, and runs 1-3 ran with them). problem: it could not be set back."""
+        if self._launch or not self.backup.is_file():
+            return "", None
+        mod = self.adapter.module
+        accepted = {k: v for k, v in self.requested.items() if k not in self.record.refused}
+        try:
+            data = self.store.read()
+            found = mod.verify(data, accepted)
+            if not found:
+                return "", None
+            changes, _ = self._plan(mod, data, learn_indices(self.data_dir, self.app_id, self.adapter, data))
+            self._written = True
+            self.store.write(mod.apply(data, changes))
+            left = mod.verify(self.store.read(), accepted)
+        except (OSError, ValueError) as e:
+            return "", f"the game settings could not be checked before the run ({e})"
+        note = ("changed outside the app since they were written, written again: "
+                + ", ".join(f"{k} was {a!r}, set back to {e!r}" for k, (e, a) in found.items()))
+        self.record.notes.append(note)
+        self._kept()
+        if left:
+            return note, "the game settings could not be set back: " + ", ".join(
+                f"{k} is {a!r}, not {e!r}" for k, (e, a) in left.items())
+        return note, None
+
+    def check(self) -> Optional[str]:
+        """After each run (the game closed): why that run's settings were not the ones asked, or None."""
+        if self._launch or not self.backup.is_file():
+            return None
+        accepted = {k: v for k, v in self.requested.items() if k not in self.record.refused}
+        try:
+            found = self.adapter.module.verify(self.store.read(), accepted)
+        except (OSError, ValueError) as e:
+            return f"the game settings could not be checked after the run ({e})"
+        return ("the game did not keep the forced settings: " + ", ".join(
+            f"{k} was {a!r}, not {e!r}" for k, (e, a) in found.items())) if found else None
 
     def _apply_launch(self, mod) -> SettingsRecord:
         """Nothing is written: the accepted values become this launch's arguments (record.launch_args)."""

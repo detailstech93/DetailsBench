@@ -190,7 +190,24 @@ def test_the_benchmark_is_its_scenes_between_fades_up_to_the_cut_to_the_results(
 
 def test_rdr2_says_its_own_average_is_its_last_scene():
     from data.game_start_keys import scene_fades
-    assert scene_fades(1174180) == {"scenes": 5, "own_is_last_scene": True} and scene_fades(397540) is None
+    assert scene_fades(1174180) == {"scenes": 5, "own_is_last_scene": True, "last_scene_min_seconds": 130}
+    assert scene_fades(397540) is None
+
+
+def test_fades_of_alternating_frames_and_lone_fast_frames_in_the_last_scene():
+    """Owner's laptop (RTX), 2026-11-14, session 135: its fades alternate 0.3 ms and 16 ms frames (no run of fast
+    frames), and its 135 s last scene had lone 1 ms frames 28, 40 and 120 s in; all 4 runs were invalid."""
+    from app.frames.segments import faded_scenes
+    fade = [0.3, 16.0] * 300                                                 # 4.9 s
+    scene = [11.0] * 2300                                                    # 25.3 s
+    last = [11.0] * 2500 + [1.0] + [11.0] * 1100 + [1.0] + [11.0] * 7200 + [1.0] + [11.0] * 1500   # 135 s
+    frames = [11.0] * 900 + fade + scene + fade + scene + fade + scene + fade + scene + fade + last
+    frames += [1.0, 1.0, 1.0] + [30.0] * 500                                 # the cut to the results screen
+    assert faded_scenes(frames, 0.0, 5) is not None                          # found, but its last scene cut short
+    assert sum(faded_scenes(frames, 0.0, 5)[0][-1]) < 30_000
+    found = faded_scenes(frames, 0.0, 5, last_seconds=130)
+    # each fade's last 16 ms frame comes with its scene (one frame); the lone fast frames are left out
+    assert [len(s) for s in found[0]] == [2301] * 4 + [12301] and 1.0 not in found[0][-1]
 
 
 def test_the_last_scene_is_checked_against_the_games_own_average():

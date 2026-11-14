@@ -81,8 +81,8 @@ FIND_FADE_SECONDS = 30.0   # the fade is looked for from this long before the wi
 MIN_SCENE_SECONDS = 5.0    # a stretch between fades shorter than this is part of the fade
 
 
-def faded_scenes(frametimes_ms: List[float], after: float, scenes: int, look_seconds: float = 270.0
-                 ) -> Optional[Tuple[List[List[float]], float, float]]:
+def faded_scenes(frametimes_ms: List[float], after: float, scenes: int, look_seconds: float = 270.0,
+                 last_seconds: float = MIN_SCENE_SECONDS) -> Optional[Tuple[List[List[float]], float, float]]:
     """A benchmark of `scenes` scenes, each after a black fade, found in the frames: (each scene's frames, start,
     end) in game seconds, or None when the frames do not show it whole.
 
@@ -90,6 +90,10 @@ def faded_scenes(frametimes_ms: List[float], after: float, scenes: int, look_sec
     4-6 s lead into its five scenes (about 25, 26, 31, 30 and 26 FPS); the last scene ends 135-136 s after its
     fade with a few 3-4 ms frames, the cut to the results screen. A fade is a stretch of FADE_SECONDS or more of
     frames over FADE_SPEED times faster than the scenes' own; a shorter fast stretch inside a scene stays.
+
+    Owner's laptop (RTX, 2026-11-14): its fades alternate 0.3 ms and 16 ms frames, so a frame between two fast
+    ones counts as fast; and its last scene had lone fast frames 28, 40 and 120 s in, so the last scene ends
+    only after last_seconds (the spec's last_scene_min_seconds).
     """
     ends, at = [], 0.0
     for ms in frametimes_ms:
@@ -107,10 +111,11 @@ def faded_scenes(frametimes_ms: List[float], after: float, scenes: int, look_sec
     # the frames after `after` as fades and the stretches between them: [is_fade, start s, frames]
     parts: List[list] = []
     fast: List[float] = []
-    for ms, end in zip(frametimes_ms, ends):
+    fast_at = [ms < limit for ms in frametimes_ms]
+    for i, (ms, end) in enumerate(zip(frametimes_ms, ends)):
         if end <= after:
             continue
-        if ms < limit:
+        if fast_at[i] or (0 < i < len(ends) - 1 and fast_at[i - 1] and fast_at[i + 1]):
             fast.append(ms)
             continue
         if fast:
@@ -141,7 +146,7 @@ def faded_scenes(frametimes_ms: List[float], after: float, scenes: int, look_sec
         at += ms / 1000.0
         if ms >= limit:
             last.append(ms)
-        elif at - found[-1][1] > MIN_SCENE_SECONDS:     # the cut to the results screen
+        elif at - found[-1][1] > last_seconds:      # the cut to the results screen
             return kept + [last], start, at - ms / 1000.0
     return None                             # the last scene did not end in the recording
 

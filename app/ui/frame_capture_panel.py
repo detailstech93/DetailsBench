@@ -179,8 +179,9 @@ def settings_problem(rec) -> Optional[str]:
     return None
 
 
-def mark_unverified(capture, rec):
-    """Runs measured with settings the game did not keep are not valid results (no score)."""
+def mark_unverified(capture, rec, each_run: bool = False):
+    """Runs measured with settings the game did not keep are not valid results (no score). each_run: each run was
+    checked on its own after it (GameBenchmark.settings_guard), so a change found at the end is the last run's."""
     if getattr(rec, "unchecked", None):
         capture.message += "; not checked after the run: " + ", ".join(rec.unchecked)
     if rec.mismatch_after_run is None:
@@ -190,9 +191,10 @@ def mark_unverified(capture, rec):
             f"{k} was {a!r}, not {e!r}" for k, (e, a) in rec.mismatch_after_run.items())
     else:
         return
-    for w in getattr(capture, "windows", []):
-        if w.result.status == "completed":
-            w.result = WorkloadResult(status="invalid", error=why, command=w.result.command)
+    if not (each_run and rec.mismatch_after_run):
+        for w in getattr(capture, "windows", []):
+            if w.result.status == "completed":
+                w.result = WorkloadResult(status="invalid", error=why, command=w.result.command)
     capture.message += "; " + why
 
 
@@ -284,11 +286,14 @@ class GameBenchmarkWorker(QThread):
                     self.finished_plan.emit(f"failed: {e}; the game was not started")
                     return
             factory = self.benchmark_factory or GameBenchmark
-            capture, conditions = None, []
+            capture, conditions, bench = None, [], None
             self.started = time.time()          # the game's own report is the one written after this
             try:
-                capture = factory(self.spec, self.run_dir, self.stop_event, self.progress.emit,
-                                  sampler_factory=self.telemetry).run()
+                bench = factory(self.spec, self.run_dir, self.stop_event, self.progress.emit,
+                                sampler_factory=self.telemetry)
+                if self.forced is not None and hasattr(bench, "settings_guard"):
+                    bench.settings_guard = self.forced
+                capture = bench.run()
                 # what the game ran with, read before a forced file is put back (owner, 2026-10-23)
                 conditions = self.conditions(capture)
             finally:
@@ -300,7 +305,8 @@ class GameBenchmarkWorker(QThread):
                     if capture is not None:
                         capture.message = f"{capture.message}; {note}"
             if self.forced is not None:
-                mark_unverified(capture, self.forced.record)
+                mark_unverified(capture, self.forced.record,
+                                each_run=getattr(bench, "settings_guard", None) is not None)
             add_conditions(capture, conditions, getattr(self.forced, "requested", None))
             if capture.status != "recorded":
                 self.finished_plan.emit(f"{capture.status}: {capture.message}; nothing was stored")

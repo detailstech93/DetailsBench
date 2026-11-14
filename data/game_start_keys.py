@@ -49,7 +49,9 @@ GAME_MENU_STEPS: Dict[int, dict] = {
         # black fades between its five scenes ran at 250 FPS for 5-9 s each on a NucBox K10 (2026-11-13) and made
         # 26 FPS read 42: the five scenes are measured, the fades left out. Its own end-screen average is its last
         # scene only (session 18, 2026-11-14: 26.34 / 26.70 / 26.47 on screen, 26.34 / 26.71 / 26.45 from the frames)
-        "scene_fades": {"scenes": 5, "own_is_last_scene": True},
+        # its last scene runs 135-136 s; lone fast frames inside it (28, 40, 120 s in, owner's laptop 2026-11-14)
+        # are not its end
+        "scene_fades": {"scenes": 5, "own_is_last_scene": True, "last_scene_min_seconds": 130},
         "verified": True,       # passed real runs with the owner (2026-10/11)
         "note": "Settings, Graphics, hold X on Run Benchmark Test, confirm; measuring starts when "
                 "'Stop Benchmarking' shows. The whole benchmark takes about 4.5 min.",
@@ -144,7 +146,9 @@ GAME_MENU_STEPS: Dict[int, dict] = {
             {"see": "start benchmark", "within": 40, "again": {"press": "c", "every": 4}, "tap": 0.15, "settle": 2,
              "shot": "benchmark_result"},       # the name the report shows (app/report.py PROOF_SHOTS)
         ],
-        "benchmark_seconds": 110,       # "nearly two minutes" (Notebookcheck)
+        # "nearly two minutes" (Notebookcheck); its own CSV covers 109.07 s, and 110 s took in ~0.9 s of the slow
+        # cut back to the menu: the app read 0.6% under the game (owner's laptop, session 132, 2026-11-14)
+        "benchmark_seconds": 109,
         "results_screen": False,        # it goes back to its menu (owner, 2026-10-29): the shot is its FPS counter
         # measuring starts at the loading frames after the Start click and stops before the loading frame back to
         # the menu (owner, 2026-10-29)

@@ -339,6 +339,8 @@ class GameBenchmark:
         self.shots_dir = self.run_dir               # a whole benchmark: one folder of screenshots per run
         self.own_result = own_result                # the game's own numbers (tests pass a fake)
         self.results_missing: Optional[str] = None  # what the screen showed when the results never came
+        self.settings_guard = None      # app/games/settings_file.ForcedSettings: checked before and after each run
+        self.settings_changed = 0       # runs in a row the game's settings were changed during
 
     def _keep_result_screen(self) -> None:
         """The game's own results screen, kept for the report: looked for up to RESULT_WAIT_SECONDS by its words;
@@ -920,7 +922,10 @@ class GameBenchmark:
                     from app.frames.segments import FIND_FADE_SECONDS, faded_scenes
                     # session 22 (2026-11-14): 'stop' was read 30-55 s after the first fade in 3 of 4 runs; from
                     # the mark's 30 s back those runs found 4 scenes, so 60 s back is tried next
-                    found = faded_scenes(frametimes, a - FIND_FADE_SECONDS, scenes_spec["scenes"]) or                         faded_scenes(frametimes, a - 2 * FIND_FADE_SECONDS, scenes_spec["scenes"])
+                    last = scenes_spec.get("last_scene_min_seconds", 5.0)
+                    found = (faded_scenes(frametimes, a - FIND_FADE_SECONDS, scenes_spec["scenes"], last_seconds=last)
+                             or faded_scenes(frametimes, a - 2 * FIND_FADE_SECONDS, scenes_spec["scenes"],
+                                             last_seconds=last))
                     if found is None:
                         scene_error = (f"the frames do not show the benchmark's {scenes_spec['scenes']} scenes whole "
                                        "(each after a black fade), so it could not be measured")
@@ -965,6 +970,9 @@ class GameBenchmark:
                                           _match_text(float(result.score), float(done["own"]["avg"]),
                                                       float(done["own"].get("cut") or 1.0)))
                     result.note = "; ".join(x for x in [result.note, measured_text] if x)
+                if done.get("settings") and result.status == "completed":    # this run's own settings check
+                    result = WorkloadResult(status="invalid", command=command, error=(
+                        f"{done['settings']} (the frames measured {result.score or 0:.1f} FPS; not stored)"))
                 # RDR2, 2026-11-11: PresentMon had one launch's frames only from 135 s on, after its benchmark had
                 # started; the run was stored with 252 of its 270 s. Not the whole benchmark: never a score
                 if pick and mark < -LATE_SECONDS and result.status == "completed":
@@ -1017,6 +1025,11 @@ class GameBenchmark:
         self.result_shot, self.key_notes, self._started, self.result_lines = None, [], {}, []
         self._before = self.folder_procs()
         since = time.time()
+        rewritten, problem = self.settings_guard.rewrite() if self.settings_guard is not None else ("", None)
+        if problem:
+            done["error"] = problem
+            done["notes"] = rewritten
+            return done
         self.on_progress(f"{spec.game_name}, {label}: launching it through Steam...")
         extra = {"args": list(spec.launch_args)} if spec.launch_args else {}
         launched = self.launcher(spec.app_id, spec.install_path, spec.discovered_appids, snapshot=self.snapshot,
@@ -1113,8 +1126,15 @@ class GameBenchmark:
                 ended = []
                 logger.warning("Could not close %s after the crash: %s", names, e)
             closed += f"; after the crash, closed {', '.join(ended) or 'nothing (not running)'}"
-        notes = list(self.key_notes) + ([steps.summary()] if steps is not None else [])
+        notes = [rewritten] + list(self.key_notes) + ([steps.summary()] if steps is not None else [])
         done["notes"] = "; ".join(n for n in notes + [closed.lstrip("; ")] if n)
+        if self.settings_guard is not None:
+            done["settings"] = self.settings_guard.check()
+            self.settings_changed = self.settings_changed + 1 if done["settings"] else 0
+            if self.settings_changed >= 2 and not done["error"]:      # set back and changed again: not a run more
+                done["error"] = done["settings"] = (
+                    "something on this PC keeps changing the game's settings during its runs ("
+                    + done["settings"] + "); its next runs were not run")
         return done
 
     # ---- Linux: MangoHud (app/frames/mangohud_run.py) ------------------------------------------------

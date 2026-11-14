@@ -126,3 +126,31 @@ def test_the_remote_page_gets_each_games_own_lists():
             "ray_tracing": "medium", "resolution": "1920x1080"}
     assert presets.from_page(page).upscaler_mode == "balanced"
     assert presets.from_page(dict(page, mode="raw")).upscaler_mode == presets.KEEP
+
+
+def test_settings_changed_outside_the_app_are_written_again_before_each_run(tmp_path):
+    # owner's laptop, 2026-11-14: NVIDIA App set SOTTR to RT Ultra and DLSS Quality 5 s after the app wrote it
+    import json
+    from app.games.settings_file import ForcedSettings
+
+    class Store:
+        where, backup_suffix, writable = "registry", ".json", True
+        data = dict(REG)
+        def exists(self): return True
+        def read(self): return dict(self.data)
+        def write(self, d): self.data = dict(d)
+        def save_backup(self, path): path.write_text(json.dumps(self.data))
+        def restore(self, path): self.data = json.loads(path.read_text())
+
+    forced = ForcedSettings(750920, {"dlss": "Off", "ray_tracing": "Off"}, tmp_path / "run", tmp_path / "data")
+    forced.store = store = Store()
+    forced.apply()
+    assert forced.rewrite() == ("", None) and forced.check() is None
+    store.data.update(RayTracing=3, DLSS=3)                     # another program, between two runs
+    note, problem = forced.rewrite()
+    assert problem is None and "set back to 'Off'" in note and "ray_tracing was 'Ultra'" in note
+    assert store.data["RayTracing"] == 0 and store.data["DLSS"] == 0 and forced.check() is None
+    store.data.update(RayTracing=3)                             # during a run
+    assert "ray_tracing was 'Ultra', not 'Off'" in forced.check()
+    forced.finish()
+    assert store.data["RayTracing"] == 0 and store.data["DLSS"] == 3     # the user's own put back

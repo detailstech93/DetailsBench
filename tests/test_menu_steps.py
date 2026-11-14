@@ -405,7 +405,7 @@ def test_far_cry_6_path(tmp_path):
 
 def test_borderlands_3_path(tmp_path):
     from data.game_start_keys import benchmark_seconds_for
-    assert benchmark_seconds_for(397540) == 110
+    assert benchmark_seconds_for(397540) == 109
     timeline = [(0, ["Gearbox"]), (20, ["Press any key"]), (24, ["Loading"]),
                 (30, ["Play", "Options", "Social", "Quit"]), (40, ["Visuals", "Sound", "Gameplay"]),
                 (50, ["Basic", "Display Mode"]), (60, ["Start Benchmark"]), (70, ["Loading"]), (80, ["FPS 140"]),
@@ -1024,3 +1024,46 @@ def test_an_italic_a_read_as_o_still_finds_the_word():
     assert screen_text.find_word([line], "start benchmark") == "start benchmark"
     assert screen_text.word_center([line], "start", own_letters=True) == (140, 410)
     assert screen_text.find_word(["Options | Visuals"], "start") is None
+
+
+class Guard:
+    """ForcedSettings' rewrite/check, faked: the settings were changed during the runs listed in `changed`."""
+    def __init__(self, fakes, changed):
+        self.fakes, self.changed, self.rewrites = fakes, changed, 0
+
+    def rewrite(self):
+        self.rewrites += 1
+        return ("written again: dlss was 'Quality', set back to 'Off'" if self.fakes.run + 1 in self.changed
+                and self.fakes.run >= 0 else ""), None
+
+    def check(self):
+        return "the game did not keep the forced settings: dlss was 'Quality', not 'Off'" \
+            if self.fakes.run in self.changed else None
+
+
+def _guarded(tmp_path, changed):
+    fakes = PassFakes(tmp_path)
+    s = spec(install_path=str(fakes.install), steps=[{"see": "stop", "within": 60, "mark": True}],
+             benchmark_seconds=60)
+    b = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=False, elevated_runner=fakes.elevated,
+                      launcher=fakes.launcher, snapshot=lambda: [], clock=fakes.clock, sleep=fakes.sleep,
+                      folder_procs=fakes.folder_procs, closer=fakes.closer,
+                      desktop=SimpleNamespace(foreground_pid=lambda: 100 + fakes.run),
+                      exe_lister=lambda folder: ["Game.exe"], step_player=lambda st: FakeSteps(fakes, mark_after=30),
+                      own_result=lambda app_id, since: None)
+    b.settings_guard = guard = Guard(fakes, changed)
+    return b.run(), guard
+
+
+def test_settings_changed_during_one_run_make_only_that_run_invalid(tmp_path):
+    # owner's laptop, 2026-11-14: NVIDIA App set SOTTR's DLSS and ray tracing between runs; all 4 were thrown away
+    cap, guard = _guarded(tmp_path, changed={1})
+    assert guard.rewrites == 3 and [w.result.status for w in cap.windows] == ["completed", "invalid", "completed"]
+    assert "did not keep the forced settings" in cap.windows[1].result.error
+    assert cap.windows[1].result.score is None
+
+
+def test_settings_changed_in_two_runs_in_a_row_stop_the_runs(tmp_path):
+    cap, guard = _guarded(tmp_path, changed={0, 1})
+    assert guard.rewrites == 2 and [w.result.status for w in cap.windows] == ["invalid"] * 3
+    assert "keeps changing the game's settings" in cap.windows[1].result.error
