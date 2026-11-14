@@ -186,7 +186,15 @@ def own_numbers(report: Dict[str, str]) -> Dict[str, float]:
             out[key] = float(report[label])
         except (KeyError, ValueError):
             continue
+    if "avg" in out:
+        out["cut"] = OWN_CUT
     return out
+
+
+# NucBox K10, session 21 (2026-11-14): its per-second FPS is each second's frames over that second rounded down
+# (that rule on PresentMon's frames gives its 60 numbers within 2 frames in all), and its average is whole: 28
+# where the same seconds give 28.43 and PresentMon 29.04. So it reads up to 2 FPS under the app's
+OWN_CUT = 2.0
 
 
 def report_conditions(report: Dict[str, str]) -> List[str]:

@@ -68,3 +68,13 @@ def test_sottr_span_up_to_its_load_takes_a_mark_read_late_and_never_runs_past_th
     frames = [30.0] * 2100 + [500.0] + [30.0] * 5883 + [500.0] + [15.0] * 2000
     (a, b), = GameBenchmark._marked_windows(me, frames, [(0.0, 157.0)], 59.0)
     assert (a, b) == (pytest.approx(83.0, abs=0.1), pytest.approx(240.0, abs=0.1))
+
+
+def test_far_cry6_own_average_is_whole_seconds_rounded_down_so_2_fps_under_still_matches():
+    """Session 21 (NucBox K10, 2026-11-14): the game said 28 where PresentMon measured 29.04 on the same 60 s."""
+    from app.frames.game_benchmark import _match_text
+    from app.games import far_cry6
+    own = far_cry6.own_numbers({"Average FPS": "28", "Minimum FPS": "25", "Maximum FPS": "32"})
+    assert own == {"avg": 28.0, "min": 25.0, "max": 32.0, "cut": 2.0}
+    assert "they match" in _match_text(29.37, own["avg"], own["cut"])
+    assert "DO NOT MATCH" in _match_text(30.2, own["avg"], own["cut"]) and "DO NOT MATCH" in _match_text(29.04, 28.0)

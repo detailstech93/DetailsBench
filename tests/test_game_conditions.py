@@ -175,6 +175,6 @@ def test_the_games_own_numbers_are_read_from_its_report(tmp_path):
         '<div class = "option_name">Minimum FPS:</div> <div class = "option_value min">109</div>\n'
         '<div class = "option_name">Maximum FPS:</div> <div class = "option_value">175</div>\n'))
     assert game_own_result(2369390, 0, env={"PCBM_DOCUMENTS": str(tmp_path)}) == {
-        "avg": 129.0, "min": 109.0, "max": 175.0}
+        "avg": 129.0, "min": 109.0, "max": 175.0, "cut": 2.0}
     assert game_own_result(2369390, 4102444800, env={"PCBM_DOCUMENTS": str(tmp_path)}) is None
     assert game_own_result(750920, 0, env={}) is None               # a game whose report the app cannot read

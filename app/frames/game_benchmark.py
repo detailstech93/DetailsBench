@@ -245,11 +245,12 @@ def _current_screen_mode() -> Optional[str]:
     return screen_modes.current_mode()
 
 
-def _match_text(app: float, game: float) -> str:
+def _match_text(app: float, game: float, cut: float = 1.0) -> str:
     """"X FPS, the game Y (+Z%: they match)" for the app's number next to the game's own. A whole number is the
-    game's cut one (SOTTR's screen: 32 where its file says 32.7), so up to 1 FPS over it still matches."""
+    game's cut one (SOTTR's screen: 32 where its file says 32.7), so up to `cut` FPS over it still matches (Far
+    Cry 6: 2, see far_cry6.OWN_CUT)."""
     off = 100.0 * (app - game) / game
-    whole = game == int(game) and 0 <= app - game < 1
+    whole = game == int(game) and 0 <= app - game < cut
     return (f"{app:.2f} FPS, the game {game:g} ({off:+.1f}%: " + ("they match" if abs(off) <= LAST_SCENE_MATCH or whole else
             "THEY DO NOT MATCH, check this run's frames") + ")")
 
@@ -961,7 +962,8 @@ class GameBenchmark:
                             measured_text += "; " + self._last_scene_check(result, scenes[-1], done["own"])
                     elif result.score and (done["own"] or {}).get("avg"):     # owner, 2026-11-14: as RDR2's
                         measured_text += ("; the game's own average next to the app's: the app " +
-                                          _match_text(float(result.score), float(done["own"]["avg"])))
+                                          _match_text(float(result.score), float(done["own"]["avg"]),
+                                                      float(done["own"].get("cut") or 1.0)))
                     result.note = "; ".join(x for x in [result.note, measured_text] if x)
                 # RDR2, 2026-11-11: PresentMon had one launch's frames only from 135 s on, after its benchmark had
                 # started; the run was stored with 252 of its 270 s. Not the whole benchmark: never a score
