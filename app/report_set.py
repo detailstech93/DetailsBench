@@ -126,24 +126,44 @@ def skipped_note(runs) -> str:
 # a run where programs that are not the test used this share of the whole CPU on average: run it again. An estimate
 # (owner, 2026-11-12, to check on the next line): idle is 0.3-1.7%; the low BL3/SOTTR runs had 12-24 points more load
 BUSY_PERCENT = 5.0
+# owner, 2026-11-15: each PC against its own rest (the owner's laptop is at 6-10% with nothing open, so every run was
+# flagged): a run is flagged at ABOVE_IDLE points over the other programs at rest before it, never under BUSY_PERCENT,
+# and always at BUSY_LIMIT (FC6 s118 at 10.3% scored ~5% lower; Android's and MySQL's runners call 10% busy)
+ABOVE_IDLE = 3.0
+BUSY_LIMIT = 10.0
 OTHER = "tel_cpu_other_"
+
+
+def other_cpu_idle(export: Mapping) -> Optional[float]:
+    """The other programs' CPU share at rest before the session's run (app/environment/conditions.timed_check)."""
+    manifest = export.get("manifest")
+    conditions = manifest.get("conditions") if isinstance(manifest, Mapping) else None
+    rest = conditions.get("other_cpu_idle") if isinstance(conditions, Mapping) else None
+    return float(rest) if isinstance(rest, (int, float)) else None
+
+
+def busy_percent(export: Mapping) -> float:
+    """The share of other programs at which this session's runs are flagged."""
+    rest = other_cpu_idle(export)
+    return BUSY_PERCENT if rest is None else min(BUSY_LIMIT, max(BUSY_PERCENT, rest + ABOVE_IDLE))
 
 
 def busy_runs(export: Mapping, name: str) -> List[str]:
     """Each measured run of the test where other programs kept the CPU busy: "run 2: 12% (chrome.exe 9%)"."""
-    out = []
+    out, limit, rest = [], busy_percent(export), other_cpu_idle(export)
     for r in export.get("runs") or []:
         if r.get("benchmark_name") != name or r.get("is_warmup"):
             continue
         m = r.get("metrics") or {}
         share = (m.get("tel_cpu_other_avg") or {}).get("value")
-        if not isinstance(share, (int, float)) or share < BUSY_PERCENT:
+        if not isinstance(share, (int, float)) or share < limit:
             continue
         named = sorted(((k[len(OTHER):-len("_avg")], v.get("value")) for k, v in m.items()
                         if k.startswith(OTHER) and k.endswith("_avg") and k != "tel_cpu_other_avg"
                         and isinstance(v.get("value"), (int, float))), key=lambda p: -p[1])[:3]
         which = ", ".join(f"{n} {v:.0f}%" for n, v in named)
-        out.append(f"run {r.get('run_index')}: {share:.0f}%" + (f" ({which})" if which else ""))
+        out.append(f"run {r.get('run_index')}: {share:.0f}%" + (f" ({which})" if which else "")
+                   + (f", {rest:.0f}% at rest" if rest is not None else ""))
     return out
 
 

@@ -12,6 +12,7 @@ ReBench, owner 2026-10-18/19). Read only: nothing is changed, the owner decides.
 """
 
 import re
+import statistics
 import subprocess
 import sys
 import time
@@ -20,6 +21,7 @@ from typing import Callable, List, Optional
 
 BUSY_PERCENT = 10.0             # whole-CPU load before a run above this is called busy
 SAMPLE_SECONDS = 1.0
+IDLE_READS = 5                  # one-second reads of the other programs at rest; their middle is kept
 POWER_SAVER_GUID = "a1841308-3541-4fab-bc81-f71556f20b4a"      # Windows' built-in Power saver scheme
 SCHEME = re.compile(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\s*\(([^)]*)\)")
 IDLE_NAMES = {"system idle process", "idle"}
@@ -267,6 +269,31 @@ def text(items: List[dict]) -> str:
     return head + "\n" + "\n".join(lines)
 
 
-def timed_check(**kw) -> dict:
-    """The items with the time they were read (stored in the session's manifest)."""
-    return {"read_at": time.strftime("%Y-%m-%d %H:%M:%S"), "items": check(**kw)}
+def other_idle(source=None, reads: int = IDLE_READS, sleep=time.sleep) -> Optional[float]:
+    """The middle of a few one-second reads of the CPU share used by programs that are not this app (the same
+    measure as each run's other programs), at rest before the run; None when it cannot be read."""
+    try:
+        if source is None:
+            from app.telemetry.other_programs import OtherProgramsSource
+            source = OtherProgramsSource()
+        source.available()
+        values = []
+        for _ in range(reads):
+            sleep(1.0)
+            value = source.read().get("cpu_other")
+            if value:
+                values.append(value[0])
+        return statistics.median(values) if values else None
+    except Exception:
+        return None
+
+
+def timed_check(idle=other_idle, **kw) -> dict:
+    """The items with the time they were read (stored in the session's manifest), and the other programs' CPU at rest
+    as `other_cpu_idle` (app/report_set.busy_runs measures each run's other programs against it)."""
+    out = {"read_at": time.strftime("%Y-%m-%d %H:%M:%S"), "items": check(**kw)}
+    rest = idle()
+    if rest is not None:
+        out["other_cpu_idle"] = rest
+        out["items"].append(_item("Other programs at rest", f"{rest:.1f}% of the CPU", True))
+    return out

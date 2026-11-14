@@ -56,3 +56,38 @@ def test_the_report_and_the_summary_say_run_again_at_the_top():
     html = render_summary_report(_export(), rows)
     top = html[:html.index("</section>")]
     assert "Run again (other programs were using the CPU): Borderlands 3" in top and "Far Cry 6" not in top
+
+
+def test_each_pc_is_measured_against_its_own_rest_never_under_5_and_always_at_10():
+    """Owner, 2026-11-15: the laptop is at 6-10% with nothing open; flag 3 points over the rest before the run."""
+    from app.report_set import busy_runs
+
+    def at(rest, *shares):
+        export = dict(_export(), runs=[_run(i + 1, v) for i, v in enumerate(shares)])
+        if rest is not None:
+            export["manifest"] = {"conditions": {"other_cpu_idle": rest}}
+        return [b.split(":")[0] for b in busy_runs(export, "frames_bl3")]
+
+    assert at(None, 4.9, 5.0) == ["run 2"]                       # an older session: 5% as before
+    assert at(6.5, 9.0, 9.5) == ["run 2"]                        # the laptop: 6.5 + 3
+    assert at(0.5, 4.0, 5.0) == ["run 2"]                        # a quiet PC: never under 5
+    assert at(9.0, 9.9, 10.0) == ["run 2"]                       # a busy PC at rest: always at 10
+    assert busy_runs(dict(_export(), manifest={"conditions": {"other_cpu_idle": 6.5}}), "frames_bl3") == \
+        ["run 2: 14% (chrome.exe 9%, x.exe 2%), 6% at rest"]
+
+
+def test_the_rest_is_the_middle_of_its_reads_and_missing_when_it_cannot_be_read():
+    from app.environment.conditions import other_idle
+
+    class Src:
+        def __init__(self, values):
+            self.values = iter(values)
+
+        def available(self):
+            return True, ""
+
+        def read(self):
+            return {"cpu_other": (next(self.values), "%")}
+
+    assert other_idle(Src([7.0, 6.0, 30.0, 6.5, 8.0]), sleep=lambda s: None) == 7.0
+    assert other_idle(object(), sleep=lambda s: None) is None
