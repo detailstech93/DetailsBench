@@ -177,6 +177,9 @@ def server_error(log: str, model: str) -> Optional[str]:
     if not found:
         return None
     message = found.group(1).replace('\\"', '"')
+    if "failed to allocate" in message or "out of memory" in message.lower():
+        return (f"{NOT_ENOUGH_MEMORY}: the graphics memory was too small to load {model} ({message[:160]}); "
+                "choose a smaller model")
     if "insufficient system resources" in message:
         needs = NEEDS_GB.search(message)
         return (f"{NOT_ENOUGH_MEMORY}: LM Studio would not load {model}"
@@ -218,6 +221,7 @@ class LlamaBenchyWorkload(Workload):
     timeout_seconds = 1800
     verified = True                   # checked with real runs on this computer (2026-10-18)
     warning = WARNING
+    checks_memory = True              # the owner's model is checked against the free memory (model_set does its own)
     unload_jit = True                 # a model LM Studio loaded for this run is unloaded after it
     unload_all_first = True           # `lms unload --all` before the run
 
@@ -284,11 +288,22 @@ class LlamaBenchyWorkload(Workload):
         found = next((m for m in models if m.get("id") == self.model), {"id": self.model})
         return lmstudio.run_record(found, self._read_runtimes())
 
+    def _memory_short(self) -> Optional[str]:
+        """NucBox K10, 2026-11-14: the owner's chosen Qwen3.8 27B (about 21 GB) on 12 GB free, graphics sharing the
+        memory: LM Studio answered "Loading model" until it failed, 7 times. The model set's check, for its models.
+        shortcut: a model not in the model set is not checked; upgrade with LM Studio's own size of it."""
+        from app.ai import model_set
+        known = next((m for m in model_set.all_models().values() if m[1] == self.model), None)
+        return model_set.memory_short(known[0], known[3]) if known else None
+
     def run(self, ctx: RunContext) -> WorkloadResult:
         if not self.exe:
             return WorkloadResult(status="skipped", error="llama-benchy not installed in the app's Python")
         if not self.model:
             return WorkloadResult(status="skipped", error="no model chosen")
+        short = self.checks_memory and self._memory_short()
+        if short:
+            return WorkloadResult(status="skipped", error=short)
         folder = Path(ctx.output_dir)
         result_path = folder / RESULT_FILE
         command = self._command(str(result_path))

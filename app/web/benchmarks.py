@@ -14,6 +14,7 @@ with the same browser and version. Nothing is uploaded by these pages.
 """
 
 import tempfile
+import ntpath
 import threading
 import time
 import urllib.request
@@ -84,13 +85,17 @@ class WebBenchmarkWorkload(Workload):
                "browser's profile); leave the window in front and the PC alone while it runs.")
 
     def __init__(self, spec: dict, browser: Optional[str] = None, finder: Callable = cdp.find_browser,
-                 popen=None, connect=None, opener=None, clock=time.monotonic):
+                 popen=None, connect=None, opener=None, clock=time.monotonic, others: Optional[Callable] = None):
         self.spec = None            # not a tool spec (app/ui/automation_panel.py reads attributes then)
         self.page = spec
         self.id, self.display_name = spec["id"], spec["name"]
         self.timeout_seconds = spec["timeout"]
         self.verified = False       # not seen on a real run here yet
         self.browser = browser if browser is not None else finder()
+        # NucBox K10, 2026-11-14: Chrome 157 started by the app opened no DevTools port in 60 s (it did when started
+        # by hand); the next browser found (Edge) is tried before the run fails
+        self._others = others or ((lambda: [b for b in cdp.installed_browsers() if b != self.browser])
+                                  if browser is None else (lambda: []))
         self._popen, self._connect, self._opener, self.clock = popen, connect, opener, clock
         self._started: Optional[float] = None
 
@@ -124,21 +129,31 @@ class WebBenchmarkWorkload(Workload):
         popen = self._popen or subprocess.Popen
         stop = ctx.stop_event or threading.Event()
         timeout = float(ctx.timeout_seconds or self.timeout_seconds)
-        profile = Path(tempfile.mkdtemp(prefix="pcbm-browser-"))
-        command = cdp.browser_command(self.browser, profile, self.page["url"])
         shown = [self.browser, "(new empty profile)", self.page["url"]]
         started = self.clock()
         self._started = started
-        proc = ws = None
+        proc = ws = profile = port = None
+        tried = []
         try:
-            try:
-                proc = popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL)
-            except OSError as e:
-                return WorkloadResult(status="failed", error=f"could not start: {e}", command=shown)
-            port = cdp.wait_for(lambda: cdp.read_active_port(profile), 60, stop)
+            for exe in [self.browser] + list(self._others()):
+                if proc is not None:            # the one before did not answer: closed, its profile removed
+                    cdp.end_browser(proc)
+                    cdp.remove_profile(profile)
+                    proc = None
+                profile = Path(tempfile.mkdtemp(prefix="pcbm-browser-"))
+                shown = [exe, "(new empty profile)", self.page["url"]]
+                try:
+                    proc = popen(cdp.browser_command(exe, profile, self.page["url"]), stdin=subprocess.DEVNULL,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except OSError as e:
+                    tried.append(f"{_name(exe)} could not start: {e}")
+                    continue
+                port = cdp.wait_for(lambda: cdp.read_active_port(profile), 60, stop)
+                if port is not None or stop.is_set():
+                    break
+                tried.append(_no_port(exe, proc, profile))
             if port is None:
-                return self._end(stop, "the browser did not open its DevTools port within 60 s", shown, started)
+                return self._end(stop, "; ".join(tried) or "no browser could be started", shown, started)
             opener = self._opener or urllib.request.urlopen
             browser_name = ""
             try:
@@ -176,12 +191,29 @@ class WebBenchmarkWorkload(Workload):
                 ws.close()
             if proc is not None:
                 cdp.end_browser(proc)
-            cdp.remove_profile(profile)
+            if profile is not None:
+                cdp.remove_profile(profile)
 
     def _end(self, stop, why: str, shown, started) -> WorkloadResult:
         status = "cancelled" if stop.is_set() else "failed"
         return WorkloadResult(status=status, error="stopped by user" if stop.is_set() else why, command=shown,
                               duration_seconds=round(self.clock() - started, 3))
+
+
+def _name(exe: str) -> str:
+    return {"chrome.exe": "Chrome", "msedge.exe": "Edge"}.get(ntpath.basename(exe).lower(), ntpath.basename(exe))
+
+
+def _no_port(exe: str, proc, profile: Path) -> str:
+    """Why a browser gave no DevTools port, in words the report shows."""
+    code = proc.poll() if hasattr(proc, "poll") else None
+    try:
+        filled = any(Path(profile).iterdir())
+    except OSError:
+        filled = False
+    return (f"{_name(exe)} opened no DevTools port within 60 s ("
+            + (f"it closed by itself with exit code {code}" if code is not None else "it was still running")
+            + ("" if filled else "; it wrote nothing in its new profile folder") + ")")
 
 
 def web_workloads() -> list:

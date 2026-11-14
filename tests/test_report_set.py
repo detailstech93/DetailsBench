@@ -263,3 +263,26 @@ def test_a_line_of_games_gets_a_general_report_of_all_its_sessions(tmp_path):
     text = path.read_text(encoding="utf-8")
     assert "2 <span>of 3</span>" in text and '<a href="steam_397540_2026-11-04_15-31-00.html">' in text
     assert "Far Cry 6" in text and "UAC prompt was not answered" in text       # a game that stored no run is named
+
+
+def test_a_failed_test_says_why_in_plain_words():
+    """Owner, NucBox K10 session 15 (2026-11-14): "FAILED (failed): Retry after a failed try (failed: ..." cut short,
+    "0 of 6" for 3 runs, and Phi-4 reasoning read only "Passed" with 4 of its runs out of memory."""
+    from app.report_set import test_outcome
+    port = "the browser did not open its DevTools port within 60 s"
+    runs = [{"benchmark_name": "j", "status": "failed", "is_warmup": True, "run_index": 0, "note": port}]
+    for k in (1, 2, 3):
+        runs += [{"benchmark_name": "j", "status": "failed", "is_warmup": False, "run_index": k, "note": port},
+                 {"benchmark_name": "j", "status": "failed", "is_warmup": False, "run_index": k,
+                  "note": f"Retry after a failed try (failed: {port}); {port}"}]
+    out = test_outcome({"runs": runs, "summaries": {}}, "j")
+    assert out["result"] == f"FAILED. Why: The browser did not start for the test ({port})"
+    assert out["runs"] == "0 of 3 measured run(s) completed, 1 warm-up" and not out["passed"]
+    oom = "not enough memory: the graphics ran out of memory for this model (CL_OUT_OF_RESOURCES)"
+    runs = [{"benchmark_name": "p", "status": "completed", "is_warmup": False, "run_index": 1, "score": 4.45},
+            {"benchmark_name": "p", "status": "failed", "is_warmup": False, "run_index": 2, "note": oom},
+            {"benchmark_name": "p", "status": "failed", "is_warmup": False, "run_index": 2,
+             "note": f"Retry after a failed try (failed: {oom}); {oom}"}]
+    out = test_outcome({"runs": runs, "summaries": {"p": {"stats": {"mean": 4.45}}}}, "p")
+    assert out["result"].endswith(f"; 1 run(s) FAILED. Why: The graphics ran out of memory ({oom})")
+    assert out["runs"] == "1 of 2 measured run(s) completed"

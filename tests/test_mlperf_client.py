@@ -146,3 +146,14 @@ def test_windows_arm_hides_mlperf_client():
     w = mlperf_client.MlperfClientWorkload(exe=None)
     assert "Qualcomm NPU" in w.system_blocks(Host("windows", "arm64"))
     assert w.system_blocks(Host("windows", "x64")) is None
+
+
+def test_graphics_out_of_memory_is_named_and_not_retried():
+    """NucBox K10 (Intel UHD), 2026-11-14: Phi-4 Reasoning failed with CL_OUT_OF_RESOURCES, the reason buried."""
+    from app.automation.runner import should_retry
+    from app.automation.workload import WorkloadResult
+    failed = dict(REAL, **{"Benchmark Success": False, "Error Message": "Failed to run inference for IHV\n"
+                           "[GPU] clFlush, error code: -5 CL_OUT_OF_RESOURCES"})
+    score, _, _, error = mlperf_client.parse_results(json.dumps(failed))
+    assert score is None and error.startswith("not enough memory: the graphics ran out of memory")
+    assert not should_retry(WorkloadResult(status="failed", error=error))

@@ -284,11 +284,28 @@ def lms_error(text: str) -> str:
     return line[line.lower().find("error"):] if "error" in line.lower() else line
 
 
+def memory_short(title: str, size: str, free_gb: Callable[[], Optional[float]] = None,
+                 card_gb: Callable[[], Optional[float]] = None) -> Optional[str]:
+    """Why a model of this size is not loaded now, or None (see FixedModelWorkload.memory_short)."""
+    from app.ai import model_fit
+    model = model_fit.size_gb(size)
+    if model is None or (card_gb or model_fit.card_gb)() is not None:
+        return None
+    free = (free_gb or free_memory_gb)()
+    need = model * model_fit.NEEDS
+    if free is None or need <= free:
+        return None
+    return (f"{llama_benchy.NOT_ENOUGH_MEMORY}: {title} needs about {need:.1f} GB with its context and "
+            f"{free:.1f} GB of memory is free now (the graphics use the computer's memory), so it was not "
+            "loaded and the computer does not run out of memory")
+
+
 class FixedModelWorkload(llama_benchy.LlamaBenchyWorkload):
     VERIFIED = ("llama_benchy_gemma4_12b",)     # a real run on this computer (2026-10-19, RTX 5090 Laptop GPU)
     asks_settings = False             # fixed model and settings: the free test's dialog is not shown
     unload_jit = False                # its own copy is unloaded by run() below
     unload_all_first = False          # run() below unloads every model before it loads its own
+    checks_memory = False             # run() below checks it before loading
     tokenizer = "gpt2"                # --tokenizer gpt2 on every PC (recorded in ai_run.json)
 
     def __init__(self, test_id: str, exe: Optional[Path] = None, lms: Optional[Path] = None,
@@ -322,17 +339,7 @@ class FixedModelWorkload(llama_benchy.LlamaBenchyWorkload):
         own memory) the model must fit in the memory free right now (Fedora, 2026-10-23: Gemma 4 12B on 16 GB with
         another model still loaded: the computer ran out of memory and the app was closed with it). A card with its
         own memory: LM Studio itself refuses a model that does not fit there."""
-        from app.ai import model_fit
-        model = model_fit.size_gb(self.size)
-        if model is None or (self._card_gb or model_fit.card_gb)() is not None:
-            return None
-        free = (self._free_gb or free_memory_gb)()
-        need = model * model_fit.NEEDS
-        if free is None or need <= free:
-            return None
-        return (f"{llama_benchy.NOT_ENOUGH_MEMORY}: {self.title} needs about {need:.1f} GB with its context and "
-                f"{free:.1f} GB of memory is free now (the graphics use the computer's memory), so it was not "
-                "loaded and the computer does not run out of memory")
+        return memory_short(self.title, self.size, self._free_gb, self._card_gb)
 
     def _command(self, result_path: str) -> List[str]:
         return super()._command(result_path) + ["--tokenizer", "gpt2"]
@@ -379,6 +386,12 @@ class FixedModelWorkload(llama_benchy.LlamaBenchyWorkload):
         try:
             if code != 0:
                 last = text.splitlines()[-1] if text else f"exit code {code}"
+                if "failed to allocate" in text or "out of memory" in text.lower():
+                    # NucBox K10 (Intel UHD), 2026-11-14: Gemma 4 12B, "failed to allocate compute pp buffers"
+                    return WorkloadResult(status="failed", error=(
+                        f"{llama_benchy.NOT_ENOUGH_MEMORY}: the graphics memory was too small for {self.title} with "
+                        f"every layer on the graphics card and context {CONTEXT} ({last[:160]})"),
+                        command=load, exit_code=code)
                 return WorkloadResult(status="failed", error=f"LM Studio could not load {self.title} with every "
                                       f"layer on the graphics card and context {CONTEXT}: {last[:300]}",
                                       command=load, exit_code=code)

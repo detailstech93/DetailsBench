@@ -154,6 +154,11 @@ def run_again_text(export: Mapping) -> str:
     return ("Run again: other programs were using the CPU: " + " · ".join(busy)) if busy else ""
 
 
+def failure_reason(note) -> str:
+    from app.report import failure_reason as plain
+    return plain(note)
+
+
 def test_outcome(export: Mapping, name: str) -> dict:
     """How one test went: runs, a short result, passed, skipped (Skip button) or not, and the time it took."""
     runs = [r for r in export.get("runs") or [] if r.get("benchmark_name") == name]
@@ -175,14 +180,22 @@ def test_outcome(export: Mapping, name: str) -> dict:
         result = skipped
     else:
         last = measured[-1] if measured else (runs[-1] if runs else {})
-        why = str(last.get("note") or last.get("status") or "no result").split("; ")[0]
         if last.get("status") == "skipped":      # not run, and why (owner, 2026-10-23)
+            why = str(last.get("note") or "no result").split("; ")[0]
             result = skipped = f"Skipped: {why}"
         else:
-            result = f"FAILED ({last.get('status') or 'no run'}): {why}"
+            result = f"FAILED. Why: {failure_reason(last.get('note') or last.get('status'))}"
+    # a retry is the same run once more: runs are counted by their number (session 15: "0 of 6" for 3 runs)
+    planned = {r.get("run_index") for r in measured}
+    failed = sorted({r.get("run_index") for r in measured if r.get("status") not in ("completed", "skipped")}
+                    - {r.get("run_index") for r in done})
+    if done and failed:
+        # NucBox K10, 2026-11-14: Phi-4 reasoning read "Passed" with 1 of its runs done, the others out of memory
+        last = [r for r in measured if r.get("run_index") == failed[-1]][-1]
+        result += f"; {len(failed)} run(s) FAILED. Why: {failure_reason(last.get('note') or last.get('status'))}"
     if skipped and done:
         result += f"; {skipped[0].lower()}{skipped[1:]}"
-    count = f"{len(done)} of {len(measured)} measured run(s) completed" + (
+    count = f"{len(done)} of {len(planned)} measured run(s) completed" + (
         f", {warmups} warm-up" if warmups else "")
     return {"name": name, "passed": bool(done) and not skipped, "skipped": skipped, "result": result, "runs": count,
             "details": key_numbers(export, name) if done else "",

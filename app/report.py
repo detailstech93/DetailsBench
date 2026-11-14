@@ -40,6 +40,38 @@ def _truthy(value: Any) -> bool:
         return False
 
 
+RETRY_NOTE = "Retry after a failed try ("
+# technical errors put in plain words first; the program's own words follow in brackets (owner, 2026-11-14: "always
+# write why it failed so that I understand it easily")
+PLAIN_REASONS = (
+    ("DevTools port", "The browser did not start for the test"),
+    ("did not become healthy", "LM Studio could not load the model: it is probably too big for this computer's "
+                               "memory; choose a smaller model"),
+    ("Loading model", "LM Studio could not load the model: it is probably too big for this computer's memory; "
+                      "choose a smaller model"),
+    ("CL_OUT_OF_RESOURCES", "The graphics ran out of memory"),
+    ("could not start", "The program could not be started"),
+    ("UAC prompt was not answered", "Windows asked for permission and nobody answered"),
+)
+
+
+def failure_reason(note: Any) -> str:
+    """Why a run did not give a result, in words the owner reads at once: the retry's own error, not the retry note
+    ("Retry after a failed try (failed: X); Y" -> Y), with a plain sentence first for a technical error."""
+    text = str(note or "").strip()
+    if text.startswith(RETRY_NOTE):
+        depth = 0
+        for i in range(len(RETRY_NOTE) - 1, len(text)):
+            depth += {"(": 1, ")": -1}.get(text[i], 0)
+            if depth == 0:
+                text = text[i + 1:].lstrip("; ").strip() or text
+                break
+    for found, plain in PLAIN_REASONS:
+        if found in text and not text.startswith(plain):
+            return f"{plain} ({text[:240]})"
+    return text or "no result and no reason was recorded"
+
+
 def _text(value: Any, default: str = "-") -> str:
     if value is None:
         return default
@@ -308,7 +340,7 @@ def _stress_section(export: Mapping) -> str:
         if last.get("status") != "completed":
             blocks.append(f'<div class="game"><h3>{title}</h3><div class="tiles"><div class="tile bad">'
                           '<div class="label">Result</div><div class="value">NOT stable</div></div></div>'
-                          f'<p>The test did not finish: {_text(last.get("note"))}.</p></div>')
+                          f'<p>The test did not finish: {esc(failure_reason(last.get("note")))}.</p></div>')
             continue
         m = _mapping(last.get("metrics")) or {}
 
@@ -553,7 +585,7 @@ def _blender_section(export: Mapping) -> str:
             last = by_test[name][-1] if by_test[name] else {}
             blocks.append(f'<div class="game"><h3>{title}</h3><div class="tiles"><div class="tile bad">'
                           '<div class="label">Result</div><div class="value">No score</div></div></div>'
-                          f'<p>The test did not finish: {_text(last.get("note"))}.</p></div>')
+                          f'<p>The test did not finish: {esc(failure_reason(last.get("note")))}.</p></div>')
             continue
         stats = _mapping((_mapping(summaries.get(name)) or {}).get("stats")) or {}
         extra = _mapping(metrics.get(name)) or {}
@@ -918,7 +950,7 @@ def _tiles_section(export: Mapping, heading: str, tests, explanation: str, readi
             tiles.append(f'<div class="tile bad"><div class="label">{esc(engine)}</div>'
                          '<div class="value"><span>no score</span></div></div>')
             known = (settings or {}).get(name)
-            blocks.append(f"<h3>{esc(engine)}</h3><p>The test did not finish: {_text(runs[-1].get('note'))}.</p>"
+            blocks.append(f"<h3>{esc(engine)}</h3><p>The test did not finish: {esc(failure_reason(runs[-1].get('note')))}.</p>"
                           + (_settings_table(dict((k, str(v)) for k, v in known)) if known else ""))
             continue
         mean = (_mapping((_mapping(summaries.get(name)) or {}).get("stats")) or {}).get("mean")

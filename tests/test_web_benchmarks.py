@@ -205,3 +205,26 @@ def test_the_bar_moves():
     wl._started = 100.0
     now[0] = 220.0
     assert wl.progress == (0.5, 120.0)
+
+
+def test_a_browser_without_a_port_is_named_and_the_next_one_runs(tmp_path, fakes):
+    """NucBox K10, 2026-11-14: Chrome 157 started by the app opened no DevTools port in 60 s, 7 runs failed."""
+    started = []
+    working = fake_browser(started)
+
+    def popen(command, **kw):
+        if command[0].endswith("chrome.exe"):
+            started.append(command)
+            return FakeProc()                       # runs, writes no port
+        return working(command, **kw)
+
+    FakeWS.answers = ["31.4"]
+    wl = wb.WebBenchmarkWorkload(wb.SPEEDOMETER, browser=r"C:\x\chrome.exe", popen=popen, opener=opener,
+                                 others=lambda: [r"C:\x\msedge.exe"])
+    r = wl.run(RunContext(output_dir=tmp_path, timeout_seconds=60, stop_event=threading.Event()))
+    assert r.status == "completed" and r.score == 31.4 and r.command[0].endswith("msedge.exe")
+    assert len(fakes) == 2                                   # both browsers it started were closed
+    wl = wb.WebBenchmarkWorkload(wb.SPEEDOMETER, browser=r"C:\x\chrome.exe", popen=popen, opener=opener)
+    r = wl.run(RunContext(output_dir=tmp_path, timeout_seconds=60, stop_event=threading.Event()))
+    assert r.status == "failed" and r.error.startswith("Chrome opened no DevTools port within 60 s")
+    assert "it was still running" in r.error and "wrote nothing in its new profile folder" in r.error

@@ -60,6 +60,17 @@ def find_browser(platform: Optional[str] = None, env=None, isfile=os.path.isfile
     return None
 
 
+def installed_browsers(platform: Optional[str] = None, env=None, isfile=os.path.isfile,
+                       which=shutil.which) -> List[str]:
+    """Every Chromium browser found, in find_browser's order (the next one is tried when one does not answer)."""
+    out: List[str] = []
+    for c in browser_candidates(platform, env):
+        found = (c if isfile(c) else None) if (ntpath.isabs(c) or posixpath.isabs(c)) else which(c)
+        if found and found not in out:
+            out.append(found)
+    return out
+
+
 def browser_command(exe: str, profile: Path, url: str) -> List[str]:
     return [exe, f"--user-data-dir={profile}", "--remote-debugging-port=0", *BROWSER_FLAGS, url]
 

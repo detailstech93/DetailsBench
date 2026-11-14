@@ -194,3 +194,17 @@ def test_the_server_is_started_when_it_does_not_answer(tmp_path):
     w._read_models = lambda url: (_ for _ in ()).throw(OSError("refused"))
     r = w.run(RunContext(output_dir=tmp_path, timeout_seconds=60))
     assert r.status == "failed" and "does not answer" in r.error and "lms not found" in r.error
+
+
+def test_the_owners_model_is_checked_against_the_free_memory(tmp_path, monkeypatch):
+    """NucBox K10, 2026-11-14: Qwen3.8 27B (about 21 GB) chosen with 12 GB free; LM Studio answered "Loading model"
+    until it failed, 7 times. A model the model set knows is checked first; graphics memory errors are named."""
+    from app.ai import model_set, model_fit
+    monkeypatch.setattr(model_set, "free_memory_gb", lambda: 12.0)
+    monkeypatch.setattr(model_fit, "card_gb", lambda platform=None: None)
+    w = llama_benchy.LlamaBenchyWorkload("qwen/qwen3.8-27b", exe=tmp_path / "llama-benchy.exe")
+    r = w.run(RunContext(output_dir=tmp_path))
+    assert r.status == "skipped" and r.error.startswith("not enough memory: Qwen3.8 27B needs about 21.2 GB")
+    why = llama_benchy.server_error('{"error": {"message": "Failed to initialize the context: failed to allocate '
+                                    'compute pp buffers"}}', "google/gemma-4-12b")
+    assert why.startswith("not enough memory: the graphics memory was too small to load google/gemma-4-12b")
