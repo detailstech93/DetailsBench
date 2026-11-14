@@ -44,6 +44,9 @@ RETRY_NOTE = "Retry after a failed try ("
 # technical errors put in plain words first; the program's own words follow in brackets (owner, 2026-11-14: "always
 # write why it failed so that I understand it easily")
 PLAIN_REASONS = (
+    ("DevTools port within 60 s (it closed by itself with exit code 0",
+     "The browser closed itself at once and started again as a normal user, so the test lost it (Chrome and Edge "
+     "do this when the app runs as administrator)"),
     ("DevTools port", "The browser did not start for the test"),
     ("did not become healthy", "LM Studio could not load the model: it is probably too big for this computer's "
                                "memory; choose a smaller model"),

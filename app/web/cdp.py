@@ -26,8 +26,10 @@ from typing import Callable, List, Optional
 from urllib.parse import urlparse
 
 WINDOW = "1400,1000"            # Speedometer wants its 800 x 600 area + 50 px
+# --do-not-de-elevate: an app run as administrator starts a browser that relaunches itself as a normal user and
+# exits, so its own profile never gets a DevTools port (Chrome 157 and Edge, NucBox K10 2026-11-14)
 BROWSER_FLAGS = ("--no-first-run", "--no-default-browser-check", "--disable-sync", "--disable-extensions",
-                 f"--window-size={WINDOW}", "--new-window")
+                 f"--window-size={WINDOW}", "--new-window", "--do-not-de-elevate")
 
 
 def browser_candidates(platform: Optional[str] = None, env=None) -> List[str]:

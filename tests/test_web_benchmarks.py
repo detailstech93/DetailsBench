@@ -228,3 +228,12 @@ def test_a_browser_without_a_port_is_named_and_the_next_one_runs(tmp_path, fakes
     r = wl.run(RunContext(output_dir=tmp_path, timeout_seconds=60, stop_event=threading.Event()))
     assert r.status == "failed" and r.error.startswith("Chrome opened no DevTools port within 60 s")
     assert "it was still running" in r.error and "wrote nothing in its new profile folder" in r.error
+
+
+def test_the_browser_stays_the_one_the_app_started():
+    """NucBox K10, 2026-11-14: the app ran as administrator; Chrome 157 and Edge relaunched themselves as a normal
+    user and exited with code 0 at once, so their own profile never got a DevTools port."""
+    assert "--do-not-de-elevate" in cdp.browser_command("chrome.exe", "p", "https://x/")
+    from app.report import failure_reason
+    why = failure_reason("Chrome opened no DevTools port within 60 s (it closed by itself with exit code 0)")
+    assert why.startswith("The browser closed itself at once") and "administrator" in why
