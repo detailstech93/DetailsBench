@@ -1067,3 +1067,52 @@ def test_settings_changed_in_two_runs_in_a_row_stop_the_runs(tmp_path):
     cap, guard = _guarded(tmp_path, changed={0, 1})
     assert guard.rewrites == 2 and [w.result.status for w in cap.windows] == ["invalid"] * 3
     assert "keeps changing the game's settings" in cap.windows[1].result.error
+
+
+def test_a_game_ended_by_force_is_measured_from_where_it_really_started(tmp_path):
+    """SOTTR's warm-up, owner's laptop 2026-11-14: 'Yes' to its quit question did not close it; it drew 30 s more
+    until it was ended by force, and the benchmark's start put from the close request was 30 s late."""
+    fakes = PassFakes(tmp_path)
+    plain = fakes.elevated
+
+    def elevated(exe, args, cwd, timeout, halt, on_started=None):
+        out = plain(exe, args, cwd, timeout, halt, on_started)
+        path = args[args.index("--output_file") + 1]
+        rows = open(path, encoding="utf-8").read().splitlines()
+        first = [i for i, r in enumerate(rows) if r.startswith("Game.exe,101,")][0]
+        rows[first:first] = ["Game.exe,100,10.0"] * 3000            # run 0 drew 30 s of its menu after the close
+        open(path, "w", encoding="utf-8").write("\n".join(rows) + "\n")
+        return out
+
+    def closer(started):
+        fakes.closed.append(sorted(started))
+        fakes.up = False
+        if len(fakes.closed) == 1:
+            fakes.now[0] += 30.0
+            return "game closed by force after 30 s (Game.exe)"
+        return "game closed"
+
+    s = spec(install_path=str(fakes.install), steps=[{"see": "stop", "within": 60, "mark": True}],
+             benchmark_seconds=60)
+    cap = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=False, elevated_runner=elevated,
+                        launcher=fakes.launcher, snapshot=lambda: [], clock=fakes.clock, sleep=fakes.sleep,
+                        folder_procs=fakes.folder_procs, closer=closer,
+                        desktop=SimpleNamespace(foreground_pid=lambda: 100 + fakes.run),
+                        exe_lister=lambda folder: ["Game.exe"], step_player=lambda st: FakeSteps(fakes, mark_after=30),
+                        own_result=lambda app_id, since: None).run()
+    assert cap.status == "recorded", cap.message
+    for r, w in enumerate(cap.windows):
+        assert w.result.status == "completed" and abs(w.result.score - 1000 / (20 + r)) < 0.2, (r, w.result)
+
+
+def test_sottr_display_and_graphics_is_clicked_again_when_the_click_is_lost(tmp_path):
+    # owner's laptop, 2026-11-14 (run 1, first try): the click was lost and the options list stayed 30 s
+    timeline = [(0, ["Continue", "New Game", "Options", "Exit"]),
+                (20, ["Audio and Languages", "Display and Graphics"]),
+                (40, ["Display", "Graphics", "Run Benchmark"]), (50, ["Loading"]), (60, ["FPS 141"])]
+    p, desk, clock = player(tmp_path, menu_steps_for(750920), timeline)
+    p.lit = lit_by_keys(desk, "options")
+    p.run()
+    assert p.problem is None, p.summary()
+    assert sum(1 for e in desk.events if e[0] == "button" and e[1] is True) >= 2
+    assert "clicked 'graphics'" in p.summary() and "again" in p.summary()

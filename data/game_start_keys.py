@@ -74,7 +74,10 @@ GAME_MENU_STEPS: Dict[int, dict] = {
              "settle": 1, "click": "graphics", "wait": 3},
             # R runs the benchmark from the Display and Graphics page. 2026-10-29: an instant R was not seen (five
             # times) and MarkBench's up, right first changed a setting on the page: R alone, held 0.15 s
-            {"see": "benchmark", "within": 30, "settle": 1, "press": "r", "tap": 0.15, "wait": 3},
+            # owner's laptop, 2026-11-14: the click on Display and Graphics was once lost (read once, clicked at
+            # once) and the options list stayed: it is clicked again while that list shows
+            {"see": "benchmark", "within": 30, "settle": 1, "press": "r", "tap": 0.15, "wait": 3,
+             "again": {"click": "graphics", "every": 5, "while": "audio and languages"}},
             # the benchmark shows its FPS while it runs
             {"see": "fps", "within": 180, "mark": True, "tap": 0.15,
              "again": {"press": "r", "every": 10, "while": "run benchmark"}},

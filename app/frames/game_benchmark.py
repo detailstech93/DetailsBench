@@ -1116,6 +1116,10 @@ class GameBenchmark:
         done["shot"] = self.result_shot or getattr(steps, "started_shot", None)
         done["t_close"] = self.clock()
         closed = self._close_game()
+        if "by force" in closed:
+            # it went on drawing until it was ended (SOTTR's warm-up on the owner's laptop, 2026-11-14: 'Yes' to its
+            # quit question did not close it, it was ended 30 s later, and the start put 30 s late measured 135 s)
+            done["t_close"] = self.clock()
         done["started"] = dict(self._started)
         from data.game_start_keys import after_crash_close
         names = after_crash_close(spec.app_id) if done.get("crashed") else []
