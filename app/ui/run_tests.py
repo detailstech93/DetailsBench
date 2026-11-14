@@ -659,35 +659,39 @@ def choose_run(window, automatic: List[TestEntry], others: List[TestEntry], lone
     return Prepared(automatic, others, choice, games, offered)
 
 
-def lacking_upscaler(p: Prepared) -> Dict[str, str]:
-    """{app id: why} for the games whose preset asks an upscaler the game cannot be set to (owner, 2026-11-14: such a
-    game is left out of the run, not run without it)."""
+def lacking_asked(p: Prepared) -> Dict[str, str]:
+    """{app id: why} for the games whose preset asks an upscaler or ray tracing the game cannot be set to (owner,
+    2026-11-14: such a game is left out of the run, not run without it)."""
     out = {}
     for app_id, name in p.games:
         mine = (p.choice.game_presets or {}).get(app_id, p.choice.preset)
-        if mine is None or mine.upscaler in ("off", presets.KEEP):
+        asked = [c for c in ("upscaler", "ray_tracing")
+                 if mine is not None and getattr(mine, c) not in ("off", presets.KEEP)]
+        if not asked:
             continue
         choices, problem = p.offered.get(app_id, (None, None))
         if choices is None:
             out[app_id] = f"{name}: {problem or 'its settings cannot be set'}"
             continue
-        why = presets.plan_preset(app_id, mine, choices)[1].get("upscaler")
-        if why is not None:
-            out[app_id] = f"{name}: no {presets.LABELS.get(mine.upscaler, mine.upscaler)} ({why})"
+        skipped = presets.plan_preset(app_id, mine, choices)[1]
+        why = ["no %s (%s)" % (presets.LABELS.get(mine.upscaler, mine.upscaler) if c == "upscaler" else "ray tracing",
+                               skipped[c]) for c in asked if c in skipped]
+        if why:
+            out[app_id] = f"{name}: " + ", ".join(why)
     return out
 
 
 def begin(window, p: Prepared, opener=open_report, after=None) -> bool:
     """Start what the dialog chose. The choices (game settings, stress minutes) are saved only now, so a test in
     line never changes the run before it. after(stopped): what comes once it is over (the line goes on)."""
-    dropped = lacking_upscaler(p)
+    dropped = lacking_asked(p)
     if dropped:
         def kept(e):
             return (game_of(e) or ("",))[0] not in dropped
         p = dataclasses.replace(p, automatic=[e for e in p.automatic if kept(e)],
                                 others=[e for e in p.others if kept(e)],
                                 games=[g for g in p.games if g[0] not in dropped])
-        note = "Left out of the run, without the upscaler asked: " + "; ".join(dropped.values())
+        note = "Left out of the run, without what was asked: " + "; ".join(dropped.values())
         logger.info(note)
         window.status_label.setText(note[:300])
         if not p.automatic and not p.others:

@@ -53,14 +53,19 @@ def test_a_forced_preset_sets_the_games_own_full_resolution_scale():
 
 def test_a_game_without_the_asked_upscaler_is_left_out():
     # owner, 2026-11-14: upscaling asked and a game that cannot be set to it: left out of the run, not run without
-    from app.ui.run_tests import Prepared, RunChoice, lacking_upscaler
+    from app.ui.run_tests import Prepared, RunChoice, lacking_asked
     fc6 = {"preset": ["Ultra"], "upscaler": ["Off", "FSR 1.0"]}
     games = [("2369390", "Far Cry 6"), ("397540", "Borderlands 3")]
     offered = {"2369390": (fc6, None), "397540": ({"preset": ["Ultra"]}, None)}
 
     def run(**preset):
-        return lacking_upscaler(Prepared([], [], RunChoice(3, 1, 0, p.GamePreset(**preset)), games, offered))
+        return lacking_asked(Prepared([], [], RunChoice(3, 1, 0, p.GamePreset(**preset)), games, offered))
     dropped = run(upscaler="dlss", quality="ultra")
     assert set(dropped) == {"2369390", "397540"} and "no DLSS" in dropped["2369390"]
     assert set(run(upscaler="fsr")) == {"397540"}           # Far Cry 6 has FSR; Borderlands 3 has no upscaler
     assert run(upscaler="off", quality="ultra") == {} and run(quality="ultra") == {}
+    # the same for ray tracing: Borderlands 3 has none the app sets, Far Cry 6 has (its DXR switches)
+    offered["2369390"] = (dict(fc6, dxr_reflections=[False, True], dxr_shadows=[False, True]), None)
+    dropped = run(ray_tracing="on", quality="ultra")
+    assert set(dropped) == {"397540"} and "no ray tracing" in dropped["397540"]
+    assert run(ray_tracing="off", quality="ultra") == {}
