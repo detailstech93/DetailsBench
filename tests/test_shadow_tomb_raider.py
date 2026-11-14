@@ -97,7 +97,7 @@ def test_the_dlss_mode_is_chosen_only_with_dlss_on():
     on = presets.game_preset("upscaling", "dlss", "off", presets.KEEP, presets.KEEP, presets.KEEP, "performance")
     assert plan_preset(750920, on, offered)[0] == {"dlss": "Performance"}
     off = presets.game_preset("raw", "dlss", "off", presets.KEEP, presets.KEEP, presets.KEEP, "performance")
-    assert off.upscaler_mode == presets.KEEP and plan_preset(750920, off, offered)[0] == {"dlss": "Off"}
+    assert off.upscaler_mode == presets.KEEP and plan_preset(750920, off, offered)[0] == {"dlss": "Off", "ray_tracing": "Off"}
     assert presets.GamePreset.from_dict(on.to_dict()) == on
 
 

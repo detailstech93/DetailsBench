@@ -659,16 +659,47 @@ def choose_run(window, automatic: List[TestEntry], others: List[TestEntry], lone
     return Prepared(automatic, others, choice, games, offered)
 
 
+def lacking_upscaler(p: Prepared) -> Dict[str, str]:
+    """{app id: why} for the games whose preset asks an upscaler the game cannot be set to (owner, 2026-11-14: such a
+    game is left out of the run, not run without it)."""
+    out = {}
+    for app_id, name in p.games:
+        mine = (p.choice.game_presets or {}).get(app_id, p.choice.preset)
+        if mine is None or mine.upscaler in ("off", presets.KEEP):
+            continue
+        choices, problem = p.offered.get(app_id, (None, None))
+        if choices is None:
+            out[app_id] = f"{name}: {problem or 'its settings cannot be set'}"
+            continue
+        why = presets.plan_preset(app_id, mine, choices)[1].get("upscaler")
+        if why is not None:
+            out[app_id] = f"{name}: no {presets.LABELS.get(mine.upscaler, mine.upscaler)} ({why})"
+    return out
+
+
 def begin(window, p: Prepared, opener=open_report, after=None) -> bool:
     """Start what the dialog chose. The choices (game settings, stress minutes) are saved only now, so a test in
     line never changes the run before it. after(stopped): what comes once it is over (the line goes on)."""
+    dropped = lacking_upscaler(p)
+    if dropped:
+        def kept(e):
+            return (game_of(e) or ("",))[0] not in dropped
+        p = dataclasses.replace(p, automatic=[e for e in p.automatic if kept(e)],
+                                others=[e for e in p.others if kept(e)],
+                                games=[g for g in p.games if g[0] not in dropped])
+        note = "Left out of the run, without the upscaler asked: " + "; ".join(dropped.values())
+        logger.info(note)
+        window.status_label.setText(note[:300])
+        if not p.automatic and not p.others:
+            return False
     automatic, others, choice, games, offered = p.automatic, p.others, p.choice, p.games, p.offered
     data_dir = window.frame_panel.data_dir
     _save_plan(data_dir, automatic + others, choice)
     if games and choice.preset is not None:
         try:
             lines = save_preset(data_dir, games, choice.preset, offered, choice.game_presets)
-            window.status_label.setText(" ".join(line.strip() for line in lines)[:300])
+            window.status_label.setText(((note + " ") if dropped else "") +
+                                        " ".join(line.strip() for line in lines)[:300])
         except (OSError, ValueError) as e:
             QMessageBox.warning(window, "Run tests", f"The game settings could not be saved: {e}")
             return False

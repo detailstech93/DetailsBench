@@ -6,6 +6,7 @@ offers (its choices: on/off, the file's own lists, or values the game was seen u
 setting for, or whose value was never seen, is not written: it is listed with the reason, never guessed.
 """
 
+import re
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -292,7 +293,19 @@ def plan_preset(app_id, preset: GamePreset, offered: Dict[str, list]) -> Tuple[D
             skipped[choice] = _not_offered(app_id, target.keys, offered)
             continue
         requested.update(found)
+    # a preset is measured at the resolution it names: BL3 kept the owner's 175% and drew 3360x1890 for "1080p"
+    # (owner, 2026-11-14). The game's own 100% value, when the app has seen it in the game's file
+    if requested and "resolution_scale" in offered:
+        full = [v for v in offered["resolution_scale"] if _scale_number(v) in (1.0, 100.0)]
+        if full:
+            requested["resolution_scale"] = full[0]
     return requested, skipped
+
+
+def _scale_number(value) -> Optional[float]:
+    """The number in a resolution scale value ("Scale_175" -> 175.0, "1" -> 1.0), or None."""
+    found = re.search(r"\d+(?:\.\d+)?", str(value))
+    return float(found.group()) if found else None
 
 
 def _fixed_values(app_id) -> Dict[str, list]:
@@ -446,7 +459,10 @@ def choice_labels(values: Sequence[str], recommended: Optional[str]) -> List[Tup
 def game_preset(mode: str, upscaler: str, frame_gen: str, quality: str, resolution: str, ray_tracing: str,
                 upscaler_mode: str = KEEP) -> GamePreset:
     """The page's choices as a preset: raw = upscaler off and no frame generation; upscaling = that upscaler, frame
-    generation off; upscaling + frame generation = both."""
+    generation off; upscaling + frame generation = both. Raw is the game without extras: ray tracing off unless
+    it is chosen (owner, 2026-11-14: Cyberpunk and Far Cry 6 ran with the ray tracing their own files had)."""
+    if mode == "raw" and ray_tracing == KEEP:
+        ray_tracing = "off"
     return GamePreset(resolution=resolution, quality=quality, ray_tracing=ray_tracing,
                       upscaler="off" if mode == "raw" else upscaler,
                       upscaler_mode=KEEP if mode == "raw" else upscaler_mode,
@@ -506,6 +522,8 @@ def from_page(data) -> Optional[GamePreset]:
         frame_gen = data.get("frame_gen") if data.get("frame_gen") in FRAME_GEN[2:] else "off"
         if mode != "raw" and upscaler == "off":
             return None
+        if mode == "raw" and data.get("ray_tracing", KEEP) == KEEP:
+            data = dict(data, ray_tracing="off")        # as game_preset: raw is without ray tracing unless chosen
         data = dict(data, upscaler="off" if mode == "raw" else upscaler,
                     upscaler_mode=KEEP if mode == "raw" else data.get("upscaler_mode", KEEP),
                     frame_gen=frame_gen if mode == "upscaling_fg" else "off")
