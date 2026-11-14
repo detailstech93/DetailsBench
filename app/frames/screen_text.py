@@ -84,6 +84,12 @@ def parse_line(raw: str) -> Line:
     return line
 
 
+def _fold(text: str) -> str:
+    """Lower case, with an o read as an a: BL3's italic a in "Start Benchmark" was read "Stort" at 1440p (owner's
+    laptop, 2026-11-14), and the Benchmark tab was passed by until the step gave up."""
+    return text.lower().replace("o", "a")
+
+
 def word_center(lines: List[str], word: str, own_letters: bool = False) -> Optional[Tuple[int, int]]:
     """Screen point in the middle of the first word containing `word` (case-insensitive), or None. own_letters:
     the middle of `word`'s own letters within the box instead, so marks the read glued to it ("(zVOPTIONS") do not
@@ -91,7 +97,7 @@ def word_center(lines: List[str], word: str, own_letters: bool = False) -> Optio
     2026-11-13)."""
     for line in lines:
         for text, x, y, w, h in getattr(line, "words", ()):
-            at = text.lower().find(word.lower())
+            at = _fold(text).find(_fold(word))
             if at >= 0:
                 if own_letters:
                     return x + (w * (2 * at + len(word))) // (2 * len(text)), y + h // 2
@@ -175,8 +181,8 @@ def read_screen(desktop, image_path, run=subprocess.run) -> Tuple[List[str], Opt
 
 def find_word(lines: List[str], words) -> Optional[str]:
     """The first of words seen in the lines (case-insensitive, inside a line), or None."""
-    text = "\n".join(lines).lower()
+    text = _fold("\n".join(lines))
     for word in ([words] if isinstance(words, str) else words):
-        if word.lower() in text:
+        if _fold(word) in text:
             return word
     return None

@@ -301,3 +301,15 @@ def test_overall_quality_writes_its_whole_preset() -> None:
     assert presets.plan_preset(397540, presets.GamePreset(quality="lowest"), offered)[0] == {"preset": "VeryLow"}
     assert presets.plan_preset(397540, presets.GamePreset(quality="highest"), offered)[0] == {"preset": "Badass"}
     assert presets.plan_preset(397540, presets.GamePreset(quality="ultra"), offered)[0] == {"preset": "Ultra"}
+
+
+def test_the_preset_keeps_its_name_when_the_game_raises_its_ambient_occlusion() -> None:
+    # owner's laptop, 2026-11-14: written Ultra (AO High), the game ran and saved AO Ultra and its report said Ultra
+    from app.games.borderlands3 import PRESET_KEYS, PRESETS, SECTION, _preset_name
+    lines = [f"{key}={value}" for (section, key), value in zip(PRESET_KEYS, PRESETS["Ultra"]) if section == SECTION]
+    sg = [f"{key}={value}" for (section, key), value in zip(PRESET_KEYS, PRESETS["Ultra"]) if section != SECTION]
+    text = f"[{SECTION}]\n" + "\n".join(lines) + "\n[ScalabilityGroups]\n" + "\n".join(sg) + "\n"
+    assert _preset_name(parse(text)) == "Ultra"
+    raised = text.replace("AmbientOcclusionQualityMode=High", "AmbientOcclusionQualityMode=Ultra")
+    assert raised != text and _preset_name(parse(raised)) == "Ultra"
+    assert _preset_name(parse(text.replace("ShadowQualityMode=Ultra", "ShadowQualityMode=Low"))) == "Custom"

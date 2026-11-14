@@ -96,13 +96,19 @@ SETTINGS: Dict[str, Setting] = {
     ),
 }
 
+# Lines the game sets itself while it still calls its preset by name: written High for Ultra, it ran and saved
+# Ambient Occlusion Ultra, and its own report said "GfxQuality: Ultra" (owner's laptop, 2026-11-14; on 2026-11-12
+# the same Ultra ran with High). Written with the preset, not compared after the run
+SETS_ITSELF = ("AmbientOcclusionQualityMode",)
+
+
 def _preset_name(data: "IniData") -> Optional[str]:
     """The preset whose lines the file has (a line the file lacks is not compared); "Custom" for none."""
     if get_value(data, SECTION, "GraphicsQualityMode") is None:
         return None
     found = [(section, key, get_value(data, section, key)) for section, key in PRESET_KEYS]
     for name, values in PRESETS.items():
-        if all(v is None or v == want for (_, _, v), want in zip(found, values)):
+        if all(v is None or v == want or key in SETS_ITSELF for (_, key, v), want in zip(found, values)):
             return name
     return "Custom"
 

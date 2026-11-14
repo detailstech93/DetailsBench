@@ -1015,3 +1015,12 @@ def test_marks_glued_to_a_word_do_not_move_it():
     a = screen_text.word_center([plain], "options", own_letters=True)
     b = screen_text.word_center([glued], "options", own_letters=True)
     assert a == (165, 410) and abs(a[0] - b[0]) <= 1
+
+
+def test_an_italic_a_read_as_o_still_finds_the_word():
+    # owner's laptop at 1440p, 2026-11-14: BL3's "Start Benchmark" was read "Stort Benchmark" and the step gave up
+    line = screen_text.Line("Stort Benchmark")
+    line.words = (("Stort", 100, 400, 80, 20), ("Benchmark", 190, 400, 120, 20))
+    assert screen_text.find_word([line], "start benchmark") == "start benchmark"
+    assert screen_text.word_center([line], "start", own_letters=True) == (140, 410)
+    assert screen_text.find_word(["Options | Visuals"], "start") is None
