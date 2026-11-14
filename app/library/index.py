@@ -10,11 +10,13 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from app.library.package import check
 from app.units import canonical
 from app.library.store import open_library
+
+IMPORTED = "system:imported:"     # the devices of results imported from the videos' sheets (2026-11-13)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS packages (
@@ -27,6 +29,21 @@ CREATE TABLE IF NOT EXISTS names (path TEXT PRIMARY KEY, part_key TEXT NOT NULL,
 CREATE TABLE IF NOT EXISTS seen (path TEXT PRIMARY KEY, size INTEGER, mtime REAL);
 CREATE TABLE IF NOT EXISTS info (key TEXT PRIMARY KEY, value TEXT);
 """
+
+
+def same_devices(systems) -> Dict[str, str]:
+    """{imported device's key: the measured device's key} when an imported device has the name of exactly one measured
+    device, so both are one device in the library (owner, 2026-11-15: the K10 was listed twice, once with the video
+    imports). Nothing in the library's files changes."""
+    measured: Dict[str, List[str]] = {}
+    imported = []
+    for key, name in systems:
+        if key.startswith(IMPORTED):
+            imported.append((key, name))
+        else:
+            measured.setdefault((name or "").strip().lower(), []).append(key)
+    return {key: measured[n][0] for key, name in imported
+            for n in [(name or "").strip().lower()] if n and len(measured.get(n, [])) == 1}
 
 
 class LibraryIndex:
@@ -130,8 +147,12 @@ class LibraryIndex:
             query, args = query + " WHERE part = ?", [part]
         out = []
         with self._db() as db:
+            same = same_devices(db.execute("SELECT DISTINCT part_key, part_name FROM packages WHERE part = 'system'"))
             for (text,) in db.execute(query + " ORDER BY created_at", args):
                 pkg = json.loads(text)
+                key = same.get(pkg["attribution"].get("part_key"))
+                if key:
+                    pkg["attribution"]["part_key"] = pkg["pc"]["system_key"] = key
                 pkg["deleted"] = gone.get(pkg["package_id"])
                 pkg["test"]["unit"] = canonical(pkg["test"].get("unit"))     # "pts" written before 2026-10-25
                 if include_deleted or not pkg["deleted"]:

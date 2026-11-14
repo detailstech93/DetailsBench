@@ -438,3 +438,14 @@ def test_an_info_row_shows_its_text():
            "result": {"mean": None, "text": "Power: 33.6 W max; Temperature: 68 C max"}}
     row = view.rows([pkg], "system:imported:orion-o6")[0]
     assert row["result"] == "Power: 33.6 W max; Temperature: 68 C max" and row["date"] == "" and row["pc"] == "Orion O6"
+
+
+def test_an_imported_device_with_a_measured_devices_name_is_that_device():
+    """Owner, 2026-11-15: the K10 was listed twice in the library, once with the video imports."""
+    from app.library.index import same_devices
+    systems = [("system:gmktec:nucbox-k10", "GMKtec NucBox K10"),
+               ("system:imported:gmktec-nucbox-k10", "GMKtec NucBox K10"),
+               ("system:imported:raspberry-pi5", "Raspberry Pi5"),
+               ("system:a:x1", "Twin"), ("system:b:x2", "Twin"), ("system:imported:twin", "Twin")]
+    # two measured devices of one name: which one is not known, so the imported one stays apart
+    assert same_devices(systems) == {"system:imported:gmktec-nucbox-k10": "system:gmktec:nucbox-k10"}
