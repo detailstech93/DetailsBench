@@ -47,8 +47,9 @@ GAME_MENU_STEPS: Dict[int, dict] = {
         "benchmark_seconds": 270,       # about 4.5 min from "Stop Benchmarking" to the results (MarkBench)
         "screen_average": True,         # it wrote no results file on 2026-11-12; its screen shows the average
         # black fades between its five scenes ran at 250 FPS for 5-9 s each on a NucBox K10 (2026-11-13) and made
-        # 26 FPS read 42: they are left out and the measured time runs that much longer
-        "scene_fades": True,
+        # 26 FPS read 42: the five scenes are measured, the fades left out. Its own end-screen average is its last
+        # scene only (session 18, 2026-11-14: 26.34 / 26.70 / 26.47 on screen, 26.34 / 26.71 / 26.45 from the frames)
+        "scene_fades": {"scenes": 5, "own_is_last_scene": True},
         "verified": True,       # passed real runs with the owner (2026-10/11)
         "note": "Settings, Graphics, hold X on Run Benchmark Test, confirm; measuring starts when "
                 "'Stop Benchmarking' shows. The whole benchmark takes about 4.5 min.",
@@ -200,9 +201,10 @@ def starts_after_loading(app_id) -> bool:
     return _menu_entry(app_id).get("starts_after_loading") is True
 
 
-def scene_fades(app_id) -> bool:
-    """Its benchmark has fast fades between scenes that are not part of the measure (Red Dead Redemption 2)."""
-    return _menu_entry(app_id).get("scene_fades") is True
+def scene_fades(app_id) -> Optional[dict]:
+    """Its benchmark's scenes, each after a fast fade that is not part of the measure (Red Dead Redemption 2)."""
+    found = _menu_entry(app_id).get("scene_fades")
+    return dict(found) if isinstance(found, dict) else None
 
 
 def after_crash_close(app_id) -> list:

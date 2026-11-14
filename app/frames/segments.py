@@ -77,44 +77,73 @@ FADE_SPEED = 3.0       # frames this many times shorter than the scenes' own are
 FADE_SECONDS = 1.0     # a faster stretch shorter than this stays (a look at the sky)
 
 
-def scene_frames(frametimes_ms: List[float], a: float, b: float) -> Tuple[Optional[List[float]], float]:
-    """The first b - a seconds of frames after `a` that are not a fade between scenes, and the seconds left out.
+FIND_FADE_SECONDS = 30.0   # the fade is looked for from this long before the window's start (the mark is seen in it)
+MIN_SCENE_SECONDS = 5.0    # a stretch between fades shorter than this is part of the fade
 
-    RDR2 on a NucBox K10 (Intel UHD, 2026-11-13): the black fades between its five scenes ran at 250 FPS for
-    5-9 s each, the scenes at 26; 270 s from the mark gave 42 FPS where the game's own average was 26.3.
-    shortcut: a fade under 3x the scenes' speed is not told from a scene (a fast GPU, where fades last 1-2 s);
-    upgrade to the game's own scene marks if it ever gives them.
+
+def faded_scenes(frametimes_ms: List[float], after: float, scenes: int, look_seconds: float = 270.0
+                 ) -> Optional[Tuple[List[List[float]], float, float]]:
+    """A benchmark of `scenes` scenes, each after a black fade, found in the frames: (each scene's frames, start,
+    end) in game seconds, or None when the frames do not show it whole.
+
+    RDR2 on a NucBox K10 (Intel UHD, 2026-11-14): its benchmark begins with a fade, and five 250 FPS fades of
+    4-6 s lead into its five scenes (about 25, 26, 31, 30 and 26 FPS); the last scene ends 135-136 s after its
+    fade with a few 3-4 ms frames, the cut to the results screen. A fade is a stretch of FADE_SECONDS or more of
+    frames over FADE_SPEED times faster than the scenes' own; a shorter fast stretch inside a scene stays.
     """
-    window = split_frames(frametimes_ms, [(a, b)])[0]
-    if not window:
-        return window, 0.0
-    half, run, typical = sum(window) / 2.0, 0.0, 0.0
-    for typical in sorted(window):          # the frame time half of the window's time is spent under
+    ends, at = [], 0.0
+    for ms in frametimes_ms:
+        at += ms
+        ends.append(at / 1000.0)
+    look = sorted(ms for ms, end in zip(frametimes_ms, ends) if after < end <= after + look_seconds)
+    if not look:
+        return None
+    half, run, typical = sum(look) / 2.0, 0.0, 0.0
+    for typical in look:                    # the frame time half of the time is spent under
         run += typical
         if run >= half:
             break
-    limit, want_ms = typical / FADE_SPEED, (b - a) * 1000.0
-    kept: List[float] = []
-    fade: List[float] = []
-    kept_ms = dropped_ms = at_ms = 0.0
-    for ms in frametimes_ms:
-        at_ms += ms
-        if at_ms <= a * 1000.0:
+    limit = typical / FADE_SPEED
+    # the frames after `after` as fades and the stretches between them: [is_fade, start s, frames]
+    parts: List[list] = []
+    fast: List[float] = []
+    for ms, end in zip(frametimes_ms, ends):
+        if end <= after:
             continue
         if ms < limit:
-            fade.append(ms)
+            fast.append(ms)
             continue
-        if sum(fade) >= FADE_SECONDS * 1000.0:
-            dropped_ms += sum(fade)
+        if fast:
+            began = end - (ms + sum(fast)) / 1000.0
+            if sum(fast) >= FADE_SECONDS * 1000.0:
+                parts.append([True, began, fast])
+            elif parts:
+                parts[-1][2] += fast        # a short fast stretch stays with what it is in (a scene, a fade)
+            fast = []
+        if parts and not parts[-1][0]:
+            parts[-1][2].append(ms)
         else:
-            kept += fade
-            kept_ms += sum(fade)
-        fade = []
-        kept.append(ms)
-        kept_ms += ms
-        if kept_ms >= want_ms:
-            break
-    return kept, dropped_ms / 1000.0
+            parts.append([False, end - ms / 1000.0, [ms]])
+    if fast:
+        parts.append([True, ends[-1] - sum(fast) / 1000.0, fast])
+    # a stretch under MIN_SCENE_SECONDS between fades is part of the fade (its slower frames, 2026-11-14)
+    found = [p for p in parts if not p[0] and sum(p[2]) >= MIN_SCENE_SECONDS * 1000.0]
+    fades = [p for p in parts if p[0]]
+    if not fades or fades[0][1] - after > 2 * FIND_FADE_SECONDS:
+        return None
+    start = fades[0][1]
+    found = [p for p in found if p[1] > start][:scenes]
+    if len(found) < scenes:
+        return None                         # the recording ended before the last scene
+    kept = [[ms for ms in p[2] if ms >= limit] for p in found[:-1]]      # a fade's fast frames are not a scene's
+    last, at = [], found[-1][1]
+    for ms in found[-1][2]:
+        at += ms / 1000.0
+        if ms >= limit:
+            last.append(ms)
+        elif at - found[-1][1] > MIN_SCENE_SECONDS:     # the cut to the results screen
+            return kept + [last], start, at - ms / 1000.0
+    return None                             # the last scene did not end in the recording
 
 
 def pick_game_process(summary: List[dict], exe_names) -> Optional[Tuple[str, Optional[int]]]:

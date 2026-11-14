@@ -162,18 +162,40 @@ def test_the_start_click_measures_from_the_load_after_it_to_the_next_one():
     assert starts_after_loading(397540) and not starts_after_loading(1174180)
 
 
-def test_fades_between_scenes_are_left_out_and_the_measure_runs_that_much_longer():
-    """RDR2 on a NucBox K10, 2026-11-13: 250 FPS black fades of 5-9 s between 26 FPS scenes made 26 read 42."""
-    from app.frames.segments import scene_frames, split_frames
-    scene, fade = [40.0] * 500, [4.0] * 1500            # 20 s at 25 FPS, 6 s at 250 FPS
-    frames = [40.0] * 250 + scene + fade + scene + fade + scene * 3     # 10 s of menu first
-    plain = split_frames(frames, [(10.0, 60.0)])[0]
-    assert 1000 * len(plain) / sum(plain) > 60          # what was stored
-    kept, cut = scene_frames(frames, 10.0, 60.0)
-    assert cut == 12.0 and set(kept) == {40.0}
-    assert abs(sum(kept) / 1000 - 50.0) < 0.05          # still 50 s of the benchmark
-    # a short fast stretch (under 1 s) is the game's own frames and stays; no fade, nothing changes
-    quick = [40.0] * 500 + [4.0] * 100 + [40.0] * 1000
-    kept, cut = scene_frames(quick, 0.0, 50.0)
-    assert cut == 0.0 and kept.count(4.0) == 100
-    assert scene_frames([40.0] * 100, 0.0, 50.0) == (None, 0.0)         # the capture ended before the window
+def test_the_benchmark_is_its_scenes_between_fades_up_to_the_cut_to_the_results():
+    """RDR2 on a NucBox K10, 2026-11-14 (session 18): a fade, then five scenes each after a 250 FPS fade; the
+    last ends with a few 3-4 ms frames (the cut to the results screen). Its own average is the last scene only."""
+    from app.frames.segments import faded_scenes
+    menu, fade, results = [20.0] * 500, [4.0] * 1250, [40.0] * 750          # 10 s at 50 FPS, 5 s, 30 s
+    split_fade = [4.0] * 500 + [40.0] * 50 + [4.0] * 750                     # 2 s slower frames inside a fade
+    ramp = [4.0] * 5                                                         # a fade's last fast frames
+    scenes = [[40.0] * 500, [32.0] * 625, [40.0] * 500, [32.0] * 625, [40.0] * 1000]   # 20 s each, last 40 s
+    frames = menu + fade + scenes[0] + split_fade + ramp + scenes[1]
+    for one in scenes[2:]:
+        frames += fade + one
+    frames += [4.0, 3.5] + results
+    found, start, end = faded_scenes(frames, 0.0, 5)
+    assert [len(s) for s in found] == [500, 625, 500, 625, 1000] and set(found[1]) == {32.0}
+    assert start == pytest.approx(10.0) and end == pytest.approx(10 + 5 + 20 + 7 + 0.02 + 20 + 25 + 25 + 45)
+    all_fps = 1000 * sum(map(len, found)) / sum(map(sum, found))
+    assert all_fps == pytest.approx(3250 / 120, rel=1e-6)                   # the fades and the menu left out
+    for after in (5.0, 9.9):                                                 # where the window happens to begin
+        assert faded_scenes(frames, after, 5)[1:] == (start, end)
+    assert faded_scenes(frames, 0.0, 6) is None                              # a scene the benchmark lacks
+    assert faded_scenes(frames[: len(frames) - 760], 0.0, 5) is None         # the recording ended in the last scene
+    assert faded_scenes([20.0] * 5000 + frames, 0.0, 5) is None              # no fade near the mark
+
+
+def test_rdr2_says_its_own_average_is_its_last_scene():
+    from data.game_start_keys import scene_fades
+    assert scene_fades(1174180) == {"scenes": 5, "own_is_last_scene": True} and scene_fades(397540) is None
+
+
+def test_the_last_scene_is_checked_against_the_games_own_average():
+    from app.automation.workload import WorkloadResult
+    from app.frames.game_benchmark import GameBenchmark
+    r = WorkloadResult(status="completed", score=27.1)
+    text = GameBenchmark._last_scene_check(r, [38.0] * 1000, {"avg": 26.34})         # 26.32 FPS
+    assert "26.32 FPS, the game 26.34 (-0.1%: they match)" in text and r.metrics["last_scene_fps"] == (26.32, "FPS")
+    assert "DO NOT MATCH" in GameBenchmark._last_scene_check(r, [30.0] * 1000, {"avg": 26.34})
+    assert GameBenchmark._last_scene_check(r, [38.0] * 1000, None).endswith("26.32 FPS")   # its number not read

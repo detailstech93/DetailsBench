@@ -75,6 +75,7 @@ LATE_SECONDS = 1.0                # a recording that begins this long after the 
 # a run measured over less than this share of its benchmark is not the whole of it: the owner's whole runs had
 # 97.7-100% (BL3 107.4-110 of 110 s), the bad ones 68% (BL3, a long frame mid-benchmark taken for its end) and 93%
 WHOLE_SHARE = 0.95
+LAST_SCENE_MATCH = 2.0       # % the app's last scene may differ from the game's own average (session 18: 0.0-0.1%)
 END_EARLY_SECONDS = 5.0      # a span up to the load before the results may begin this much before the mark
 
 
@@ -894,16 +895,25 @@ class GameBenchmark:
                 (a, b), = self._marked_windows(frametimes, [(settle, settle + float(spec.benchmark_seconds))], mark)
                 frames = split_frames(frametimes, [(a, b)])[0] if pick else None
                 from data.game_start_keys import scene_fades
-                if frames and scene_fades(spec.app_id):
-                    from app.frames.segments import scene_frames
-                    frames, cut = scene_frames(frametimes, a, b)
-                    if cut:
-                        logger.info("Run %d: %.1f s of fades between scenes left out of the measure", k, cut)
+                scenes_spec, scenes, scene_error = scene_fades(spec.app_id), None, None
+                if frames and scenes_spec:
+                    from app.frames.segments import FIND_FADE_SECONDS, faded_scenes
+                    found = faded_scenes(frametimes, a - FIND_FADE_SECONDS, scenes_spec["scenes"])
+                    if found is None:
+                        scene_error = (f"the frames do not show the benchmark's {scenes_spec['scenes']} scenes whole "
+                                       "(each after a black fade), so it could not be measured")
+                    else:
+                        scenes, a2, b2 = found
+                        logger.info("Run %d: %d scenes at %.1f-%.1f s, %.1f s of fades left out", k, len(scenes),
+                                    a2, b2, (b2 - a2) - sum(map(sum, scenes)) / 1000.0)
+                        a, b, frames = a2, b2, [ms for one in scenes for ms in one]
                 start = done["t_mark"] - t_start + (a - mark)
                 samples = slice_samples(tel.samples if tel else [], 0.0, [(start, start + b - a)])[0]
                 result = (self._window_result(frames, a, b, recorded, False, remote, command, done["shot"])
                           if pick else WorkloadResult(status="invalid", error="PresentMon recorded no frames from "
                                                       "the game in this run", command=command))
+                if scene_error and result.status == "completed":
+                    result = WorkloadResult(status="invalid", command=command, error=scene_error)
                 if done["error"] == OUT_OF_MEMORY:
                     result = WorkloadResult(status="invalid", command=command, error=(
                         f"{OUT_OF_MEMORY} (the screen showed: {done['no_results']}; the frames measured "
@@ -921,6 +931,13 @@ class GameBenchmark:
                     measured_text = (f"Measured: the game's whole benchmark ({spec.benchmark_seconds} s from its "
                                      f"start), the game started anew, {spec.warmup_runs} warm-up run(s) before "
                                      "were not counted")
+                    if scenes:
+                        measured_text = (f"Measured: the game's whole benchmark, its {len(scenes)} scenes "
+                                         f"({b - a:.0f} s; the {b - a - sum(map(sum, scenes)) / 1000.0:.0f} s of "
+                                         f"black fades between them left out), the game started anew, "
+                                         f"{spec.warmup_runs} warm-up run(s) before were not counted")
+                        if scenes_spec.get("own_is_last_scene"):
+                            measured_text += "; " + self._last_scene_check(result, scenes[-1], done["own"])
                     result.note = "; ".join(x for x in [result.note, measured_text] if x)
                 # RDR2, 2026-11-11: PresentMon had one launch's frames only from 135 s on, after its benchmark had
                 # started; the run was stored with 252 of its 270 s. Not the whole benchmark: never a score
@@ -940,6 +957,19 @@ class GameBenchmark:
         measured = f"{len([p for p in passes if p['t_mark'] is not None])} of {spec.count} runs reached the benchmark"
         return GameCapture("recorded", measured + tail, process=process, windows=out, command=command,
                            telemetry_unavailable=dict(tel.unavailable) if tel else {}, display_mode=self.display_mode)
+
+    @staticmethod
+    def _last_scene_check(result: WorkloadResult, last: List[float], own: Optional[dict]) -> str:
+        """The game's own average covers its last scene only (RDR2): the app's frames of that scene next to it."""
+        fps = 1000.0 * len(last) / sum(last)
+        result.metrics["last_scene_fps"] = (round(fps, 2), "FPS")
+        text = f"the game's own average covers only its last scene: the app measured that scene at {fps:.2f} FPS"
+        game = (own or {}).get("avg")
+        if game:
+            off = 100.0 * (fps - float(game)) / float(game)
+            text += (f", the game {float(game):g} ({off:+.1f}%: " + ("they match" if abs(off) <= LAST_SCENE_MATCH else
+                     "THEY DO NOT MATCH, check this run's frames") + ")")
+        return text
 
     @staticmethod
     def _add_own(result: WorkloadResult, own: Optional[dict]) -> None:
