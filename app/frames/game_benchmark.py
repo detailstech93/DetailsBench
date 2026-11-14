@@ -264,8 +264,9 @@ def _own_result(app_id, since: float) -> Optional[dict]:
 def screen_numbers(lines) -> Optional[dict]:
     """{"avg": ...} from a results screen's text, e.g. "Average FPS: 89.2 1 82" (OCR splits digits: 89.2182), or
     a whole "Average FPS: 32" (Shadow of the Tomb Raider)."""
-    found = re.search(r"average fps\W*(\d[\d ]*\.[\d ]*\d|\d+)", " ".join(lines or []), re.I)
-    value = float(found.group(1).replace(" ", "")) if found else None
+    # session 24 (2026-11-14): OCR read RDR2's 26.1516 as "26.1 S 1 6" and 26.5055 as "26.SOSS": S is 5, O is 0
+    found = re.search(r"average fps\W*(\d[\dSO ]*\.[\dSO ]*[\dSO]|\d+)", " ".join(lines or []), re.I)
+    value = float(found.group(1).replace(" ", "").replace("S", "5").replace("O", "0")) if found else None
     return {"avg": value} if value and 1 <= value <= 2000 else None
 
 

@@ -19,6 +19,8 @@ def test_rdr2_average_from_its_results_screen():
     assert screen_average(1174180)
     assert screen_numbers(["End of benchmark", "Average FPS: 89.2 1 82", "EXIT BENCHMARKING"]) == {"avg": 89.2182}
     assert screen_numbers(["(no words)"]) is None
+    assert screen_numbers(["End of benchmark", "Average FPS: 26.1 S 1 6"]) == {"avg": 26.1516}   # session 24
+    assert screen_numbers(["Maximum FPS 33.8193", "Average FPS: 26.SOSS"]) == {"avg": 26.5055}
 
 
 def test_sottr_average_from_its_results_screen_is_a_cut_whole_number():
