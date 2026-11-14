@@ -181,6 +181,8 @@ def test_the_benchmark_is_its_scenes_between_fades_up_to_the_cut_to_the_results(
     assert all_fps == pytest.approx(3250 / 120, rel=1e-6)                   # the fades and the menu left out
     for after in (5.0, 9.9):                                                 # where the window happens to begin
         assert faded_scenes(frames, after, 5)[1:] == (start, end)
+    # session 22: 'stop' read 45 s after the first fade; 30 s back finds 4 scenes, 60 s back all 5
+    assert faded_scenes(frames, 55.0 - 30, 5) is None and faded_scenes(frames, 55.0 - 60, 5)[1:] == (start, end)
     assert faded_scenes(frames, 0.0, 6) is None                              # a scene the benchmark lacks
     assert faded_scenes(frames[: len(frames) - 760], 0.0, 5) is None         # the recording ended in the last scene
     assert faded_scenes([20.0] * 5000 + frames, 0.0, 5) is None              # no fade near the mark

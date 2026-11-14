@@ -908,7 +908,9 @@ class GameBenchmark:
                 scenes_spec, scenes, scene_error = scene_fades(spec.app_id), None, None
                 if frames and scenes_spec:
                     from app.frames.segments import FIND_FADE_SECONDS, faded_scenes
-                    found = faded_scenes(frametimes, a - FIND_FADE_SECONDS, scenes_spec["scenes"])
+                    # session 22 (2026-11-14): 'stop' was read 30-55 s after the first fade in 3 of 4 runs; from
+                    # the mark's 30 s back those runs found 4 scenes, so 60 s back is tried next
+                    found = faded_scenes(frametimes, a - FIND_FADE_SECONDS, scenes_spec["scenes"]) or                         faded_scenes(frametimes, a - 2 * FIND_FADE_SECONDS, scenes_spec["scenes"])
                     if found is None:
                         scene_error = (f"the frames do not show the benchmark's {scenes_spec['scenes']} scenes whole "
                                        "(each after a black fade), so it could not be measured")
