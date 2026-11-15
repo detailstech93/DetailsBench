@@ -1,5 +1,7 @@
 # DetailsBench
 
+[![tests](https://github.com/detailstech93/DetailsBench/actions/workflows/tests.yml/badge.svg)](https://github.com/detailstech93/DetailsBench/actions/workflows/tests.yml)
+
 **[English](#english) | [العربية](#العربية)**
 
 ---
@@ -30,7 +32,7 @@ different computers can be compared, and each session ends with an HTML report.
 - **Reports**: one HTML report per session, with its own section per test and a chart per run. Export and backup
   of the database.
 - **Games**: frame capture with PresentMon (Windows) or MangoHud (Linux), forced graphics settings and built-in
-  benchmark scripts (Cyberpunk 2077). (Under development.)
+  benchmarks (Borderlands 3, Cyberpunk 2077, Far Cry 6, Red Dead Redemption 2, Shadow of the Tomb Raider), measured whole, with the game's own number next to the app's.
 - **Remote mode**: an on/off switch on the Tests screen. When it is on, a phone or another computer on the same
   local network opens the address the app shows, types its one-time code, sees every test, starts them, follows
   each test and run with its scores and the time left, stops them and reads the report right there. Off by
@@ -45,7 +47,7 @@ different computers can be compared, and each session ends with an HTML report.
 |---|---|
 | CPU | 7-Zip, Cinebench 2026 (multi and single core), Geekbench 6 and 7, y-cruncher (Pi 1B and 2.5B), Blender (CPU), V-Ray (CPU), PassMark CPU and memory, HandBrake (x264 and x265), PugetBench (Photoshop, Premiere Pro) |
 | GPU | Blender (GPU), V-Ray (GPU and RTX), PassMark 2D and 3D, Geekbench 6 and 7 (OpenCL, Vulkan; 7 also CUDA) |
-| Games | Steam games with frame capture; Cyberpunk 2077 built-in benchmark |
+| Games | Built-in benchmarks of Borderlands 3, Cyberpunk 2077, Far Cry 6, Red Dead Redemption 2, Shadow of the Tomb Raider, measured whole with the game's own number next to the app's; other Steam games with frame capture |
 | Storage | DiskSpd (Windows), fio |
 | AI | MLPerf Client (Phi-4 mini, Llama 3.1 8B, Phi-4 reasoning, Qwen3 8B), llama-benchy with LM Studio (Qwen3.5 4B, Gemma 4 12B, Qwen3.8 27B, plus any model you add) |
 | Web | Speedometer, JetStream |
@@ -145,8 +147,8 @@ must stay under the same license, with its source. The benchmark programs the ap
   استراحة بين التشغيلات، زر إيقاف طوارئ، ومتابعة بعد أي انهيار.
 - **التقارير**: تقرير HTML لكل جلسة، كل اختبار إلو قسمه الخاص ورسم بياني لكل تشغيل. مع تصدير ونسخ احتياطي لقاعدة
   البيانات.
-- **الألعاب**: قياس الفريمات بـ PresentMon (ويندوز) أو MangoHud (لينكس)، فرض إعدادات الغرافيك، وسكربتات للبنشمارك
-  المدمج بالألعاب (Cyberpunk 2077). (قيد التطوير)
+- **الألعاب**: قياس الفريمات بـ PresentMon (ويندوز) أو MangoHud (لينكس)، فرض إعدادات الغرافيك، والبنشمارك
+  المدمج بالألعاب (Borderlands 3, Cyberpunk 2077, Far Cry 6, Red Dead Redemption 2, Shadow of the Tomb Raider)، بينقاس كامل ورقم اللعبة نفسها جنب رقم التطبيق.
 - **وضع التحكم عن بعد**: زر تشغيل/إطفاء بشاشة الاختبارات. لما يكون شغّال، الموبايل أو أي كمبيوتر تاني عنفس الشبكة
   المحلية بيفتح العنوان يلي بيعرضه التطبيق، بيكتب الكود المؤقت، وبيشوف كل الاختبارات، بيشغّلها، بيتابع كل اختبار وتشغيل مع النتائج والوقت الباقي، بيوقفها وبيقرأ التقرير عنده. مطفي بشكل افتراضي، وما بيستعمل إنترنت.
 - **مجلد التقارير**: التطبيق بيسألك مرة وحدة أول مرة وين بدك تنحفظ التقارير، وكل التقارير بتنحفظ فيه.
@@ -159,7 +161,7 @@ must stay under the same license, with its source. The benchmark programs the ap
 |---|---|
 | المعالج | 7-Zip، Cinebench 2026 (كل الأنوية ونواة وحدة)، Geekbench 6 و 7، y-cruncher (Pi 1B و 2.5B)، Blender (CPU)، V-Ray (CPU)، PassMark CPU والذاكرة، HandBrake (x264 و x265)، PugetBench (Photoshop و Premiere Pro) |
 | كرت الشاشة | Blender (GPU)، V-Ray (GPU و RTX)، PassMark 2D و 3D، Geekbench 6 و 7 (OpenCL و Vulkan، و CUDA بـ 7) |
-| الألعاب | ألعاب Steam مع قياس الفريمات؛ البنشمارك المدمج بـ Cyberpunk 2077 |
+| الألعاب | البنشمارك المدمج بـ Borderlands 3, Cyberpunk 2077, Far Cry 6, Red Dead Redemption 2, Shadow of the Tomb Raider، بينقاس كامل ورقم اللعبة نفسها جنب رقم التطبيق؛ وباقي ألعاب Steam مع قياس الفريمات |
 | التخزين | DiskSpd (ويندوز)، fio |
 | الذكاء الاصطناعي | MLPerf Client (Phi-4 mini، Llama 3.1 8B، Phi-4 reasoning، Qwen3 8B)، و llama-benchy مع LM Studio (Qwen3.5 4B، Gemma 4 12B، Qwen3.8 27B، وأي موديل بتضيفه انت) |
 | الويب | Speedometer، JetStream |
