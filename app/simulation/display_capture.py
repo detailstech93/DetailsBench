@@ -36,7 +36,8 @@ class _Mapped(ctypes.Structure):
     _fields_ = [("pData", ctypes.c_void_p), ("RowPitch", ctypes.c_uint), ("DepthPitch", ctypes.c_uint)]
 
 
-def _call(obj, index, argtypes=(), *args, restype=ctypes.HRESULT):
+# ctypes has HRESULT on Windows only; the fallback lets the module be imported (and tested) elsewhere
+def _call(obj, index, argtypes=(), *args, restype=getattr(ctypes, "HRESULT", ctypes.c_long)):
     """Method `index` of a COM object's vtable (HRESULT failures raise OSError)."""
     vtbl = ctypes.cast(obj, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
     return ctypes.WINFUNCTYPE(restype, ctypes.c_void_p, *argtypes)(vtbl[index])(obj, *args)
