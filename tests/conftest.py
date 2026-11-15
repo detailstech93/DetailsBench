@@ -179,3 +179,18 @@ def _no_real_plug(monkeypatch):
     """A smart plug picked on this computer (app/telemetry/home_assistant.py) is never read in tests."""
     from app.telemetry import sources
     monkeypatch.setattr(sources, "_plug_sources", lambda: [])
+
+
+def pytest_sessionfinish(session, exitstatus):
+    session.config._exit_status = int(exitstatus)
+
+
+def pytest_unconfigure(config):
+    """On Linux, Qt's own teardown at Python's exit crashed (segmentation fault, no Python frame) after every
+    test had passed on GitHub's Ubuntu. Leave at once with pytest's result once everything is printed."""
+    import os
+    import sys
+    if sys.platform.startswith("linux") and hasattr(config, "_exit_status"):
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(config._exit_status)
