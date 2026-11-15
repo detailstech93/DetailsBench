@@ -1,10 +1,11 @@
 """Automation panel with REAL child processes and a REAL temporary database (no confirmation dialogs)."""
 
 import sys
-import threading
+import time
 from unittest.mock import patch
 
 import pytest
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from app.automation.cli_workload import CliWorkload, load_workloads
@@ -97,7 +98,11 @@ def test_emergency_stop(qapp, tmp_path):
                            profile=RunProfile(name="p", repetitions=3, warmup_runs=0))
     panel.set_checked("tool_slow")
     assert panel.start_plan()
-    threading.Timer(0.5, panel.emergency_stop).start()
+    # the GUI thread presses Stop, as the button and the shortcut do (a widget touched from another thread aborts on Linux)
+    QTimer.singleShot(500, panel.emergency_stop)
+    deadline = time.monotonic() + 30
+    while panel.worker.isRunning() and time.monotonic() < deadline:
+        qapp.processEvents()
     finish(qapp, panel)
     runs = db.get_runs(panel.last_session_id, include_test=True)
     assert [(r["status"], r["score"]) for r in runs] == [("cancelled", None)]
