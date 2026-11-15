@@ -16,6 +16,7 @@ jobs:
     timeout-minutes: 30
     env:
       QT_QPA_PLATFORM: offscreen
+      PYTHONUNBUFFERED: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -25,4 +26,4 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libegl1 libxkbcommon0 libgl1
       - run: pip install -r requirements-dev.txt
-      - run: python -m pytest -q -p no:cacheprovider
+      - run: python -X faulthandler -m pytest -v -p no:cacheprovider
