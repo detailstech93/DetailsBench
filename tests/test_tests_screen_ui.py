@@ -1,5 +1,6 @@
 """This PC and Tests screens, and running tests from them (REAL child process, REAL temporary database)."""
 
+import time
 import sys
 from unittest.mock import patch
 
@@ -123,6 +124,7 @@ def test_window_starts_on_this_pc_and_runs_tests_with_chosen_count_then_opens_re
         assert seen == []
         while panel.worker.isRunning():
             qapp.processEvents()
+            time.sleep(0.01)   # a busy loop of processEvents wore out None's count on Linux (PySide6, Python 3.10)
         qapp.processEvents()
         page.refresh_progress()
         assert not page.busy and page.progress_bar.value() == 100

@@ -103,6 +103,7 @@ def test_emergency_stop(qapp, tmp_path):
     deadline = time.monotonic() + 30
     while panel.worker.isRunning() and time.monotonic() < deadline:
         qapp.processEvents()
+        time.sleep(0.01)   # a busy loop of processEvents wore out None's count on Linux (PySide6, Python 3.10)
     finish(qapp, panel)
     runs = db.get_runs(panel.last_session_id, include_test=True)
     assert [(r["status"], r["score"]) for r in runs] == [("cancelled", None)]
@@ -120,6 +121,7 @@ def test_failure_gets_screenshot_when_enabled(qapp, tmp_path):
     assert panel.start_plan()
     while panel.worker.isRunning():        # the screenshot request needs the GUI thread
         qapp.processEvents()
+        time.sleep(0.01)   # a busy loop of processEvents wore out None's count on Linux (PySide6, Python 3.10)
     qapp.processEvents()
     runs = db.get_runs(panel.last_session_id, include_test=True)
     assert [r["status"] for r in runs] == ["failed", "failed"]           # the failed run is run once more
