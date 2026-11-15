@@ -26,4 +26,4 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libegl1 libxkbcommon0 libgl1
       - run: pip install -r requirements-dev.txt
-      - run: python -X faulthandler -m pytest -v -p no:cacheprovider
+      - run: python -X faulthandler -m pytest -v -p no:cacheprovider --capture=sys
