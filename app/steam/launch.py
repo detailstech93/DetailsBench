@@ -121,13 +121,54 @@ def new_processes_in_folder(before: Snapshot, after: Snapshot, folder: str) -> L
     return new
 
 
+STEAM_TASKS = {("SynchronizingCloud", "syncfailed"): "its Steam Cloud sync failed"}
+
+
+def read_steam_log() -> Optional[str]:
+    """The end of Steam's own console log (read only), or None off Windows or when it cannot be read."""
+    if os.name != "nt":
+        return None
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as key:
+            root = winreg.QueryValueEx(key, "SteamPath")[0]
+        with open(os.path.join(root, "logs", "console_log.txt"), "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - 200_000))
+            return f.read().decode("utf-8", "replace")
+    except (OSError, ValueError):
+        return None
+
+
+def steam_reason(log: Optional[str], appid) -> Optional[str]:
+    """Why Steam did not start the game, from its log lines after this launch (owner's laptop 2026-11-15: Steam
+    went offline, its Cloud sync failed and its dialog waited for an answer), or None when the log says nothing."""
+    if not log:
+        return None
+    lines = log.splitlines()
+    starts = [i for i, l in enumerate(lines) if f"steam://rungameid/{appid}" in l or f"steam://run/{appid}/" in l]
+    if not starts:
+        return None
+    after = lines[starts[-1]:]
+    waits = [m for l in after for m in [re.search(rf"\[AppID {appid}, ActionID \d+\] : LaunchApp waiting for "
+                                                  r'user response to (\w+) "([^"]*)"', l)] if m]
+    parts = []
+    if waits:
+        task, why = waits[-1].groups()
+        parts.append(f"{STEAM_TASKS.get((task, why), f'{task} {why}'.strip())}, and Steam's window waits for your answer")
+    if any("LogonFailure No Connection" in l for l in after):
+        parts.append("Steam had no connection to its servers")
+    return "; ".join(parts) or None
+
+
 def launch_and_confirm(appid, install_path: str, discovered_appids: Iterable[str],
                        snapshot: Callable[[], Snapshot],
                        opener: Callable[[str], None] = open_url,
                        timeout: float = 60.0, poll: float = 2.0,
                        sleep: Callable[[float], None] = time.sleep,
                        clock: Callable[[], float] = time.monotonic, args: Sequence[str] = (),
-                       starter: Optional[Callable[[List[str]], None]] = None) -> dict:
+                       starter: Optional[Callable[[List[str]], None]] = None,
+                       steam_log: Callable[[], Optional[str]] = None) -> dict:
     """Launch one discovered game and report {status, message, url}.
 
     status: "launched" (new process seen in the install folder),
@@ -155,6 +196,7 @@ def launch_and_confirm(appid, install_path: str, discovered_appids: Iterable[str
         if new:
             return {"status": "launched", "url": url,
                     "message": f"new process in the game folder: {os.path.basename(new[0])}"}
+    why = steam_reason((steam_log or read_steam_log)(), appid)
     return {"status": "unconfirmed", "url": url,
             "message": (f"Steam accepted {url}, but no new process appeared in the game folder "
-                        f"within {int(timeout)} s (Steam may be updating or showing a dialog)")}
+                        f"within {int(timeout)} s ({f'Steam log: {why}' if why else 'Steam may be updating or showing a dialog'})")}

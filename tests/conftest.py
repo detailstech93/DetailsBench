@@ -28,6 +28,13 @@ def _no_real_presentmon_search(monkeypatch):
                         lambda *a, **k: provision.Found(error="not searched in tests"))
 
 
+
+@pytest.fixture(autouse=True)
+def _no_real_steam_log(monkeypatch):
+    """A game that does not start is explained from Steam's own log; tests never read this computer's log."""
+    from app.steam import launch
+    monkeypatch.setattr(launch, "read_steam_log", lambda: None)
+
 @pytest.fixture(autouse=True)
 def _screen_never_locked(monkeypatch, request):
     """The runner does not start a screen test on a locked screen (app/automation/awake.py). Tests must not depend

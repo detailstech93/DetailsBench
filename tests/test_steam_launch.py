@@ -165,3 +165,27 @@ def test_a_game_started_directly_is_told_its_steam_app_id(monkeypatch):
     monkeypatch.setattr(launch.subprocess, "Popen", lambda cmd, **kw: started.append((cmd, kw["env"])))
     launch.start_exe([r"C:\g\SOTTR.exe", "-nolauncher"], 750920)
     assert started[0][0] == [r"C:\g\SOTTR.exe", "-nolauncher"] and started[0][1]["SteamAppId"] == "750920"
+
+
+# Steam's console_log.txt of the owner's laptop, 2026-11-15 21:00 (Borderlands 3's run 1 never started)
+STEAM_LOG = """[2026-11-15 21:00:17] Game process removed: AppID 397540 "Borderlands3.exe", ProcID 39772
+[2026-11-15 21:00:21] LogonFailure No Connection
+[2026-11-15 21:00:25] ExecuteSteamURL: "steam://rungameid/397540"
+[2026-11-15 21:00:25] GameAction [AppID 397540, ActionID 27] : LaunchApp changed task to SynchronizingCloud with ""
+[2026-11-15 21:00:37] GameAction [AppID 397540, ActionID 27] : LaunchApp waiting for user response to SynchronizingCloud "syncfailed"
+[2026-11-15 21:00:56] LogonFailure No Connection
+"""
+
+
+def test_a_game_that_does_not_start_names_steams_own_reason():
+    from app.steam.launch import steam_reason
+    assert steam_reason(STEAM_LOG, 397540) == ("its Steam Cloud sync failed, and Steam's window waits for your answer; "
+                                               "Steam had no connection to its servers")
+    assert steam_reason(STEAM_LOG, 1091500) is None              # another game's launch: nothing to say
+    assert steam_reason(STEAM_LOG.split("[2026-11-15 21:00:25] Exec")[0], 397540) is None   # before this launch
+    assert steam_reason(None, 397540) is None
+    t = [0.0]
+    out = launch_and_confirm(397540, "D:/g", ["397540"], snapshot=lambda: [], opener=lambda u: None,
+                             timeout=4, poll=2, sleep=lambda s: t.__setitem__(0, t[0] + s), clock=lambda: t[0],
+                             steam_log=lambda: STEAM_LOG)
+    assert out["status"] == "unconfirmed" and "Steam log: its Steam Cloud sync failed" in out["message"]
