@@ -210,19 +210,38 @@ async function call(path, body) {
   const r = await fetch(path, opt);
   if (r.status === 401) {
     const d = await r.json().catch(() => ({}));
-    logout(d.error || "wrong code");
+    logout(d.error || "wrong code", d.wait);
     throw new Error("code");
   }
   return r;
 }
 
-function logout(why) {
+let lockTimer = null;
+
+function logout(why, wait) {
   if (timer) clearInterval(timer);
   timer = null;
   try { sessionStorage.removeItem("pcbm-code"); } catch (e) {}
   $("app").classList.add("hidden");
   $("login").classList.remove("hidden");
   $("loginError").textContent = why;
+  if (lockTimer) clearInterval(lockTimer);
+  lockTimer = null;
+  $("enter").disabled = false;
+  if (!wait) return;
+  // locked after wrong codes: count the PC's seconds down, Connect again at 0
+  let left = Math.max(1, Math.round(wait));
+  const show = () => { $("loginError").textContent = "Too many wrong codes; try again in " + left + " s"; };
+  $("enter").disabled = true;
+  show();
+  lockTimer = setInterval(() => {
+    left -= 1;
+    if (left > 0) { show(); return; }
+    clearInterval(lockTimer);
+    lockTimer = null;
+    $("enter").disabled = false;
+    $("loginError").textContent = "You can try again now.";
+  }, 1000);
 }
 
 function el(tag, text, cls) {
@@ -688,6 +707,7 @@ async function refresh() {
 }
 
 async function connect() {
+  if ($("enter").disabled) return;      // Enter in the box while the lock counts down
   code = $("code").value.trim().toUpperCase();
   $("loginError").textContent = "";
   try {

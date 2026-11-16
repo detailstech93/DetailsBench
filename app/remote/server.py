@@ -27,6 +27,7 @@ stop() -> text, reports() -> [{"name", "time"}], report(name=None) -> Optional[s
 """
 
 import hmac
+import math
 import http.cookies
 import ipaddress
 import json
@@ -201,6 +202,12 @@ class Guard:
                 return False, f"too many wrong codes; locked for {LOCK_SECONDS} s"
             return False, "wrong code"
 
+    def wait(self) -> int:
+        """Whole seconds left of the lock; 0 when not locked (the phone page counts them down)."""
+        with self.lock:
+            left = self.locked_until - self.clock()
+        return max(0, math.ceil(left))
+
 
 def _handler(server: "RemoteServer"):
     class Handler(BaseHTTPRequestHandler):
@@ -242,7 +249,8 @@ def _handler(server: "RemoteServer"):
         def _authorised(self) -> bool:
             ok, why = server.guard.check(self.headers.get("X-Code"))
             if not ok:
-                self._json(401, {"error": why})
+                wait = server.guard.wait()
+                self._json(401, {"error": why, **({"wait": wait} if wait else {})})
             self.set_cookie = ok
             return ok
 

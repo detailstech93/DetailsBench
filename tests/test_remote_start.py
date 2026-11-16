@@ -157,6 +157,24 @@ def test_a_guesser_is_locked_out(served):
         call(base + "/api/state", "NOPE")
     status, _, body = call(base + "/api/state", "ABCD2345")
     assert status == 401 and b"too many wrong codes" in body
+    assert 0 < json.loads(body)["wait"] <= rs.LOCK_SECONDS        # the phone page counts it down
+
+
+def test_the_lock_tells_its_seconds_and_the_page_counts_them_down():
+    """Plan E1 (2026-11-16): the phone page counted nothing; Connect works again at 0."""
+    from app.remote.page import PAGE
+    now = [100.0]
+    guard = rs.Guard("ABCD2345", clock=lambda: now[0])
+    assert guard.wait() == 0
+    for _ in range(rs.MAX_WRONG):
+        guard.check("NOPE")
+    assert guard.wait() == rs.LOCK_SECONDS
+    now[0] += rs.LOCK_SECONDS - 0.5
+    assert guard.wait() == 1
+    now[0] += 1
+    assert guard.wait() == 0 and guard.check("ABCD2345") == (True, "")
+    assert 'logout(d.error || "wrong code", d.wait)' in PAGE and "try again in \" + left + \" s" in PAGE
+    assert '$("enter").disabled = false' in PAGE and 'if ($("enter").disabled) return;' in PAGE
 
 
 def _entry(test_id, source="workload", ref=None, group="cpu", mode="automatic", state="installed"):
