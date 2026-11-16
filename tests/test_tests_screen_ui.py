@@ -817,3 +817,14 @@ def test_a_game_shows_its_upscalers_and_ray_tracing():
     assert name_text(rdr2) == "r   (DLSS / FSR · No RT)" and name_text(sottr) == "s   (DLSS · RT ✓)"
     assert name_text(bl3) == "b   (No upscaler · No RT)" and name_text(other) == "o"
     assert name_text(entry("c")) == "c"
+
+
+def test_a_line_of_games_counts_the_game_that_runs_only_while_it_runs():
+    """Owner's laptop 2026-11-16: after a line of 2 games had ended the bar kept 50%."""
+    from types import SimpleNamespace
+    from app.ui.run_tests import line_count
+    window = SimpleNamespace(line_sessions=[157], run_line=[])
+    assert line_count(window, True) == (1, 2)              # SOTTR runs: half the line
+    window.line_sessions.append(158)
+    assert line_count(window, False) == (2, 2)             # it ended: the whole line, so the bar shows 100%
+    assert line_count(SimpleNamespace(line_sessions=[157], run_line=["next"]), False) == (1, 2)

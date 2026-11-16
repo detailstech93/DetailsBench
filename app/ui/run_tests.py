@@ -885,6 +885,14 @@ def _end_helper(window=None):
         window.helper_asked = False
 
 
+def line_count(window, running: bool) -> Tuple[int, int]:
+    """(games done, games in the line) for the bar (owner, 2026-11-13: the phone showed a full bar and no count in a
+    line of 5 games). The game that runs counts only while it runs (owner's laptop 2026-11-16: the bar kept 50% after
+    a line of 2 games ended)."""
+    done = len(getattr(window, "line_sessions", None) or [])
+    return done, done + int(running) + len(getattr(window, "run_line", []))
+
+
 def _line_session(window, session_id) -> None:
     """A run of a line of games is over: its session joins the line's general report."""
     sessions = getattr(window, "line_sessions", None)
@@ -1273,10 +1281,7 @@ def start_other(window, entry: TestEntry, choice: Optional[RunChoice] = None, af
         if frame.is_running() or frame.lhm.active():
             def game_state() -> RunState:      # a game on its own gets its blinking dot too (owner, 2026-10-22)
                 running = frame.is_running() or frame.lhm.active()
-                # owner, 2026-11-13: the phone showed a full bar and no count in a line of 5 games
-                done = len(getattr(window, "line_sessions", None) or [])
-                return RunState(running, done, done + 1 + len(getattr(window, "run_line", [])),
-                                frame.status_label.text(),
+                return RunState(running, *line_count(window, running), frame.status_label.text(),
                                 marks={entry.id: "running"} if running else {})
 
             def skip_game():                    # owner, 2026-11-04: as Skip in a plan; the line goes on
