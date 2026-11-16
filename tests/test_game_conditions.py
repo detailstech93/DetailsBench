@@ -32,6 +32,9 @@ def test_far_cry_6_reads_and_changes_only_its_values():
     assert requested == {"dxr_reflections": True, "dxr_shadows": True, "preset": "Ultra", "upscaler": "FSR 1.0",
                          "resolution_scale": "1"}
     assert skipped == {"frame_gen": "the game has none"}
+    for level in ("medium", "high", "ultra"):        # its ray tracing is on / off: a level is on (2026-11-17)
+        assert plan_preset(2369390, GamePreset(ray_tracing=level), fc6.choices(PROFILE, {})) == (
+            {"dxr_reflections": True, "dxr_shadows": True, "resolution_scale": "1"}, {})
     dlss = plan_preset(2369390, GamePreset(upscaler="dlss"), fc6.choices(PROFILE, {}))[1]
     assert dlss == {"upscaler": "the game has no such value; it offers: FSR 1.0, Off"}
     known = {}

@@ -97,6 +97,8 @@ def _contains(choice: str, offered: list) -> Optional[object]:
 
 
 def _on_off(choice: str, offered: list) -> Optional[object]:
+    # a level on a game with only on / off is on (owner, 2026-11-17: Far Cry 6 was left out of an RT Ultra line)
+    choice = "on" if choice in ("medium", "high", "ultra") else choice
     if choice not in ("on", "off"):
         return None
     value = choice == "on"
