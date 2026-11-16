@@ -190,7 +190,7 @@ def test_the_benchmark_is_its_scenes_between_fades_up_to_the_cut_to_the_results(
 
 def test_rdr2_says_its_own_average_is_its_last_scene():
     from data.game_start_keys import scene_fades
-    assert scene_fades(1174180) == {"scenes": 5, "own_is_last_scene": True, "last_scene_min_seconds": 100}
+    assert scene_fades(1174180) == {"scenes": 5, "own_is_last_scene": True, "last_scene_min_seconds": 130}
     assert scene_fades(397540) is None
 
 
@@ -203,10 +203,12 @@ def test_fades_of_alternating_frames_and_lone_fast_frames_in_the_last_scene():
     last = [11.0] * 2500 + [1.0] + [11.0] * 1100 + [1.0] + [11.0] * 7200 + [1.0] + [11.0] * 1500   # 135 s
     frames = [11.0] * 900 + fade + scene + fade + scene + fade + scene + fade + scene + fade + last
     frames += [1.0, 1.0, 1.0] + [30.0] * 500                                 # the cut to the results screen
-    found = faded_scenes(frames, 0.0, 5, last_seconds=100)
-    assert faded_scenes(frames, 0.0, 5) == found                             # the last fast frames are the cut
-    # each fade's last 16 ms frame comes with its scene (one frame); the lone fast frames are left out
-    assert [len(s) for s in found[0]] == [2301] * 4 + [12301] and 1.0 not in found[0][-1]
+    assert faded_scenes(frames, 0.0, 5) is not None                          # found, but its last scene cut short
+    assert sum(faded_scenes(frames, 0.0, 5)[0][-1]) < 30_000
+    found = faded_scenes(frames, 0.0, 5, last_seconds=130)
+    # each fade's last 16 ms frame comes with its scene (one frame); the last scene's lone fast frames count, as
+    # the game's own average counts them (2026-11-16)
+    assert [len(s) for s in found[0]] == [2301] * 4 + [12304] and found[0][-1].count(1.0) == 3
 
 
 def test_the_last_scene_is_checked_against_the_games_own_average():
@@ -266,16 +268,19 @@ def test_sottr_own_result_is_its_average_benchmark_statistics(tmp_path):
     assert sottr.report_conditions(report) == []
 
 
-def test_with_dlss_the_last_scene_ends_at_the_last_fast_frames_before_the_results_screen():
-    """Owner's laptop (RTX, DLSS Quality), 2026-11-16, session 148: a long fade before the last scene left it
-    121-128 s up to the cut, under the 130 s it had to pass, and a lone fast frame came 110 s in; 3 of 4 runs
-    were invalid. The game closing gave one fast frame 0.2 s before the recording's end."""
+def test_with_dlss_the_last_scene_begins_at_its_load_hitch_and_keeps_its_fast_stretches():
+    """Owner's laptop (RTX, DLSS Quality), 2026-11-16, sessions 148 and 150: the fade before the last scene broke
+    into pieces and the scene had fast stretches of its own, so its start was taken late (121-128 s to the cut,
+    under 130 s: 3 of 4 runs invalid) and its frames read 3-4% under the game's own average. From the scene's load
+    hitch, with its fast stretches, it is 132-136 s and 94.25 / 94.15 FPS against the game's 94.42 / 94.37."""
     from app.frames.segments import faded_scenes
-    fade = [0.4, 16.2] * 300
+    fade = [0.4, 16.2] * 300                                                 # 5 s
     scene = [12.0] * 2080                                                    # 25 s at 83 FPS
-    last = [11.0] * 10000 + [1.0] + [11.0] * 1100                            # a lone fast frame 110 s in, 122 s
-    frames = [20.0] * 1900 + fade + scene + fade + scene + fade + scene + fade + scene + fade * 3 + last
-    frames += [1.0, 1.0] + [16.0] * 600 + [0.5] + [16.0] * 12                # the cut, 9.6 s of results, closing
-    found = faded_scenes(frames, 0.0, 5, last_seconds=100)
-    assert found is not None and [len(s) for s in found[0]][-1] == 11101 and 1.0 not in found[0][-1]
-    assert found[2] == pytest.approx(sum(frames[: len(frames) - 615]) / 1000.0)   # ends at the cut, not closing
+    last = ([65.0, 75.0] + [8.0] * 2500 + [0.4, 16.2] * 150 + [11.0] * 8800 + [1.0] + [11.0] * 900
+            + [12.0] * 300)                                                  # a hitch, 20 s, a fast 2.5 s, 133.5 s
+    frames = [20.0] * 1900 + fade + scene + fade + scene + fade + scene + fade + scene + fade * 3 + [16.6] + fade
+    frames += last + [1.0, 1.0] + [16.0] * 600 + [0.5] + [16.0] * 12        # the cut, 9.6 s of results, closing
+    found, start, end = faded_scenes(frames, 0.0, 5, last_seconds=130)
+    assert found[-1] == last                                                 # all of it, from the hitch to the cut
+    assert end == pytest.approx(sum(frames[: len(frames) - 615]) / 1000.0)
+    assert faded_scenes(frames, 0.0, 5, last_seconds=135) is None            # the cut is under 135 s in
