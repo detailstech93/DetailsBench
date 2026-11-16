@@ -274,19 +274,22 @@ def screen_numbers(lines) -> Optional[dict]:
 
 
 def results_average(lines, shot, read_region=None) -> Optional[dict]:
-    """screen_numbers, or when its line came without the number, that line read again from the kept screenshot,
-    enlarged (app/frames/screen_text.read_region)."""
-    found = screen_numbers(lines)
-    if found or not shot:
-        return found
+    """The number after the word "Average", read again from the kept screenshot enlarged 2x
+    (app/frames/screen_text.read_region); screen_numbers of the whole screen when that gives none.
+    Owner's laptop 2026-11-16, 8 RDR2 shots: the whole screen gave no number in 4 and 93.41 for 93.4152 in one; the
+    part after "Average", 12 letter heights wide at 2x, gave all 8 (wider or 3x lost digits)."""
     for line in lines or []:
         words = getattr(line, "words", ())
-        if words and words[0][0].lower() == "average":
-            _, x, y, _, h = words[0]
+        if shot and words and words[0][0].lower() == "average":
+            _, x, y, w, h = words[0]
             if read_region is None:
                 from app.frames.screen_text import read_region
-            return screen_numbers(read_region(shot, x, max(0, y - h), 40 * h, 3 * h))
-    return None
+            found = re.search(r"\d[\dSO ]*\.[\dSO ]*[\dSO]", " ".join(read_region(shot, x + w, max(0, y - h), 12 * h, 3 * h)))
+            value = float(found.group(0).replace(" ", "").replace("S", "5").replace("O", "0")) if found else None
+            if value and 1 <= value <= 2000:
+                return {"avg": value}
+            break
+    return screen_numbers(lines)
 
 
 def after_mark_seconds(steps) -> float:

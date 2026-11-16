@@ -23,18 +23,19 @@ def test_rdr2_average_from_its_results_screen():
     assert screen_numbers(["Maximum FPS 33.8193", "Average FPS: 26.SOSS"]) == {"avg": 26.5055}
 
 
-def test_rdr2_average_left_out_by_ocr_is_read_again_from_the_enlarged_line():
-    """Owner's laptop 2026-11-16: Windows OCR gave "Average FPS:" without 94.5044 in 2 of 4 shots."""
+def test_rdr2_average_is_read_again_from_the_enlarged_part_after_its_word():
+    """Owner's laptop 2026-11-16: Windows OCR gave "Average FPS:" without 94.5044, and "93.4 1" for 93.4152."""
     from app.frames.game_benchmark import results_average
     from app.frames.screen_text import Line
-    line = Line("Average FPS:")
-    line.words = (("Average", 824, 544, 80, 20), ("FPS:", 914, 544, 38, 16))
+    line = Line("Average FPS: 93.4 1")
+    line.words = (("Average", 824, 544, 80, 20), ("FPS:", 914, 544, 38, 16), ("93.4", 958, 534, 60, 32))
     asked = []
-    read = lambda shot, *box: asked.append((shot, box)) or ["Average FPS: 94.5044"]
-    assert results_average(["End of benchmark", line], "shot.png", read) == {"avg": 94.5044}
-    assert asked == [("shot.png", (824, 524, 800, 60))]
+    read = lambda shot, *box: asked.append((shot, box)) or ["FPS:93.41S2"]
+    assert results_average(["End of benchmark", line], "shot.png", read) == {"avg": 93.4152}
+    assert asked == [("shot.png", (904, 524, 240, 60))]
+    assert results_average([line], "shot.png", lambda shot, *box: []) == {"avg": 93.41}     # the whole screen's
     assert results_average(["Average FPS: 93.6353"], "shot.png", read) == {"avg": 93.6353} and len(asked) == 1
-    assert results_average(["End of benchmark", line], None, read) is None
+    assert results_average([line], None, read) == {"avg": 93.41}
 
 
 def test_sottr_average_from_its_results_screen_is_a_cut_whole_number():
