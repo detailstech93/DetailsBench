@@ -199,6 +199,8 @@ def pytest_unconfigure(config):
     import os
     import sys
     if hasattr(config, "_exit_status"):
+        import faulthandler
+        faulthandler.disable()      # Qt's threads hit at the exit itself would print a crash that is not one
         sys.stdout.flush()
         sys.stderr.flush()
         os._exit(config._exit_status)
