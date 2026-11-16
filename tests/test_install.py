@@ -738,9 +738,11 @@ def test_a_skipped_download_says_skipped_and_the_rest_install(qapp, monkeypatch)
     monkeypatch.setattr(direct, "install", install)
     items = [Item(entry("cinebench_2026"), {"kind": "zip", "folder": "c"}),
              Item(entry("handbrake_x264_1080p"), {"kind": "zip", "folder": "h"})]
+    items[1].ids.append("handbrake_x265_1080p")              # merged into it by collect: one clip for both
     flow.pending, flow.installing = items, True
     assert flow._install(items) == ["cinebench_2026: skipped, not installed.", "handbrake_x264_1080p installed."]
-    assert flow.installed_ids == ["handbrake_x264_1080p"]      # the phone shows it installed before the line ends
+    # the phone shows them installed before the line ends, the merged one too (owner, GEEKOM 2026-11-17)
+    assert flow.installed_ids == ["handbrake_x264_1080p", "handbrake_x265_1080p"]
 
 
 def test_tests_of_one_program_show_its_line_and_dot_together(qapp, monkeypatch):
@@ -805,3 +807,11 @@ def test_an_emulated_test_has_its_own_colour(qapp):
     item = page.items["fio"]
     assert item.foreground(0).color().name().lower() == EMULATED_COLOR.lower()
     assert item.toolTip(0).startswith("Runs emulated")
+
+
+def test_tests_of_one_program_are_one_item_that_keeps_all_their_ids(monkeypatch):
+    # GEEKOM, 2026-11-17: Cinebench Single, V-Ray GPU and others kept Install on the phone after the line had them
+    from app.ui import run_all
+    monkeypatch.setattr(run_all, "install_plan", lambda e, host=None: {"kind": "zip", "folder": "cinebench-2026"})
+    items, _ = run_all.collect([entry("cinebench_2026"), entry("cinebench_2026_single")], None)
+    assert len(items) == 1 and items[0].ids == ["cinebench_2026", "cinebench_2026_single"]

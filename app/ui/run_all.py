@@ -54,6 +54,7 @@ class Item:
 
     def __init__(self, entry: TestEntry, plan: dict):
         self.entry, self.plan = entry, plan
+        self.ids = [entry.id]           # with the tests merged into it (one program for several tests)
         self.package: Optional[winget.Package] = None
         self.commands: List[List[str]] = []
         self.problem: Optional[str] = None
@@ -109,9 +110,11 @@ def collect(entries: List[TestEntry], host, lms=None) -> Tuple[List[Item], List[
                 items.append(Item(e, plan))
             else:                           # one program for several tests (Blender CPU and GPU)
                 same.entry = dataclasses.replace(same.entry, name=f"{same.entry.name} + {e.name}")
+                same.ids.append(e.id)
         elif plan is not None and plan["kind"] == "linux" and any(i.plan == plan for i in items):
             same = next(i for i in items if i.plan == plan)     # one browser for both web tests
             same.entry = dataclasses.replace(same.entry, name=f"{same.entry.name} + {e.name}")
+            same.ids.append(e.id)
         elif plan is not None and plan["kind"] in ("winget", "linux", "lmstudio"):
             items.append(Item(e, plan))
         elif e.source == "steam":
@@ -395,8 +398,9 @@ class RunAllFlow(QObject):
                     chrome_linux.cleanup(item.plan)
                     ok = result == "done"
                     lines.append(f"{what} installed." if result == "done" else f"{what} was not installed: {result}")
-                if ok:      # every test this program serves (Cinebench's two runs, PassMark's marks)
-                    self.installed_ids += [i.entry.id for i in items if install_key(i) == key]
+                if ok:      # every test this program serves (Cinebench's two runs merged into one item, PassMark's marks;
+                    # owner, 2026-11-17: the merged ones kept their Install button on the phone)
+                    self.installed_ids += [t for i in items if install_key(i) == key for t in i.ids]
             except Exception as e:
                 logger.exception("Install failed")
                 lines.append(f"{item.entry.name}: the install failed ({e})")

@@ -207,7 +207,7 @@ def test_ai_models_dialog(tmp_path, qapp):
 
 def test_run_all_lists_a_model_with_its_size():
     from app.ui.run_all import Item
-    item = Item(SimpleNamespace(name="llama-benchy: Qwen3.5 4B (Q4_K_M)"),
+    item = Item(SimpleNamespace(id="llama_benchy_qwen35_4b", name="llama-benchy: Qwen3.5 4B (Q4_K_M)"),
                 {"kind": "lmstudio", "test_id": "llama_benchy_qwen35_4b"})
     assert item.line() == ("- llama-benchy: Qwen3.5 4B (Q4_K_M): Download Qwen3.5 4B (Q4_K_M, about 3.75 GB as "
                            "LM Studio lists it) with LM Studio's own command:")

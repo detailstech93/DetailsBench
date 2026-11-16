@@ -528,10 +528,9 @@ class MainWindow(QMainWindow):
         """The install going on that takes more downloads in line, or None (never during a test run)."""
         if self.automation_panel.is_running():
             return None
-        for flow in (getattr(self, "install_flow", None), getattr(self, "run_all_flow", None)):
-            if flow is not None and flow.queue_open():
-                return flow
-        return None
+        # an install of several tests takes no more in line: its own line shows where each one is (owner, 2026-11-17)
+        flow = getattr(self, "install_flow", None)
+        return flow if flow is not None and flow.queue_open() else None
 
     def install_queue_open(self, entry=None) -> bool:
         from app.ui.install_flow import queueable
@@ -562,6 +561,9 @@ class MainWindow(QMainWindow):
 
     def queued_installs(self):
         flow = self._queueing_flow()
+        if flow is None and not self.automation_panel.is_running():
+            flow = getattr(self, "run_all_flow", None)
+            flow = flow if flow is not None and flow.queue_open() else None
         return flow.queued_ids() if flow is not None else []
 
     def offer_problem_report(self, text: str, session_id: Optional[int] = None):
