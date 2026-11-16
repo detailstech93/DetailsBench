@@ -681,13 +681,15 @@ def test_an_out_of_memory_crash_is_named_ends_the_runs_and_closes_the_launcher(t
                           exe_lister=lambda folder: ["Game.exe"],
                           step_player=lambda st: FakeSteps(fakes, mark_after=30), screen_reader=reader)
     asked = []
-    bench.close_named = lambda names: asked.append(names) or ["Launcher.exe"]
+    bench.close_named = lambda names, **kw: asked.append((names, kw)) or ["Launcher.exe"]
     cap = bench.run()
-    assert asked == [["Launcher.exe"]]
+    assert asked[0] == (["Launcher.exe"], {"since": asked[0][1]["since"], "grace_seconds": 20.0})   # the warm-up
+    assert asked[1] == (["Launcher.exe"], {})                                                       # the crash
     bad = cap.windows[1].result
     assert bad.score is None and "ran out of graphics memory" in bad.error and "not stored" in bad.error
     assert [w.result.status for w in cap.windows[2:]] and all(w.result.status != "completed" for w in cap.windows[2:])
     assert "after the crash, closed Launcher.exe" in cap.message
+    assert "run 0: " in cap.message and "Launcher.exe stayed open after the game closed: closed it" in cap.message
 
 
 def test_a_run_that_does_not_reach_the_benchmark_ends_the_runs(tmp_path):

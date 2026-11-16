@@ -127,16 +127,32 @@ def terminate(info: ProcInfo) -> Optional[str]:
         return str(e)
 
 
-def close_named(names, iter_procs=None) -> List[str]:
-    """End the running programs with these file names (a crashed game's launcher); the names of those ended."""
+def close_named(names, iter_procs=None, since: Optional[float] = None, grace_seconds: float = 0.0,
+                sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
+                alive: Callable[[ProcInfo], bool] = is_alive) -> List[str]:
+    """End the running programs with these file names (a game's launcher left open); the names of those ended.
+    since (time.time()): only those started since then (by this run's launch: "Launcher.exe" is a common name);
+    grace_seconds: time they get to close by themselves first."""
     import psutil
     wanted = {n.lower() for n in names}
-    ended = []
+    found = []
     for proc in (iter_procs or psutil.process_iter)(["pid", "name", "create_time"]):
         try:
             name = proc.info.get("name") or ""
-            if name.lower() in wanted and terminate(ProcInfo(proc.info["pid"], proc.info["create_time"], name)) is None:
-                ended.append(name)
+            if name.lower() in wanted and (since is None or proc.info["create_time"] >= since - 1.0):
+                found.append(ProcInfo(proc.info["pid"], proc.info["create_time"], name))
+        except Exception:
+            continue
+    deadline = clock() + grace_seconds
+    while found and clock() < deadline:
+        found = [i for i in found if alive(i)]
+        if found:
+            sleep(1.0)
+    ended = []
+    for info in found:
+        try:
+            if terminate(info) is None:
+                ended.append(info.exe)
         except Exception:
             continue
     return ended

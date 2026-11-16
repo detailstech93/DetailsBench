@@ -424,3 +424,26 @@ def test_a_built_in_benchmark_started_with_keys_has_no_scene_note(tmp_path):
                           exe_lister=lambda folder: ["Game.exe"], desktop=desk)
     cap = bench.run()
     assert all("Scene" not in (w.result.note or "") for w in cap.windows)
+
+
+def test_only_a_launcher_this_run_started_is_closed_and_only_once_it_had_time_to_close_itself(monkeypatch):
+    """RDR2 on the owner's laptop, 2026-11-16 (session 151): Rockstar's Launcher.exe stayed open 10 min after the
+    game closed and Steam did not start the next run. "Launcher.exe" is a common name: one started before the run
+    (another program's) is left alone."""
+    from types import SimpleNamespace
+    from app.frames import game_close
+    procs = [SimpleNamespace(info={"pid": 1, "name": "Launcher.exe", "create_time": 900.0}),    # before the run
+             SimpleNamespace(info={"pid": 2, "name": "Launcher.exe", "create_time": 1005.0}),   # this run's
+             SimpleNamespace(info={"pid": 3, "name": "launcher.exe", "create_time": 1010.0}),   # closes by itself
+             SimpleNamespace(info={"pid": 4, "name": "Other.exe", "create_time": 1010.0})]
+    ended, now = [], [0.0]
+    monkeypatch.setattr(game_close, "terminate", lambda info: ended.append(info.pid))
+
+    def sleep(s):
+        now[0] += s
+    alive = lambda info: info.pid != 3 or now[0] < 5
+    names = game_close.close_named(["Launcher.exe"], iter_procs=lambda attrs: procs, since=1000.0,
+                                   grace_seconds=20.0, sleep=sleep, clock=lambda: now[0], alive=alive)
+    assert ended == [2] and names == ["Launcher.exe"] and now[0] >= 20.0
+    ended.clear()
+    assert game_close.close_named(["Launcher.exe"], iter_procs=lambda attrs: procs) and ended == [1, 2, 3]   # crash

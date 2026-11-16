@@ -66,6 +66,7 @@ RESULT_SHOT = "benchmark_result.png"
 SCENE_SHOT = "scene.png"       # a game with no benchmark of its own: the screen just after the skipped seconds
 CLOSE_SECONDS = 60.0              # closing a game: politely, by force after 30 s (app/frames/game_close.py)
 PASS_GAP_SECONDS = 10.0           # between two runs of a whole benchmark: Steam sees the game closed first
+LEFTOVER_GRACE_SECONDS = 20.0     # a launcher the run started gets this long to close by itself after the game
 MENUS_MISSED = "the app did not reach the game's benchmark"
 # RDR2 at Ultra on Intel UHD (NucBox K10, 2026-11-13): "ERR_GFX_D3D_DEFERRED_MEM Out of memory" and the game closed;
 # the next runs at the same settings would crash the same, so they are not run
@@ -196,7 +197,8 @@ class GameBenchmarkSpec:
     def pass_seconds(self) -> float:
         """Longest one launch of a whole benchmark can take, from the launch to the game closed."""
         return (LAUNCH_TIMEOUT_SECONDS + FRONT_WAIT_SECONDS + self.steps_seconds()
-                + (self.benchmark_seconds or 0) * LOAD_FACTOR + RESULT_WAIT_SECONDS + CLOSE_SECONDS + PASS_GAP_SECONDS)
+                + (self.benchmark_seconds or 0) * LOAD_FACTOR + RESULT_WAIT_SECONDS + CLOSE_SECONDS
+                + LEFTOVER_GRACE_SECONDS + PASS_GAP_SECONDS)
 
     def steps_seconds(self) -> float:
         """Longest time the menu steps can take before the benchmark starts."""
@@ -1122,14 +1124,25 @@ class GameBenchmark:
             done["t_close"] = self.clock()
         done["started"] = dict(self._started)
         from data.game_start_keys import after_crash_close
-        names = after_crash_close(spec.app_id) if done.get("crashed") else []
-        if names:
+        names = after_crash_close(spec.app_id)
+        if names and done.get("crashed"):
             try:
                 ended = (self.close_named or game_close.close_named)(names)
             except Exception as e:
                 ended = []
                 logger.warning("Could not close %s after the crash: %s", names, e)
             closed += f"; after the crash, closed {', '.join(ended) or 'nothing (not running)'}"
+        elif names and self._started:
+            # RDR2 on the owner's laptop, 2026-11-16 (session 151): Rockstar's launcher this run started stayed open
+            # 10 min after the game closed, and Steam, waiting on it, did not start the next run
+            try:
+                ended = (self.close_named or game_close.close_named)(names, since=since,
+                                                                     grace_seconds=LEFTOVER_GRACE_SECONDS)
+            except Exception as e:
+                ended = []
+                logger.warning("Could not close %s left open: %s", names, e)
+            if ended:
+                closed += f"; {', '.join(ended)} stayed open after the game closed: closed it"
         notes = [rewritten] + list(self.key_notes) + ([steps.summary()] if steps is not None else [])
         done["notes"] = "; ".join(n for n in notes + [closed.lstrip("; ")] if n)
         if self.settings_guard is not None:

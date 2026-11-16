@@ -42,7 +42,8 @@ GAME_MENU_STEPS: Dict[int, dict] = {
         "quit_steps": [{"see": ["quit", "exit"], "within": 15, "optional": True, "settle": 1, "press": "enter"}],
         # after it crashed (out of memory at Ultra on a NucBox K10, 2026-11-13) Rockstar's launcher stayed open
         # outside the game folder and Steam did not start the game again for 300 s: closed after a crash only
-        # (owner's OK, 2026-11-13)
+        # (owner's OK, 2026-11-13). After a run without a crash too, when one its launch started is still open 20 s
+        # after the game closed (owner's laptop 2026-11-16: it stayed 10 min and Steam did not start the next run)
         "after_crash_close": ["RockstarErrorHandler.exe", "Launcher.exe"],
         "benchmark_seconds": 270,       # about 4.5 min from "Stop Benchmarking" to the results (MarkBench)
         "screen_average": True,         # it wrote no results file on 2026-11-12; its screen shows the average
