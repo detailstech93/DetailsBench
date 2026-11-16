@@ -170,6 +170,29 @@ def read_image(image_path, run=subprocess.run) -> Tuple[List[str], Optional[str]
     return [line for line in lines if line], None
 
 
+def read_region(image_path, x: int, y: int, width: int, height: int, scale: int = 2,
+                read=read_image) -> List[str]:
+    """The text lines of one part of an image, enlarged scale times first. Windows OCR left out RDR2's big 94.5044
+    next to "Average FPS:" in 2 of 4 shots and read it in all 4 at 2x (owner's laptop 2026-11-16; at 3x it missed one)."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QImage
+    image = QImage(str(image_path))
+    if image.isNull():
+        return []
+    part = image.copy(x, y, width, height)
+    part = part.scaled(part.width() * scale, part.height() * scale, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+    out = Path(image_path).with_name(Path(image_path).stem + "_part.png")
+    if not part.save(str(out)):
+        return []
+    try:
+        return read(out)[0]
+    finally:
+        try:
+            out.unlink()
+        except OSError:
+            pass
+
+
 def read_screen(desktop, image_path, run=subprocess.run) -> Tuple[List[str], Optional[str]]:
     """Screenshot of the primary screen, then its text lines."""
     try:

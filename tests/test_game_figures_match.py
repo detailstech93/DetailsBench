@@ -23,6 +23,20 @@ def test_rdr2_average_from_its_results_screen():
     assert screen_numbers(["Maximum FPS 33.8193", "Average FPS: 26.SOSS"]) == {"avg": 26.5055}
 
 
+def test_rdr2_average_left_out_by_ocr_is_read_again_from_the_enlarged_line():
+    """Owner's laptop 2026-11-16: Windows OCR gave "Average FPS:" without 94.5044 in 2 of 4 shots."""
+    from app.frames.game_benchmark import results_average
+    from app.frames.screen_text import Line
+    line = Line("Average FPS:")
+    line.words = (("Average", 824, 544, 80, 20), ("FPS:", 914, 544, 38, 16))
+    asked = []
+    read = lambda shot, *box: asked.append((shot, box)) or ["Average FPS: 94.5044"]
+    assert results_average(["End of benchmark", line], "shot.png", read) == {"avg": 94.5044}
+    assert asked == [("shot.png", (824, 524, 800, 60))]
+    assert results_average(["Average FPS: 93.6353"], "shot.png", read) == {"avg": 93.6353} and len(asked) == 1
+    assert results_average(["End of benchmark", line], None, read) is None
+
+
 def test_sottr_average_from_its_results_screen_is_a_cut_whole_number():
     """Owner, 2026-11-14: its screen shows "Average FPS: 32" where its file says 32.7."""
     from app.frames.game_benchmark import _match_text

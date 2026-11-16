@@ -273,6 +273,22 @@ def screen_numbers(lines) -> Optional[dict]:
     return {"avg": value} if value and 1 <= value <= 2000 else None
 
 
+def results_average(lines, shot, read_region=None) -> Optional[dict]:
+    """screen_numbers, or when its line came without the number, that line read again from the kept screenshot,
+    enlarged (app/frames/screen_text.read_region)."""
+    found = screen_numbers(lines)
+    if found or not shot:
+        return found
+    for line in lines or []:
+        words = getattr(line, "words", ())
+        if words and words[0][0].lower() == "average":
+            _, x, y, _, h = words[0]
+            if read_region is None:
+                from app.frames.screen_text import read_region
+            return screen_numbers(read_region(shot, x, max(0, y - h), 40 * h, 3 * h))
+    return None
+
+
 def after_mark_seconds(steps) -> float:
     """How long the steps after the benchmark's start may take, when they go back to a results page ("shot"
     step); 0 otherwise. BL3 was stopped on its Visuals page by a fixed 120 s (2026-10-30)."""
@@ -1112,7 +1128,7 @@ class GameBenchmark:
                 done["own"] = (self.own_result or _own_result)(spec.app_id, since)
                 from data.game_start_keys import screen_average
                 if not done["own"] and screen_average(spec.app_id):
-                    done["own"] = screen_numbers(self.result_lines)
+                    done["own"] = results_average(self.result_lines, self.result_shot)
             except Exception:
                 logger.exception("Could not read the game's own result")
         done["shot"] = self.result_shot or getattr(steps, "started_shot", None)
