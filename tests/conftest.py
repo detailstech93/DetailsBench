@@ -193,11 +193,12 @@ def pytest_sessionfinish(session, exitstatus):
 
 
 def pytest_unconfigure(config):
-    """On Linux, Qt's own teardown at Python's exit crashed (segmentation fault, no Python frame) after every
-    test had passed on GitHub's Ubuntu. Leave at once with pytest's result once everything is printed."""
+    """Qt's own teardown at Python's exit crashed after every test had passed: on GitHub's Ubuntu (segmentation
+    fault) and on GitHub's Windows (access violation, 2026-11-16). Leave at once with pytest's result once
+    everything is printed."""
     import os
     import sys
-    if sys.platform.startswith("linux") and hasattr(config, "_exit_status"):
+    if hasattr(config, "_exit_status"):
         sys.stdout.flush()
         sys.stderr.flush()
         os._exit(config._exit_status)
