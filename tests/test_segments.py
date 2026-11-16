@@ -190,7 +190,7 @@ def test_the_benchmark_is_its_scenes_between_fades_up_to_the_cut_to_the_results(
 
 def test_rdr2_says_its_own_average_is_its_last_scene():
     from data.game_start_keys import scene_fades
-    assert scene_fades(1174180) == {"scenes": 5, "own_is_last_scene": True, "last_scene_min_seconds": 130}
+    assert scene_fades(1174180) == {"scenes": 5, "own_is_last_scene": True, "last_scene_min_seconds": 100}
     assert scene_fades(397540) is None
 
 
@@ -203,9 +203,8 @@ def test_fades_of_alternating_frames_and_lone_fast_frames_in_the_last_scene():
     last = [11.0] * 2500 + [1.0] + [11.0] * 1100 + [1.0] + [11.0] * 7200 + [1.0] + [11.0] * 1500   # 135 s
     frames = [11.0] * 900 + fade + scene + fade + scene + fade + scene + fade + scene + fade + last
     frames += [1.0, 1.0, 1.0] + [30.0] * 500                                 # the cut to the results screen
-    assert faded_scenes(frames, 0.0, 5) is not None                          # found, but its last scene cut short
-    assert sum(faded_scenes(frames, 0.0, 5)[0][-1]) < 30_000
-    found = faded_scenes(frames, 0.0, 5, last_seconds=130)
+    found = faded_scenes(frames, 0.0, 5, last_seconds=100)
+    assert faded_scenes(frames, 0.0, 5) == found                             # the last fast frames are the cut
     # each fade's last 16 ms frame comes with its scene (one frame); the lone fast frames are left out
     assert [len(s) for s in found[0]] == [2301] * 4 + [12301] and 1.0 not in found[0][-1]
 
@@ -265,3 +264,18 @@ def test_sottr_own_result_is_its_average_benchmark_statistics(tmp_path):
     assert sottr.own_numbers(report) == {"avg": 32.7, "frames": 5145}
     assert sottr.game_report(None, time_far_future(), env) is None
     assert sottr.report_conditions(report) == []
+
+
+def test_with_dlss_the_last_scene_ends_at_the_last_fast_frames_before_the_results_screen():
+    """Owner's laptop (RTX, DLSS Quality), 2026-11-16, session 148: a long fade before the last scene left it
+    121-128 s up to the cut, under the 130 s it had to pass, and a lone fast frame came 110 s in; 3 of 4 runs
+    were invalid. The game closing gave one fast frame 0.2 s before the recording's end."""
+    from app.frames.segments import faded_scenes
+    fade = [0.4, 16.2] * 300
+    scene = [12.0] * 2080                                                    # 25 s at 83 FPS
+    last = [11.0] * 10000 + [1.0] + [11.0] * 1100                            # a lone fast frame 110 s in, 122 s
+    frames = [20.0] * 1900 + fade + scene + fade + scene + fade + scene + fade + scene + fade * 3 + last
+    frames += [1.0, 1.0] + [16.0] * 600 + [0.5] + [16.0] * 12                # the cut, 9.6 s of results, closing
+    found = faded_scenes(frames, 0.0, 5, last_seconds=100)
+    assert found is not None and [len(s) for s in found[0]][-1] == 11101 and 1.0 not in found[0][-1]
+    assert found[2] == pytest.approx(sum(frames[: len(frames) - 615]) / 1000.0)   # ends at the cut, not closing

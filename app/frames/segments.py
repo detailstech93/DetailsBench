@@ -79,6 +79,8 @@ FADE_SECONDS = 1.0     # a faster stretch shorter than this stays (a look at the
 
 FIND_FADE_SECONDS = 30.0   # the fade is looked for from this long before the window's start (the mark is seen in it)
 MIN_SCENE_SECONDS = 5.0    # a stretch between fades shorter than this is part of the fade
+RESULTS_SECONDS = 3.0      # the results screen shows this long at least; a fast frame later is the game closing
+                           # (laptop 2026-11-16: 9-17 s of it, then one fast frame 0.2 s before the end)
 
 
 def faded_scenes(frametimes_ms: List[float], after: float, scenes: int, look_seconds: float = 270.0,
@@ -141,14 +143,20 @@ def faded_scenes(frametimes_ms: List[float], after: float, scenes: int, look_sec
     if len(found) < scenes:
         return None                         # the recording ended before the last scene
     kept = [[ms for ms in p[2] if ms >= limit] for p in found[:-1]]      # a fade's fast frames are not a scene's
-    last, at = [], found[-1][1]
+    # the cut to the results screen is the last fast frame in the recording, over last_seconds into the scene;
+    # fast frames before it are lone ones inside the scene (laptop, DLSS, 2026-11-16: one 110 s in, the cut 122 s)
+    # shortcut: a recording that stops at the cut would end at a lone frame; runs wait for the results screen first
+    last, at, cut, was_fast = [], found[-1][1], None, False
     for ms in found[-1][2]:
         at += ms / 1000.0
         if ms >= limit:
             last.append(ms)
-        elif at - found[-1][1] > last_seconds:      # the cut to the results screen
-            return kept + [last], start, at - ms / 1000.0
-    return None                             # the last scene did not end in the recording
+        elif at - found[-1][1] > last_seconds and not was_fast and ends[-1] - at >= RESULTS_SECONDS:
+            cut = (len(last), at - ms / 1000.0)     # the first of a few fast frames, the results screen after
+        was_fast = ms < limit
+    if cut is None:
+        return None                         # the last scene did not end in the recording
+    return kept + [last[:cut[0]]], start, cut[1]
 
 
 def pick_game_process(summary: List[dict], exe_names) -> Optional[Tuple[str, Optional[int]]]:
