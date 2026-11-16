@@ -9,6 +9,7 @@
   own report.
 """
 
+import statistics
 import re
 from datetime import datetime
 from pathlib import Path
@@ -131,6 +132,11 @@ BUSY_PERCENT = 5.0
 # and always at BUSY_LIMIT (FC6 s118 at 10.3% scored ~5% lower; Android's and MySQL's runners call 10% busy)
 ABOVE_IDLE = 3.0
 BUSY_LIMIT = 10.0
+# owner, 2026-11-16: against the session's own runs instead (their middle), since a load in every run alike (WmiPrvSE
+# 3.3-3.9% in all of the laptop's game runs) makes no run unlike the others. 2 points: over the 34 saved tests it
+# kept every lower run (BL3 s146 +2.1 points, -2.8%; SOTTR s144 +2.4, s149 +2.8) and no even session (RDR2 s156
+# 6.2-6.3%); 3 missed those three.
+ABOVE_RUNS = 2.0
 OTHER = "tel_cpu_other_"
 
 
@@ -149,21 +155,29 @@ def busy_percent(export: Mapping) -> float:
 
 
 def busy_runs(export: Mapping, name: str) -> List[str]:
-    """Each measured run of the test where other programs kept the CPU busy: "run 2: 12% (chrome.exe 9%)"."""
-    out, limit, rest = [], busy_percent(export), other_cpu_idle(export)
+    """Each measured run of the test where other programs kept the CPU busy: "run 2: 12% (chrome.exe 9%), the
+    other runs 6%". With two runs or more, each against the middle of its session's runs (ABOVE_RUNS over it, always
+    at BUSY_LIMIT); a lone run against the rest before the session (busy_percent)."""
+    out, rest, runs = [], other_cpu_idle(export), []
     for r in export.get("runs") or []:
         if r.get("benchmark_name") != name or r.get("is_warmup"):
             continue
-        m = r.get("metrics") or {}
-        share = (m.get("tel_cpu_other_avg") or {}).get("value")
-        if not isinstance(share, (int, float)) or share < limit:
+        share = ((r.get("metrics") or {}).get("tel_cpu_other_avg") or {}).get("value")
+        if isinstance(share, (int, float)):
+            runs.append((r, share))
+    middle = statistics.median(v for _, v in runs) if len(runs) > 1 else None
+    limit = busy_percent(export) if middle is None else min(BUSY_LIMIT, middle + ABOVE_RUNS)
+    for r, share in runs:
+        if share < limit:
             continue
+        m = r.get("metrics") or {}
         named = sorted(((k[len(OTHER):-len("_avg")], v.get("value")) for k, v in m.items()
                         if k.startswith(OTHER) and k.endswith("_avg") and k != "tel_cpu_other_avg"
                         and isinstance(v.get("value"), (int, float))), key=lambda p: -p[1])[:3]
         which = ", ".join(f"{n} {v:.0f}%" for n, v in named)
         out.append(f"run {r.get('run_index')}: {share:.0f}%" + (f" ({which})" if which else "")
-                   + (f", {rest:.0f}% at rest" if rest is not None else ""))
+                   + (f", the other runs {middle:.0f}%" if middle is not None else
+                      f", {rest:.0f}% at rest" if rest is not None else ""))
     return out
 
 

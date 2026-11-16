@@ -41,8 +41,8 @@ def _export():
 
 def test_a_busy_run_is_named_with_its_programs_and_a_warmup_is_not():
     from app.report_set import busy_runs, run_again_text, test_outcome
-    assert busy_runs(_export(), "frames_bl3") == ["run 2: 14% (chrome.exe 9%, x.exe 2%)"]
-    assert test_outcome(_export(), "frames_bl3")["busy"] == ["run 2: 14% (chrome.exe 9%, x.exe 2%)"]
+    assert busy_runs(_export(), "frames_bl3") == ["run 2: 14% (chrome.exe 9%, x.exe 2%), the other runs 8%"]
+    assert test_outcome(_export(), "frames_bl3")["busy"] == busy_runs(_export(), "frames_bl3")
     assert run_again_text(_export()).startswith("Run again: other programs were using the CPU")
     clean = dict(_export(), runs=_export()["runs"][:2])
     assert busy_runs(clean, "frames_bl3") == [] and run_again_text(clean) == ""
@@ -58,22 +58,39 @@ def test_the_report_and_the_summary_say_run_again_at_the_top():
     assert "Run again (other programs were using the CPU): Borderlands 3" in top and "Far Cry 6" not in top
 
 
-def test_each_pc_is_measured_against_its_own_rest_never_under_5_and_always_at_10():
+def test_a_lone_run_is_measured_against_its_pcs_rest_never_under_5_and_always_at_10():
     """Owner, 2026-11-15: the laptop is at 6-10% with nothing open; flag 3 points over the rest before the run."""
     from app.report_set import busy_runs
 
-    def at(rest, *shares):
-        export = dict(_export(), runs=[_run(i + 1, v) for i, v in enumerate(shares)])
+    def at(rest, share):
+        export = dict(_export(), runs=[_run(1, share)])
         if rest is not None:
             export["manifest"] = {"conditions": {"other_cpu_idle": rest}}
+        return bool(busy_runs(export, "frames_bl3"))
+
+    assert not at(None, 4.9) and at(None, 5.0)                   # an older session: 5% as before
+    assert not at(6.5, 9.4) and at(6.5, 9.5)                     # the laptop: 6.5 + 3
+    assert not at(0.5, 4.9) and at(0.5, 5.0)                     # a quiet PC: never under 5
+    assert not at(9.0, 9.9) and at(9.0, 10.0)                    # a busy PC at rest: always at 10
+    export = dict(_export(), runs=[_run(2, 14.3, {"chrome.exe": 9.1})], manifest={"conditions": {"other_cpu_idle": 6.5}})
+    assert busy_runs(export, "frames_bl3") == ["run 2: 14% (chrome.exe 9%), 6% at rest"]
+
+
+def test_runs_are_measured_against_their_sessions_runs_two_points_over_their_middle():
+    """Owner, 2026-11-16: the owner's laptop's real sessions; the rest before them was 0.8-1.4%."""
+    from app.report_set import busy_runs
+
+    def flagged(*shares, rest=0.8):
+        export = dict(_export(), runs=[_run(i + 1, v) for i, v in enumerate(shares)],
+                      manifest={"conditions": {"other_cpu_idle": rest}})
         return [b.split(":")[0] for b in busy_runs(export, "frames_bl3")]
 
-    assert at(None, 4.9, 5.0) == ["run 2"]                       # an older session: 5% as before
-    assert at(6.5, 9.0, 9.5) == ["run 2"]                        # the laptop: 6.5 + 3
-    assert at(0.5, 4.0, 5.0) == ["run 2"]                        # a quiet PC: never under 5
-    assert at(9.0, 9.9, 10.0) == ["run 2"]                       # a busy PC at rest: always at 10
-    assert busy_runs(dict(_export(), manifest={"conditions": {"other_cpu_idle": 6.5}}), "frames_bl3") == \
-        ["run 2: 14% (chrome.exe 9%, x.exe 2%), 6% at rest"]
+    assert flagged(6.3, 6.2, 6.3) == []                          # RDR2 s156: WmiPrvSE in every run alike
+    assert flagged(7.2, 5.1, 4.9, rest=5.4) == ["run 1"]         # BL3 s146: 2.8% lower, missed before
+    assert flagged(7.8, 4.9, 5.2, rest=1.3) == ["run 1"]         # SOTTR s149: 2.4% lower
+    assert flagged(7.3, 2.6, 2.6, rest=4.4) == ["run 1"]         # Cyberpunk s155: 5% lower, missed before
+    assert flagged(10.1, 8.8, 5.9) == ["run 1"]                  # SOTTR s138: always at 10
+    assert flagged(10.5, 10.4, 10.6) == ["run 1", "run 2", "run 3"]
 
 
 def test_the_rest_is_the_middle_of_its_reads_and_missing_when_it_cannot_be_read():
