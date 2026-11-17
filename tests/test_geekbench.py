@@ -342,8 +342,8 @@ def test_after_the_runs_their_pages_open_and_one_typed_score_per_run_is_stored(t
     e = TestEntry(id=w.id, name=w.display_name, group="cpu", mode="automatic", state="installed", state_reason="",
                   compatible=True, compatibility_reason="", verified=False, source="workload", ref=w)
     monkeypatch.setattr(reports_folder, "folder", lambda win: tmp_path)
-    monkeypatch.setattr(run_tests, "write_report", lambda db, sid, folder, only=None, at=None:
-                        reports.append(only) or tmp_path / "r.html")
+    monkeypatch.setattr(run_tests, "write_report", lambda db, sid, folder, only=None, at=None, again=False:
+                        reports.append((only, again)) or tmp_path / "r.html")
 
     def ask(window, name, label, count, links, metric=None):
         asked.append((count, list(links), metric))
@@ -356,7 +356,7 @@ def test_after_the_runs_their_pages_open_and_one_typed_score_per_run_is_stored(t
     (args, kw), single = stored                         # the first run's fields were left empty
     assert single == (41, {"single_core_score": (2900.0, "points")})
     assert args[:5] == (7, "geekbench6_cpu", "cpu", 21500.0, "points") and kw["is_manual"] and kw["run_index"] == 2
-    assert kw["note"] == f"typed from {urls[1]}" and not kw["is_warmup"] and reports == ["geekbench6_cpu"]
+    assert kw["note"] == f"typed from {urls[1]}" and not kw["is_warmup"] and reports == [("geekbench6_cpu", True)]
     stored.clear()
     run_tests.typed_followup(window, e, 7, ask=lambda *a, **k: None)
     offered[-1][1]()

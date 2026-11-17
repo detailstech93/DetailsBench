@@ -409,12 +409,13 @@ def plan_profile(profile, choice: RunChoice):
                                name=f"{profile.name} (Tests screen: {choice.repetitions}x)", builtin=False)
 
 
-def write_report(db, session_id: int, folder: Path, only: Optional[str] = None, at: Optional[str] = None) -> Path:
+def write_report(db, session_id: int, folder: Path, only: Optional[str] = None, at: Optional[str] = None,
+                 again: bool = False) -> Path:
     """One report per test, named after the test and the run's start time; several tests go into a folder named by
     that time with a final report (app/report_set.py). Returns the report to open."""
     from app.export import build_session_export
     from app.report_set import write_report_set
-    return write_report_set(build_session_export(db, session_id), folder, only, at)
+    return write_report_set(build_session_export(db, session_id), folder, only, at, again)
 
 
 def run_again_note(db, session_id) -> str:
@@ -1115,7 +1116,7 @@ def typed_followup(window, entry: TestEntry, session_id: int, opener=None, ask=N
                 result_id = window.db.create_result(
                     session_id, entry.id, getattr(entry.ref, "benchmark_type", "cpu"), score, values["unit"],
                     benchmark_version=entry.ref.version(), is_manual=True, status="completed", is_warmup=False,
-                    run_index=len(rows) + k, note="; ".join(x for x in (values["note"], f"typed from {pages[n]}") if x))
+                    run_index=n + 1, note="; ".join(x for x in (values["note"], f"typed from {pages[n]}") if x))
                 extra = (values.get("metrics") or {}).get(n)
                 if extra:
                     window.db.save_result_metrics(result_id, {k: (v, values["unit"]) for k, v in extra.items()})
@@ -1127,8 +1128,7 @@ def typed_followup(window, entry: TestEntry, session_id: int, opener=None, ask=N
         folder = reports_folder.folder(window)
         if folder is None:
             return None
-        from datetime import datetime
-        path = write_report(window.db, session_id, folder, only=entry.id, at=datetime.now().isoformat(timespec="seconds"))
+        path = write_report(window.db, session_id, folder, only=entry.id, again=True)    # the run's report, again
         window.status_label.setText(f"Score saved in session #{session_id}. Report: {path}")
         window.tests_page.offer_report(lambda: (opener or open_report)(path))
         (opener or open_report)(path)

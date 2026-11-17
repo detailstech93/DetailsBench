@@ -237,13 +237,24 @@ def test_outcome(export: Mapping, name: str) -> dict:
             "busy": busy_runs(export, name)}
 
 
-def write_report_set(export: Mapping, root: Path, only: Optional[str] = None, at: Optional[str] = None) -> Path:
+def write_report_set(export: Mapping, root: Path, only: Optional[str] = None, at: Optional[str] = None,
+                     again: bool = False) -> Path:
     """Write the run's reports under root; return the one to open (the test's report, or the final report).
     only: just that test's report (a score typed in by the owner joins the open session: its own report, not the
     session's); at: the time in its name instead of the session's start (ISO)."""
     from app.export import write_export
     from app.report import render_summary_report
     root = Path(root)
+    if again and only:
+        # typed scores (owner, 2026-11-17: two reports for Geekbench 6): the run's own reports are written again,
+        # the same files, as write_test_report does at the end of a run
+        if run_folder(export, root).is_dir():
+            write_report_set(export, root)
+            return write_test_report(export, root, only)
+        when = stamp((export.get("session") or {}).get("created_at"))
+        root.mkdir(parents=True, exist_ok=True)
+        title = display_names(export).get(only, only)
+        return write_export(one_test(export, only), root / f"{safe_name(title)}_{when}.html", "html")
     when = stamp(at or (export.get("session") or {}).get("created_at"))
     names = [only] if only else (tested_names(export) or [str((export.get("session") or {}).get("name") or "session")])
     titles = display_names(export)

@@ -25,7 +25,7 @@ def build_session_export(db, session_id: int, now: Optional[str] = None) -> dict
     session = next((s for s in db.search_sessions(include_test=True) if s["id"] == session_id), None)
     if session is None:
         raise KeyError(f"session {session_id} not found")
-    runs = db.get_runs(session_id, include_test=True)
+    runs = typed_only(db.get_runs(session_id, include_test=True))
     grouped = {}
     for run in runs:
         grouped.setdefault(run["benchmark_name"], []).append(run)
@@ -60,6 +60,13 @@ def build_session_export(db, session_id: int, now: Optional[str] = None) -> dict
         "metric_summaries": metric_summaries,
         "earlier": earlier,         # the same tests on the same PC in earlier sessions (app/history.py)
     }
+
+
+def typed_only(runs: list) -> list:
+    """A test whose score was typed in (Geekbench 6 on Windows prints none) shows only the typed scores: its own runs
+    that ended without a score are left out (owner, 2026-11-17: "Run 1-3 invalid" next to the typed ones)."""
+    typed = {r["benchmark_name"] for r in runs if r["is_manual"] and r["status"] == "completed"}
+    return [r for r in runs if r["benchmark_name"] not in typed or r["is_manual"] or r["status"] == "completed"]
 
 
 def _json_safe(value):

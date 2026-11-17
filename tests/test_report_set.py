@@ -286,3 +286,19 @@ def test_a_failed_test_says_why_in_plain_words():
     out = test_outcome({"runs": runs, "summaries": {"p": {"stats": {"mean": 4.45}}}}, "p")
     assert out["result"].endswith(f"; 1 run(s) FAILED. Why: The graphics ran out of memory ({oom})")
     assert out["runs"] == "1 of 2 measured run(s) completed"
+
+
+def test_typed_scores_replace_the_runs_that_printed_none_and_the_report_is_written_again(tmp_path):
+    """Owner, 2026-11-17 (Geekbench 6 on Windows prints no score): the report showed "Run 1-3 invalid" next to the
+    typed scores, "Run 3" twice, and a second report file. Only the typed scores, numbered by their run, one file."""
+    db, sid, export = _session(tmp_path, [("geekbench6_cpu", None, "invalid", 60.0)] * 3)
+    first = rs.write_report_set(export, tmp_path / "reports")
+    for n, score in enumerate((2011.0, 1937.0, 1933.0)):
+        db.create_result(sid, "geekbench6_cpu", "cpu", score, unit="points", status="completed", is_manual=True,
+                         run_index=n + 1)
+    export = build_session_export(db, sid)
+    export["session"]["created_at"] = "2026-10-20T09:15:30.123456"
+    assert [(r["run_index"], r["score"]) for r in export["runs"]] == [(1, 2011.0), (2, 1937.0), (3, 1933.0)]
+    again = rs.write_report_set(export, tmp_path / "reports", only="geekbench6_cpu", again=True)
+    assert again == first and [p.name for p in (tmp_path / "reports").iterdir()] == [first.name]
+    assert "invalid" not in first.read_text(encoding="utf-8").lower()
