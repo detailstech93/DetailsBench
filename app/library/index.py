@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS packages (
 CREATE TABLE IF NOT EXISTS events (path TEXT PRIMARY KEY, package_id TEXT NOT NULL, action TEXT NOT NULL,
     at TEXT, reason TEXT, by TEXT);
 CREATE TABLE IF NOT EXISTS names (path TEXT PRIMARY KEY, part_key TEXT NOT NULL, name TEXT, at TEXT);
+CREATE TABLE IF NOT EXISTS same (path TEXT PRIMARY KEY, part_key TEXT NOT NULL, same_as TEXT, at TEXT);
 CREATE TABLE IF NOT EXISTS seen (path TEXT PRIMARY KEY, size INTEGER, mtime REAL);
 CREATE TABLE IF NOT EXISTS info (key TEXT PRIMARY KEY, value TEXT);
 """
@@ -70,7 +71,7 @@ class LibraryIndex:
         with self._db() as db:
             seen = {p: (s, m) for p, s, m in db.execute("SELECT path, size, mtime FROM seen")}
             files = (sorted(library.glob("packages/*/*/*.json")) + sorted(library.glob("events/*.json"))
-                     + sorted(library.glob("names/*.json")))
+                     + sorted(library.glob("names/*.json")) + sorted(library.glob("same/*.json")))
             for f in files:
                 rel = f.relative_to(library).as_posix()
                 try:
@@ -90,6 +91,12 @@ class LibraryIndex:
                         continue
                     db.execute("INSERT OR REPLACE INTO names VALUES (?, ?, ?, ?)",
                                (rel, data["part_key"], data.get("name"), data.get("at")))
+                elif rel.startswith("same/"):
+                    if not isinstance(data, dict) or not data.get("part_key"):
+                        skipped.append(f"{rel}: not a same-device record")
+                        continue
+                    db.execute("INSERT OR REPLACE INTO same VALUES (?, ?, ?, ?)",
+                               (rel, data["part_key"], data.get("same_as"), data.get("at")))
                 elif rel.startswith("events/"):
                     if not isinstance(data, dict) or data.get("action") not in ("delete", "restore"):
                         skipped.append(f"{rel}: not a delete or restore")
@@ -119,7 +126,7 @@ class LibraryIndex:
     def rebuild(self, library: Path) -> dict:
         """Forgets what was read and reads the whole folder again (the folder is the source)."""
         with self._db() as db:
-            for table in ("packages", "events", "names", "seen"):
+            for table in ("packages", "events", "names", "same", "seen"):
                 db.execute(f"DELETE FROM {table}")
         return self.refresh(library)
 
@@ -148,6 +155,9 @@ class LibraryIndex:
         out = []
         with self._db() as db:
             same = same_devices(db.execute("SELECT DISTINCT part_key, part_name FROM packages WHERE part = 'system'"))
+            for key, same_as in db.execute("SELECT part_key, same_as FROM same ORDER BY path"):
+                same[key] = same_as         # a record in the library wins over the name; empty takes it back
+            same = {k: v for k, v in same.items() if v}
             for (text,) in db.execute(query + " ORDER BY created_at", args):
                 pkg = json.loads(text)
                 key = same.get(pkg["attribution"].get("part_key"))

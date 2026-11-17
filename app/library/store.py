@@ -5,6 +5,7 @@ Not one database file on the share (SQLite over SMB or a sync tool can break whe
   <library>/packages/<unit id>/s<session>/<test>.json      one package per finished test, written once
   <library>/events/<package id>__<time>__<unit>.json       delete / restore, also written once; the newest wins
   <library>/names/<part>__<time>__<unit>.json              the owner's name for a device, newest wins
+  <library>/same/<device>__<time>__<unit>.json             an imported device that is a measured one, newest wins
 File names carry the PC's unit id, so two PCs never write the same file and no lock is needed.
 
 Nothing is lost on a power cut or with the NAS away: a package is first written to this PC's outbox (next to the
@@ -155,4 +156,15 @@ def write_name(library: Path, part_key: str, name: str, unit_id: str, now: Optio
     path = library / "names" / f"{safe_name(part_key)}__{now.strftime('%Y%m%dT%H%M%S%f')}__{safe_name(unit_id)}.json"
     _write_once(path, {"format": "detailsbench.library.name", "format_version": 1, "part_key": part_key,
                        "name": name.strip(), "at": now.isoformat(timespec="seconds"), "by": unit_id})
+    return path
+
+
+def write_same(library: Path, part_key: str, same_as: str, unit_id: str, now: Optional[datetime] = None) -> Path:
+    """An imported device that is a measured device (owner, 2026-11-17: the K10 twice for other programs reading the
+    library); empty same_as takes it back. The packages are not changed."""
+    library = open_library(library)
+    now = now or datetime.now()
+    path = library / "same" / f"{safe_name(part_key)}__{now.strftime('%Y%m%dT%H%M%S%f')}__{safe_name(unit_id)}.json"
+    _write_once(path, {"format": "detailsbench.library.same_device", "format_version": 1, "part_key": part_key,
+                       "same_as": same_as.strip(), "at": now.isoformat(timespec="seconds"), "by": unit_id})
     return path

@@ -471,3 +471,34 @@ def test_a_devices_page_holds_all_it_ran_marked_measured_or_imported():
     assert [r["notes"] for r in view.rows(results, "cpu:i9")] == [""]          # a part's page as before
     listed = {x["key"]: x["results"] for kind in view.parts(results, {}).values() for x in kind}
     assert listed == {"system:gmktec:nucbox-k10": 3, "cpu:i9": 1}
+
+
+def test_a_same_device_record_in_the_library_joins_an_imported_device_to_a_measured_one(tmp_path):
+    """Owner, 2026-11-17: the K10 was one device only inside the app (by name); other programs reading the library
+    saw two. A record in the library's same/ folder says it; the packages are not changed; empty takes it back."""
+    import copy
+    (tmp_path / "lib").mkdir()
+    lib = store.open_library(tmp_path / "lib", create=True)
+    measured = pk.build_packages(export())[0][0]
+    imported = copy.deepcopy(measured)
+    imported["package_id"] = "imported-k10_svideo_geekbench"
+    imported["pc"].update(unit_id="imported-k10", system_key="system:imported:k10-sheet")
+    imported["attribution"].update(part="system", part_key="system:imported:k10-sheet", part_name="K10 (sheet)")
+    imported["hash"] = pk.content_hash(imported)
+    for p in (measured, imported):                  # as the sheets' import writes them: straight into the library
+        (lib / store.relative_path(p)).parent.mkdir(parents=True)
+        (lib / store.relative_path(p)).write_text(json.dumps(p), encoding="utf-8")
+    key = measured["pc"]["system_key"]
+    index = LibraryIndex(tmp_path / "i.db")
+    assert index.refresh(lib)["skipped"] == []
+    one = lambda: {r["attribution"]["part_key"] for r in index.results() if r["pc"]["unit_id"] == "imported-k10"}
+    assert one() == {"system:imported:k10-sheet"}                # other names: two devices
+    store.write_same(lib, "system:imported:k10-sheet", key, "u1", now=datetime(2026, 11, 17, 12))
+    index.refresh(lib)
+    assert one() == {key}
+    store.write_same(lib, "system:imported:k10-sheet", "", "u1", now=datetime(2026, 11, 17, 13))
+    index.refresh(lib)
+    assert one() == {"system:imported:k10-sheet"}
+    record = json.loads(next((lib / "same").glob("*T12*.json")).read_text(encoding="utf-8"))
+    assert record["part_key"] == "system:imported:k10-sheet" and record["same_as"] == key
+    assert len(list((lib / "packages").rglob("*.json"))) == 2               # the packages as they were
