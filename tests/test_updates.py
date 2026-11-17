@@ -78,7 +78,7 @@ def test_the_check_at_start_is_daily_can_be_off_and_a_skipped_version_is_not_off
     now = datetime(2026, 10, 21, 12, 0)
     assert updater.due({}, now)
     assert not updater.due({updater.CHECK_KEY: False}, now)
-    assert not updater.due({updater.LAST_KEY: (now - timedelta(hours=3)).isoformat()}, now)
+    assert updater.due({updater.LAST_KEY: (now - timedelta(hours=3)).isoformat()}, now)    # every start (2026-11-17)
     assert updater.due({updater.LAST_KEY: (now - timedelta(days=2)).isoformat()}, now)
     assert updater.due({updater.LAST_KEY: "garbage"}, now)
     assert updater.offered(RELEASE, {}) and not updater.offered(RELEASE, {updater.SKIP_KEY: "0.2.0"})
@@ -155,7 +155,8 @@ def test_a_newer_version_shows_the_bar_and_skip_hides_it_for_good(qapp, tmp_path
     assert load_settings(tmp_path)[0][updater.LAST_KEY]
     flow.skip()
     assert bar.isHidden() and load_settings(tmp_path)[0][updater.SKIP_KEY] == "0.2.0"
-    assert not flow.at_start()                       # checked today already
+    assert flow.at_start()                           # every start (2026-11-17)
+    assert bar.isHidden()                            # skipped: not offered again by itself
     flow.check(asked=False)
     assert bar.isHidden()                            # skipped: not offered again by itself
     flow.check(asked=True)

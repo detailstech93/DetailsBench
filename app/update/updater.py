@@ -7,7 +7,7 @@ is this copy's version. The check is one HTTPS GET of the public releases list (
 nothing about this PC is sent. While the repository is private GitHub answers 404 and the check says "no published
 release yet".
 
-When: at start at most once a day (settings.json "update_check", on by default; "update_last_check"), and Advanced >
+When: at every start (settings.json "update_check", on by default; "update_last_check" keeps the last), and Advanced >
 Updates > "Check now". Never while tests run (app/ui/update_ui.py). A version the user skipped is not offered again
 ("update_skip").
 
@@ -37,7 +37,6 @@ RELEASES_URL = f"https://api.github.com/repos/{REPO}/releases?per_page=20"
 PAGE_URL = f"https://github.com/{REPO}/releases"
 USER_AGENT = "DetailsBench-update-check"
 ROOT = Path(__file__).resolve().parent.parent.parent
-EVERY = timedelta(days=1)
 VERSION = re.compile(r"^v?(\d+)\.(\d+)(?:\.(\d+))?(?:-([0-9A-Za-z.]+))?$")
 # settings.json keys
 CHECK_KEY, LAST_KEY, SKIP_KEY, BETA_KEY, PREVIOUS_KEY = (
@@ -119,15 +118,9 @@ def check(opener: Callable = urllib.request.urlopen, current: str = __version__,
 
 
 def due(settings: dict, now: Optional[datetime] = None) -> bool:
-    """Check at start? On unless turned off, and not more than once a day."""
-    if settings.get(CHECK_KEY, True) is False:
-        return False
-    now = now or datetime.now()
-    try:
-        last = datetime.fromisoformat(str(settings.get(LAST_KEY)))
-    except ValueError:
-        return True
-    return not (timedelta(0) <= now - last < EVERY)
+    """Check at start? Every start unless turned off (owner, 2026-11-17: 0.1.13 came out after that day's check and
+    the GEEKOM said nothing; most apps check at every start). The last check is still kept (update_last_check)."""
+    return settings.get(CHECK_KEY, True) is not False
 
 
 def offered(found: Optional[Release], settings: dict) -> bool:

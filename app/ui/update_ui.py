@@ -53,7 +53,7 @@ class UpdatesTab(QWidget):
         super().__init__(parent)
         box = QVBoxLayout(self)
         box.addWidget(QLabel(f"<b>DetailsBench {__version__}</b>"))
-        self.daily = QCheckBox("Check for a new version when the app opens (at most once a day)")
+        self.daily = QCheckBox("Check for a new version when the app opens")
         self.beta = QCheckBox("Include beta versions")
         self.check_btn = QPushButton("Check now")
         self.update_btn = QPushButton("Update")
