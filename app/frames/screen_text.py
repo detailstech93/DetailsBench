@@ -84,10 +84,14 @@ def parse_line(raw: str) -> Line:
     return line
 
 
+_FOLD = str.maketrans("ourl", "aatt")
+
+
 def _fold(text: str) -> str:
-    """Lower case, with an o read as an a: BL3's italic a in "Start Benchmark" was read "Stort" at 1440p (owner's
-    laptop, 2026-11-14), and the Benchmark tab was passed by until the step gave up."""
-    return text.lower().replace("o", "a")
+    """Lower case, with the letters BL3's small italic font is misread as taken for one: its "Start Benchmark" was
+    read "Stort" at 1440p (owner's laptop, 2026-11-14) and "Slorr Benchmark" at 1280x720 (GEEKOM, 2026-11-17),
+    and the Benchmark tab was passed by until the step gave up. o/u read for a, r/l for t."""
+    return text.lower().translate(_FOLD)
 
 
 def word_center(lines: List[str], word: str, own_letters: bool = False) -> Optional[Tuple[int, int]]:

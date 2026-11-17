@@ -1118,3 +1118,11 @@ def test_sottr_display_and_graphics_is_clicked_again_when_the_click_is_lost(tmp_
     assert p.problem is None, p.summary()
     assert sum(1 for e in desk.events if e[0] == "button" and e[1] is True) >= 2
     assert "clicked 'graphics'" in p.summary() and "again" in p.summary()
+
+
+def test_bl3_start_benchmark_misread_in_its_small_italic_font_is_still_found():
+    """GEEKOM, 2026-11-17: at 1280x720 Windows read "Slorr Benchmark" and the step gave up."""
+    from app.frames.screen_text import find_word
+    for read in ("Slorr Benchmark", "Sturr Benchmork", "Stort Benchmark", "Start Benchmark"):
+        assert find_word([read], "start benchmark") == "start benchmark"
+    assert find_word(["Last Benchmark Report", "Report Type"], "start benchmark") is None
