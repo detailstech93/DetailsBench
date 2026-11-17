@@ -126,10 +126,13 @@ def parse_results(text: str) -> Tuple[Optional[float], Dict[str, object], Dict[s
               "results_verified": data.get("Results Verified"), "tested_by_mlcommons":
                   data.get("Config") == "Configuration tested by MLCommons"}
     record = {k: v for k, v in record.items() if v is not None}
-    if "CL_OUT_OF_RESOURCES" in str(data.get("Error Message") or ""):
-        # NucBox K10 (Intel UHD), 2026-11-14: Phi-4 Reasoning, "[GPU] clFlush, error code: -5 CL_OUT_OF_RESOURCES"
-        return None, {}, record, ("not enough memory: the graphics ran out of memory for this model "
-                                  "(CL_OUT_OF_RESOURCES); it does not fit this computer's graphics")
+    message = str(data.get("Error Message") or "")
+    # NucBox K10 (Intel UHD), 2026-11-14: Phi-4 Reasoning, "[GPU] clFlush, error code: -5 CL_OUT_OF_RESOURCES";
+    # GEEKOM (Vega 8, DirectML), 2026-11-17: Phi-4 mini, "8007000E Not enough memory resources are available"
+    for mark in ("CL_OUT_OF_RESOURCES", "8007000E"):
+        if mark in message:
+            return None, {}, record, (f"not enough memory: the graphics ran out of memory for this model ({mark}); "
+                                      "it does not fit this computer's graphics")
     if data.get("Benchmark Success") is not True or data.get("Error Message"):
         return None, {}, record, f"benchmark not successful: {data.get('Error Message') or 'Benchmark Success is not true'}"
     overall = data.get("overall_results") if isinstance(data.get("overall_results"), dict) else {}

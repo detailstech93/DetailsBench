@@ -567,11 +567,13 @@ class AutomationRunner:
                 self._drop_rest(schedule, position, item)
                 self.on_step(position + 1, len(schedule), f"{wl.display_name}: skipped")    # the count shrank
                 continue
-            if crashed(result):             # the warm-up too: a program that crashes is not started again
+            if crashed(result) or str(result.error or "").startswith("not enough memory"):
+                # the warm-up too: a program that crashes, or a model that does not fit (GEEKOM, 2026-11-17: Phi-4
+                # mini ran out of graphics memory in its warm-up, then its runs went on 30 min each), is not started again
                 if self._drop_rest(schedule, position, item, skip=False):
-                    self.on_progress(f"{wl.display_name}: it crashed ({result.error}); its other runs are not "
-                                     "started")
-                    self.on_step(position + 1, len(schedule), f"{wl.display_name}: crashed, not run again")
+                    self.on_progress(f"{wl.display_name}: {'it crashed' if crashed(result) else 'it stopped'} "
+                                     f"({result.error}); its other runs are not started")
+                    self.on_step(position + 1, len(schedule), f"{wl.display_name}: stopped, not run again")
                 continue
             if self._too_long(summary, schedule, position, item, result):
                 continue

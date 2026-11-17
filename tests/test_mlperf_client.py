@@ -162,3 +162,29 @@ def test_graphics_out_of_memory_is_named_and_not_retried():
     score, _, _, error = mlperf_client.parse_results(json.dumps(failed))
     assert score is None and error.startswith("not enough memory: the graphics ran out of memory")
     assert not should_retry(WorkloadResult(status="failed", error=error))
+
+
+def test_directml_out_of_memory_is_named_and_the_test_is_not_run_again(tmp_path):
+    """GEEKOM (Vega 8, DirectML), 2026-11-17: Phi-4 mini ran out of graphics memory in its warm-up after 30 min,
+    then its first run started anyway (owner: stop it and fix it)."""
+    from app.automation.runner import AutomationRunner, PlanItem
+    from app.automation.workload import Workload, WorkloadResult
+    from app.database import Database
+    failed = dict(REAL, **{"Benchmark Success": False, "Error Message": "Failed to run inference for IHV, WindowsML "
+                           "Run returned zero tokens! ... 8007000E Not enough memory resources are available"})
+    error = mlperf_client.parse_results(json.dumps(failed))[3]
+    assert error.startswith("not enough memory") and "8007000E" in error
+
+    class Once(Workload):
+        id = display_name = "mlperf_client"
+        runs = 0
+
+        def version(self):
+            return "2.0.1"
+
+        def run(self, ctx):
+            Once.runs += 1
+            return WorkloadResult(status="failed", error=error)
+    db = Database(str(tmp_path / "r.db"))
+    AutomationRunner(db, db.create_session("auto"), [PlanItem(Once(), 3, 1, retries=1)], tmp_path / "o").run()
+    assert Once.runs == 1                       # the warm-up only
