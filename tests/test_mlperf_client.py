@@ -121,6 +121,7 @@ def test_each_scenario_picks_the_config_of_this_pcs_graphics_card(tmp_path):
     reason = mlperf_client.MlperfClientWorkload(exe=exe, test_id="mlperf_client_phi4reason", gpus=both)
     ok, why = reason.availability()
     assert not ok and why == "MLPerf Client has no GPU config for NVIDIA, AMD in llm/extended/phi4reason"
+    assert reason.describe_command() is None       # the tests table showed no test at all (GEEKOM, 2026-11-17)
     assert reason.timeout_seconds == 7200
     none = mlperf_client.MlperfClientWorkload(exe=exe, test_id="mlperf_client_qwen3", gpus=lambda: [])
     assert none.availability() == (False, "no NVIDIA, AMD or Intel graphics card found")

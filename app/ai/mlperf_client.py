@@ -212,7 +212,8 @@ class MlperfClientWorkload(Workload):
                              str(Path(folder) / "mlperf_results.csv"))
 
     def describe_command(self) -> Optional[str]:
-        return subprocess.list2cmdline(self._command("<run folder>")) if self.exe else None
+        # no config for this graphics card (GEEKOM AMD, 2026-11-17): no command, not a crash of the tests table
+        return subprocess.list2cmdline(self._command("<run folder>")) if self.exe and self.config else None
 
     def run(self, ctx: RunContext) -> WorkloadResult:
         available, why = self.availability()

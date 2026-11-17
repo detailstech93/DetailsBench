@@ -1,4 +1,4 @@
 """DetailsBench - Phase 1 Implementation."""
 
-__version__ = "0.1.11"
+__version__ = "0.1.12"
 __author__ = "Arhitectura"
