@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Dict, List, Mapping, Optional
 
 from app.library import games, view
+from app.library.package import fingerprint_of
 
 LOWER_IS_BETTER = {"s", "sec", "seconds", "ms", "min", "minutes"}       # time to finish: less is faster
 SKIP_KINDS = {"info", "stress"}                                          # text and load checks: no score to line up
@@ -253,7 +254,10 @@ def _rows(parts: List[dict], chosen: Mapping[str, Mapping[tuple, Mapping]]) -> L
             notes.append("driver unknown (older session): " + ", ".join(old))
         if len({p["test"].get("version") for p in present if p["test"].get("version")}) > 1:
             notes.append("another benchmark version: not the same test")
-        if len({p["test"].get("fingerprint") for p in present if p["test"].get("fingerprint")}) > 1:
+        # read from the saved settings, not the saved fingerprint: older packages hashed every field (owner, 2026-11-17)
+        if len({p["test"].get("fingerprint") if games.of(p) else
+                fingerprint_of(p["test"]["id"], p["test"].get("settings") or {})
+                for p in present if p["test"].get("fingerprint")}) > 1:
             notes.append("other settings: not the same test")
         valued = [m for m in means if m is not None]
         best = None

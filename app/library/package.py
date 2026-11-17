@@ -65,6 +65,19 @@ def _settings(manifest: Mapping, test_id: str) -> dict:
     return keep
 
 
+# what changes a score, the only fields of a test's settings its fingerprint reads (owner, 2026-11-17: architecture,
+# drive and the version are facts about the PC or have their own note; a field added later must not split a test)
+REAL_SETTINGS = ("model", "ai_model", "stress_minutes")
+
+
+def fingerprint_of(test_id: str, settings: Mapping) -> str:
+    """The test's fingerprint from its real settings (and emulated, which a native run is not like)."""
+    real = {k: settings[k] for k in REAL_SETTINGS if settings.get(k) is not None}
+    if settings.get("comparable_to_native") is False:
+        real["emulated"] = True
+    return hashlib.sha256(json.dumps({"test": test_id, **real}, sort_keys=True, default=str).encode()).hexdigest()[:16]
+
+
 def _display_name(manifest: Mapping, test_id: str) -> str:
     entry = next((b for b in (manifest.get("benchmarks") or []) if b.get("name") == test_id), {}) or {}
     return entry.get("display_name") or test_id
@@ -128,8 +141,9 @@ def build_packages(export: Mapping, read_ai_run: Callable[[str], Optional[dict]]
         stats = (summary or {}).get("stats") or {}
         cv = stats.get("cv_percent")
         units = {r.get("unit") for r in measured}
-        fingerprint = hashlib.sha256(json.dumps({"test": test_id, **group_of}, sort_keys=True,
-                                                default=str).encode()).hexdigest()[:16]
+        fingerprint = (hashlib.sha256(json.dumps({"test": test_id, **group_of}, sort_keys=True,
+                                                 default=str).encode()).hexdigest()[:16] if group == "game"
+                       else fingerprint_of(test_id, settings))
         pkg = {
             "format": FORMAT, "format_version": FORMAT_VERSION, "readable_by": READABLE_BY,
             "package_id": package_id(hw["unit_id"], session.get("id"), test_id),

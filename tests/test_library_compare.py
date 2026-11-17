@@ -269,3 +269,20 @@ def test_stress_is_compared_by_power_with_no_best():
     key = ("stress_cpu_gpu:CPU + GPU power, average", "Windows", "W")
     assert key in dict(compare.tests(results))
     assert [p["name"] for p in compare.ranking(results, key)["parts"]] == ["A", "B"]
+
+
+def test_other_settings_reads_only_real_settings_not_fields_added_later():
+    """Owner, 2026-11-17: architecture, comparable_to_native: true and the drive split a test into 'other settings'
+    (32 tests in the library); only the model, the AI model, the stress length and emulated are settings."""
+    def with_settings(part, settings):
+        p = pkg(part, "bench", 100)
+        p["test"].update(settings=settings, fingerprint="saved-" + part)      # older packages hashed every field
+        return p
+    old = with_settings("a", {"version": "6.4"})
+    new = with_settings("b", {"version": "6.4", "architecture": "x64", "comparable_to_native": True,
+                              "drive": {"model": "Lexar SSD NM7A1 512GB"}})
+    row, = compare.compare([old, new], ["a", "b"])["rows"]
+    assert "other settings: not the same test" not in row["notes"]
+    for settings in ({"stress_minutes": 10.0}, {"model": "qwen/qwen3.5-4b"}, {"comparable_to_native": False}):
+        row, = compare.compare([old, with_settings("b", {"version": "6.4", **settings})], ["a", "b"])["rows"]
+        assert "other settings: not the same test" in row["notes"]
