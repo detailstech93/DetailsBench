@@ -206,7 +206,8 @@ class Guard:
         """Whole seconds left of the lock; 0 when not locked (the phone page counts them down)."""
         with self.lock:
             left = self.locked_until - self.clock()
-        return max(0, math.ceil(left))
+        # never over the lock: GitHub's Windows run gave 61 once (2026-11-17), its clock likely stepped back a little
+        return max(0, min(LOCK_SECONDS, math.ceil(left)))
 
 
 def _handler(server: "RemoteServer"):
