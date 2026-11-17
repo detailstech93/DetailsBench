@@ -20,6 +20,11 @@ Screen (overnight run, 2026-10-20): the whole run holds keep_awake() (app/automa
 not go off and lock; a workload with needs_desktop (it draws on the screen or needs its window in front) is not
 started while the screen is locked: it is stored as "skipped" with the reason instead of waiting for its timeout.
 
+Long first run (owner, 2026-11-17: MLPerf Llama 3.1 8B on the GEEKOM's Vega 8 was still in its warm-up after 32
+min): when a test's first run (its warm-up) takes over LONG_FACTOR times its usual time (data/test_catalog.py
+expected_minutes), a line of several tests skips its other runs and says why; a single test asks whether to go on
+(ask_long; no one to ask: it goes on).
+
 Skip (owner, 2026-10-20): skip_test() ends only the test going on (or, during a pause, the one about to run) and
 the plan goes on with the next test. Its run in progress is ended like a stopped one; one row "skipped" says how
 far the test got ("Skipped by the user after 2 of 3 runs" / "... before any result"); its other runs are dropped.
@@ -51,6 +56,7 @@ class PlanItem:
     max_extra_runs: int = 0                    # extra measured runs when the scores vary a lot
 
 
+LONG_FACTOR = 2.0               # a first run over twice the test's usual time is too long for a line of tests
 CV_LIMIT_PERCENT = 3.0          # coefficient of variation above which the scores are called uneven (owner, 2026-11-04)
 RETRY_STATUSES = ("failed", "timed_out")
 NO_RETRY_ERRORS = ("could not start", "not enough memory")     # the memory does not grow by trying again
@@ -132,8 +138,10 @@ class AutomationRunner:
                  interrupted: Optional[Tuple[str, int, bool]] = None, stamp: Optional[str] = None,
                  on_step: Optional[Callable[[int, int, str], None]] = None,
                  screen_locked: Optional[Callable[[], Optional[bool]]] = None,
-                 keep_awake: Optional[Callable] = None, cool: Optional[Callable] = None):
+                 keep_awake: Optional[Callable] = None, cool: Optional[Callable] = None,
+                 ask_long: Optional[Callable[[str], bool]] = None):
         self.db = db
+        self.ask_long = ask_long            # a single test whose first run was long: go on? (text) -> bool
         self.cool = cool                    # conditions.cool_down: before each test's first run (trust fix 3b)
         self.screen_locked = screen_locked or awake.screen_locked
         self.keep_awake = keep_awake or awake.keep_awake
@@ -308,6 +316,30 @@ class AutomationRunner:
         summary.records.append(record)
         self.on_progress(f"{item.workload.display_name}: {result.error}")
         return result.error
+
+    def _too_long(self, summary: "RunSummary", schedule: list, position: int, item, result) -> bool:
+        """After a test's first run: True when its other runs are skipped because that run took too long."""
+        from data.test_catalog import TEST_INFO
+        wl = item.workload
+        usual = (TEST_INFO.get(wl.id) or {}).get("expected_minutes")
+        rest = sum(1 for s in schedule[position + 1:] if s[0] is item)
+        if (not usual or not rest or result.status != "completed" or not result.duration_seconds
+                or sum(r.workload_id == wl.id for r in summary.records) != 1
+                or result.duration_seconds <= LONG_FACTOR * usual * 60):
+            return False
+        took = result.duration_seconds / 60
+        text = (f"{wl.display_name}: one run took {took:.0f} min, over {LONG_FACTOR:g} times its usual {usual:g} "
+                f"min; its other {rest} run(s) would take about {took * rest:.0f} min more")
+        if len({i.workload.id for i in self.plan}) == 1:
+            go_on = True if self.ask_long is None else self.ask_long(text)
+            self.on_progress(text + ("; going on" if go_on else "; skipped"))
+            if go_on or self.stop_event.is_set():
+                return False
+        nxt = max([r.run_index for r in summary.records if r.workload_id == wl.id and not r.is_warmup] + [0]) + 1
+        self._store_skip(summary, item, nxt, f"Skipped: {text[len(wl.display_name) + 2:]}")
+        self._drop_rest(schedule, position, item, skip=False)
+        self.on_step(position + 1, len(schedule), f"{wl.display_name}: skipped, its run was too long")
+        return True
 
     def _store_metrics(self, result_id: int, metrics: dict):
         """Numbers become rows ({name: value} or {name: (value, unit)}); text metrics are skipped.
@@ -540,6 +572,8 @@ class AutomationRunner:
                     self.on_progress(f"{wl.display_name}: it crashed ({result.error}); its other runs are not "
                                      "started")
                     self.on_step(position + 1, len(schedule), f"{wl.display_name}: crashed, not run again")
+                continue
+            if self._too_long(summary, schedule, position, item, result):
                 continue
             if result.status == "cancelled":
                 summary.stopped = True

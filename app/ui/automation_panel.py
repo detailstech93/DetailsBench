@@ -58,17 +58,19 @@ class AutomationWorker(QThread):
     step = Signal(int, int, str)                # runs finished, runs planned, what is happening
     finished_plan = Signal(object)              # RunSummary, or an error str
     screenshot_requested = Signal(str, object)  # path, threading.Event
+    long_asked = Signal(str, object)            # text, {"done": threading.Event, "go_on": bool}
 
     def __init__(self, db, session_id: int, plan: List[PlanItem], output_root: Path,
                  cooldown_seconds: float, take_screenshots: bool, telemetry: Optional[Callable] = None,
                  **resume):
         super().__init__()
         self.stop_event = threading.Event()
+        self.asks = False
         self.runner = AutomationRunner(
             db, session_id, plan, output_root, cooldown_seconds=cooldown_seconds,
             stop_event=self.stop_event, on_progress=self.progress.emit,
             screenshot=self._screenshot if take_screenshots else None, telemetry=telemetry,
-            on_step=self.step.emit, cool=_cool, **resume)
+            on_step=self.step.emit, cool=_cool, ask_long=self._ask_long, **resume)
 
     def stop(self):
         self.stop_event.set()
@@ -76,6 +78,17 @@ class AutomationWorker(QThread):
     def skip(self):
         """End only the test going on; the plan goes on with the next one."""
         return self.runner.skip_test()
+
+    def _ask_long(self, text: str) -> bool:
+        """A single test's first run was long: the panel asks (GUI thread); Stop ends the wait."""
+        answer = {"done": threading.Event(), "go_on": True}
+        if not self.asks:                   # nobody connected to ask (game captures): it goes on
+            return True
+        self.long_asked.emit(text, answer)
+        while not answer["done"].wait(0.5):
+            if self.stop_event.is_set():
+                return False
+        return answer["go_on"]
 
     def _screenshot(self, path: Path) -> bool:
         done = threading.Event()
@@ -362,6 +375,8 @@ class AutomationPanel(QGroupBox):
                      "Starting...")
         self.worker.step.connect(self._on_step)
         self.worker.screenshot_requested.connect(self._on_screenshot_requested)
+        self.worker.long_asked.connect(self._on_long_asked)
+        self.worker.asks = True
         self.worker.finished_plan.connect(self._on_finished)
         self._set_running(True)
         self.plan_started_at, self.plan_ended_at = time.monotonic(), None     # for the remote page's times
@@ -639,6 +654,17 @@ class AutomationPanel(QGroupBox):
             logger.exception("Screenshot failed")
         finally:
             done.set()
+
+    @Slot(str, object)
+    def _on_long_asked(self, text: str, answer: dict):
+        try:
+            answer["go_on"] = QMessageBox.question(
+                self, "This test takes long", text + ".
+
+Go on and wait for all its runs?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes) == QMessageBox.Yes
+        finally:
+            answer["done"].set()
 
     @Slot(object)
     def _on_finished(self, summary):

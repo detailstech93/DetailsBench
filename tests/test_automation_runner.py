@@ -413,3 +413,34 @@ def test_stop_during_the_cooling_wait_starts_nothing(db, tmp_path):
     summary = AutomationRunner(database, sid, [PlanItem(wl, 1, 0)], tmp_path / "o", stop_event=stop,
                                cool=lambda s, say: stop.set() or "").run()
     assert summary.stopped and wl.contexts == [] and database.get_runs(sid) == []
+
+
+def test_a_first_run_far_over_its_usual_time_skips_the_rest_in_a_line_and_asks_when_alone(db, tmp_path, monkeypatch):
+    """Owner, 2026-11-17 (MLPerf Llama 3.1 8B on the GEEKOM's Vega 8: over 32 min in its warm-up): a line of tests
+    skips the other runs and says why; a single test asks, and goes on when the answer is yes."""
+    from data import test_catalog
+    monkeypatch.setitem(test_catalog.TEST_INFO, "x", {"expected_minutes": 10})
+    database, sid = db
+
+    def slow(score, minutes):
+        return WorkloadResult(status="completed", score=score, unit="pts", duration_seconds=minutes * 60)
+    x = Scripted("x", [slow(1.0, 25), slow(2.0, 25)])
+    runner = AutomationRunner(database, sid, [PlanItem(x, 3, 1), PlanItem(Scripted("y", [ok(3.0)]), 1, 0)],
+                              tmp_path / "o", ask_long=lambda text: pytest.fail("a line does not ask"))
+    runner.run()
+    rows = [(r["benchmark_name"], r["status"], r["note"]) for r in database.get_runs(sid)]
+    assert len(x.contexts) == 1 and rows[1][:2] == ("x", "skipped") and rows[2][:2] == ("y", "completed")
+    assert rows[1][2] == "Skipped: one run took 25 min, over 2 times its usual 10 min; its other 3 run(s) would " \
+                         "take about 75 min more"
+    asked = []
+    for answer, runs in ((True, 4), (False, 1)):
+        x = Scripted("x", [slow(1.0, 25)] * 4)
+        sid2 = database.create_session("alone")
+        AutomationRunner(database, sid2, [PlanItem(x, 3, 1)], tmp_path / "o",
+                         ask_long=lambda text: asked.append(text) or answer).run()
+        assert len(x.contexts) == runs
+    assert len(asked) == 2 and "about 75 min more" in asked[0]
+    x = Scripted("x", [slow(1.0, 15)] * 4)                      # under twice its usual time: nothing happens
+    AutomationRunner(database, database.create_session("ok"), [PlanItem(x, 3, 1), PlanItem(Scripted("y", [ok(3.0)]), 1, 0)],
+                     tmp_path / "o").run()
+    assert len(x.contexts) == 4
