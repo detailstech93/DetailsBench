@@ -439,6 +439,10 @@ def test_geekbench_6_comes_back_through_winget():
     plan = plan_for("geekbench_6", host=WIN_X64)
     assert plan["kind"] == "winget" and plan["winget"] == "PrimateLabs.Geekbench.6"
     assert plan["hosts"] == ["cdn.geekbench.com"]
+    # owner's GEEKOM, 2026-11-17: Geekbench 7 showed "not installed" with no Install on Windows
+    for test_id in ("geekbench_7", "geekbench7_cpu", "geekbench7_gpu_vulkan"):
+        plan = plan_for(test_id, host=WIN_X64)
+        assert plan["kind"] == "winget" and plan["winget"] == "PrimateLabs.Geekbench.7"
 
 
 def test_install_several_answered_on_the_remote_page_asks_nothing_at_the_pc(qapp):

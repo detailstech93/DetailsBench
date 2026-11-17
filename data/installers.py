@@ -236,6 +236,10 @@ INSTALLERS["geekbench_6"]["linux"] = {"arch": ["x64", "arm64"], "zip_by_arch": {
     "x64": _GEEKBENCH_LINUX[6], "arm64": _GEEKBENCH_LINUX_ARM[6]}}
 INSTALLERS["geekbench_7"] = {"linux": {"arch": ["x64", "arm64"], "zip_by_arch": {
     "x64": _GEEKBENCH_LINUX[7], "arm64": _GEEKBENCH_LINUX_ARM[7]}}}
+# Windows: winget's PrimateLabs.Geekbench.7 (7.1.0, cdn.geekbench.com, read 2026-11-17); it had no Windows install, so
+# Geekbench 7 showed "not installed" with no Install (owner's GEEKOM, 2026-11-17)
+INSTALLERS["geekbench_7"]["windows"] = {"winget": "PrimateLabs.Geekbench.7", "hosts": ["cdn.geekbench.com"],
+                                        "arch": ["x64", "arm64"]}
 for _id in ("geekbench7_cpu", "geekbench7_gpu_opencl", "geekbench7_gpu_vulkan", "geekbench7_gpu_cuda"):
     INSTALLERS[_id] = INSTALLERS["geekbench_7"]
 # GravityMark 1.89 (Tellusim), x64, from tellusim.com/download as linked on gravitymark.tellusim.com, read on
