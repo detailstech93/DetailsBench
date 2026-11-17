@@ -27,7 +27,7 @@ import subprocess
 import sys
 from datetime import date
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from app.automation.process import run_process
 from app.automation.workload import RunContext, Workload, WorkloadResult
@@ -168,7 +168,8 @@ class VRayBenchmarkWorkload(Workload):
     # checked by the owner on 2026-10-18: CPU 34,347 vsamples, GPU CUDA 5,679 vpaths, GPU RTX 7,902 vpaths
     VERIFIED = ("vray_benchmark", "vray_benchmark_gpu", "vray_benchmark_rtx")
 
-    def __init__(self, test_id: str = "vray_benchmark", exe: Optional[Path] = None, data_dir: Optional[Path] = None):
+    def __init__(self, test_id: str = "vray_benchmark", exe: Optional[Path] = None, data_dir: Optional[Path] = None,
+                 gpus: Optional[Callable[[], List[str]]] = None):
         self.id = test_id
         self.verified = test_id in self.VERIFIED
         self.title, self.mode, self.rtx, self.unit = MODES[test_id]
@@ -177,6 +178,20 @@ class VRayBenchmarkWorkload(Workload):
         self.display_name = f"V-Ray Benchmark {VRAY_VERSION} ({self.title})"
         self.benchmark_type = "cpu" if self.mode == "vray" else "gpu"
         self.license = (EULA_KEY, "V-Ray Benchmark", license_question)   # asked once by app/ui/run_tests.py
+        if gpus is None:
+            from app.ai.mlperf_client import gpu_names as gpus
+        self._gpus = gpus
+
+    def system_blocks(self, host=None) -> Optional[str]:
+        """V-Ray GPU on a PC with no NVIDIA graphics card is hidden like another OS's test (owner, 2026-11-17:
+        the GEEKOM's Radeon skipped every run). Chaos's "Using Benchmark" page: it renders on "RTX or CUDA devices";
+        V-Ray 7 itself also has AMD HIP, the benchmark does not. Unknown cards (none read) are not hidden."""
+        if self.mode == "vray":
+            return None
+        names = [n for n in self._gpus() if n]
+        if names and not gpu_devices(list(enumerate(names))):
+            return "V-Ray Benchmark's GPU tests render on NVIDIA cards only (CUDA / RTX); this PC has " + ", ".join(names)
+        return None
 
     def license_ok(self) -> bool:
         return license_accepted(self.data_dir)

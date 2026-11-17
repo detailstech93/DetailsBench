@@ -242,3 +242,15 @@ def test_the_unit_is_the_one_the_program_printed():
     out = "Testing V-Ray GPU... 100% 01:00/01:00\r\nV-Ray GPU score: 7902 vpaths\r\nAutomatic installation was successful!\r\n"
     assert vb.printed_unit(out, 7902) == "vpaths"
     assert vb.printed_unit(out, 5679) is None and vb.printed_unit("", 7902) is None
+
+
+def test_gpu_tests_are_hidden_on_a_pc_with_no_nvidia_card():
+    # owner's GEEKOM, 2026-11-17: Radeon Vega only, every V-Ray GPU run skipped; Chaos: "RTX or CUDA devices"
+    radeon = lambda: ["AMD Radeon(TM) Graphics"]
+    both = lambda: ["Intel(R) Arc(TM) Graphics", "NVIDIA GeForce RTX 5090 Laptop GPU"]
+    for test_id in ("vray_benchmark_gpu", "vray_benchmark_rtx"):
+        why = vb.VRayBenchmarkWorkload(test_id, gpus=radeon).system_blocks()
+        assert "NVIDIA" in why and "AMD Radeon(TM) Graphics" in why
+        assert vb.VRayBenchmarkWorkload(test_id, gpus=both).system_blocks() is None
+        assert vb.VRayBenchmarkWorkload(test_id, gpus=lambda: []).system_blocks() is None   # not read: shown
+    assert vb.VRayBenchmarkWorkload("vray_benchmark", gpus=radeon).system_blocks() is None   # the CPU test stays
