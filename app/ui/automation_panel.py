@@ -659,9 +659,7 @@ class AutomationPanel(QGroupBox):
     def _on_long_asked(self, text: str, answer: dict):
         try:
             answer["go_on"] = QMessageBox.question(
-                self, "This test takes long", text + ".
-
-Go on and wait for all its runs?",
+                self, "This test takes long", text + ".\n\nGo on and wait for all its runs?",
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes) == QMessageBox.Yes
         finally:
             answer["done"].set()
