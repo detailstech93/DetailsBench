@@ -63,7 +63,7 @@ BOOK_MARK = "*** START OF THE PROJECT GUTENBERG EBOOK"             # it keeps th
 # that text as served (CRLF lines), from the laptop's own copy of 2026-10-18; a newer version is used too, marked
 BOOK_SHA256 = "8a2f79a2f4601cfe6e25830c29c1a25c7a3d906285a989948117568f8077ab2c"
 BOOK_MISSING = ("llama-benchy's prompt text (a public-domain book from gutenberg.org) is not installed yet: "
-                "press Install on a llama-benchy model test")     # "not installed": the state with Install
+                "press Install")     # "not installed": the state with Install
 
 
 def book_path(home: Optional[Path] = None) -> Path:

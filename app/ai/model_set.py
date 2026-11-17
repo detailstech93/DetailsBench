@@ -240,6 +240,9 @@ def fit_warning(test_id: str, fit: Optional[Callable[[str], str]] = None) -> str
 def install_text(test_id: str, fit: Optional[Callable[[str], str]] = None) -> str:
     """The question before the download; a model that most likely does not fit here says so first (the owner
     decides: app/ai/model_fit.py)."""
+    if test_id not in all_models():         # the free llama-benchy test: only its book
+        return (f"Download llama-benchy's prompt text, a public-domain book from Project Gutenberg "
+                f"({llama_benchy.BOOK_URL}, or its mirror gutenberg.pglaf.org), about 3 MB?")
     title, key, quant, size = all_models()[test_id]
     warning = fit_warning(test_id, fit)
     return ((warning + "\n\n" if warning else "")
@@ -252,6 +255,10 @@ def install(test_id: str, progress=lambda text: None, lms: Optional[Path] = None
     """The Install button (winget.Outcome): lms get, then the model must be listed. `stop` (threading.Event): the
     Stop button ends the download (owner, 2026-10-22)."""
     from app.install import winget
+    if test_id not in all_models():         # the free llama-benchy test: only its book
+        progress("Downloading llama-benchy's prompt text from gutenberg.org...")
+        why = llama_benchy.fetch_book()
+        return winget.Outcome(not why, "llama-benchy's prompt text is ready." if not why else why)
     title, key, quant, _size = all_models()[test_id]
     lms = lms or lmstudio.lms_path()
     if lms is None:

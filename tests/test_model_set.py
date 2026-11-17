@@ -300,3 +300,16 @@ def test_a_model_that_does_not_fit_the_free_shared_memory_is_skipped_with_why(tm
     assert w.memory_short() is None
     w._card_gb, w._free_gb = (lambda: None), (lambda: 12.0)
     assert w.memory_short() is None
+
+
+def test_the_free_llama_benchy_test_has_its_own_install_for_the_book(monkeypatch):
+    """Owner, 2026-11-17 (GEEKOM): "llama-benchy (LM Studio)" said not installed with only the download page."""
+    from app.ai import llama_benchy
+    assert plans.plan_for("llama_benchy", host=plans.Host("windows", "x64")) == {"kind": "lmstudio",
+                                                                                 "test_id": "llama_benchy"}
+    assert "Project Gutenberg" in ms.install_text("llama_benchy")
+    shown = []
+    monkeypatch.setattr(llama_benchy, "fetch_book", lambda: None)
+    assert ms.install("llama_benchy", shown.append, lms=Path("lms")).ok and "prompt text" in shown[0]
+    monkeypatch.setattr(llama_benchy, "fetch_book", lambda: "Project Gutenberg did not send it")
+    assert "did not send" in ms.install("llama_benchy", shown.append, lms=Path("lms")).message

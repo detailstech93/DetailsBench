@@ -49,7 +49,8 @@ def plan_for(test_id: str, source: str = "", app_id=None, host: Optional[Host] =
         except (TypeError, ValueError):
             return None
     from app.ai.model_set import all_models
-    if test_id.startswith("llama_benchy_") and test_id in all_models():   # LM Studio downloads the model itself
+    # LM Studio downloads the model itself; the free test only needs llama-benchy's book (owner, 2026-11-17)
+    if test_id == "llama_benchy" or test_id.startswith("llama_benchy_") and test_id in all_models():
         return {"kind": "lmstudio", "test_id": test_id} if host.os in ("windows", "linux") else None
     entry = (INSTALLERS.get(test_id) or {}).get(host.os)
     if not entry:
