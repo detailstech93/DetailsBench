@@ -250,7 +250,7 @@ def test_a_dropped_model_download_is_resumed_and_its_error_is_readable(tmp_path)
     fake = Dropping(drops=2)
     shown = []
     out = ms.install("llama_benchy_gemma4_12b", shown.append, lms=tmp_path / "lms", run=fake)
-    assert out.ok and [c[0] for c in fake.calls].count("get") == 3 and "Resuming" in shown[-1]
+    assert out.ok and [c[0] for c in fake.calls].count("get") == 3 and "Resuming" in shown[-2] and "prompt text" in shown[-1]
     ms._LS.clear()
     fake = Dropping(drops=99)
     out = ms.install("llama_benchy_gemma4_12b", lms=tmp_path / "lms", run=fake)

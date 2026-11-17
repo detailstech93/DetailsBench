@@ -74,8 +74,9 @@ def runtime_old(read=None) -> Optional[str]:
     parts = tuple(int(p) for p in re.findall(r"\d+", version or "")[:2])
     if parts >= RUNTIME_MIN:
         return None
-    return (f"Microsoft's Visual C++ runtime here ({version or 'none'}) is too old for y-cruncher: "
-            f"{RUNTIME_MIN[0]}.{RUNTIME_MIN[1]} or newer is needed (Install button)")
+    # "not installed": only that state gets the Install button (app/catalog.py _workload_state)
+    return (f"Microsoft's Visual C++ runtime {RUNTIME_MIN[0]}.{RUNTIME_MIN[1]} or newer, which y-cruncher needs, is not "
+            f"installed (this PC has {version or 'none'}): press Install")
 
 
 def runtime_install_text(read=None) -> str:
@@ -83,7 +84,7 @@ def runtime_install_text(read=None) -> str:
     why = runtime_old(read)
     if not why:
         return "Microsoft's Visual C++ runtime here is new enough for it."
-    return (why.split(" (Install")[0] + ". So then Microsoft's Visual C++ Redistributable (x64), with Windows "
+    return (why.split(": press Install")[0] + ". So then Microsoft's Visual C++ Redistributable (x64), with Windows "
             "Package Manager (winget Microsoft.VCRedist.2015+.x64) from Microsoft's own server: Windows may show "
             "an administrator prompt on the PC, someone must press Yes there.")
 

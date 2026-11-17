@@ -41,6 +41,8 @@ def test_an_old_visual_cpp_runtime_is_installed_by_ycrunchers_install(monkeypatc
     exe.write_bytes(b"")
     ok, why = yc.YCruncherWorkload(exe=exe, data_dir=tmp_path).availability()
     assert not ok and "14.0.24212.0" in why and "Install" in why
+    from app.catalog import MISSING, _workload_state
+    assert _workload_state(ok, why)[0] == MISSING            # the state that shows the Install button
     assert "Microsoft.VCRedist.2015+.x64" in yc.runtime_install_text() and "administrator" in yc.runtime_install_text()
 
     def install(pkg):

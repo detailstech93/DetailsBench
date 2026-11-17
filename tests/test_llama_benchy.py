@@ -4,6 +4,7 @@ import threading
 from pathlib import Path
 
 from app.ai import llama_benchy
+from app.ai.llama_benchy import book_missing as real_book_missing, fetch_book as real_fetch_book   # before conftest's
 from app.automation.workload import RunContext
 
 M = lambda v: {"mean": v, "std": 0.0, "values": [v]}
@@ -208,3 +209,38 @@ def test_the_owners_model_is_checked_against_the_free_memory(tmp_path, monkeypat
     why = llama_benchy.server_error('{"error": {"message": "Failed to initialize the context: failed to allocate '
                                     'compute pp buffers"}}', "google/gemma-4-12b")
     assert why.startswith("not enough memory: the graphics memory was too small to load google/gemma-4-12b")
+
+
+def test_the_prompt_book_comes_with_install_pinned_and_the_test_waits_for_it(tmp_path, monkeypatch):
+    # owner's GEEKOM, 2026-11-17: gutenberg.org answered 503 on the first run, so all 21 llama-benchy runs failed
+    import hashlib
+    import io
+    from app.catalog import MISSING, _workload_state
+    crlf = chr(13) + chr(10)
+    book = "The Project Gutenberg eBook header" + crlf + llama_benchy.BOOK_MARK + " SHERLOCK HOLMES ***" + crlf + "Text" + crlf
+    kept = book[book.find(llama_benchy.BOOK_MARK):]
+    monkeypatch.setattr(llama_benchy, "BOOK_SHA256", hashlib.sha256(kept.encode()).hexdigest())
+    path = llama_benchy.book_path(tmp_path)
+    assert path.name == hashlib.md5(llama_benchy.BOOK_URL.encode()).hexdigest() + ".txt"     # llama-benchy's own name
+    assert real_book_missing(tmp_path) == llama_benchy.BOOK_MISSING
+    assert _workload_state(False, llama_benchy.BOOK_MISSING)[0] == MISSING                  # shows the Install button
+
+    def down(url, timeout):
+        raise OSError("HTTP Error 503: Service Unavailable")
+    assert "503" in real_fetch_book(tmp_path, opener=down) and not path.exists()
+    other = lambda url, timeout: io.BytesIO(b"another text")
+    assert "another text" in real_fetch_book(tmp_path, opener=other) and not path.exists()   # not the pinned one
+    asked = []
+
+    def served(url, timeout):
+        asked.append(url)
+        return io.BytesIO(book.encode())
+    assert real_fetch_book(tmp_path, opener=served) is None and asked == [llama_benchy.BOOK_URL]
+    with open(path, encoding="utf-8") as f:                              # read back as llama-benchy reads it
+        assert f.read().startswith(llama_benchy.BOOK_MARK)
+    assert real_book_missing(tmp_path) is None and real_fetch_book(tmp_path, opener=down) is None   # kept: not asked
+    monkeypatch.setattr(llama_benchy, "book_missing", lambda home=None: llama_benchy.BOOK_MISSING)
+    w = llama_benchy.LlamaBenchyWorkload("m", exe=tmp_path / "llama-benchy.exe")
+    assert w.availability() == (False, llama_benchy.BOOK_MISSING)
+    r = w.run(RunContext(output_dir=tmp_path))
+    assert r.status == "skipped" and r.error == llama_benchy.BOOK_MISSING          # not 7 failed tries

@@ -23,12 +23,14 @@ Do not run while LM Studio is used for something else on this computer (for exam
 agent): the numbers would measure both. Status mapping is the same as CliWorkload.
 """
 
+import hashlib
 import json
 import os
 import math
 import re
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path
 from typing import Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -49,6 +51,49 @@ COLUMNS = (("pp_throughput", "pp_tok_s", "tok/s", "pp (tok/s)"),
            ("peak_throughput", "peak_tok_s", "tok/s", "tg peak (tok/s)"),
            ("ttfr", "ttfr_ms", "ms", "TTFR (ms)"),
            ("e2e_ttft", "e2e_ttft_ms", "ms", "E2E TTFT (ms)"))
+
+# llama-benchy takes its prompts from a book it downloads once into ~/.cache/llama-benchy/<md5 of the URL>.txt and
+# keeps for good (its corpus.py, 0.4.0). The owner's GEEKOM, 2026-11-17: gutenberg.org answered 503 on its first
+# run, so all 21 runs failed; now the Install button downloads it with the model and the tests wait for it.
+BOOK_URL = "https://www.gutenberg.org/files/1661/1661-0.txt"     # its default --book-url (Sherlock Holmes)
+BOOK_MARK = "*** START OF THE PROJECT GUTENBERG EBOOK"             # it keeps the text from here
+# that text as served (CRLF lines), from the laptop's own copy of 2026-10-18: every PC gets the same prompts
+BOOK_SHA256 = "8a2f79a2f4601cfe6e25830c29c1a25c7a3d906285a989948117568f8077ab2c"
+BOOK_MISSING = ("llama-benchy's prompt text (a public-domain book from gutenberg.org) is not installed yet: "
+                "press Install on a llama-benchy model test")     # "not installed": the state with Install
+
+
+def book_path(home: Optional[Path] = None) -> Path:
+    return (Path(home) if home else Path.home()) / ".cache" / "llama-benchy" / (
+        hashlib.md5(BOOK_URL.encode()).hexdigest() + ".txt")
+
+
+def book_missing(home: Optional[Path] = None) -> Optional[str]:
+    """Why llama-benchy cannot run yet (its book is not in its cache), or None."""
+    return None if book_path(home).is_file() else BOOK_MISSING
+
+
+def fetch_book(home: Optional[Path] = None, opener: Callable = urllib.request.urlopen) -> Optional[str]:
+    """Put the book into llama-benchy's cache as it would itself; None when it is there, else why not."""
+    path = book_path(home)
+    if path.is_file():
+        return None
+    try:
+        with opener(BOOK_URL, timeout=60) as response:
+            data = response.read(5_000_000)
+    except (OSError, ValueError) as e:
+        return f"gutenberg.org did not send llama-benchy's prompt text ({e}); try Install again later"
+    text = data.decode("utf-8", errors="replace")
+    start = text.find(BOOK_MARK)
+    text = text[start:] if start != -1 else text
+    if hashlib.sha256(text.encode("utf-8")).hexdigest() != BOOK_SHA256:
+        return "gutenberg.org sent another text than the one the app expects, so it was not used"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    part = path.with_suffix(".part")
+    with open(part, "w", encoding="utf-8") as f:          # as llama-benchy writes it (text mode)
+        f.write(text)
+    os.replace(part, path)
+    return None
 
 
 def benchy_path(python: str = sys.executable, env=None, frozen: Optional[bool] = None) -> Optional[Path]:
@@ -247,7 +292,10 @@ class LlamaBenchyWorkload(Workload):
                 setattr(self, key, settings[key])
 
     def availability(self) -> Tuple[bool, str]:
-        return (True, str(self.exe)) if self.exe else (False, "llama-benchy not installed in the app's Python (or set PCBM_LLAMA_BENCHY)")
+        if not self.exe:
+            return False, "llama-benchy not installed in the app's Python (or set PCBM_LLAMA_BENCHY)"
+        missing = book_missing()
+        return (False, missing) if missing else (True, str(self.exe))
 
     def executable(self) -> Tuple[Optional[str], str]:
         return (str(self.exe) if self.exe else None), "app Python scripts folder"
@@ -301,6 +349,8 @@ class LlamaBenchyWorkload(Workload):
             return WorkloadResult(status="skipped", error="llama-benchy not installed in the app's Python")
         if not self.model:
             return WorkloadResult(status="skipped", error="no model chosen")
+        if book_missing():
+            return WorkloadResult(status="skipped", error=book_missing())
         short = self.checks_memory and self._memory_short()
         if short:
             return WorkloadResult(status="skipped", error=short)

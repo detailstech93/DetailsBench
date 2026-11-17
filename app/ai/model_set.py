@@ -267,7 +267,10 @@ def install(test_id: str, progress=lambda text: None, lms: Optional[Path] = None
         _LS.clear()
         ok, why = installed(list_models(lms, run), key, quant)
         if ok:
-            return winget.Outcome(True, f"{title} {quant} is ready.")
+            progress("Downloading llama-benchy's prompt text from gutenberg.org...")
+            why = llama_benchy.fetch_book()
+            return winget.Outcome(not why, f"{title} {quant} is ready." if not why else
+                                  f"{title} {quant} was downloaded, but {why}.")
         if not RESUMABLE.search(text or ""):
             break
     last = lms_error(text)
@@ -332,7 +335,9 @@ class FixedModelWorkload(llama_benchy.LlamaBenchyWorkload):
         models = list_models(self.lms, self._lms_run)
         if not models and list_error():     # LM Studio did not answer: not a model to download
             return False, f"LM Studio did not list its models (lms ls): {list_error()}"
-        return installed(models, self.key, self.quant)
+        ok, why = installed(models, self.key, self.quant)
+        missing = ok and llama_benchy.book_missing()
+        return (False, missing) if missing else (ok, why)
 
     def memory_short(self) -> Optional[str]:
         """Why the model is not loaded now, or None. Where the graphics share the computer's memory (no card with its

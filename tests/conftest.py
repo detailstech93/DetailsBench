@@ -30,6 +30,14 @@ def _no_real_presentmon_search(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _llama_benchy_book_there(monkeypatch):
+    """llama-benchy's prompt book counts as downloaded; never this computer's ~/.cache (tests of it pass a home)."""
+    from app.ai import llama_benchy
+    monkeypatch.setattr(llama_benchy, "book_missing", lambda home=None: None)
+    monkeypatch.setattr(llama_benchy, "fetch_book", lambda home=None, opener=None: None)
+
+
+@pytest.fixture(autouse=True)
 def _no_real_steam_log(monkeypatch):
     """A game that does not start is explained from Steam's own log; tests never read this computer's log."""
     from app.steam import launch
