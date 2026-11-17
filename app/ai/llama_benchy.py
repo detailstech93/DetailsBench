@@ -57,7 +57,7 @@ COLUMNS = (("pp_throughput", "pp_tok_s", "tok/s", "pp (tok/s)"),
 # run, so all 21 runs failed; now the Install button downloads it with the model and the tests wait for it.
 BOOK_URL = "https://www.gutenberg.org/files/1661/1661-0.txt"     # its default --book-url (Sherlock Holmes)
 BOOK_MARK = "*** START OF THE PROJECT GUTENBERG EBOOK"             # it keeps the text from here
-# that text as served (CRLF lines), from the laptop's own copy of 2026-10-18: every PC gets the same prompts
+# that text as served (CRLF lines), from the laptop's own copy of 2026-10-18; a newer version is used too, marked
 BOOK_SHA256 = "8a2f79a2f4601cfe6e25830c29c1a25c7a3d906285a989948117568f8077ab2c"
 BOOK_MISSING = ("llama-benchy's prompt text (a public-domain book from gutenberg.org) is not installed yet: "
                 "press Install on a llama-benchy model test")     # "not installed": the state with Install
@@ -86,14 +86,26 @@ def fetch_book(home: Optional[Path] = None, opener: Callable = urllib.request.ur
     text = data.decode("utf-8", errors="replace")
     start = text.find(BOOK_MARK)
     text = text[start:] if start != -1 else text
-    if hashlib.sha256(text.encode("utf-8")).hexdigest() != BOOK_SHA256:
-        return "gutenberg.org sent another text than the one the app expects, so it was not used"
+    if not text.strip():
+        return "gutenberg.org sent an empty text"
+    # another version than the pinned one is kept and used: its runs say so (book_changed) (owner, 2026-11-17)
     path.parent.mkdir(parents=True, exist_ok=True)
     part = path.with_suffix(".part")
     with open(part, "w", encoding="utf-8") as f:          # as llama-benchy writes it (text mode)
         f.write(text)
     os.replace(part, path)
     return None
+
+
+def book_changed(home: Optional[Path] = None) -> Optional[str]:
+    """The first 16 hex of the book's SHA-256 when it is another version than the pinned one, else None. llama-benchy
+    writes it in text mode (Windows: CRLF lines come back as CR CR LF), so that is undone first."""
+    try:
+        data = book_path(home).read_bytes().replace(b"\r\r\n", b"\r\n")
+    except OSError:
+        return None
+    digest = hashlib.sha256(data).hexdigest()
+    return None if digest == BOOK_SHA256 else digest[:16]
 
 
 def benchy_path(python: str = sys.executable, env=None, frozen: Optional[bool] = None) -> Optional[Path]:
@@ -198,6 +210,9 @@ def report_markdown(data: Mapping, ai_run: Mapping) -> str:
               "context (prefix caching on); the measured row after it reuses the cache. '-' = not reported."]
     if str(ai_run.get("tokenizer", "")).startswith("gpt2"):
         lines.append("Token counts use the gpt2 tokenizer (the model's own was not available): approximate.")
+    if ai_run.get("prompt_book"):
+        lines.append(f"Prompts from another version of the book than the app's ({ai_run['prompt_book']}): compared "
+                     "only with runs on the same text.")
     return "\n".join(lines) + "\n"
 
 
@@ -392,6 +407,9 @@ class LlamaBenchyWorkload(Workload):
                   "tokenizer": tokenizer_used(log, getattr(self, "tokenizer", None) or self.model), "pp": self.pp, "tg": self.tg,
                   "depths": self.depths, "concurrency": self.concurrency, "prefix_caching": self.prefix_caching,
                   "runs": self.runs}
+        changed = book_changed()
+        if changed:                     # the library compares it only with runs on the same text
+            ai_run["prompt_book"] = changed
         (folder / "ai_run.json").write_text(json.dumps(ai_run, indent=2), encoding="utf-8")
         try:
             text = result_path.read_text(encoding="utf-8")

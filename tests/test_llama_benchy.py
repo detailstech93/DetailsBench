@@ -228,8 +228,8 @@ def test_the_prompt_book_comes_with_install_pinned_and_the_test_waits_for_it(tmp
     def down(url, timeout):
         raise OSError("HTTP Error 503: Service Unavailable")
     assert "503" in real_fetch_book(tmp_path, opener=down) and not path.exists()
-    other = lambda url, timeout: io.BytesIO(b"another text")
-    assert "another text" in real_fetch_book(tmp_path, opener=other) and not path.exists()   # not the pinned one
+    empty = lambda url, timeout: io.BytesIO(b"  ")
+    assert "empty" in real_fetch_book(tmp_path, opener=empty) and not path.exists()
     asked = []
 
     def served(url, timeout):
@@ -239,6 +239,15 @@ def test_the_prompt_book_comes_with_install_pinned_and_the_test_waits_for_it(tmp
     with open(path, encoding="utf-8") as f:                              # read back as llama-benchy reads it
         assert f.read().startswith(llama_benchy.BOOK_MARK)
     assert real_book_missing(tmp_path) is None and real_fetch_book(tmp_path, opener=down) is None   # kept: not asked
+    assert llama_benchy.book_changed(tmp_path) is None                  # the pinned text (CR CR LF on Windows undone)
+    # a newer version from gutenberg.org is used too, and its runs say so (owner, 2026-11-17)
+    newer = tmp_path / "newer"
+    assert real_fetch_book(newer, opener=lambda url, timeout: io.BytesIO(b"A newer edition")) is None
+    changed = llama_benchy.book_changed(newer)
+    assert changed == hashlib.sha256(b"A newer edition").hexdigest()[:16]
+    assert "another version of the book" in llama_benchy.report_markdown({}, {"prompt_book": changed})
+    from app.library.package import fingerprint_of
+    assert fingerprint_of("llama_benchy", {"prompt_book": changed}) != fingerprint_of("llama_benchy", {})
     monkeypatch.setattr(llama_benchy, "book_missing", lambda home=None: llama_benchy.BOOK_MISSING)
     w = llama_benchy.LlamaBenchyWorkload("m", exe=tmp_path / "llama-benchy.exe")
     assert w.availability() == (False, llama_benchy.BOOK_MISSING)

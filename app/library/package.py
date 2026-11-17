@@ -67,7 +67,7 @@ def _settings(manifest: Mapping, test_id: str) -> dict:
 
 # what changes a score, the only fields of a test's settings its fingerprint reads (owner, 2026-11-17: architecture,
 # drive and the version are facts about the PC or have their own note; a field added later must not split a test)
-REAL_SETTINGS = ("model", "ai_model", "stress_minutes")
+REAL_SETTINGS = ("model", "ai_model", "stress_minutes", "prompt_book")
 
 
 def fingerprint_of(test_id: str, settings: Mapping) -> str:
@@ -115,7 +115,10 @@ def build_packages(export: Mapping, read_ai_run: Callable[[str], Optional[dict]]
             settings["stress_minutes"] = minutes        # a stress run compares only with one of the same length
         note = next((r.get("note") for r in measured if r.get("note")), None)
         emulated = settings.get("comparable_to_native") is False
-        attr = attribute(test_id, group, hw, ai_run=read_ai_run(test_id) if group == "ai" else None, note=note,
+        ai_run = read_ai_run(test_id) if group == "ai" else None
+        if (ai_run or {}).get("prompt_book"):
+            settings["prompt_book"] = ai_run["prompt_book"]     # llama-benchy on another version of its book
+        attr = attribute(test_id, group, hw, ai_run=ai_run, note=note,
                          drive=settings.get("drive"), flags=flags_of(environment, manifest.get("conditions"),
                                                                      emulated))
         if not attr["library"]:
