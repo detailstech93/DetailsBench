@@ -179,9 +179,27 @@ def settings_problem(rec) -> Optional[str]:
     return None
 
 
-def mark_unverified(capture, rec, each_run: bool = False):
+def wrong_screen(forced, capture) -> Optional[str]:
+    """Why the runs did not use the chosen resolution, for a game whose screen shows it (Borderlands 3 in
+    Fullscreen, owner 2026-11-17); None when it matched or cannot be told (screen mode unknown)."""
+    want = (getattr(forced, "requested", None) or {}).get("resolution")
+    mod = getattr(getattr(forced, "adapter", None), "module", None)
+    mode = getattr(capture, "display_mode", None)
+    if not want or not getattr(mod, "SCREEN_SHOWS_RESOLUTION", False) or not mode \
+            or "resolution" in (forced.record.refused or {}) or str(mode).split(" ")[0] == want:
+        return None
+    return f"the screen was {mode} during the benchmark, not the chosen {want}"
+
+
+def mark_unverified(capture, rec, each_run: bool = False, screen: Optional[str] = None):
     """Runs measured with settings the game did not keep are not valid results (no score). each_run: each run was
-    checked on its own after it (GameBenchmark.settings_guard), so a change found at the end is the last run's."""
+    checked on its own after it (GameBenchmark.settings_guard), so a change found at the end is the last run's.
+    screen: why the game did not run at the chosen resolution (wrong_screen); every run is then not valid."""
+    if screen:
+        for w in getattr(capture, "windows", []):
+            if w.result.status == "completed":
+                w.result = WorkloadResult(status="invalid", error=screen, command=w.result.command)
+        capture.message += "; " + screen
     if getattr(rec, "unchecked", None):
         capture.message += "; not checked after the run: " + ", ".join(rec.unchecked)
     if rec.mismatch_after_run is None:
@@ -306,7 +324,8 @@ class GameBenchmarkWorker(QThread):
                         capture.message = f"{capture.message}; {note}"
             if self.forced is not None:
                 mark_unverified(capture, self.forced.record,
-                                each_run=getattr(bench, "settings_guard", None) is not None)
+                                each_run=getattr(bench, "settings_guard", None) is not None,
+                                screen=wrong_screen(self.forced, capture))
             add_conditions(capture, conditions, getattr(self.forced, "requested", None))
             if capture.status != "recorded":
                 self.finished_plan.emit(f"{capture.status}: {capture.message}; nothing was stored")

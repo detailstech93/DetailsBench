@@ -313,3 +313,30 @@ def test_the_preset_keeps_its_name_when_the_game_raises_its_ambient_occlusion() 
     raised = text.replace("AmbientOcclusionQualityMode=High", "AmbientOcclusionQualityMode=Ultra")
     assert raised != text and _preset_name(parse(raised)) == "Ultra"
     assert _preset_name(parse(text.replace("ShadowQualityMode=Ultra", "ShadowQualityMode=Low"))) == "Custom"
+
+
+def test_a_resolution_the_screen_offers_is_written_in_fullscreen_and_the_screen_must_show_it(monkeypatch) -> None:
+    """Owner, 2026-11-17: 1280x720 chosen on the GEEKOM was not written (the game had only saved 1920x1080), and
+    Borderless draws at the desktop's size anyway."""
+    from types import SimpleNamespace
+    from app.games import borderlands3, screen_modes
+    from app.ui.frame_capture_panel import wrong_screen
+    monkeypatch.setattr(screen_modes, "resolutions", lambda: {(1280, 720), (1920, 1080)})
+    monkeypatch.setattr(screen_modes, "current_mode", lambda: "1920x1080 at 60 Hz")
+    data = parse(sample_text())                       # 2560x1440, Borderless; 1280x720 never seen
+    assert "1280x720" in choices(data, {})["resolution"]
+    changes, refusals = plan(data, {"resolution": "1280x720"}, {})
+    assert refusals == {}
+    assert Change("window_mode", "Borderless", "Fullscreen") in changes
+    updated = apply(data, changes)
+    assert get_value(updated, SECTION, "ResolutionSizeY") == "720"
+    assert get_value(updated, SECTION, "FullscreenMode") == "0"
+    # the desktop's own size stays Borderless
+    changes, _ = plan(data, {"resolution": "1920x1080"}, {})
+    assert all(c.key != "window_mode" for c in changes)
+    assert plan(data, {"resolution": "3840x2160"}, {})[1]      # neither seen nor on the screen
+    forced = SimpleNamespace(requested={"resolution": "1280x720"}, adapter=SimpleNamespace(module=borderlands3),
+                             record=SimpleNamespace(refused={}))
+    assert wrong_screen(forced, SimpleNamespace(display_mode="1280x720 at 60 Hz")) is None
+    assert "1920x1080 at 60 Hz" in wrong_screen(forced, SimpleNamespace(display_mode="1920x1080 at 60 Hz"))
+    assert wrong_screen(forced, SimpleNamespace(display_mode=None)) is None

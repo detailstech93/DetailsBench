@@ -154,6 +154,23 @@ def _is_resolution_text(value: object) -> bool:
     return _is_ascii_digits(parts[0]) and _is_ascii_digits(parts[1])
 
 
+def _screen() -> set:
+    """Every resolution this PC's screens offer ("WxH"): the game takes any of them in Fullscreen (owner,
+    2026-11-17: 1280x720 chosen on the GEEKOM was not written because the game had only ever saved 1920x1080)."""
+    from app.games import screen_modes
+    return {f"{w}x{h}" for w, h in screen_modes.resolutions() or ()}
+
+
+def _desktop() -> Optional[str]:
+    from app.games import screen_modes
+    return screen_modes.desktop_resolution()
+
+
+# Borderless draws at the desktop's size whatever the file says, so another resolution is run in Fullscreen and
+# the screen's own mode during the benchmark must be that resolution (app/ui/frame_capture_panel.py)
+SCREEN_SHOWS_RESOLUTION = True
+
+
 def _known_values(known: object, key: str) -> Dict[str, int]:
     if not isinstance(known, dict):
         return {}
@@ -354,6 +371,8 @@ def choices(data: IniData, known: object) -> Dict[str, list]:
             for key in known_values.keys():
                 if isinstance(key, str):
                     candidates.add(key)
+            if setting.kind == "resolution":
+                candidates |= _screen()
 
             result[name] = sorted(candidates)
 
@@ -426,7 +445,7 @@ def plan(
             if not _is_resolution_text(desired_value):
                 refusals[key] = "expects WIDTHxHEIGHT"
                 continue
-            if desired_value not in _known_values(known, key):
+            if desired_value not in _known_values(known, key) and desired_value not in _screen():
                 refusals[key] = (
                     "not seen in this game yet; choose it once in the game's menu "
                     "so the app can learn it"
@@ -445,6 +464,10 @@ def plan(
             changes.append(Change(key, current, desired_value))
             continue
 
+    wanted = desired.get("resolution")
+    if ("resolution" in desired and "resolution" not in refusals and "window_mode" not in desired
+            and current_settings.get("window_mode") not in (None, "Fullscreen") and _desktop() != wanted):
+        changes.append(Change("window_mode", current_settings["window_mode"], "Fullscreen"))
     return changes, refusals
 
 
