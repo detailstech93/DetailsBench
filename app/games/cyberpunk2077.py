@@ -224,6 +224,24 @@ def merge_indices(
     return result
 
 
+def screen_positions(data, modes=None) -> Dict[str, int]:
+    """Resolution positions taken from the screen's own modes, smallest first ("WxH": index), so a size the game
+    never saved can be asked for (owner, 2026-11-17: 1280x720 on the GEEKOM ran at 1080p). Used only when every
+    position the game did save matches that order; else {}. A wrong guess still fails the run: the game's own
+    report says what it drew (size_problem) and the file is read back after (verify).
+    The game's list leaves out sizes under 1024 wide: this laptop's 19 modes put 1920x1080 at 15, the game at 13
+    (2026-11-18). Only the file's own value is checked: positions learned earlier may be from another screen."""
+    if modes is None:
+        from app.games import screen_modes
+        modes = screen_modes.resolutions()
+    names = [f"{w}x{h}" for w, h in sorted(modes or ()) if w >= 1024]
+    opt = find_option(data, *SETTINGS["resolution"]) or {}
+    value, index = opt.get("value"), opt.get("index")
+    if value not in names or names.index(value) != index:
+        return {}
+    return {n: i for i, n in enumerate(names)}
+
+
 def plan(
     data,
     desired: Dict[str, object],
@@ -316,6 +334,8 @@ def plan(
                 inner = known.get(key)
                 if not isinstance(inner, dict):
                     inner = {}
+                if key == "resolution" and desired_value not in inner:
+                    inner = screen_positions(data)
 
                 index = inner.get(desired_value)
 
@@ -430,7 +450,9 @@ def choices(data, known: Dict[str, Dict[str, int]]) -> Dict[str, list]:
             seen = dict(known.get(key) or {})
             if isinstance(opt.get("value"), str) and isinstance(opt.get("index"), int):
                 seen[opt["value"]] = opt["index"]
-            out[key] = [v for v, _ in sorted(seen.items(), key=lambda kv: (kv[1], kv[0]))]
+            if key == "resolution":
+                seen.update({n: i for n, i in screen_positions(data).items() if n not in seen})
+            out[key] =[v for v, _ in sorted(seen.items(), key=lambda kv: (kv[1], kv[0]))]
     for key, (options, table) in WHOLE.items():
         if all(find_option(data, g, n) for g, n in options):
             out[key] = list(table) + [v for v in out.get(key, []) if v not in table]

@@ -560,3 +560,24 @@ def test_the_games_own_result_is_read_from_its_benchmark_report(tmp_path):
     assert game_own_result(1091500, 0, env={"PCBM_DOCUMENTS": str(tmp_path)}) == {
         "avg": 138.2021942138672, "min": 100.7536392211914, "max": 175.8118133544922, "frames": 8880.0}
     assert game_own_result(1091500, 4102444800, env={"PCBM_DOCUMENTS": str(tmp_path)}) is None
+
+
+def test_a_size_the_game_never_saved_takes_its_place_from_the_screens_modes(monkeypatch):
+    """Owner, 2026-11-17: 1280x720 on the GEEKOM ran at 1080p (never saved by the game). The laptop's real modes:
+    the game's list skips sizes under 1024 wide, so 1920x1080 is 13th; used only when the file's own value agrees."""
+    from app.games import cyberpunk2077 as cp, screen_modes
+    modes = {(640, 480), (800, 600), (1024, 600), (1024, 768), (1152, 864), (1280, 768), (1280, 800), (1280, 1024),
+             (1366, 768), (1440, 900), (1600, 768), (1600, 900), (1600, 1200), (1680, 1050), (1856, 1392),
+             (1920, 1080), (1920, 1200), (2560, 1440), (2560, 1600)}
+    monkeypatch.setattr(screen_modes, "resolutions", lambda: modes)
+    dyn = {"type": "string_list", "is_dynamic": True}
+    data = {"data": [{"group_name": "/video/display", "options": [
+        dict(dyn, name="WindowMode", value="Fullscreen", index=2),
+        dict(dyn, name="Resolution", value="1920x1080", index=13)]}]}
+    assert cp.plan(data, {"resolution": "1366x768"}, {"resolution": {"2560x1440": 0}}) == (
+        [Change("resolution", "1920x1080", "1366x768", 6)], {})
+    assert "1366x768" in cp.choices(data, {})["resolution"]
+    data["data"][0]["options"][1]["index"] = 12          # the screen's list does not match the game's: not guessed
+    changes, refused = cp.plan(data, {"resolution": "1366x768"}, {})
+    assert changes == [] and "position" in refused["resolution"]
+    assert "1366x768" not in cp.choices(data, {})["resolution"]
