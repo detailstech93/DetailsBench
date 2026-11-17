@@ -227,7 +227,8 @@ def test_the_prompt_book_comes_with_install_pinned_and_the_test_waits_for_it(tmp
 
     def down(url, timeout):
         raise OSError("HTTP Error 503: Service Unavailable")
-    assert "503" in real_fetch_book(tmp_path, opener=down) and not path.exists()
+    why = real_fetch_book(tmp_path, opener=down)
+    assert "www.gutenberg.org: HTTP Error 503" in why and "gutenberg.pglaf.org" in why and not path.exists()
     empty = lambda url, timeout: io.BytesIO(b"  ")
     assert "empty" in real_fetch_book(tmp_path, opener=empty) and not path.exists()
     asked = []
@@ -236,6 +237,15 @@ def test_the_prompt_book_comes_with_install_pinned_and_the_test_waits_for_it(tmp
         asked.append(url)
         return io.BytesIO(book.encode())
     assert real_fetch_book(tmp_path, opener=served) is None and asked == [llama_benchy.BOOK_URL]
+    path.unlink()
+    asked.clear()
+
+    def mirror_only(url, timeout):                # gutenberg.org down (503, 2026-11-17): its own mirror answers
+        if url == llama_benchy.BOOK_URL:
+            raise OSError("HTTP Error 503: Service Unavailable")
+        return served(url, timeout)
+    assert real_fetch_book(tmp_path, opener=mirror_only) is None and asked == [llama_benchy.BOOK_MIRROR]
+    assert path.is_file() and llama_benchy.book_changed(tmp_path) is None
     with open(path, encoding="utf-8") as f:                              # read back as llama-benchy reads it
         assert f.read().startswith(llama_benchy.BOOK_MARK)
     assert real_book_missing(tmp_path) is None and real_fetch_book(tmp_path, opener=down) is None   # kept: not asked

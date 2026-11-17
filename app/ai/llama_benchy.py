@@ -56,6 +56,9 @@ COLUMNS = (("pp_throughput", "pp_tok_s", "tok/s", "pp (tok/s)"),
 # keeps for good (its corpus.py, 0.4.0). The owner's GEEKOM, 2026-11-17: gutenberg.org answered 503 on its first
 # run, so all 21 runs failed; now the Install button downloads it with the model and the tests wait for it.
 BOOK_URL = "https://www.gutenberg.org/files/1661/1661-0.txt"     # its default --book-url (Sherlock Holmes)
+# Project Gutenberg's own mirror (PGLAF, the foundation behind it), tried when gutenberg.org fails: it served exactly
+# the pinned text on 2026-11-17 while gutenberg.org answered 503 (the cache file keeps BOOK_URL's name)
+BOOK_MIRROR = "https://gutenberg.pglaf.org/1/6/6/1661/1661-0.txt"
 BOOK_MARK = "*** START OF THE PROJECT GUTENBERG EBOOK"             # it keeps the text from here
 # that text as served (CRLF lines), from the laptop's own copy of 2026-10-18; a newer version is used too, marked
 BOOK_SHA256 = "8a2f79a2f4601cfe6e25830c29c1a25c7a3d906285a989948117568f8077ab2c"
@@ -78,11 +81,16 @@ def fetch_book(home: Optional[Path] = None, opener: Callable = urllib.request.ur
     path = book_path(home)
     if path.is_file():
         return None
-    try:
-        with opener(BOOK_URL, timeout=60) as response:
-            data = response.read(5_000_000)
-    except (OSError, ValueError) as e:
-        return f"gutenberg.org did not send llama-benchy's prompt text ({e}); try Install again later"
+    failed = []
+    for url in (BOOK_URL, BOOK_MIRROR):
+        try:
+            with opener(url, timeout=60) as response:
+                data = response.read(5_000_000)
+            break
+        except (OSError, ValueError) as e:
+            failed.append(f"{url.split('/')[2]}: {e}")
+    else:
+        return f"Project Gutenberg did not send llama-benchy's prompt text ({'; '.join(failed)}); try Install again later"
     text = data.decode("utf-8", errors="replace")
     start = text.find(BOOK_MARK)
     text = text[start:] if start != -1 else text
