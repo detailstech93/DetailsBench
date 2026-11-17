@@ -26,14 +26,19 @@ def parts(results: List[Mapping], names: Mapping[str, str]) -> Dict[str, List[di
     by_key: Dict[str, List[Mapping]] = {}
     for pkg in results:
         by_key.setdefault(pkg["attribution"]["part_key"], []).append(pkg)
+    devices, also = _device_keys(results), {}
+    for pkg in results:                     # a device's page holds all it ran (rows() below): counted with it
+        device = pkg["pc"].get("system_key") or devices.get(pkg["pc"]["unit_id"])
+        if device in by_key and device != pkg["attribution"]["part_key"]:
+            also.setdefault(device, []).append(pkg)
     out: Dict[str, List[dict]] = {k: [] for k, _ in KINDS}
     for key, pkgs in by_key.items():
         kind = pkgs[0]["attribution"]["part"]
         if kind not in out:
             continue
         out[kind].append({"key": key, "name": part_name(pkgs, names),
-                          "results": sum(1 for p in pkgs if not p.get("deleted")),
-                          "deleted": sum(1 for p in pkgs if p.get("deleted")),
+                          "results": sum(1 for p in pkgs + also.get(key, []) if not p.get("deleted")),
+                          "deleted": sum(1 for p in pkgs + also.get(key, []) if p.get("deleted")),
                           "unnamed": "(not named yet)" in pkgs[0]["attribution"]["part_name"] and key not in names,
                           "kind": kind})
     for kind in out:
@@ -119,7 +124,11 @@ def rows(results: List[Mapping], part_key: str, names: Optional[Mapping[str, str
     in the library when the owner gave one."""
     names = names or {}
     devices = _device_keys(results)
-    pkgs = [p for p in results if p["attribution"]["part_key"] == part_key]
+    # a device's page holds everything run on it, its CPU's and card's results too, each marked measured or
+    # imported (owner, 2026-11-17: the K10's measured results sat on its CPU and GPU pages, apart from its imports)
+    device = part_key.startswith("system:")
+    pkgs = [p for p in results if p["attribution"]["part_key"] == part_key
+            or device and (p["pc"].get("system_key") or devices.get(p["pc"]["unit_id"])) == part_key]
     pkgs.sort(key=lambda p: (_version_key((p["attribution"].get("context") or {}).get("driver")),
                              p["session"].get("created_at") or p.get("created_at") or ""), reverse=True)
     pkgs.sort(key=lambda p: p["test"].get("name") or p["test"]["id"])
@@ -128,6 +137,9 @@ def rows(results: List[Mapping], part_key: str, names: Optional[Mapping[str, str
         a, r = p["attribution"], p["result"]
         stress = a.get("kind") == "stress"
         flags = list(a.get("flags") or []) + (["noisy"] if r.get("noisy") else []) + list(a.get("guessed") or [])
+        source = "imported" if p["pc"]["unit_id"].startswith("imported-") else "measured"     # the sheets' units
+        if device and source not in flags:
+            flags.insert(0, source)
         out.append({"package_id": p["package_id"], "test": p["test"].get("name") or p["test"]["id"],
                     "result": (r.get("text") or "-") if a.get("kind") == "info" else stress_text(p) if stress
                     else f"{_number(r.get('mean'))} {p['test'].get('unit') or ''}".strip(),

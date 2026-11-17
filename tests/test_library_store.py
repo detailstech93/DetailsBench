@@ -449,3 +449,25 @@ def test_an_imported_device_with_a_measured_devices_name_is_that_device():
                ("system:a:x1", "Twin"), ("system:b:x2", "Twin"), ("system:imported:twin", "Twin")]
     # two measured devices of one name: which one is not known, so the imported one stays apart
     assert same_devices(systems) == {"system:imported:gmktec-nucbox-k10": "system:gmktec:nucbox-k10"}
+
+
+def test_a_devices_page_holds_all_it_ran_marked_measured_or_imported():
+    """Owner, 2026-11-17: the K10's measured results sat on its CPU and GPU pages, apart from its imported ones;
+    one device, each result marked measured or imported."""
+    from app.library import view
+
+    def p(unit, part, key, test, flags=()):
+        return {"package_id": f"{unit}_{test}", "created_at": "2026-11-01T10:00:00",
+                "pc": {"unit_id": unit, "system_key": "system:gmktec:nucbox-k10"},
+                "session": {"created_at": "2026-11-01T10:00:00"},
+                "test": {"id": test, "name": test, "unit": "points"},
+                "attribution": {"part": part, "part_key": key, "part_name": key, "flags": list(flags)},
+                "result": {"mean": 1.0}}
+    results = [p("bdf9", "cpu", "cpu:i9", "cinebench"), p("bdf9", "system", "system:gmktec:nucbox-k10", "stress"),
+               p("imported-gmktec-nucbox-k10", "system", "system:gmktec:nucbox-k10", "geekbench", ["imported"])]
+    rows = view.rows(results, "system:gmktec:nucbox-k10")
+    assert sorted((r["test"], r["notes"]) for r in rows) == [
+        ("cinebench", "measured"), ("geekbench", "imported"), ("stress", "measured")]
+    assert [r["notes"] for r in view.rows(results, "cpu:i9")] == [""]          # a part's page as before
+    listed = {x["key"]: x["results"] for kind in view.parts(results, {}).values() for x in kind}
+    assert listed == {"system:gmktec:nucbox-k10": 3, "cpu:i9": 1}
