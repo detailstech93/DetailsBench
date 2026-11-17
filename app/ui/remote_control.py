@@ -47,6 +47,9 @@ MAX_REPORTS = 15
 TITLE = re.compile(r"<title>(?:Benchmark report: )?(.*?)</title>", re.S)
 
 
+LONG_CHOICES = ("Go on", "Skip")      # the long test's question on the phone page
+
+
 def report_title(path: Path) -> str:
     """What a report is about (the tests, from its <title>), for the page's list; "" when unreadable."""
     import html
@@ -529,6 +532,10 @@ class RemoteApi:
         out["installed"] = list(getattr(flow, "installed_ids", [])) if flow is not None and flow.busy() else []
         from app.frames import windows_prompt
         out["windows_question"] = windows_prompt.asked()     # a Firewall question over a game (2026-11-13)
+        long = getattr(panel, "long_question", None)        # a test far over its usual time (2026-11-17)
+        if long and not out["windows_question"]:
+            out["windows_question"] = {"title": "This test takes long", "choices": list(LONG_CHOICES),
+                                       "text": long[0] + ". Go on and wait for all its runs?"}
         if out["scanning"]:
             out["text"] = SCANNING_TEXT
         return out
@@ -587,6 +594,12 @@ class RemoteApi:
     def answer_windows(self, choice: str) -> Tuple[bool, str]:
         """The owner's tap on a Windows question over a game: clicked on the PC by the game's menu steps."""
         from app.frames import windows_prompt
+        if choice in LONG_CHOICES:
+            panel = self.window.automation_panel
+            if not self.main.run(lambda: panel.answer_long(choice == LONG_CHOICES[0])):
+                return False, "That question is no longer on the PC's screen."
+            logger.info("Long test: %s tapped on the phone page", choice)
+            return True, f"{choice}: done."
         if not windows_prompt.answer(choice):
             return False, "That question is no longer on the PC's screen."
         logger.info("Windows question over the game: %s tapped on the phone page", choice)

@@ -120,7 +120,7 @@ a { color:var(--accent); }
     <div id="stepText" class="muted"></div>
     <div class="bar"><div id="bar"></div><span id="barText"></span></div>
     <div class="times muted"><span id="elapsed"></span><span id="left"></span></div>
-    <div id="winq" class="winq hidden"><b>Windows asks at the PC</b><p id="winqText"></p>
+    <div id="winq" class="winq hidden"><b id="winqTitle">Windows asks at the PC</b><p id="winqText"></p>
       <div class="row" id="winqButtons"></div></div>
     <div id="plan" class="plan hidden"></div>
     <div class="row" style="margin-top:12px">
@@ -624,10 +624,11 @@ function showWindowsQuestion(q) {
   if (!q) { winqShown = ""; document.title = "DetailsBench: remote"; return; }
   if (q.text === winqShown) return;
   winqShown = q.text;
+  $("winqTitle").textContent = q.title || "Windows asks at the PC";
   $("winqText").textContent = q.text;
   $("winqButtons").replaceChildren(...q.choices.map((c) => {
     const b = el("button", c);
-    if (c === "Allow") b.className = "go";
+    if (c === "Allow" || c === "Go on") b.className = "go";
     b.onclick = async () => {
       try { $("message").textContent = (await (await call("/api/windows", { choice: c })).json()).text || ""; }
       catch (e) { if (e.message !== "code") $("message").textContent = "The PC does not answer."; }

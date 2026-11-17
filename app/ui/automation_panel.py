@@ -655,17 +655,32 @@ class AutomationPanel(QGroupBox):
         finally:
             done.set()
 
+    long_question = None                    # (text, answer, box) while a long test's question waits
+
     @Slot(str, object)
     def _on_long_asked(self, text: str, answer: dict):
-        try:
-            answer["go_on"] = QMessageBox.question(
-                self, "This test takes long", text + ".\n\nGo on and wait for all its runs?",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes) == QMessageBox.Yes
-        finally:
-            answer["done"].set()
+        """Asked at the PC and on the phone page (owner, 2026-11-17); the first answer counts, the other closes."""
+        box = QMessageBox(QMessageBox.Question, "This test takes long",
+                          text + ".\n\nGo on and wait for all its runs?", QMessageBox.Yes | QMessageBox.No, self)
+        box.setDefaultButton(QMessageBox.Yes)
+        self.long_question = (text, answer, box)
+        box.finished.connect(lambda _code: self.answer_long(box.standardButton(box.clickedButton()) == QMessageBox.Yes))
+        box.open()
+
+    def answer_long(self, go_on: bool) -> bool:
+        """The long test's answer (PC or phone); False when no question waits."""
+        if self.long_question is None:
+            return False
+        _text, answer, box = self.long_question
+        self.long_question = None
+        answer["go_on"] = go_on
+        answer["done"].set()
+        box.close()
+        return True
 
     @Slot(object)
     def _on_finished(self, summary):
+        self.answer_long(False)                 # stopped while it asked: the question goes away
         from app.frames import admin_helper
         if getattr(self, "_own_helper", False):
             admin_helper.end()              # the helper this run started ends with it (a line's own one stays)

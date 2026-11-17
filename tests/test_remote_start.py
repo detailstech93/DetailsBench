@@ -856,3 +856,31 @@ def test_an_install_of_several_tests_takes_no_more_in_line_but_shows_each_ones_p
     one = SimpleNamespace(queue_open=lambda: True, queued_ids=lambda: ["fio"])     # a single install still takes them
     w.install_flow = one
     assert w._queueing_flow() is one and MainWindow.queued_installs(w) == ["fio"]
+
+
+def test_a_long_tests_question_is_answered_at_the_pc_or_on_the_phone(qapp):
+    """Owner, 2026-11-17: the question of a test far over its usual time shows on the phone too; the first answer
+    counts and the other place's question goes away."""
+    import threading
+    from PySide6.QtWidgets import QMessageBox, QWidget
+    from app.ui.automation_panel import AutomationPanel
+    from app.ui.remote_control import RemoteApi
+
+    class Panel(QWidget):
+        long_question = None
+        ask = AutomationPanel._on_long_asked
+        answer_long = AutomationPanel.answer_long
+    panel = Panel()
+    api = RemoteApi(SimpleNamespace(automation_panel=panel), SimpleNamespace(run=lambda fn: fn()))
+    assert api.answer_windows("Go on")[0] is False                  # nothing asked
+    answer = {"done": threading.Event(), "go_on": True}
+    panel.ask("MLPerf: one run took 47 min", answer)
+    box = panel.long_question[2]
+    assert box.isVisible() and "Go on and wait" in box.text()
+    assert api.answer_windows("Skip") == (True, "Skip: done.")      # tapped on the phone
+    assert answer["done"].is_set() and answer["go_on"] is False and not box.isVisible()
+    assert panel.long_question is None
+    answer = {"done": threading.Event(), "go_on": False}
+    panel.ask("MLPerf: one run took 47 min", answer)
+    panel.long_question[2].button(QMessageBox.Yes).click()  # answered at the PC
+    assert answer["done"].is_set() and answer["go_on"] is True and api.answer_windows("Go on")[0] is False
