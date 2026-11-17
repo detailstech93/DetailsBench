@@ -179,6 +179,10 @@ class MlperfClientWorkload(Workload):
         host = host or this_host()
         if host.os == "windows" and host.arch == "arm64":
             return "MLPerf Client on Windows ARM has Qualcomm NPU configs only, which the app does not run"
+        # a scenario with no config for this PC's graphics card is hidden like another OS's test (owner's GEEKOM,
+        # 2026-11-17: Phi-4 reasoning ships Intel and NVIDIA configs only); known once the tool is installed
+        if self.exe and not self.config:
+            return pick_config(self.exe.parent, self.folder, self._gpus())[1]
         return None
 
     @property

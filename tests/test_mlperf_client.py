@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 from app.ai import mlperf_client
+from app.install.plans import Host
 from app.automation.workload import RunContext
 
 # trimmed from a real MLPerf Client 2.0.1 results.json (phi4mini, llama.cpp CUDA, 2026-10-18)
@@ -122,6 +123,9 @@ def test_each_scenario_picks_the_config_of_this_pcs_graphics_card(tmp_path):
     ok, why = reason.availability()
     assert not ok and why == "MLPerf Client has no GPU config for NVIDIA, AMD in llm/extended/phi4reason"
     assert reason.describe_command() is None       # the tests table showed no test at all (GEEKOM, 2026-11-17)
+    # hidden like another OS's test: no config for this graphics card (owner, 2026-11-17)
+    assert reason.system_blocks(host=Host("windows", "x64")) == why and w.system_blocks(host=Host("windows", "x64")) is None
+    assert mlperf_client.MlperfClientWorkload(exe=None, test_id="mlperf_client_phi4reason", gpus=both).system_blocks(host=Host("windows", "x64")) is None
     assert reason.timeout_seconds == 7200
     none = mlperf_client.MlperfClientWorkload(exe=exe, test_id="mlperf_client_qwen3", gpus=lambda: [])
     assert none.availability() == (False, "no NVIDIA, AMD or Intel graphics card found")
