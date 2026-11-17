@@ -147,7 +147,7 @@ INSTALLERS: Dict[str, dict] = {
             "sha256": "3be696c1cc44907f2ea73aac35de4a5d45048255308f34ed4410a743163a4f87",
             "folder": "y-cruncher-0.8.7.9547b", "exe": "y-cruncher v0.8.7.9547b/y-cruncher.exe",
             "note": "About 160 MB once extracted. Before its first run the app shows y-cruncher's license and asks "
-                    "you to accept it. It needs Microsoft's Visual C++ runtime (most PCs have it)."}},
+                    "you to accept it.", "then": "vcredist"}},
         "linux": {"arch": ["x64"], "zip": {
             "product": "y-cruncher (Linux x64, static)", "version": "0.8.7.9547",
             "url": "https://cdn.numberworld.org/y-cruncher-downloads/y-cruncher%20v0.8.7.9547-static.tar.xz",
@@ -291,6 +291,10 @@ _MLPERF = {"windows": {"arch": ["x64"], "zip": {
 for _id in ("mlperf_client", "mlperf_client_llama31", "mlperf_client_phi4reason", "mlperf_client_qwen3"):
     INSTALLERS[_id] = _MLPERF
 INSTALLERS["ycruncher_pi_2_5b"] = INSTALLERS["ycruncher_pi_1b"]
+# Microsoft's Visual C++ runtime, installed after y-cruncher when System32's MSVCP140.dll is too old (app/pro/
+# ycruncher.py): winget's Microsoft.VCRedist.2015+.x64, from download.visualstudio.microsoft.com (read 2026-11-17)
+INSTALLERS["vcredist_x64"] = {"windows": {"winget": "Microsoft.VCRedist.2015+.x64",
+                                          "hosts": ["download.visualstudio.microsoft.com"], "arch": ["x64"]}}
 INSTALLERS["handbrake_x265_1080p"] = INSTALLERS["handbrake_x264_1080p"]
 
 # HandBrakeCLI 1.11.2 (2026-06-07), installed after the clip (app/pro/handbrake.py). Windows: the zips of HandBrake's

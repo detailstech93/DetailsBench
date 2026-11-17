@@ -7,6 +7,8 @@ import threading
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from app.automation.workload import RunContext
 from app.install import direct, plans
 from app.pro import ycruncher as yc
@@ -15,6 +17,47 @@ from app.report import _ycruncher_section
 # the line Phoronix Test Suite's y-cruncher profile reads (its results-definition.xml)
 OUTPUT = ("Benchmark Pi\nTotal Computation Time:     41.917 seconds  ( 0.699 minutes )\n"
           "Start-to-End Wall Time:     43.188 seconds  ( 0.720 minutes )\n")
+
+
+@pytest.fixture(autouse=True)
+def new_runtime(monkeypatch):
+    """Not this PC's own MSVCP140.dll: a new enough one unless a test says otherwise."""
+    monkeypatch.setattr(yc, "runtime_version", lambda read=None: "14.50.35710.0")
+
+
+def test_an_old_visual_cpp_runtime_is_installed_by_ycrunchers_install(monkeypatch, tmp_path):
+    # owner's GEEKOM, 2026-11-17: MSVCP140.dll 14.0.24212.0 crashed y-cruncher at once (0xC0000005), 8 invalid runs
+    from app.install import winget
+    from app.ui.install_flow import THEN
+    assert plans.plan_for("ycruncher_pi_2_5b", host=plans.Host("windows", "x64"))["then"] == "vcredist"
+    assert "vcredist" in THEN
+    monkeypatch.setattr(yc, "_os_key", lambda: "windows")
+    assert yc.runtime_old() is None and "new enough" in yc.runtime_install_text()
+    calls = []
+    assert yc.install_runtime(describe=calls.append).ok and calls == []         # new enough: nothing installed
+    versions = ["14.0.24212.0"]
+    monkeypatch.setattr(yc, "runtime_version", lambda read=None: versions[-1])
+    exe = tmp_path / "y-cruncher.exe"
+    exe.write_bytes(b"")
+    ok, why = yc.YCruncherWorkload(exe=exe, data_dir=tmp_path).availability()
+    assert not ok and "14.0.24212.0" in why and "Install" in why
+    assert "Microsoft.VCRedist.2015+.x64" in yc.runtime_install_text() and "administrator" in yc.runtime_install_text()
+
+    def install(pkg):
+        calls.append(pkg)
+        versions.append("14.50.35710.0")
+        return winget.Outcome(True, "done")
+    out = yc.install_runtime(describe=lambda test_id: test_id, install=install)
+    assert out.ok and calls == ["vcredist_x64"] and "Visual C++" in out.message
+    versions.append("14.0.24212.0")         # the installer ended but the DLL is still old: not ready
+    out = yc.install_runtime(describe=lambda test_id: test_id, install=lambda pkg: winget.Outcome(True, "done"))
+    assert not out.ok and "restart Windows" in out.message
+    out = yc.install_runtime(describe=lambda t: t, install=lambda pkg: winget.Outcome(False, "UAC said no"))
+    assert not out.ok and "UAC said no" in out.message
+    monkeypatch.setattr(yc, "runtime_version", lambda read=None: None)          # no MSVCP140.dll at all
+    assert "none" in yc.runtime_old()
+    monkeypatch.setattr(yc, "_os_key", lambda: "linux")
+    assert yc.runtime_old() is None
 
 
 def test_pinned_on_the_authors_server_for_windows_and_linux_x64():

@@ -22,10 +22,11 @@ whichever has it. Not checked on a real run here yet, so the tests are not marke
 License (Read Me.txt and numberworld.org/y-cruncher/license.html): free for non-commercial use and for academic
 use including technology reviews, even commercial ones; other commercial use needs the author's permission. The
 app asks the owner once (app/ui/run_tests.py) and keeps the answer in settings.json. Nothing is uploaded.
-Windows: the build is not statically linked any more, so a PC without Microsoft's Visual C++ runtime cannot start
-it (the run says so).
+Windows: the build is not statically linked any more, so it needs Microsoft's Visual C++ runtime, 14.40 or newer;
+an older one makes the test show why, and the Install button installs Microsoft's (winget) after y-cruncher.
 """
 
+import os
 import re
 import subprocess
 import sys
@@ -51,6 +52,56 @@ DETAILS = (("Start-to-End Wall Time", re.compile(r"Start-to-End Wall Time:\s*([0
            ("Tuning profile", re.compile(r"^\s*Tuning Profile:\s*(.+?)\s*$", re.I | re.M)),
            ("Logical cores", re.compile(r"^\s*Logical Cores:\s*(\d+)\s*$", re.I | re.M)))
 DLL_MISSING = (0xC0000135, -1073741515, 0xC000007B, -1073741701)     # a DLL not found / the wrong one
+
+
+# MSVCP140.dll 14.0.24212 (VC++ 2015 Update 3) crashed 0.8.7.9547b at once with 0xC0000005 (owner's GEEKOM,
+# 2026-11-17); programs built with Visual Studio 2022 17.10 or later need 14.40 or newer
+RUNTIME_MIN = (14, 40)
+RUNTIME_DLL = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "MSVCP140.dll"
+
+
+def runtime_version(read=None) -> Optional[str]:
+    """MSVCP140.dll's version in System32, or None when it is missing (Windows)."""
+    from app.benchmark_manager import get_pe_version
+    return (read or get_pe_version)(str(RUNTIME_DLL))
+
+
+def runtime_old(read=None) -> Optional[str]:
+    """Why Microsoft's Visual C++ runtime here is too old for y-cruncher, or None (always None off Windows)."""
+    if _os_key() != "windows":
+        return None
+    version = runtime_version(read)
+    parts = tuple(int(p) for p in re.findall(r"\d+", version or "")[:2])
+    if parts >= RUNTIME_MIN:
+        return None
+    return (f"Microsoft's Visual C++ runtime here ({version or 'none'}) is too old for y-cruncher: "
+            f"{RUNTIME_MIN[0]}.{RUNTIME_MIN[1]} or newer is needed (Install button)")
+
+
+def runtime_install_text(read=None) -> str:
+    """What the Install button does after y-cruncher (shown before the owner says Yes)."""
+    why = runtime_old(read)
+    if not why:
+        return "Microsoft's Visual C++ runtime here is new enough for it."
+    return (why.split(" (Install")[0] + ". So then Microsoft's Visual C++ Redistributable (x64), with Windows "
+            "Package Manager (winget Microsoft.VCRedist.2015+.x64) from Microsoft's own server: Windows may show "
+            "an administrator prompt on the PC, someone must press Yes there.")
+
+
+def install_runtime(exe=None, progress=lambda text: None, read=None, describe=None, install=None):
+    """After y-cruncher: Microsoft's Visual C++ runtime when it is too old (winget.Outcome)."""
+    from app.install import winget
+    if not runtime_old(read):
+        return winget.Outcome(True, "y-cruncher is ready.")
+    progress("Installing Microsoft's Visual C++ runtime (Windows may ask for administrator rights)...")
+    pkg = (describe or winget.describe)("vcredist_x64")
+    outcome = (install or winget.install)(pkg)
+    if outcome.ok and runtime_old(read):
+        return winget.Outcome(False, "y-cruncher was installed; the Visual C++ runtime installer ended, but "
+                                     f"{RUNTIME_DLL.name} is still older than "
+                                     f"{RUNTIME_MIN[0]}.{RUNTIME_MIN[1]}: restart Windows, then Rescan.")
+    return winget.Outcome(outcome.ok, "y-cruncher and Microsoft's Visual C++ runtime are ready." if outcome.ok
+                          else "y-cruncher was installed; " + outcome.message)
 
 
 def _os_key() -> str:
@@ -148,6 +199,9 @@ class YCruncherWorkload(Workload):
             return False, "y-cruncher's builds are for Windows and Linux only"
         if not self.exe:
             return False, "y-cruncher is not installed (Install button)"
+        old = runtime_old()
+        if old:
+            return False, old
         return True, str(self.exe)
 
     def executable(self) -> Tuple[Optional[str], str]:

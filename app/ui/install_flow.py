@@ -63,11 +63,22 @@ def _handbrake_install(clip, progress):
     return handbrake.install_cli(clip, progress)
 
 
+def _vcredist_text() -> str:
+    from app.pro import ycruncher
+    return ycruncher.runtime_install_text()
+
+
+def _vcredist_install(exe, progress):
+    from app.pro import ycruncher
+    return ycruncher.install_runtime(exe, progress)
+
+
 # what the same Install button downloads after a "zip" tool ("then" in data/installers.py): (text for the
 # question, download(exe, progress) -> winget.Outcome)
 THEN = {"blender_content": (_blender_text, _blender_download),
         "ncurses5": (_ncurses_text, _ncurses_install),
-        "handbrake_cli": (_handbrake_text, _handbrake_install)}
+        "handbrake_cli": (_handbrake_text, _handbrake_install),
+        "vcredist": (_vcredist_text, _vcredist_install)}
 
 
 REMOTE_KINDS = ("zip", "lmstudio", "winget", "linux")
