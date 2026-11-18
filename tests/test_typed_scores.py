@@ -90,6 +90,16 @@ def test_every_typed_score_is_its_own_measured_manual_run():
     assert run_tests.record_scores(w, bm, 3, ask=lambda *a, **k: None) is None and len(w.db.rows) == 3
 
 
+def test_typed_scores_are_sent_to_the_library(monkeypatch):
+    """GEEKOM, 2026-11-18: 3DMark typed in a manual session never reached the library."""
+    from app.library import sync
+    sent = []
+    monkeypatch.setattr(sync, "after_run", lambda window, sid: sent.append(sid))
+    bm = SimpleNamespace(name="d3dmark", display_name="3DMark", version="1", type=SimpleNamespace(value="gpu"))
+    run_tests.record_scores(_window(), bm, 1, ask=lambda *a, **k: {"scores": [5.0], "unit": "points", "note": ""})
+    assert sent == [9]
+
+
 def test_a_typed_test_asks_how_many_runs_before_it_starts(monkeypatch):
     launched, offered = [], []
     w = SimpleNamespace(automation_panel=SimpleNamespace(is_running=lambda: False),

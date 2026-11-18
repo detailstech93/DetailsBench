@@ -1122,6 +1122,8 @@ class MainWindow(QMainWindow):
         self.run_log.append(f"Saved {kind} run #{run_index} of {values.get('display_name') or bm.display_name} in "
                             f"session #{sid}: {values['status']}, {score} [MANUAL]")
         self.refresh_history_screen()
+        from app.library.sync import after_run
+        after_run(self, sid)                # a typed result goes to the library too (2026-11-18)
         return sid
 
     def _create_run_tab(self) -> QWidget:

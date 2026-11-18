@@ -1124,6 +1124,8 @@ def typed_followup(window, entry: TestEntry, session_id: int, opener=None, ask=N
             logger.exception("Could not save the typed score")
             window.status_label.setText(f"The score was NOT saved: {e}")
             return None
+        from app.library.sync import after_run
+        after_run(window, session_id)       # typed after the run ended: sent again (GEEKOM s31, 2026-11-18)
         from app.ui import reports_folder
         folder = reports_folder.folder(window)
         if folder is None:
@@ -1164,6 +1166,8 @@ def record_scores(window, bm, count: int, ask=None) -> Optional[int]:
     window.run_log.append(f"Saved {len(values['scores'])} measured run(s) of "
                           f"{values.get('display_name') or bm.display_name} in session #{sid} [MANUAL]")
     window.refresh_history_screen()
+    from app.library.sync import after_run
+    after_run(window, sid)                  # typed scores go to the library too (GEEKOM 3DMark, 2026-11-18)
     return sid
 
 
