@@ -70,6 +70,7 @@ class Win32Desktop:
         self.user32.GetWindowThreadProcessId.restype = w.DWORD
         self.user32.GetForegroundWindow.restype = w.HWND
         self.user32.PostMessageW.argtypes = [w.HWND, w.UINT, w.WPARAM, w.LPARAM]
+        self.user32.GetWindowRect.argtypes = [w.HWND, ctypes.POINTER(w.RECT)]
 
     # processes
     def start(self, command: List[str], cwd: Optional[str]) -> psutil.Process:
@@ -262,8 +263,36 @@ class Win32Desktop:
                     logging.getLogger(__name__).warning("Display capture not available: %s", e)
             if shown is not None:
                 width, height, bgra = shown
+        bgra = mask_outside(bgra, width, height, self._front_rect())
         write_png(path, width, height, bgra)
         return width, height
+
+    def _front_rect(self) -> Optional[Tuple[int, int, int, int]]:
+        """(left, top, right, bottom) of the window in front, or None when there is none."""
+        hwnd = self.user32.GetForegroundWindow()
+        r = self.w.RECT()
+        if not hwnd or not self.user32.GetWindowRect(hwnd, ctypes.byref(r)):
+            return None
+        return r.left, r.top, r.right, r.bottom
+
+
+def mask_outside(bgra: bytes, width: int, height: int, rect) -> bytes:
+    """Black everywhere outside rect (the window in front), so only its words are read; positions stay the screen's.
+
+    GEEKOM, 2026-11-18: RDR2 at 1280x720 in a window waited on its "Running benchmark tests" alert for the whole run
+    while the app's own Stop button and a report open in Edge ("Average") were read as the game's words. A window
+    covering the whole screen, or none, leaves the picture as it is."""
+    if not rect:
+        return bgra
+    left, top = max(0, rect[0]), max(0, rect[1])
+    right, bottom = min(width, rect[2]), min(height, rect[3])
+    if right <= left or bottom <= top or (left, top, right, bottom) == (0, 0, width, height):
+        return bgra
+    out = bytearray(len(bgra))
+    for y in range(top, bottom):
+        a, b = (y * width + left) * 4, (y * width + right) * 4
+        out[a:b] = bgra[a:b]
+    return bytes(out)
 
 
 def write_png(path, width: int, height: int, bgra: bytes) -> None:
