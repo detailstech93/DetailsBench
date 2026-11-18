@@ -1143,6 +1143,7 @@ class GameBenchmark:
             done["t_close"] = self.clock()
         done["started"] = dict(self._started)
         from data.game_start_keys import after_crash_close
+        from app.frames import game_close
         names = after_crash_close(spec.app_id)
         if names and done.get("crashed"):
             try:

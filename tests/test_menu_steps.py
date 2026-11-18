@@ -681,7 +681,9 @@ def test_an_out_of_memory_crash_is_named_ends_the_runs_and_closes_the_launcher(t
                           exe_lister=lambda folder: ["Game.exe"],
                           step_player=lambda st: FakeSteps(fakes, mark_after=30), screen_reader=reader)
     asked = []
-    bench.close_named = lambda names, **kw: asked.append((names, kw)) or ["Launcher.exe"]
+    # the app's own close_named (not set on the bench): it was never imported there (GEEKOM, 2026-11-18)
+    import app.frames.game_close as game_close
+    monkeypatch.setattr(game_close, "close_named", lambda names, **kw: asked.append((names, kw)) or ["Launcher.exe"])
     cap = bench.run()
     assert asked[0] == (["Launcher.exe"], {"since": asked[0][1]["since"], "grace_seconds": 20.0})   # the warm-up
     assert asked[1] == (["Launcher.exe"], {})                                                       # the crash
