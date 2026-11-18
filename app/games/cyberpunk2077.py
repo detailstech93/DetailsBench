@@ -229,12 +229,13 @@ def screen_positions(data, modes=None) -> Dict[str, int]:
     never saved can be asked for (owner, 2026-11-17: 1280x720 on the GEEKOM ran at 1080p). Used only when every
     position the game did save matches that order; else {}. A wrong guess still fails the run: the game's own
     report says what it drew (size_problem) and the file is read back after (verify).
-    The game's list leaves out sizes under 1024 wide: this laptop's 19 modes put 1920x1080 at 15, the game at 13
-    (2026-11-18). Only the file's own value is checked: positions learned earlier may be from another screen."""
+    The game's list leaves out sizes under 1024 wide or 720 tall: the laptop's screen puts 1920x1080 at 13, the
+    GEEKOM's at 7 (its 1128x634 left out), as each game file saved (2026-11-18). Only the file's own value is
+    checked: positions learned earlier may be from another screen."""
     if modes is None:
         from app.games import screen_modes
         modes = screen_modes.resolutions()
-    names = [f"{w}x{h}" for w, h in sorted(modes or ()) if w >= 1024]
+    names = [f"{w}x{h}" for w, h in sorted(modes or ()) if w >= 1024 and h >= 720]
     opt = find_option(data, *SETTINGS["resolution"]) or {}
     value, index = opt.get("value"), opt.get("index")
     if value not in names or names.index(value) != index:
