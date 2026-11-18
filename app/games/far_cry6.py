@@ -102,8 +102,18 @@ def observed_indices(data):
 merge_indices = ts.merge_indices
 
 
+def _screens() -> set:
+    """Every "WxH" the screens offer: the game takes any of them in Fullscreen (owner, 2026-11-18: 1920x1080 chosen
+    on the GEEKOM was dropped as never seen, the game had only saved 1280x720, and the run stayed at 720)."""
+    from app.games import screen_modes
+    return {f"{w}x{h}" for w, h in screen_modes.resolutions() or ()}
+
+
 def choices(data, known):
-    return ts.choices(SETTINGS, get, data, known)
+    out = ts.choices(SETTINGS, get, data, known)
+    if "resolution" in out:
+        out["resolution"] = sorted(set(out["resolution"]) | _screens())
+    return out
 
 
 FULL_SCREEN = "1"           # RenderProfile VideoModeProfile 1: the menu showed Fullscreen (2026-10-23)
@@ -112,6 +122,9 @@ NOT_FULL_SCREEN = ("the game is not in full screen (VideoModeProfile {mode}); th
 
 
 def plan(data, desired, known):
+    want = (desired or {}).get("resolution")
+    if want in _screens():      # a resolution the screen offers is written even if the game never saved it
+        known = ts.merge_indices(known, {"resolution": {want: 0}})
     changes, refused = ts.plan(SETTINGS, get, data, desired, known)
     if "resolution" in (desired or {}) and "resolution" not in refused:
         mode = (desired or {}).get("window_mode", get(data, "RenderProfile@VideoModeProfile"))

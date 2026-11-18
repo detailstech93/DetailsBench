@@ -82,6 +82,21 @@ def test_far_cry_6_resolution_only_in_full_screen():
     assert changes == [] and "not in full screen" in refused["resolution"]
 
 
+def test_far_cry_6_takes_a_resolution_the_screen_offers_though_never_saved(monkeypatch):
+    """Owner, 2026-11-18: 1920x1080 chosen for the GEEKOM's whole queue; Far Cry 6 had only saved 1280x720 and ran
+    at 720."""
+    from app.games import screen_modes
+    monkeypatch.setattr(screen_modes, "resolutions", lambda: {(1280, 720), (1920, 1080)})
+    at720 = PROFILE.replace('width="1920" height="1080" />\n<VideoModeProfileWindow',
+                            'width="1280" height="720" />\n<VideoModeProfileWindow')
+    assert fc6.read_settings(at720)["resolution"] == "1280x720"
+    assert "1920x1080" in fc6.choices(at720, {})["resolution"]
+    changes, refused = fc6.plan(at720, {"resolution": "1920x1080"}, {})
+    assert refused == {} and [c.new for c in changes] == ["1920x1080"]
+    assert fc6.read_settings(fc6.apply(at720, changes))["resolution"] == "1920x1080"
+    assert "resolution" in fc6.plan(at720, {"resolution": "3840x2160"}, {})[1]      # not on the screen: refused
+
+
 def test_the_conditions_come_from_the_games_file_and_the_screen(tmp_path):
     folder = tmp_path / "My Games" / "Far Cry 6"
     folder.mkdir(parents=True)
