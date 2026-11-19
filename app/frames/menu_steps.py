@@ -17,6 +17,10 @@ the step expects was read on the screen (app/frames/screen_text.py), and only in
         behind it, SOTTR): the lit item is read again after each Down or Up. A menu that opens on another
         item than last time (SOTTR, 2026-11-11: Down Down from a lit Options reached Quit Game) is still
         reached; when no lit item can be told, nothing is pressed and the run stops
+        "lit": "bright" tells the lit item by a bright box instead (Far Cry 6); "wake": "down" presses that key
+        while no item is lit yet (a menu lit only once a key is pressed), never Enter
+    {"see": "options", "within": 30, "click": "options", "linux": {"click": None, "pick": "options", ...}}
+        "linux": this step's keys on Linux (None takes one out): a game under Proton may not take clicks
     {"press": "up, up, left, left, down, enter"}      chords one after another (PAUSE_SECONDS apart)
     {"hold": "x", "seconds": 1.5}                    hold a key (some menus need a long press)
     {"wait": 3}                                      let the menu open
@@ -35,6 +39,7 @@ run fails with what was last seen, and that screenshot stays in the run folder. 
 the capture loop keeps its timing.
 """
 
+import sys
 import threading
 import time
 from pathlib import Path
@@ -122,8 +127,9 @@ def _word_box(lines, word):
     return None
 
 
-def lit_word(image_path, lines, menu) -> Optional[str]:
+def lit_word(image_path, lines, menu, style: str = "bar") -> Optional[str]:
     """The item of `menu` with an orange-red bar behind it (SOTTR's lit item), or None when none clearly is.
+    style "bright": the item whose box is filled bright (dark letters on it), for Far Cry 6's menus.
     An item is found by its first word (OCR may misread the rest)."""
     from PySide6.QtGui import QImage
     image = QImage(str(image_path))
@@ -140,8 +146,16 @@ def lit_word(image_path, lines, menu) -> Optional[str]:
             for py in range(max(0, y), min(image.height(), y + h), 3):
                 c = image.pixelColor(px, py)
                 total += 1
-                hits += c.red() > 120 and c.red() > 1.6 * c.green() and c.red() > 1.8 * c.blue()
+                if style == "bright":
+                    hits += c.lightness() > 170
+                else:
+                    hits += c.red() > 120 and c.red() > 1.6 * c.green() and c.red() > 1.8 * c.blue()
         scores[item] = hits / total if total else 0.0
+    if style == "bright":           # white letters on a dark box light up part of it: a lit box is mostly bright
+        best = max(scores, key=scores.get, default=None)
+        if best is None or scores[best] < 0.6 or any(v > 0.5 * scores[best] for k, v in scores.items() if k != best):
+            return None
+        return best
     best = max(scores, key=scores.get, default=None)
     if best is None or scores[best] < 0.15 or any(v > scores[best] / 2 for k, v in scores.items() if k != best):
         return None
@@ -162,6 +176,7 @@ class StepPlayer:
                  reader: Callable = read_screen, stop: Optional[threading.Event] = None, lit: Callable = lit_word):
         self.steps = steps
         self.lit = lit
+        self.platform = sys.platform
         self.desktop = desktop
         self.in_front = in_front
         self.folder = Path(folder)
@@ -213,6 +228,10 @@ class StepPlayer:
         return f"{self.clock() - self._t0:.0f} s"
 
     def _step(self, i: int, step: dict) -> None:
+        if self.platform.startswith("linux") and isinstance(step.get("linux"), dict):
+            # Linux's own way for this step (Far Cry 6, 2026-11-19: under Proton the game did not take the app's
+            # clicks, its cursor stayed in the middle; keys reached it): None takes a key out
+            step = {k: v for k, v in {**step, **step["linux"]}.items() if v is not None}
         if "see" in step or "gone" in step:
             found = self._see(i, step)
             if found is None:
@@ -364,12 +383,19 @@ class StepPlayer:
         target = str(step["pick"]).lower()
         self.desktop.mouse_to(*PARK_POINT)          # an item under the mouse lights up
         moves = misses = 0
+        style = {"style": step["lit"]} if "lit" in step else {}
+        wake = str(step.get("wake", ""))        # a menu with no lit item until a key is pressed (Far Cry 6)
         while True:
             if self.stop.is_set():
                 raise _Stop("stopped")
             lines, error = self.reader(self.desktop, self.folder / "screen.png")
             self._log(i, lines, error)
-            lit = None if error else self.lit(self.folder / "screen.png", lines, menu)
+            lit = None if error else self.lit(self.folder / "screen.png", lines, menu, **style)
+            if lit is None and wake and not error and moves < 2 * len(menu):
+                self._press(wake, step.get("tap"))     # an arrow key: lights an item, never chooses one
+                moves += 1
+                self.sleep(PAUSE_SECONDS)
+                continue
             if lit is None:
                 misses += 1
                 if misses >= PICK_READS:

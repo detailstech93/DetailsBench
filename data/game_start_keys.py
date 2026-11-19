@@ -105,7 +105,12 @@ GAME_MENU_STEPS: Dict[int, dict] = {
             {"see": "options", "within": 300,
              "dismiss": {"government": "space, space", "original": "space, space", "starring": "space, space",
                          "later": "esc"},
-             "tap": 0.15, "settle": 2, "click": "options", "wait": 3},
+             "tap": 0.15, "settle": 2, "click": "options", "wait": 3,
+             # Linux (2026-11-19): under Proton the game did not take clicks (its cursor stayed in the middle),
+             # keys did: arrow keys to Options, Enter only once its box is the lit one. Video stays a click until
+             # its page has been seen on Linux
+             "linux": {"click": None, "pick": "options", "lit": "bright", "wake": "down",
+                       "menu": ["new game", "select save game", "add-ons", "store", "options", "quit to desktop"]}},
             {"see": "video", "within": 30, "settle": 1, "click": "video", "wait": 3},
             # the Video page has the Video Adapter setting; E moves one tab to the right
             {"see": "adapter", "within": 30, "settle": 1, "press": "e", "wait": 2},

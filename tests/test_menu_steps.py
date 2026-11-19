@@ -1128,3 +1128,42 @@ def test_bl3_start_benchmark_misread_in_its_small_italic_font_is_still_found():
     for read in ("Slorr Benchmark", "Sturr Benchmork", "Stort Benchmark", "Start Benchmark"):
         assert find_word([read], "start benchmark") == "start benchmark"
     assert find_word(["Last Benchmark Report", "Report Type"], "start benchmark") is None
+
+
+def test_far_cry_6_on_linux_reaches_options_by_keys_and_enter_only_when_it_is_lit(tmp_path):
+    """Fedora 2026-11-19: under Proton Far Cry 6 did not take the app's clicks; keys reached it."""
+    steps = [menu_steps_for(2369390)[1]]
+    words = ["New Game", "Select Save Game", "Add-ons", "Store", "Options", "Quit to Desktop"]
+    p, desk, clock = player(tmp_path, steps, [(0, words)])
+    p.platform = "linux"
+    downs = lambda: sum(e[1] == parse_chord("down") for e in desk.events if e[0] == "down")
+    # nothing lit until the first Down, which lights New Game; each Down then one lower
+    p.lit = lambda path, lines, menu, style="bar": (menu[downs() - 1] if downs() and style == "bright" else None)
+    p.run()
+    assert p.problem is None and downs() == 5, p.problem
+    assert not [e for e in desk.events if e[0] == "button"]          # no click
+    assert [e[:2] for e in desk.events[-2:]] == [("down", parse_chord("enter")), ("up", parse_chord("enter"))]
+    p, desk, clock = player(tmp_path, steps, [(0, words)])
+    p.platform = "linux"
+    p.lit = lambda path, lines, menu, style="bar": None                # never lit: arrows only, no Enter
+    p.run()
+    assert "Enter not pressed" in p.problem and parse_chord("enter") not in [e[1] for e in desk.events]
+    p, desk, clock = player(tmp_path, steps, [(0, words)])
+    p.lit = lambda *a, **k: None
+    p.run()                                                              # Windows: the click as before
+    assert p.problem is None and [e for e in desk.events if e[0] == "button"]
+
+
+def test_lit_word_finds_a_bright_box(tmp_path):
+    from PySide6.QtGui import QColor, QImage
+    from app.frames.menu_steps import lit_word
+    image = QImage(400, 300, QImage.Format.Format_RGB32)
+    image.fill(QColor(20, 22, 18))
+    for x in range(0, 300):
+        for y in range(100, 140):
+            image.setPixelColor(x, y, QColor(235, 230, 220))        # the second item's box, filled bright
+    path = tmp_path / "screen.png"
+    image.save(str(path))
+    lines = boxed(["Gamepad", "Gameplay", "Mouse"])
+    assert lit_word(path, lines, ["gamepad", "gameplay", "mouse"], style="bright") == "gameplay"
+    assert lit_word(path, lines, ["gamepad", "gameplay", "mouse"]) is None          # not an orange bar
