@@ -313,3 +313,50 @@ def test_linux_route_is_played_and_its_keys_released(tmp_path, monkeypatch):
     fakes = Fakes(tmp_path / "b")
     _, cap = run(tmp_path / "b", fakes, route=route)
     assert cap.status == "failed" and "DISPLAY" in cap.message and fakes.started is None
+
+
+def test_linux_whole_benchmark_starts_the_game_for_every_run_like_windows(tmp_path, monkeypatch):
+    """Owner, 2026-11-19: on Linux as on Windows. BL3 had been closed 60 s after its start, before its benchmark
+    ended: no results page and no own report. Now each run is one launch, its whole benchmark from the mark, with the
+    game's own number next to the app's."""
+    from types import SimpleNamespace
+    from tests.test_menu_steps import FakeSteps
+    fakes = Fakes(tmp_path, frames=3000)            # 150 s of frames at 20 FPS
+    fakes.log_at = 1e12                             # written when the app's key ends the log
+
+    def logged(c):
+        fakes.log_at = fakes.now[0]
+
+    def closer(started):
+        fakes.closed.append(sorted(started))
+        (fakes.logs / "done").unlink()              # the next launch writes a log of its own
+        fakes.log_at, fakes.started = 1e12, None     # closed: the next launch starts a new one
+        return "game closed (Game.exe)"
+    desk = SimpleNamespace(foreground_pid=lambda: 7, key_down=lambda c: None, key_up=logged)
+    begin, plain_sleep = time.time(), fakes.sleep
+    monkeypatch.setattr(time, "time", lambda: begin + fakes.now[0])     # the wall clock follows the fake one
+
+    def sleep(seconds):                             # the log's last frame is written when MangoHud writes the file
+        plain_sleep(seconds)
+        for log in fakes.logs.glob("*.csv") if fakes.started else ():
+            os.utime(log, (time.time(), time.time()))
+    s = GameBenchmarkSpec(game_name="Game", app_id="123", install_path=str(fakes.install), discovered_appids=["123"],
+                          presentmon_path="/usr/bin/mangohud", warmup_runs=1, repetitions=1, benchmark_seconds=60,
+                          steps=[{"see": "stop", "within": 60, "mark": True}])
+    assert s.whole_benchmark
+    launches = []
+    bench = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=True, mangohud_hooks=fakes,
+                          clock=fakes.clock, sleep=sleep, folder_procs=fakes.folder_procs, closer=closer,
+                          remote_session=lambda: False, desktop=desk, own_result=lambda app_id, since: {"avg": 20.0},
+                          step_player=lambda st: launches.append(1) or FakeSteps(fakes, mark_after=40))
+    cap = bench.run()
+    assert cap.status == "recorded", cap.message
+    assert len(launches) == 2 and len(fakes.closed) == 2 and "2 of 2 runs reached the benchmark" in cap.message, cap.message
+    assert [(w.is_warmup, w.run_index) for w in cap.windows] == [(True, 0), (False, 1)]
+    for k, w in enumerate(cap.windows):
+        assert w.result.status == "completed", w.result.error
+        assert abs(w.result.duration_seconds - 60) < 1 and round(w.result.score) == 20
+        assert "the game 20 (+0.0%: they match)" in w.result.note and w.result.metrics["game_avg_fps"][0] == 20.0
+        assert list((tmp_path / "run" / f"run_{k}" / "mangohud_logs").glob("Game.exe_*.csv"))
+    conf = (tmp_path / "run" / "MangoHud.conf").read_text()
+    assert "log_duration=" in conf and int(conf.split("log_duration=")[1].split()[0]) >= 60

@@ -949,7 +949,7 @@ class FrameCapturePanel(QGroupBox):
         if linux and (spec.steps or spec.start_keys or spec.route) and not self.linux_steps_ready(spec):
             return False
         fitted = None
-        whole = spec.whole_benchmark and not linux      # Windows: measured whole, once per launch
+        whole = spec.whole_benchmark      # measured whole, once per launch (Linux too: owner, 2026-11-19)
         if spec.steps and spec.benchmark_seconds and not whole:
             from app.frames.game_benchmark import fit_to_benchmark
             fitted = fit_to_benchmark(spec, spec.benchmark_seconds)
@@ -1158,14 +1158,21 @@ class FrameCapturePanel(QGroupBox):
                 f"open without MangoHud it asks it to exit first (steam -shutdown). Then it asks Steam to "
                 f"launch the game (steam -applaunch {spec.app_id}"
                 + (" " + " ".join(spec.launch_args) if spec.launch_args else "") + ").\n"
-                f"2. MangoHud logs every frame for about {spec.wait_seconds():.0f} s from the game's first frames. "
-                f"The first {spec.settle_seconds} s (loading, menus) are not measured, then {spec.warmup_runs} "
-                f"warmup + {spec.repetitions} measured runs of {spec.seconds} s each (profile {profile.name!r}), "
-                f"{total} s of game time. "
+                + (f"2. The game is started {spec.count} times, and each time MangoHud logs its frames and its whole "
+                   f"benchmark (about {spec.benchmark_seconds} s) is measured from its start, the span the game's own "
+                   f"result covers; its results page is kept for the report and the game's own numbers are shown "
+                   f"next to the app's. {spec.warmup_runs} warm-up run(s) first, not counted; the other "
+                   f"{spec.repetitions} are averaged. " if getattr(spec, "whole_benchmark", False) else
+                   f"2. MangoHud logs every frame for about {spec.wait_seconds():.0f} s from the game's first frames. "
+                   f"The first {spec.settle_seconds} s (loading, menus) are not measured, then {spec.warmup_runs} "
+                   f"warmup + {spec.repetitions} measured runs of {spec.seconds} s each (profile {profile.name!r}), "
+                   f"{total} s of game time. ")
                 + ("The app goes through the game's menus to its built-in benchmark by itself: before each key it "
                    "reads the screen (Tesseract) and presses only when the expected word is there, and only while "
-                   "the game's window is the active one (X11). Measuring starts when the benchmark starts; the "
-                   f"{spec.settle_seconds} s above count from then. If a word does not come, nothing is guessed: "
+                   "the game's window is the active one (X11). Measuring starts when the benchmark starts"
+                   + ("." if getattr(spec, "whole_benchmark", False) else
+                      f"; the {spec.settle_seconds} s above count from then.")
+                   + " If a word does not come, nothing is guessed: "
                    "the run stops and the screenshot is kept. Keep the game in front (borderless or windowed). "
                    "Not yet checked on a real Linux PC.\n" if spec.steps else
                    f"The app presses {', '.join(c for _, c in spec.start_keys)} in the game (only while it is the "

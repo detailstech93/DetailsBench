@@ -127,6 +127,33 @@ def _word_box(lines, word):
     return None
 
 
+def _median(values):
+    values = sorted(values)
+    return values[len(values) // 2] if len(values) % 2 else (values[len(values) // 2 - 1] + values[len(values) // 2]) / 2
+
+
+def _menu_boxes(lines, menu) -> dict:
+    """{item: box} of the menu's items, placed on the menu's own column. OCR often misses the lit item (Fedora
+    2026-11-19, SOTTR: white NEW GAME on its orange bar was read as noise) and the first word may match other text
+    (the description below: "In New Game +"). From the items read, the line they stand on is found (the step most pairs agree on);
+    a match off that line is dropped, and an item not read gets the box where it must be."""
+    found = {i: box for i, item in enumerate(menu) if (box := _word_box(lines, item.split()[0])) is not None}
+    centre = {i: y + h / 2 for i, (x, y, w, h) in found.items()}
+    steps = [(centre[j] - centre[i]) / (j - i) for i in centre for j in centre if i < j]
+    agree = lambda s: sum(abs(t - s) <= 0.1 * abs(s) for t in steps)
+    step = max(steps, key=agree, default=0.0)          # the step most pairs agree on (a wrong match is outvoted)
+    if len(found) < 3 or abs(step) < 5:                # too few to tell a column (or not a vertical list)
+        return {menu[i]: box for i, box in found.items()}
+    start = _median([c - step * i for i, c in centre.items()])
+    on_line = {i: box for i, box in found.items() if abs(centre[i] - (start + step * i)) <= 0.4 * abs(step)}
+    if len(on_line) < 2:
+        return {menu[i]: box for i, box in found.items()}
+    x = round(_median([b[0] for b in on_line.values()]))
+    w = round(_median([b[2] for b in on_line.values()]))
+    h = round(_median([b[3] for b in on_line.values()]))
+    return {item: on_line.get(i) or (x, round(start + step * i - h / 2), w, h) for i, item in enumerate(menu)}
+
+
 def lit_word(image_path, lines, menu, style: str = "bar") -> Optional[str]:
     """The item of `menu` with an orange-red bar behind it (SOTTR's lit item), or None when none clearly is.
     style "bright": the item whose box is filled bright (dark letters on it), for Far Cry 6's menus.
@@ -136,10 +163,7 @@ def lit_word(image_path, lines, menu, style: str = "bar") -> Optional[str]:
     if image.isNull():
         return None
     scores = {}
-    for item in menu:
-        box = _word_box(lines, item.split()[0])
-        if box is None:
-            continue
+    for item, box in _menu_boxes(lines, menu).items():
         x, y, w, h = box
         hits = total = 0
         for px in range(max(0, x - 10), min(image.width(), x + w + 10), 3):

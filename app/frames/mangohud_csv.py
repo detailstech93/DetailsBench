@@ -37,11 +37,16 @@ def parse_mangohud_log(text: str, start_seconds: float = 0.0, seconds: Optional[
     header = [c.strip().lower() for c in rows[header_at]]
     ft, el = header.index("frametime"), (header.index("elapsed") if "elapsed" in header else None)
     end = None if seconds is None else start_seconds + seconds
+    before = None                           # the previous row's elapsed (s)
     for row in rows[header_at + 1:]:
         out.rows_total += 1
         frametime = _float(row[ft]) if ft < len(row) else None
         elapsed = _float(row[el]) / 1e9 if el is not None and el < len(row) and _float(row[el]) is not None \
             else None
+        gap, before = ((elapsed - before) * 1000.0 if elapsed is not None and before is not None else None,
+                       elapsed if elapsed is not None else before)
+        if frametime is not None and gap is not None and 0 < gap and frametime > 2 * gap + 100:
+            frametime = gap     # an impossible frame time (Proton, Fedora 2026-11-19: BL3 wrote 1.9e7 ms 56 ms after the last row)
         if frametime is None or frametime <= 0:
             out.rows_skipped += 1
             continue

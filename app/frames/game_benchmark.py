@@ -447,6 +447,28 @@ class GameBenchmark:
             self.sleep(0.5)
         return ""
 
+    def _after_whole_benchmark(self, steps, since: float) -> Optional[dict]:
+        """After a whole benchmark (Linux, as _one_pass on Windows): the screen mode, its results page kept and the
+        game's own numbers; the game is still open."""
+        spec = self.spec
+        try:
+            self.display_mode = self.screen_mode()
+        except Exception:
+            pass
+        from data.game_start_keys import screen_average, shows_results_for
+        if getattr(steps, "result_shot", None):
+            self.result_shot = steps.result_shot
+        elif shows_results_for(spec.app_id):
+            self._keep_result_screen()
+        try:
+            own = (self.own_result or _own_result)(spec.app_id, since)
+            if not own and screen_average(spec.app_id):
+                own = results_average(self.result_lines, self.result_shot)
+            return own
+        except Exception:
+            logger.exception("Could not read the game's own result")
+            return None
+
     def _game_in_front(self) -> bool:
         desk = self._desk()
         if desk.foreground_pid() in self._started:
@@ -527,7 +549,7 @@ class GameBenchmark:
             return None
 
     def run(self) -> GameCapture:
-        capture = (self._run_mangohud() if self.linux else
+        capture = ((self._run_mangohud_passes() if self.spec.whole_benchmark else self._run_mangohud()) if self.linux else
                    self._run_passes() if self.spec.whole_benchmark else self._run())
         if self.linux and capture.windows:
             from app.games.proton import proton_note
@@ -961,85 +983,93 @@ class GameBenchmark:
                 process = process or pick
                 # the game's first frame was `recorded` s before it was asked to close
                 mark = (done["t_mark"] - done["t_close"]) + recorded
-                from data.game_start_keys import starts_after_loading
-                settle = MARK_SETTLE_SECONDS if starts_after_loading(spec.app_id) else 0.0    # its load hitches
-                (a, b), = self._marked_windows(frametimes, [(settle, settle + float(spec.benchmark_seconds))], mark)
-                frames = split_frames(frametimes, [(a, b)])[0] if pick else None
-                from data.game_start_keys import scene_fades
-                scenes_spec, scenes, scene_error = scene_fades(spec.app_id), None, None
-                if frames and scenes_spec:
-                    from app.frames.segments import FIND_FADE_SECONDS, faded_scenes
-                    # session 22 (2026-11-14): 'stop' was read 30-55 s after the first fade in 3 of 4 runs; from
-                    # the mark's 30 s back those runs found 4 scenes, so 60 s back is tried next
-                    last = scenes_spec.get("last_scene_min_seconds", 5.0)
-                    found = (faded_scenes(frametimes, a - FIND_FADE_SECONDS, scenes_spec["scenes"], last_seconds=last)
-                             or faded_scenes(frametimes, a - 2 * FIND_FADE_SECONDS, scenes_spec["scenes"],
-                                             last_seconds=last))
-                    if found is None:
-                        scene_error = (f"the frames do not show the benchmark's {scenes_spec['scenes']} scenes whole "
-                                       "(each after a black fade), so it could not be measured")
-                    else:
-                        scenes, a2, b2 = found
-                        logger.info("Run %d: %d scenes at %.1f-%.1f s, %.1f s of fades left out", k, len(scenes),
-                                    a2, b2, (b2 - a2) - sum(map(sum, scenes)) / 1000.0)
-                        a, b, frames = a2, b2, [ms for one in scenes for ms in one]
+                result, frames, a, b = self._whole_window(frametimes, mark, recorded, done, remote, command,
+                                                          bool(pick))
                 start = done["t_mark"] - t_start + (a - mark)
                 samples = slice_samples(tel.samples if tel else [], 0.0, [(start, start + b - a)])[0]
-                result = (self._window_result(frames, a, b, recorded, False, remote, command, done["shot"])
-                          if pick else WorkloadResult(status="invalid", error="PresentMon recorded no frames from "
-                                                      "the game in this run", command=command))
-                if scene_error and result.status == "completed":
-                    result = WorkloadResult(status="invalid", command=command, error=scene_error)
-                if done["error"] == OUT_OF_MEMORY:
-                    result = WorkloadResult(status="invalid", command=command, error=(
-                        f"{OUT_OF_MEMORY} (the screen showed: {done['no_results']}; the frames measured "
-                        f"{result.score or 0:.1f} FPS until then; not stored)"))
-                elif done["no_results"] and result.status == "completed":   # never a score: not the whole benchmark
-                    result = WorkloadResult(status="invalid", command=command, error=(
-                        f"the game did not show its results within {RESULT_WAIT_SECONDS:.0f} s after its benchmark, "
-                        f"so the benchmark did not run whole (the screen showed: {done['no_results']}; the frames "
-                        f"measured {result.score:.1f} FPS; not stored)"))
-                if done["error"] == MENUS_MISSED and result.status == "completed":
-                    result = WorkloadResult(status="invalid", command=command, error=(
-                        "the app did not reach the game's results page after its benchmark, so the game's own result "
-                        f"was not kept (the frames measured {result.score:.1f} FPS; not stored)"))
-                if result.status == "completed":
-                    measured_text = (f"Measured: the game's whole benchmark ({spec.benchmark_seconds} s from its "
-                                     f"start), the game started anew, {spec.warmup_runs} warm-up run(s) before "
-                                     "were not counted")
-                    if scenes:
-                        measured_text = (f"Measured: the game's whole benchmark, its {len(scenes)} scenes "
-                                         f"({b - a:.0f} s; the {b - a - sum(map(sum, scenes)) / 1000.0:.0f} s of "
-                                         f"black fades between them left out), the game started anew, "
-                                         f"{spec.warmup_runs} warm-up run(s) before were not counted")
-                        if scenes_spec.get("own_is_last_scene"):
-                            measured_text += "; " + self._last_scene_check(result, scenes[-1], done["own"])
-                    elif result.score and (done["own"] or {}).get("avg"):     # owner, 2026-11-14: as RDR2's
-                        measured_text += ("; the game's own average next to the app's: the app " +
-                                          _match_text(float(result.score), float(done["own"]["avg"]),
-                                                      float(done["own"].get("cut") or 1.0)))
-                    result.note = "; ".join(x for x in [result.note, measured_text] if x)
-                if done.get("settings") and result.status == "completed":    # this run's own settings check
-                    result = WorkloadResult(status="invalid", command=command, error=(
-                        f"{done['settings']} (the frames measured {result.score or 0:.1f} FPS; not stored)"))
-                # RDR2, 2026-11-11: PresentMon had one launch's frames only from 135 s on, after its benchmark had
-                # started; the run was stored with 252 of its 270 s. Not the whole benchmark: never a score
-                if pick and mark < -LATE_SECONDS and result.status == "completed":
-                    result = WorkloadResult(status="invalid", command=command, error=(
-                        f"PresentMon has this run's frames only from {-mark:.0f} s after its benchmark started "
-                        f"({recorded:.0f} s recorded), so the benchmark was not measured whole (the frames it has "
-                        f"measured {result.score:.1f} FPS; not stored)"))
-                # BL3, 2026-11-11 15:41: a 7.5 s frame 83 s into its benchmark was taken for the fade to the menu
-                # (loading_bounds) and the run was stored with 75 of its 110 s
-                if result.status == "completed" and b - a < WHOLE_SHARE * float(spec.benchmark_seconds):
-                    result = WorkloadResult(status="invalid", command=command, error=(
-                        f"only {b - a:.0f} s of the benchmark's {spec.benchmark_seconds} s were measured, so it was "
-                        f"not measured whole (the frames measured {result.score:.1f} FPS; not stored)"))
-                self._add_own(result, done["own"])
             out.append(WindowOutcome(is_warmup, run_index, result, samples, frames=list(frames) if frames else []))
         measured = f"{len([p for p in passes if p['t_mark'] is not None])} of {spec.count} runs reached the benchmark"
         return GameCapture("recorded", measured + tail, process=process, windows=out, command=command,
                            telemetry_unavailable=dict(tel.unavailable) if tel else {}, display_mode=self.display_mode)
+
+    def _whole_window(self, frametimes, mark, recorded, done, remote, command, have_frames=True):
+        """One run of a whole built-in benchmark (Windows and Linux): its window from the start mark, its scenes,
+        and the checks that keep a run that was not the whole benchmark from being a score; (result, frames, a, b)."""
+        spec = self.spec
+        from data.game_start_keys import starts_after_loading
+        settle = MARK_SETTLE_SECONDS if starts_after_loading(spec.app_id) else 0.0    # its load hitches
+        (a, b), = self._marked_windows(frametimes, [(settle, settle + float(spec.benchmark_seconds))], mark)
+        frames = split_frames(frametimes, [(a, b)])[0] if have_frames else None
+        from data.game_start_keys import scene_fades
+        scenes_spec, scenes, scene_error = scene_fades(spec.app_id), None, None
+        if frames and scenes_spec:
+            from app.frames.segments import FIND_FADE_SECONDS, faded_scenes
+            # session 22 (2026-11-14): 'stop' was read 30-55 s after the first fade in 3 of 4 runs; from
+            # the mark's 30 s back those runs found 4 scenes, so 60 s back is tried next
+            last = scenes_spec.get("last_scene_min_seconds", 5.0)
+            found = (faded_scenes(frametimes, a - FIND_FADE_SECONDS, scenes_spec["scenes"], last_seconds=last)
+                     or faded_scenes(frametimes, a - 2 * FIND_FADE_SECONDS, scenes_spec["scenes"],
+                                     last_seconds=last))
+            if found is None:
+                scene_error = (f"the frames do not show the benchmark's {scenes_spec['scenes']} scenes whole "
+                               "(each after a black fade), so it could not be measured")
+            else:
+                scenes, a2, b2 = found
+                logger.info("%d scenes at %.1f-%.1f s, %.1f s of fades left out", len(scenes),
+                            a2, b2, (b2 - a2) - sum(map(sum, scenes)) / 1000.0)
+                a, b, frames = a2, b2, [ms for one in scenes for ms in one]
+        result = (self._window_result(frames, a, b, recorded, False, remote, command, done["shot"])
+                  if have_frames else WorkloadResult(status="invalid", error="PresentMon recorded no frames from "
+                                              "the game in this run", command=command))
+        if scene_error and result.status == "completed":
+            result = WorkloadResult(status="invalid", command=command, error=scene_error)
+        if done["error"] == OUT_OF_MEMORY:
+            result = WorkloadResult(status="invalid", command=command, error=(
+                f"{OUT_OF_MEMORY} (the screen showed: {done['no_results']}; the frames measured "
+                f"{result.score or 0:.1f} FPS until then; not stored)"))
+        elif done["no_results"] and result.status == "completed":   # never a score: not the whole benchmark
+            result = WorkloadResult(status="invalid", command=command, error=(
+                f"the game did not show its results within {RESULT_WAIT_SECONDS:.0f} s after its benchmark, "
+                f"so the benchmark did not run whole (the screen showed: {done['no_results']}; the frames "
+                f"measured {result.score:.1f} FPS; not stored)"))
+        if done["error"] == MENUS_MISSED and result.status == "completed":
+            result = WorkloadResult(status="invalid", command=command, error=(
+                "the app did not reach the game's results page after its benchmark, so the game's own result "
+                f"was not kept (the frames measured {result.score:.1f} FPS; not stored)"))
+        if result.status == "completed":
+            measured_text = (f"Measured: the game's whole benchmark ({spec.benchmark_seconds} s from its "
+                             f"start), the game started anew, {spec.warmup_runs} warm-up run(s) before "
+                             "were not counted")
+            if scenes:
+                measured_text = (f"Measured: the game's whole benchmark, its {len(scenes)} scenes "
+                                 f"({b - a:.0f} s; the {b - a - sum(map(sum, scenes)) / 1000.0:.0f} s of "
+                                 f"black fades between them left out), the game started anew, "
+                                 f"{spec.warmup_runs} warm-up run(s) before were not counted")
+                if scenes_spec.get("own_is_last_scene"):
+                    measured_text += "; " + self._last_scene_check(result, scenes[-1], done["own"])
+            elif result.score and (done["own"] or {}).get("avg"):     # owner, 2026-11-14: as RDR2's
+                measured_text += ("; the game's own average next to the app's: the app " +
+                                  _match_text(float(result.score), float(done["own"]["avg"]),
+                                              float(done["own"].get("cut") or 1.0)))
+            result.note = "; ".join(x for x in [result.note, measured_text] if x)
+        if done.get("settings") and result.status == "completed":    # this run's own settings check
+            result = WorkloadResult(status="invalid", command=command, error=(
+                f"{done['settings']} (the frames measured {result.score or 0:.1f} FPS; not stored)"))
+        # RDR2, 2026-11-11: PresentMon had one launch's frames only from 135 s on, after its benchmark had
+        # started; the run was stored with 252 of its 270 s. Not the whole benchmark: never a score
+        if have_frames and mark < -LATE_SECONDS and result.status == "completed":
+            result = WorkloadResult(status="invalid", command=command, error=(
+                f"PresentMon has this run's frames only from {-mark:.0f} s after its benchmark started "
+                f"({recorded:.0f} s recorded), so the benchmark was not measured whole (the frames it has "
+                f"measured {result.score:.1f} FPS; not stored)"))
+        # BL3, 2026-11-11 15:41: a 7.5 s frame 83 s into its benchmark was taken for the fade to the menu
+        # (loading_bounds) and the run was stored with 75 of its 110 s
+        if result.status == "completed" and b - a < WHOLE_SHARE * float(spec.benchmark_seconds):
+            result = WorkloadResult(status="invalid", command=command, error=(
+                f"only {b - a:.0f} s of the benchmark's {spec.benchmark_seconds} s were measured, so it was "
+                f"not measured whole (the frames measured {result.score:.1f} FPS; not stored)"))
+        self._add_own(result, done["own"])
+        return result, frames, a, b
 
     @staticmethod
     def _last_scene_check(result: WorkloadResult, last: List[float], own: Optional[dict]) -> str:
@@ -1203,9 +1233,55 @@ class GameBenchmark:
         return done
 
     # ---- Linux: MangoHud (app/frames/mangohud_run.py) ------------------------------------------------
-    def _run_mangohud(self) -> GameCapture:
+    def _run_mangohud_passes(self) -> GameCapture:
+        """A built-in benchmark measured whole, as on Windows (owner, 2026-11-19: everything the same as Windows): the
+        game started anew for every run, its whole benchmark measured from its start mark, its results page kept and
+        its own number read; then it is closed."""
+        spec, guard = self.spec, self.settings_guard
+        out, notes, last = [], [], None
+        for k in range(spec.count):
+            if self.stop_event.is_set():
+                break
+            self.shots_dir = self.run_dir / f"run_{k}"
+            self.shots_dir.mkdir(parents=True, exist_ok=True)
+            self.result_shot, self.key_notes, self._started, self.result_lines = None, [], {}, []
+            self.results_missing = None
+            rewritten, problem = guard.rewrite() if guard is not None else ("", None)
+            if problem:
+                notes.append(f"run {k}: {problem}")
+                break
+            last = self._run_mangohud(pass_index=k)
+            notes.append(f"run {k}: " + "; ".join(x for x in [rewritten, last.message] if x))
+            settings = guard.check() if guard is not None else None
+            for w in last.windows:
+                if settings and w.result.status == "completed":     # this run's own settings check
+                    w.result = WorkloadResult(status="invalid", command=last.command, error=(
+                        f"{settings} (the frames measured {w.result.score or 0:.1f} FPS; not stored)"))
+            out += last.windows
+            if last.status != "recorded" or not last.windows:
+                break
+            if k + 1 < spec.count:
+                self.sleep(PASS_GAP_SECONDS)
+        tail = "; ".join(notes)
+        stopped = self.stop_event.is_set()
+        if not out:
+            return GameCapture("cancelled" if stopped else (last.status if last else "failed"),
+                               tail or "no run", command=last.command if last else None)
+        reached = len(out)
+        for k in range(len(out), spec.count):
+            is_warmup = k < spec.warmup_runs
+            out.append(WindowOutcome(is_warmup, k if is_warmup else k - spec.warmup_runs + 1, WorkloadResult(
+                status="cancelled" if stopped else "invalid",
+                error="stopped by user" if stopped else "not run: an earlier run did not complete")))
+        return GameCapture("recorded", f"{reached} of {spec.count} runs reached the benchmark; {tail}",
+                           process=last.process, windows=out, command=last.command,
+                           telemetry_unavailable=last.telemetry_unavailable, display_mode=self.display_mode)
+
+    def _run_mangohud(self, pass_index: Optional[int] = None) -> GameCapture:
+        """One launch. pass_index: one run of a whole built-in benchmark (_run_mangohud_passes)."""
         from app.frames import mangohud_run as mh
         spec = self.spec
+        whole = pass_index is not None
         hooks = self.mangohud_hooks or mh.Hooks()
         self.run_dir.mkdir(parents=True, exist_ok=True)
         if spec.steps or spec.start_keys or spec.route:     # an X11 / XWayland desktop (app/simulation/x11_desktop.py)
@@ -1237,10 +1313,12 @@ class GameBenchmark:
                                    "yourself (Steam menu > Exit) and run again; nothing was started", command=command)
         # with menu steps the benchmark starts later than the game's first frame: MangoHud logs long enough for the
         # menus too, and the app closes the game itself once the measured time after the start mark is over
-        duration = int(spec.wait_seconds()) + (steps_bound_seconds(spec.steps) if spec.steps else 0)
+        measured = ((float(spec.benchmark_seconds) * LOAD_FACTOR + after_mark_seconds(spec.steps)) if whole else
+                    spec.wait_seconds())
+        duration = int(measured) + (steps_bound_seconds(spec.steps) if spec.steps else 0)
         config.write_text(mh.config_text(shared_logs, duration), encoding="utf-8")    # read when the game starts
         (self.run_dir / mh.CONFIG_NAME).write_text(mh.config_text(shared_logs, duration), encoding="utf-8")
-        logs = self.run_dir / mh.LOGS_FOLDER
+        logs = self.shots_dir / mh.LOGS_FOLDER       # the run folder; a whole benchmark: this run's own
         since = time.time()
         self._before = self.folder_procs()
         self.on_progress(f"Asking the Steam with MangoHud to launch {spec.game_name}..." if state == "ours" else
@@ -1276,6 +1354,7 @@ class GameBenchmark:
         t_front = t0 if not pending and not spec.steps and player is None else None
         steps = None                    # menu step player, started when the game is in front (as on Windows)
         t_mark = None                   # clock() when the steps saw the benchmark start
+        menus_missed = False
         try:
             while True:
                 if self.stop_event.is_set():
@@ -1314,6 +1393,23 @@ class GameBenchmark:
                                              f"({elapsed:.0f} s); keep the game in front. {getattr(steps, 'waiting', '')}".strip())
                         self.sleep(self.poll_seconds)
                         continue
+                    if whole:
+                        if steps.done.is_set() and getattr(steps, "result_shot", None):
+                            break       # its results page was kept after the benchmark (BL3): close now
+                        from data.game_start_keys import shows_results_for
+                        if (steps.done.is_set() and getattr(steps, "problem", None)
+                                and not shows_results_for(spec.app_id)):
+                            menus_missed = True
+                            break
+                        if self.clock() - t_mark >= spec.benchmark_seconds + after_mark_seconds(spec.steps):
+                            break
+                        if int(elapsed) != shown:
+                            shown = int(elapsed)
+                            self.on_progress(f"{spec.game_name}, run {pass_index + 1} of {spec.count}: benchmark "
+                                             f"{self.clock() - t_mark:.0f} of {spec.benchmark_seconds} s, measured "
+                                             "whole. It is closed at the end.")
+                        self.sleep(self.poll_seconds)
+                        continue
                     if self.clock() - t_mark >= spec.wait_seconds():
                         break           # the measured time after the start mark is over: the app closes the game
                 if pending:
@@ -1339,6 +1435,9 @@ class GameBenchmark:
                     player.release_all()
                 except Exception as e:
                     player.problem = player.problem or f"keys could not be released: {e}"
+        own = None
+        if whole and t_mark is not None and not stopped:
+            own = self._after_whole_benchmark(steps, since)
         stop_note = ""
         if t_mark is not None and not stopped and not mh.logging_done(shared_logs, since - 2):
             stop_note = self._stop_mangohud_log(shared_logs, since - 2)
@@ -1371,8 +1470,23 @@ class GameBenchmark:
         if t_mark is not None:          # windows count from the benchmark's start, not the game's first frame
             windows = self._marked_windows(frametimes, windows, max(0.0, (t_mark - t0) - offset))
             frame_windows = split_frames(frametimes, windows)
-        sample_windows = slice_samples(tel.samples if tel else [], offset, windows)
-        out = self._outcomes(frame_windows, windows, recorded, sample_windows, stopped, steps, command)
+        if whole:
+            done = {"own": own, "shot": self.result_shot or getattr(steps, "started_shot", None),
+                    "no_results": self.results_missing, "error": MENUS_MISSED if menus_missed else None}
+            if stopped:
+                result, frames, a, b = WorkloadResult(status="cancelled", error="stopped by user",
+                                                      command=command), None, 0.0, 0.0
+            else:
+                mark = max(0.0, (t_mark - t0) - offset)
+                result, frames, a, b = self._whole_window(frametimes, mark, recorded, done, self.remote_session(),
+                                                          command)
+            is_warmup = pass_index < spec.warmup_runs
+            out = [WindowOutcome(is_warmup, pass_index if is_warmup else pass_index - spec.warmup_runs + 1, result,
+                                 slice_samples(tel.samples if tel else [], offset, [(a, b)])[0],
+                                 frames=list(frames) if frames else [])]
+        else:
+            sample_windows = slice_samples(tel.samples if tel else [], offset, windows)
+            out = self._outcomes(frame_windows, windows, recorded, sample_windows, stopped, steps, command)
         name = mh.program_name(path)
         return GameCapture("recorded", f"{recorded:.0f} s of {name} recorded by MangoHud ({path.name})" + closed,
                            process=(name, None), windows=out, command=command,

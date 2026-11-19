@@ -46,3 +46,11 @@ def test_only_new_frame_logs_are_found(tmp_path):
     os.utime(old, (since - 3600, since - 3600))
     assert find_new_logs(tmp_path, since) == [new]
     assert find_new_logs(tmp_path / "missing", since) == []
+
+
+def test_an_impossible_frame_time_takes_the_time_that_really_passed():
+    """Fedora 2026-11-19, BL3 under Proton: one row said 1.9e7 ms, 56 ms after the row before (its elapsed column);
+    the run then counted 19197 s of game. A real long frame (a 1.35 s load stall) is kept."""
+    text = HEAD + _row(16.0, 1.0) + _row(1.8975e7, 1.056) + _row(16.0, 1.072) + _row(1352.78, 2.425)
+    parsed = parse_mangohud_log(text)
+    assert [round(f) for f in parsed.frametimes_ms] == [16, 56, 16, 1353]

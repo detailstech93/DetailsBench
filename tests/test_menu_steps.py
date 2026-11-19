@@ -1167,3 +1167,24 @@ def test_lit_word_finds_a_bright_box(tmp_path):
     lines = boxed(["Gamepad", "Gameplay", "Mouse"])
     assert lit_word(path, lines, ["gamepad", "gameplay", "mouse"], style="bright") == "gameplay"
     assert lit_word(path, lines, ["gamepad", "gameplay", "mouse"]) is None          # not an orange bar
+
+
+def test_lit_word_places_an_unread_lit_item_on_the_menus_column(tmp_path):
+    """Fedora 2026-11-19, SOTTR: NEW GAME on its orange bar was not read, and "new" matched the description below
+    ("In New Game +"), so no item scored and Enter was never pressed."""
+    from PySide6.QtGui import QColor, QImage
+    from app.frames.menu_steps import lit_word
+    image = QImage(600, 700, QImage.Format.Format_RGB32)
+    image.fill(QColor(40, 42, 41))
+    for x in range(90, 320):
+        for y in range(195, 235):
+            image.setPixelColor(x, y, QColor(200, 60, 40))           # the bar behind the third item (y 200)
+    path = tmp_path / "screen.png"
+    image.save(str(path))
+    lines = []
+    for text, y in (("CHALLENGE TOMBS", 300), ("OPTIONS", 400), ("CREDITS", 500), ("In New Game +", 640)):
+        line = screen_text.Line(text)
+        line.words = tuple((w, 100 + 60 * j, y, 50, 20) for j, w in enumerate(text.split()))
+        lines.append(line)
+    menu = ["continue", "load game", "new game", "challenge tombs", "options", "credits"]
+    assert lit_word(path, lines, menu) == "new game"
