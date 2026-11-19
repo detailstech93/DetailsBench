@@ -316,8 +316,11 @@ class PassMarkWorkload(Workload):
             if not self.exe:
                 return False, "PassMark PerformanceTest for Linux is not installed (Install button)"
             if not self._ncurses():
-                return False, ("PassMark's Linux program needs the ncurses 5 library (libncurses.so.5): the Install "
-                               "button installs it on Debian/Ubuntu and Fedora/Red Hat; otherwise see " + FAQ_URL)
+                # "not installed" makes it Missing, so Install is offered (Fedora, 2026-11-19: it showed "cannot run"
+                # with no Install button after the ncurses prompt had timed out)
+                return False, ("PassMark's Linux program needs the ncurses 5 library (libncurses.so.5), which is not "
+                               "installed: the Install button installs it on Debian/Ubuntu and Fedora/Red Hat; "
+                               "otherwise see " + FAQ_URL)
             return True, str(self.exe)
         if sys.platform != "win32":
             return False, "PassMark PerformanceTest runs on Windows and Linux"

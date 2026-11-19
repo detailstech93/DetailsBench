@@ -215,3 +215,12 @@ def test_windows_arm_uses_passmarks_arm64_program(tmp_path):
     (folder / "PerformanceTest64.exe").write_bytes(b"")
     assert passmark.program_path("win32", "AMD64", env) == folder / "PerformanceTest64.exe"
     assert passmark.program_path("linux", "ARM64", env) is None
+
+
+def test_passmark_unpacked_without_ncurses_5_is_missing_so_install_is_offered(tmp_path, monkeypatch):
+    # Fedora, 2026-11-19: the ncurses prompt timed out; PassMark showed "cannot run" with no Install button
+    from app.catalog import MISSING, _workload_state
+    monkeypatch.setattr(passmark.sys, "platform", "linux")
+    w = passmark.PassMarkWorkload("passmark_cpu", exe=_exe(tmp_path), ncurses=lambda: False)
+    w._linux = True
+    assert _workload_state(*w.availability())[0] == MISSING
