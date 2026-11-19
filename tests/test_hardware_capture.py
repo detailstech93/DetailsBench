@@ -159,3 +159,17 @@ def test_saved_with_the_session():
                               benchmarks_used=[{"name": "diskspd", "drive": {"model": "X"}}, {"name": "7zip"}])
     assert manifest["environment"]["hardware"]["schema"] == 1
     assert manifest["benchmarks"][0]["drive"] == {"model": "X"} and "drive" not in manifest["benchmarks"][1]
+
+
+def test_a_btrfs_folder_finds_its_disk_through_the_mount(tmp_path, monkeypatch):
+    # Fedora 45, 2026-11-19: /home on btrfs has device 0:35, so fio's drive was not found and not added
+    (tmp_path / "proc/self").mkdir(parents=True)
+    (tmp_path / "proc/self/mountinfo").write_text(
+        "64 1 0:34 /root / rw,relatime shared:1 - btrfs /dev/nvme0n1p2 rw\n"
+        "65 64 0:35 /home /home rw,relatime shared:2 - btrfs /dev/nvme0n1p3 rw\n"
+        "70 64 0:40 / /mnt/games_data rw - cifs //192.168.1.115/Games_Data rw\n")
+    monkeypatch.setattr(hardware, "_disk_of", lambda node: node.relative_to(tmp_path).as_posix())
+    assert hardware._block_from_mount("/home/o/.local/share/PCBenchmarkManager", tmp_path) == \
+        "sys/class/block/nvme0n1p3"                     # the longest mount wins, not /
+    assert hardware._block_from_mount("/homework", tmp_path) == "sys/class/block/nvme0n1p2"
+    assert hardware._block_from_mount("/mnt/games_data/Database", tmp_path) is None     # a share is no drive

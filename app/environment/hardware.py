@@ -287,9 +287,32 @@ def _block_of(path: Path, root: Path) -> Optional[str]:
     volume (LVM, LUKS) to the disk under it."""
     try:
         st = os.stat(path)
-        node = root / f"sys/dev/block/{os.major(st.st_dev)}:{os.minor(st.st_dev)}"
+        major, minor = os.major(st.st_dev), os.minor(st.st_dev)
     except (OSError, AttributeError):            # os.major is Linux only
         return None
+    if major == 0:          # btrfs (Fedora's /home, 2026-11-19: dev 0:35) and others give no block device number
+        return _block_from_mount(path, root)
+    return _disk_of(root / f"sys/dev/block/{major}:{minor}")
+
+
+def _block_from_mount(path, root: Path) -> Optional[str]:
+    """The whole disk under the mount that holds `path`, from the mount's source (/dev/nvme0n1p3) in mountinfo."""
+    best, source = "", None
+    for line in (_read("proc/self/mountinfo", root) or "").splitlines():
+        left, sep, right = line.partition(" - ")
+        fields, tail = left.split(), right.split()
+        if not sep or len(fields) < 5 or len(tail) < 2:
+            continue
+        mount = fields[4].replace("\\040", " ")    # mountinfo writes a space as \040
+        inside = str(path) == mount or str(path).startswith(mount.rstrip("/") + "/")
+        if inside and len(mount) >= len(best):
+            best, source = mount, tail[1]
+    if not source or not source.startswith("/dev/"):
+        return None
+    return _disk_of(root / "sys/class/block" / Path(source).name)
+
+
+def _disk_of(node: Path) -> Optional[str]:
     for _ in range(4):
         try:
             node = node.resolve()
