@@ -22,6 +22,7 @@ def test_config_environment_and_steam_command(tmp_path):
     text = mh.config_text(tmp_path / "logs", 123)
     assert f"output_folder={tmp_path / 'logs'}" in text and "log_interval=0" in text
     assert "log_duration=123" in text and "autostart_log=1" in text and "no_display" in text
+    assert "toggle_logging=Shift_L+F2" in text          # the key that ends the log before the game is closed
     env = mh.environment(tmp_path / "MangoHud.conf", base={"PATH": "/usr/bin", "MANGOHUD_CONFIG": "fps_limit=30"})
     assert env == {"PATH": "/usr/bin", "MANGOHUD": "1", "MANGOHUD_CONFIGFILE": str(tmp_path / "MangoHud.conf")}
     assert mh.steam_command("1091500", ["-benchmark"], which=lambda n: "/usr/games/steam") == \
@@ -204,7 +205,7 @@ def test_linux_menu_steps_measure_from_the_benchmark_start(tmp_path):
     from app.frames.game_benchmark import steps_bound_seconds
     from tests.test_menu_steps import FakeSteps
     fakes = Fakes(tmp_path, frames=3000)            # 150 s of frames: menus first, then the benchmark
-    fakes.log_at = 120.0                            # MangoHud still logging when the measured time is over
+    fakes.log_at = 10000.0                          # MangoHud logs until its key ends it (log_duration is longer)
     steps = [{"see": "options", "within": 30, "click": "options"}, {"see": "stop", "within": 60, "mark": True}]
     s = GameBenchmarkSpec(game_name="Game", app_id="123", install_path=str(fakes.install), discovered_appids=["123"],
                           presentmon_path="/usr/bin/mangohud", seconds=20, warmup_runs=1, repetitions=2,
@@ -216,14 +217,19 @@ def test_linux_menu_steps_measure_from_the_benchmark_start(tmp_path):
         plain_sleep(seconds)                        # time says when its first frame was (150 s of frames earlier)
         log = fakes.logs / "Game.exe_2026-10-19_10-00-01.csv" if fakes.started else None
         if log is not None and log.exists() and not stamped:
-            stamped.append(time.time())
+            stamped.append(begin[0])         # the run's start: slow sleeps on Windows do not move it
             os.utime(log, (stamped[0] + 150, stamped[0] + 150))
+    keys = []                                       # MangoHud writes the log only when its key ends logging
+    desk = SimpleNamespace(foreground_pid=lambda: 7, key_down=lambda c: keys.append(("down", c)),
+                           key_up=lambda c: keys.append(("up", c)) or fakes.now.__setitem__(0, fakes.log_at))
     bench = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=True, mangohud_hooks=fakes,
                           clock=fakes.clock, sleep=sleep, folder_procs=fakes.folder_procs,
                           closer=fakes.closer, remote_session=lambda: False,
-                          desktop=SimpleNamespace(foreground_pid=lambda: 7), step_player=lambda st: player)
+                          desktop=desk, step_player=lambda st: player)
+    begin = [time.time()]
     cap = bench.run()
     assert cap.status == "recorded", cap.message
+    assert keys == [("down", [0x10, 0x71]), ("up", [0x10, 0x71])]     # Shift+F2: MangoHud ends and writes its log
     assert f"log_duration={int(s.wait_seconds()) + steps_bound_seconds(steps)}" in \
         (tmp_path / "run" / "MangoHud.conf").read_text()
     starts = [w.result.metrics["window_start_s"][0] for w in cap.windows]

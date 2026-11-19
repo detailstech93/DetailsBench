@@ -424,6 +424,29 @@ class GameBenchmark:
         from app.frames.menu_steps import StepPlayer
         return StepPlayer(self.spec.steps, self._desk(), self._game_in_front, self.shots_dir)
 
+    def _stop_mangohud_log(self, folder, since: float, wait: float = 15.0) -> str:
+        """Menu steps (Linux): MangoHud still logs when the measured time is over; its toggle key ends the log so it
+        is written before the game is closed (app/frames/mangohud_run.py STOP_LOG_KEYSYMS). "" when written."""
+        from app.frames import mangohud_run as mh
+        from app.simulation.desktop import parse_chord
+        try:
+            if not self._game_in_front():
+                return "; MangoHud's log key not sent: the game was not in front"
+            codes, desk = parse_chord(mh.STOP_LOG_CHORD), self._desk()
+            desk.key_down(codes)
+            try:
+                self.sleep(0.3)             # MangoHud reads its keys while the game draws, not on the key event
+            finally:
+                desk.key_up(codes)
+        except Exception as e:
+            return f"; MangoHud's log key not sent: {e}"
+        deadline = self.clock() + wait
+        while not mh.logging_done(folder, since):
+            if self.clock() >= deadline:
+                return f"; MangoHud wrote no log within {wait:g} s of its key ({mh.STOP_LOG_KEYSYMS})"
+            self.sleep(0.5)
+        return ""
+
     def _game_in_front(self) -> bool:
         desk = self._desk()
         if desk.foreground_pid() in self._started:
@@ -1316,7 +1339,10 @@ class GameBenchmark:
                     player.release_all()
                 except Exception as e:
                     player.problem = player.problem or f"keys could not be released: {e}"
-        closed = self._close_game()
+        stop_note = ""
+        if t_mark is not None and not stopped and not mh.logging_done(shared_logs, since - 2):
+            stop_note = self._stop_mangohud_log(shared_logs, since - 2)
+        closed = self._close_game() + stop_note
         if self.key_notes:
             closed += "; start keys: " + ", ".join(self.key_notes)
         if player is not None:

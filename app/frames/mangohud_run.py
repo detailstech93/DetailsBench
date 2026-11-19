@@ -49,6 +49,13 @@ def shared_folder(data_dir: Optional[Path] = None) -> Path:
     return Path(data_dir) / FOLDER
 
 
+# MangoHud writes its frame log only when logging stops: at log_duration or by its toggle_logging key (README;
+# Shift_L+F2 is its default, set here so it is known). A game closed before that leaves no log (Fedora 2026-11-19:
+# BL3 reached its benchmark through its menus, was closed after the measured time, and MangoHud wrote nothing).
+STOP_LOG_KEYSYMS = "Shift_L+F2"
+STOP_LOG_CHORD = "shift+f2"
+
+
 def config_text(output_folder: Path, log_duration: int) -> str:
     return "\n".join([
         "# written by DetailsBench before each game run",
@@ -56,6 +63,7 @@ def config_text(output_folder: Path, log_duration: int) -> str:
         "log_interval=0",
         "autostart_log=1",
         f"log_duration={int(log_duration)}",
+        f"toggle_logging={STOP_LOG_KEYSYMS}",
         "no_display",
         ""])
 
