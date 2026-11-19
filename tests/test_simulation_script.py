@@ -418,3 +418,35 @@ def test_shown_frames_count_each_generated_frame():
     text = "Frame index, Frame time (ms), DLSS Frame Generation (ms)\n0, 13.2, 3.3\n1, 13.0, 13.0\n2, x, 1\n"
     assert sim.shown_frames(text, "Frame time (ms)", "DLSS Frame Generation (ms)") == [3.3] * 4 + [13.0]
     assert sim.shown_frames(text, "Frame time (ms)", "missing") == []
+
+
+def test_cyberpunk_script_runs_on_linux_and_keys_scripts_do_not(monkeypatch):
+    # owner, 2026-11-19: Cyberpunk 2077 on Linux (Proton): only Steam, its window, screenshots and its result file
+    cyberpunk = json.loads((Path(sim.SCRIPTS_DIR) / "cyberpunk2077_benchmark.json").read_text(encoding="utf-8"))
+    import app.simulation.x11_desktop as x11
+    monkeypatch.setattr(x11, "session_problem", lambda env=None: None)
+    assert sim.linux_problem(cyberpunk) is None
+    assert "Windows only" in sim.linux_problem(SCRIPT)          # 7-Zip: keys and Win32 controls
+
+
+def test_a_steam_game_on_linux_starts_with_applaunch_and_is_seen_in_its_folder():
+    seen, started, now = [{}, {}, {7: "x"}], [], [0.0]
+    procs = lambda folder: seen.pop(0) if len(seen) > 1 else seen[0]
+
+    def tick(_):
+        now[0] += 1
+    res = sim.launch_linux(1091500, "/g/Cyberpunk 2077", ["-benchmark"], 30, lambda: now[0],
+                           which=lambda n: "/usr/bin/steam", popen=lambda c, **k: started.append(c),
+                           procs=procs, sleep=tick)
+    assert res["status"] == "launched" and started == [["/usr/bin/steam", "-applaunch", "1091500", "-benchmark"]]
+    res = sim.launch_linux(1, "/g", [], 3, lambda: now[0], which=lambda n: None)
+    assert res["status"] == "error"
+
+
+def test_x11_lists_only_the_windows_of_our_processes():
+    from app.simulation.x11_desktop import X11Desktop
+    desk = X11Desktop.__new__(X11Desktop)
+    desk.lock, desk.root = threading.Lock(), 1
+    props = {(1, "_NET_CLIENT_LIST"): [10, 11], (10, "_NET_WM_PID"): [500], (11, "_NET_WM_PID"): [600]}
+    desk._cardinals = lambda w, name, most: props.get((w, name), [])
+    assert [(w.hwnd, w.pid) for w in desk.windows({600})] == [(11, 600)]

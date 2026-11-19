@@ -187,7 +187,7 @@ TEST_INFO: Dict[str, dict] = {
     },
     "cyberpunk2077_builtin_benchmark": {
         "group": "game", "official_url": "https://store.steampowered.com/app/1091500/",
-        "supported_os": ["windows"],
+        "supported_os": ["windows", "linux"],       # Linux: under Proton, its summary.json in the prefix
         "supported_architectures": {"x64": "native", "arm64": "unverified"},
         "expected_minutes": 5,
     },

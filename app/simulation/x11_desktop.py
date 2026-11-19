@@ -171,21 +171,37 @@ class X11Desktop:
         return self._atoms[name]
 
     def _cardinal(self, window: int, name: str) -> Optional[int]:
+        values = self._cardinals(window, name, 1)
+        return values[0] if values else None
+
+    def _cardinals(self, window: int, name: str, most: int) -> List[int]:
         atom = self._atom(name)
         if not atom:
-            return None
+            return []
         actual_type, actual_format = ctypes.c_ulong(), ctypes.c_int()
         nitems, after, prop = ctypes.c_ulong(), ctypes.c_ulong(), ctypes.c_void_p()
-        status = self.x.XGetWindowProperty(self.d, window, atom, 0, 1, False, 0, ctypes.byref(actual_type),
+        status = self.x.XGetWindowProperty(self.d, window, atom, 0, most, False, 0, ctypes.byref(actual_type),
                                            ctypes.byref(actual_format), ctypes.byref(nitems), ctypes.byref(after),
                                            ctypes.byref(prop))
         try:
             if status != 0 or not prop.value or nitems.value < 1 or actual_format.value != 32:
-                return None
-            return int(ctypes.cast(prop, ctypes.POINTER(ctypes.c_ulong))[0])   # format 32 is stored as long
+                return []
+            longs = ctypes.cast(prop, ctypes.POINTER(ctypes.c_ulong))       # format 32 is stored as long
+            return [int(longs[i]) for i in range(nitems.value)]
         finally:
             if prop.value:
                 self.x.XFree(prop)
+
+    def windows(self, pids) -> list:
+        """The desktop's top windows that belong to one of `pids` (a simulation script's wait_window)."""
+        from app.simulation.desktop import Window
+        with self.lock:
+            found = []
+            for window in self._cardinals(self.root, "_NET_CLIENT_LIST", 4096):
+                pid = self._cardinal(window, "_NET_WM_PID")
+                if pid in pids:
+                    found.append(Window(window, pid, "", ""))
+            return found
 
     def _focus_inside(self, window: int) -> bool:
         """The X input focus is on the window or one of its children (Wine may focus a child window)."""

@@ -116,6 +116,9 @@ class SimulationWorkload(Workload):
         self.timeout_seconds = script.get("timeout_seconds", 600)
         self.verified = bool(script.get("verified", False))
         self.warning = script.get("warning")
+        if env is None and sys.platform.startswith("linux") and script.get("steam_app") is not None:
+            from app.games.proton import game_env
+            env = {**os.environ, **game_env(script["steam_app"])}     # %USERPROFILE% inside the game's prefix
         self.env = os.environ if env is None else env
         self.exists = exists
         self.which = which
@@ -138,7 +141,9 @@ class SimulationWorkload(Workload):
         if path is None:
             return False, "not installed (looked in: " + ", ".join(self.script["executable"].get("candidates", [])) + ")"
         if self._desktop is None and os.name != "nt":
-            return False, "simulation scripts run on Windows only"
+            problem = linux_problem(self.script) if sys.platform.startswith("linux") else "Windows only"
+            if problem:
+                return False, f"simulation scripts: {problem}"
         return True, f"found ({how})"
 
     def version(self) -> Optional[str]:
@@ -154,10 +159,14 @@ class SimulationWorkload(Workload):
         path, _ = self.executable()
         if path is None:
             return WorkloadResult("skipped", error="the program is not installed")
-        # scripts drive Win32 windows and dialogs: Windows only (the X11 desktop only serves menu steps)
-        desktop = self._desktop or (default_desktop() if os.name == "nt" else None)
+        # scripts drive Win32 windows and dialogs; on Linux only a Steam game's result file (LINUX_STEPS)
+        linux = os.name != "nt" and self._desktop is None
+        problem = linux_problem(self.script) if linux and sys.platform.startswith("linux") else None
+        desktop = self._desktop or (default_desktop() if os.name == "nt" or (linux and not problem) else None)
         if desktop is None:
-            return WorkloadResult("skipped", error="simulation scripts run on Windows only")
+            from app.simulation.x11_desktop import X11Desktop
+            return WorkloadResult("skipped", error="simulation scripts: " + (problem or X11Desktop.why
+                                                                               or "Windows only"))
         forced = self._forced(ctx)
         if forced is not None:
             try:
@@ -226,8 +235,33 @@ def with_settings_record(result: WorkloadResult, record, out: Path) -> WorkloadR
     return result
 
 
+# the steps a script may use on Linux: a Steam game under Proton whose own result file is read (Cyberpunk 2077,
+# owner 2026-11-19); keys and Win32 controls stay Windows only
+LINUX_STEPS = {"launch_steam", "wait_window", "wait", "screenshot", "wait_file", "read_json", "read_frames"}
+
+
+def linux_problem(script: dict) -> Optional[str]:
+    """Why this script cannot run on Linux, or None."""
+    if script.get("steam_app") is None or any(s["do"] not in LINUX_STEPS for s in script["steps"]):
+        return "this script drives Windows windows: Windows only"
+    from app.simulation.x11_desktop import session_problem
+    return session_problem()
+
+
 def find_steam_game(appid: int) -> Optional[str]:
-    """Install folder of an installed Steam game, from the local libraries (registry read only)."""
+    """Install folder of an installed Steam game, from the local libraries (registry read only on Windows)."""
+    if sys.platform.startswith("linux"):
+        from app.games.proton import libraries
+        from app.steam.library import scan_library
+        for library in libraries(Path.home()):
+            try:
+                games = scan_library(str(library), "linux")[0]
+            except OSError:
+                continue
+            for game in games:
+                if game["app_id"] == str(appid) and game["installed"]:
+                    return game["install_path"]
+        return None
     if os.name != "nt":
         return None
     try:
@@ -244,10 +278,40 @@ def find_steam_game(appid: int) -> Optional[str]:
     return None
 
 
+def launch_linux(appid, folder, args, timeout, clock, which=shutil.which, popen=None, procs=None,
+                 sleep=time.sleep) -> dict:
+    """steam -applaunch <appid> <args> (the way the MangoHud capture starts a game); a Proton game's processes are
+    found by the game folder in their command line (app/frames/game_close.py)."""
+    import subprocess
+    from app.frames.game_close import processes_in_folder
+    from app.frames.mangohud_run import steam_command
+    procs = procs or processes_in_folder
+    command = steam_command(appid, args, which)
+    if command is None:
+        return {"status": "error", "message": "the steam command was not found (the Flatpak Steam is not "
+                                              "supported yet)"}
+    before = set(procs(folder))
+    try:
+        (popen or subprocess.Popen)(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL)
+    except OSError as e:
+        return {"status": "error", "message": f"steam could not be started: {e}"}
+    deadline = clock() + timeout
+    while clock() < deadline:
+        sleep(1.0)
+        if set(procs(folder)) - before:
+            return {"status": "launched", "message": " ".join(command[1:])}
+    return {"status": "unconfirmed", "message": f"{' '.join(command[1:])}: no new process in the game folder "
+                                                f"within {int(timeout)} s (Steam may be asking to confirm "
+                                                f"the launch options, or updating)"}
+
+
 class SteamHooks:
     """How a Steam game is started, listed and closed (the same code the frame capture uses)."""
 
     def launch(self, appid, folder, args, timeout, clock):
+        if sys.platform.startswith("linux"):
+            return launch_linux(appid, folder, args, timeout, clock)
         from app.benchmark_manager import _get_process_snapshot
         from app.steam.launch import launch_and_confirm
         return launch_and_confirm(appid, folder, [str(appid)], snapshot=_get_process_snapshot,
