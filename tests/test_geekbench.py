@@ -128,6 +128,7 @@ def _workload(test_id, out_text, monkeypatch, listed=GPU_LIST, exit_code=0):
         return subprocess.CompletedProcess(command, 0, stdout=listed, stderr="")
     wl = gb.GeekbenchWorkload(test_id, exe=r"C:\GB\geekbench7.exe",
                               gpu_name=lambda: "NVIDIA GeForce RTX 5090 Laptop GPU", runner=runner)
+    wl._opencl_present = lambda: True       # never the host's own OpenCL drivers (GitHub's Linux has none)
     return wl, seen
 
 
