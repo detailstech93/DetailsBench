@@ -1068,13 +1068,16 @@ def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_re
             written.add(name)
 
     def finished(session_id: int, text: str):
-        report = written_report(session_id, text)
+        stopped = bool(getattr(getattr(panel, "last_summary", None), "stopped", False))
+        typed = len(automatic) == 1 and automatic[0].waits_for_typed_score() and not stopped
+        # a score still to be typed: the report is saved but opens only once the scores are in (owner, Fedora s10
+        # 2026-11-19: a report of "invalid" runs opened before the scores were typed)
+        report = written_report(session_id, text, show=not typed)
         from app.library.sync import after_run
         after_run(window, session_id)           # the results library (in the background; never raises)
-        stopped = bool(getattr(getattr(panel, "last_summary", None), "stopped", False))
         _line_session(window, session_id)
         go_on = after or (lambda s: line_next(window, s))           # the tests in line
-        if len(automatic) == 1 and automatic[0].waits_for_typed_score() and not stopped:
+        if typed:
             if typed_followup(window, automatic[0], session_id, opener, after=go_on) is None:
                 go_on(False)                    # no score to type: the line goes on
         else:
@@ -1082,7 +1085,7 @@ def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_re
         if wants_shutdown(window, choice):
             shutdown_when_done(window, session_id, panel.last_summary, report)
 
-    def written_report(session_id: int, text: str) -> Optional[Path]:
+    def written_report(session_id: int, text: str, show: bool = True) -> Optional[Path]:
         panel.on_step_report = None
         done, total, _ = panel.step
         first = text.splitlines()[0]
@@ -1101,7 +1104,8 @@ def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_re
         window.last_report_path = path
         window.status_label.setText(f"Session #{session_id} done. Report: {path}")
         window.tests_page.offer_report(lambda: opener(path))
-        opener(path)
+        if show:
+            opener(path)
         return path
 
     panel.on_plan_finished = finished

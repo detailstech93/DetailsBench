@@ -117,3 +117,15 @@ def test_a_typed_test_asks_how_many_runs_before_it_starts(monkeypatch):
     assert not run_tests.start_other(w, e) and launched == []
     monkeypatch.setattr(run_tests, "ask_count", lambda window, name: 3)
     assert run_tests.start_other(w, e) and launched == ["bm"] and "3 times" in offered[0]
+
+
+def test_the_score_window_draws_without_an_error(qapp, monkeypatch):
+    # Fedora, 2026-11-19: "'tuple' object is not callable" at every cursor blink while the Geekbench 6 scores were
+    # typed: the dialog's own "metric" hid QWidget.metric(), which Qt calls when it paints
+    errors = []
+    monkeypatch.setattr(sys, "excepthook", lambda t, v, tb: errors.append(f"{t.__name__}: {v}"))
+    for metric in (None, ("single_core_score", "Single-Core")):
+        d = ScoresDialog("Geekbench 6", "#1", 3, links=["https://browser.geekbench.com/v6/cpu/1"], metric=metric)
+        d.grab()
+        d.close()
+    assert errors == []

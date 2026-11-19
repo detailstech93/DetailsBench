@@ -302,3 +302,29 @@ def test_typed_scores_replace_the_runs_that_printed_none_and_the_report_is_writt
     again = rs.write_report_set(export, tmp_path / "reports", only="geekbench6_cpu", again=True)
     assert again == first and [p.name for p in (tmp_path / "reports").iterdir()] == [first.name]
     assert "invalid" not in first.read_text(encoding="utf-8").lower()
+
+
+def test_a_test_whose_score_is_typed_opens_its_report_only_after_the_scores(tmp_path, monkeypatch):
+    # Fedora s10, 2026-11-19: the report of the 3 "invalid" Geekbench 6 runs opened before the scores were typed
+    from types import SimpleNamespace
+    from app.ui import reports_folder, run_tests
+    db = Database(str(tmp_path / "r.db"))
+    sid = db.create_session("Automated")
+    panel = _Panel(db, sid)
+    window = SimpleNamespace(db=db, automation_panel=panel, status_label=_Label(), tests_page=_Page(),
+                             selected_profile=lambda: None)
+    monkeypatch.setattr(reports_folder, "folder", lambda w: tmp_path / "reports")
+    monkeypatch.setattr(run_tests, "plan_profile", lambda profile, choice: None)
+    from app.library import sync
+    monkeypatch.setattr(sync, "after_run", lambda w, s: None)
+    followed = []
+    monkeypatch.setattr(run_tests, "typed_followup", lambda *a, **k: followed.append(a[2]) or ["page"])
+    opened = []
+    entry = SimpleNamespace(ref="geekbench6_cpu", waits_for_typed_score=lambda: True)
+    assert run_tests.launch(window, [entry], SimpleNamespace(extra_runs=0), opener=opened.append,
+                            after=lambda s: None)
+    db.create_result(sid, "geekbench6_cpu", "cpu", None, unit="pts", status="invalid", run_index=1,
+                     note="https://browser.geekbench.com/v6/cpu/1", duration_seconds=3)
+    panel.on_plan_finished(sid, "Session done: 1 invalid.")
+    assert followed == [sid] and opened == []                   # saved, waiting for the scores
+    assert window.tests_page.offered is not None                # "Open the report" stays offered

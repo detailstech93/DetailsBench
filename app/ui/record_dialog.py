@@ -120,7 +120,7 @@ class ScoresDialog(QDialog):
         """metric: (name, label) of a second number typed beside each run's score (Geekbench CPU: Single-Core next
         to the Multi-Core score); stored as that run's metric."""
         super().__init__(parent)
-        self.metric = metric
+        self.second_metric = metric      # not "metric": that name is QWidget.metric(), which Qt calls on every paint
         self.setWindowTitle(f"Scores: {benchmark_label}")
         self.puget_version = puget_version
         layout = QVBoxLayout(self)
@@ -190,13 +190,13 @@ class ScoresDialog(QDialog):
             if second:
                 value, err = parse_score("completed", second)
                 if err:
-                    self.error.setText(f"Run {n + 1}, {self.metric[1]}: {err}")
+                    self.error.setText(f"Run {n + 1}, {self.second_metric[1]}: {err}")
                     return
-                if self.metric[0] == "single_core_score" and value > score:
+                if self.second_metric[0] == "single_core_score" and value > score:
                     self.error.setText(f"Run {n + 1}: the Single-Core score is above the Multi-Core one: "
                                        "swapped? Single-Core is the smaller number")
                     return
-                metrics[n] = {self.metric[0]: value}
+                metrics[n] = {self.second_metric[0]: value}
             scores.append((n, score))
         if not scores:
             self.error.setText("enter at least one score")
