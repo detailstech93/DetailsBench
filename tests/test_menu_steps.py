@@ -1188,3 +1188,21 @@ def test_lit_word_places_an_unread_lit_item_on_the_menus_column(tmp_path):
         lines.append(line)
     menu = ["continue", "load game", "new game", "challenge tombs", "options", "credits"]
     assert lit_word(path, lines, menu) == "new game"
+
+
+def test_a_kde_question_over_the_game_is_waited_for_not_given_up_after_10_s(tmp_path):
+    """Fedora 2026-11-20: KDE's 'python is asking to control input devices' came over BL3 and Far Cry 6 at their
+    first key; the runs stopped after 10 s, named "python" (the app itself: a Wayland window has no X pid)."""
+    from app.frames.menu_steps import WAYLAND_FRONT
+    clock_box = []
+    p, desk, clock = player(tmp_path, [{"press": "enter"}], [], front=lambda: clock_box[0].now >= 40)
+    clock_box.append(clock)
+    desk.foreground_pid = lambda: None
+    p.platform = "linux"
+    p.run()
+    assert p.problem is None and any(e[0] == "down" for e in desk.events)       # pressed once Allow was given
+    assert any("a desktop window came in front of the game" in n for n in p.notes)
+    p, desk, clock = player(tmp_path, [{"press": "enter"}], [], front=lambda: False)
+    desk.foreground_pid = lambda: None
+    p.run()
+    assert desk.events == [] and WAYLAND_FRONT in p.problem and "python" not in p.problem.split("(", 1)[1][:10]

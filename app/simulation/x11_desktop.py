@@ -96,6 +96,7 @@ class X11Desktop:
         self.lock = threading.Lock()
         self._atoms = {}
         self.xwayland = xwayland
+        self.focus_seen, self.front_why = 0, ""     # what the last 'not in front' saw (for the run's notes)
         self.origin = (0, 0)            # where the last screenshot's top left is on the X screen
 
     @classmethod
@@ -219,13 +220,17 @@ class X11Desktop:
                     found.append(Window(window, pid, "", ""))
             return found
 
-    def _focus_inside(self, window: int) -> bool:
-        """The X input focus is on the window or one of its children (Wine may focus a child window)."""
+    def _focus_inside(self, window: int, pid: Optional[int] = None) -> bool:
+        """The X input focus is on the window or one of its children (Wine may focus a child window), or on another
+        window of the same program (pid): Fedora 2026-11-20, BL3 and Far Cry 6 were in front with no other window
+        shown and their keys were held back as "python was" in front."""
         focus, revert = ctypes.c_ulong(), ctypes.c_int()
         self.x.XGetInputFocus(self.d, ctypes.byref(focus), ctypes.byref(revert))
         current = focus.value
+        self.focus_seen = current
         for _ in range(32):
-            if current == window:
+            if current == window or (pid and current not in (0, 1, self.root)
+                                     and self._cardinal(current, "_NET_WM_PID") == pid):
                 return True
             if current in (0, 1, self.root):            # None, PointerRoot, or the root: not the game
                 return False
@@ -243,9 +248,11 @@ class X11Desktop:
             window = self._cardinal(self.root, "_NET_ACTIVE_WINDOW")
             if not window:
                 return None
-            if self.xwayland and not self._focus_inside(window):
+            pid = self._cardinal(window, "_NET_WM_PID")
+            if self.xwayland and not self._focus_inside(window, pid):
+                self.front_why = f"X window {window:#x} of pid {pid} is active, X focus on {self.focus_seen:#x}"
                 return None             # a Wayland window is in front: XWayland's focus is elsewhere
-            return self._cardinal(window, "_NET_WM_PID")
+            return pid
 
     # input
     def _keycode(self, code: int) -> int:

@@ -97,7 +97,7 @@ class FakeX:
         return {b"_NET_ACTIVE_WINDOW": 10, b"_NET_WM_PID": 11}[name]
 
     def XGetWindowProperty(self, d, window, atom, *rest):
-        value = {(1, 10): 77, (77, 11): 4242}.get((window, atom))
+        value = {(1, 10): 77, (77, 11): 4242, (91, 11): 4242, (90, 11): 555}.get((window, atom))
         if value is None:
             return 1
         buf = (ctypes.c_ulong * 1)(value)
@@ -197,7 +197,9 @@ def test_xwayland_mode_uses_the_game_window_and_needs_its_focus(tmp_path):
     desk = xd.X11Desktop(x, x, 123, xwayland=True)
     assert desk.foreground_pid() == 4242               # the X focus is on a child of the active window
     x.focus = 90                                       # another X window has the keyboard
-    assert desk.foreground_pid() is None
+    assert desk.foreground_pid() is None and desk.front_why == "X window 0x4d of pid 4242 is active, X focus on 0x5a"
+    x.focus = 91                       # another window of the game itself (Fedora 2026-11-20: BL3, Far Cry 6)
+    assert desk.foreground_pid() == 4242
     for gone in (0, 1):                                # None / PointerRoot: a Wayland window is in front
         x.focus = gone
         assert desk.foreground_pid() is None

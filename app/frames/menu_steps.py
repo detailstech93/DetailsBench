@@ -63,6 +63,9 @@ FRONT_GRACE_SECONDS = 10.0          # the game may lose the front briefly while 
 # 2026-11-13: RDR2 failed twice behind it). Someone must answer it at the PC: the app waits, says so, never answers
 # The phone page shows its words and buttons (app/frames/windows_prompt.py); the owner's tap is clicked here
 WINDOWS_PROMPTS = {"pickerhost.exe"}
+# Fedora KDE 2026-11-19/20: "python is asking to control input devices" (XWayland's question for the app's keys)
+# came in front at the first key of BL3, Far Cry 6 and RDR2 runs; the run gave up after 10 s
+WAYLAND_FRONT = "a desktop window, not the game (KDE's question 'python is asking to control input devices'?)"
 PROMPT_WAIT_SECONDS = 600.0
 PROMPT_CHOICES = ("Allow", "Cancel")
 
@@ -181,7 +184,8 @@ def lit_word(image_path, lines, menu, style: str = "bar") -> Optional[str]:
             return None
         return best
     best = max(scores, key=scores.get, default=None)
-    if best is None or scores[best] < 0.15 or any(v > scores[best] / 2 for k, v in scores.items() if k != best):
+    # SOTTR on Fedora 2026-11-20: QUIT GAME lit, its box (QUIT only) 0.14 red between white letters, the others 0.0
+    if best is None or scores[best] < 0.05 or any(v > scores[best] / 2 for k, v in scores.items() if k != best):
         return None
     return best
 
@@ -190,9 +194,15 @@ def _front_name(desktop) -> str:
     """The program in front, for the note (the game lost the front to it)."""
     try:
         import psutil
-        return psutil.Process(desktop.foreground_pid()).name()
+        pid = desktop.foreground_pid()
+        if pid is None:         # Linux: a Wayland window (psutil.Process(None) would name this app: "python")
+            return WAYLAND_FRONT
+        return psutil.Process(pid).name()
     except Exception:
         return "another window"
+
+LINUX_TAP_SECONDS = 0.15
+
 
 class StepPlayer:
     def __init__(self, steps: List[dict], desktop, in_front: Callable[[], bool], folder: Path,
@@ -352,6 +362,14 @@ class StepPlayer:
         try:
             while not self.in_front():
                 front = _front_name(self.desktop)
+                if asked is None and front == WAYLAND_FRONT:
+                    asked = self.clock()
+                    deadline = asked + PROMPT_WAIT_SECONDS
+                    self.waiting = ("A desktop question is in front of the game (KDE: 'python is asking to control "
+                                    "input devices'): tick 'Always allow' and press Allow at the PC; the run goes on.")
+                    self.notes.append(f"a desktop window came in front of the game ({self._at()}"
+                                      + (f"; {self.desktop.front_why}" if getattr(self.desktop, "front_why", "") else "")
+                                      + ")")
                 if asked is None and front.lower() in WINDOWS_PROMPTS:
                     asked = self.clock()
                     deadline = asked + PROMPT_WAIT_SECONDS
@@ -394,6 +412,9 @@ class StepPlayer:
                 windows_prompt.clear()
 
     def _press(self, chord: str, tap: Optional[float] = None) -> None:
+        # Linux: a key let go at once is missed by a Proton game that reads keys once a frame (Fedora 2026-11-19,
+        # RDR2 at about 25 FPS: Z six times, its Settings never opened); held as SOTTR's and BL3's taps are
+        tap = tap or (LINUX_TAP_SECONDS if self.platform.startswith("linux") else None)
         if tap:
             self._hold(chord, float(tap))           # its note says "held"
             return
