@@ -238,3 +238,16 @@ def test_linux_text_mentions_xwayland_on_wayland(tmp_path):
     spec.steps, spec.route = [], {"loop_from": 5, "loop_seconds": 10, "loop": [[0, "hold", "w", 4]]}
     text = p.linux_text(spec, SimpleNamespace(name="p"), 180, {})
     assert "Route (the app plays the game" in text and "hold w 4 s" in text and "draft" in text
+
+
+def test_an_x_error_while_reading_the_window_is_an_oserror_not_the_end_of_the_app(tmp_path):
+    """Fedora 2026-11-19: Xlib's own handler ended the app on BadMatch from XGetImage of BL3's window."""
+    x = FakeX()
+    x.XGetImage = lambda *a: xd._X_ERRORS.append(8) or 0         # what the app's handler records: 8 = BadMatch
+    desk = xd.X11Desktop(x, x, 123, xwayland=True)
+    try:
+        desk.screenshot(tmp_path / "w.png")
+        raise AssertionError("an X error must be raised as OSError")
+    except OSError as e:
+        assert "X error 8" in str(e)
+    assert xd._HANDLER(None, ctypes.pointer(xd._XErrorEvent(error_code=3))) == 0 and xd._X_ERRORS[-1] == 3

@@ -75,6 +75,17 @@ class _XImage(ctypes.Structure):
                 ("depth", ctypes.c_int), ("bytes_per_line", ctypes.c_int), ("bits_per_pixel", ctypes.c_int)]
 
 
+class _XErrorEvent(ctypes.Structure):
+    _fields_ = [("type", ctypes.c_int), ("display", ctypes.c_void_p), ("resourceid", ctypes.c_ulong),
+                ("serial", ctypes.c_ulong), ("error_code", ctypes.c_ubyte), ("request_code", ctypes.c_ubyte),
+                ("minor_code", ctypes.c_ubyte)]
+
+
+_X_ERRORS = []          # error codes since the last call checked them
+_HANDLER = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.POINTER(_XErrorEvent))(
+    lambda display, event: _X_ERRORS.append(event.contents.error_code) or 0)
+
+
 class X11Desktop:
     """The real X11 desktop. open() returns None when it cannot be used (the reason in .why)."""
     why: Optional[str] = None
@@ -109,6 +120,9 @@ class X11Desktop:
             x11.XCloseDisplay(display)
             cls.why = "the X server has no XTEST extension (needed to send keys)"
             return None
+        # Xlib's own handler ends the whole program on an X error (Fedora 2026-11-19: BadMatch from XGetImage of
+        # BL3's window mid menu steps closed the app); ours records it and the call that caused it raises OSError
+        x11.XSetErrorHandler(_HANDLER)
         cls.why = None
         return cls(x11, xtst, display, xwayland=is_wayland(env))
 
@@ -144,9 +158,11 @@ class X11Desktop:
             width, height = self.size()
             source, self.origin = self.root, (0, 0)
         with self.lock:
+            _X_ERRORS.clear()
             ptr = self.x.XGetImage(self.d, source, 0, 0, width, height, ALL_PLANES, ZPIXMAP)
-            if not ptr:
-                raise OSError("XGetImage returned nothing")
+            if _X_ERRORS or not ptr:          # an X error leaves no image (XGetImage waits for its reply)
+                raise OSError(f"the window could not be read (X error {_X_ERRORS[0]}: it changed or closed)"
+                              if _X_ERRORS else "XGetImage returned nothing")
             try:
                 img = ctypes.cast(ptr, ctypes.POINTER(_XImage)).contents
                 if img.bits_per_pixel != 32 or img.byte_order != 0:          # 0: LSBFirst
