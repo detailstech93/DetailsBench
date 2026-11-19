@@ -25,8 +25,13 @@ class LlamaBenchyDialog(QDialog):
                                + ("  - most likely does not fit" if m.get("fit") else ""), m["id"])
             if m.get("fit"):
                 self.model.setItemData(self.model.count() - 1, m["fit"], Qt.ToolTipRole)
-        if current.get("model") in [m["id"] for m in self.models]:
-            self.model.setCurrentIndex([m["id"] for m in self.models].index(current["model"]))
+        ids = [m["id"] for m in self.models]
+        fitting = [m["id"] for m in self.models if not m.get("fit")]
+        # the last choice when it fits, else the first model that fits (Fedora, 2026-11-19: the 27B was offered first
+        # right after "Run without it")
+        chosen = current.get("model") if current.get("model") in fitting else (fitting or [current.get("model")])[0]
+        if chosen in ids:
+            self.model.setCurrentIndex(ids.index(chosen))
         self.pp = QSpinBox()
         self.pp.setRange(1, 262144)
         self.pp.setValue(int(current.get("pp", 512)))

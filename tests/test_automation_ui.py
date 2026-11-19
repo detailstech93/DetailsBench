@@ -256,6 +256,9 @@ def test_a_model_that_does_not_fit_is_marked_in_the_llama_benchy_list(qapp):
     assert not models[1]["fit"] and "fit" not in models[2]
     box = LlamaBenchyDialog(models)
     assert box.model.itemText(0).endswith("most likely does not fit") and "fit" not in box.model.itemText(1)
+    assert box.model.currentData() == "google/gemma-4-12b-qat"      # the first that fits (Fedora, 2026-11-19)
+    assert LlamaBenchyDialog(models, {"model": "qwen/qwen3.8-27b"}).model.currentData() == "google/gemma-4-12b-qat"
+    assert LlamaBenchyDialog(models, {"model": "other"}).model.currentData() == "other"     # the last choice fits
     unknown = [{"id": "x", "type": "llm"}]
     automation_panel.mark_fit(unknown, dict)
     assert unknown == [{"id": "x", "type": "llm"}]
