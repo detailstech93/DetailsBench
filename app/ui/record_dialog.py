@@ -143,11 +143,15 @@ class ScoresDialog(QDialog):
                 second = QLineEdit()
                 second.setPlaceholderText(f"{metric[1]} exactly as displayed")
                 row = QHBoxLayout()
-                for text, w in ((score_label + ":", field), (metric[1] + ":", second)):
+                for text, w in ((metric[1] + ":", second), (score_label + ":", field)):
                     row.addWidget(QLabel(text))
                     row.addWidget(w)
                 self.seconds.append(second)
-            form.addRow(f"Run {n + 1}:" if not link else f"Run {n + 1} ({link}):", row)
+            if link:
+                page = QLabel(f'Run {n + 1}: <a href="{link}">open its result page</a>')
+                page.setOpenExternalLinks(True)
+                form.addRow(page)
+            form.addRow(f"Run {n + 1}:", row)
             self.scores.append(field)
         self.unit = QLineEdit(default_unit)
         self.note = QLineEdit()
@@ -187,6 +191,10 @@ class ScoresDialog(QDialog):
                 value, err = parse_score("completed", second)
                 if err:
                     self.error.setText(f"Run {n + 1}, {self.metric[1]}: {err}")
+                    return
+                if self.metric[0] == "single_core_score" and value > score:
+                    self.error.setText(f"Run {n + 1}: the Single-Core score is above the Multi-Core one: "
+                                       "swapped? Single-Core is the smaller number")
                     return
                 metrics[n] = {self.metric[0]: value}
             scores.append((n, score))

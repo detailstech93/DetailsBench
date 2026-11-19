@@ -44,6 +44,12 @@ def test_geekbench_cpu_gets_its_single_core_score_beside_each_run(qapp):
     d.seconds[1].setText("")
     d._try_accept()
     assert d.values["scores"] == [21000.0, 21500.0] and d.values["metrics"] == {0: {"single_core_score": 2900.0}}
+    # Fedora s8, 2026-11-19: the two numbers were typed swapped (1990 as Multi-Core, 7996 as Single-Core)
+    d.values = None
+    d.scores[0].setText("1990")
+    d.seconds[0].setText("7996")
+    d._try_accept()
+    assert d.values is None and "swapped" in d.error.text()
 
 
 def test_pugetbench_keeps_its_application_and_details(qapp):
