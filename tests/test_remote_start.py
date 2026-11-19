@@ -843,15 +843,15 @@ def test_the_windows_question_reaches_the_page_and_only_its_buttons_answer_it():
         windows_prompt.clear()
 
 
-def test_an_install_of_several_tests_takes_no_more_in_line_but_shows_each_ones_place():
-    """Owner, 2026-11-17 (GEEKOM, phone): during an install of several tests every Install stayed active."""
+def test_an_install_of_several_tests_takes_more_in_line_and_shows_each_ones_place():
+    """Owner, 2026-11-17 (GEEKOM, phone): each one's place shows; 2026-11-19 (Fedora): it takes more in line too."""
     from types import SimpleNamespace
     from app.ui.main_window import MainWindow
     line = SimpleNamespace(queue_open=lambda: True, queued_ids=lambda: ["cinebench_2026", "handbrake_x264_1080p"])
     w = SimpleNamespace(automation_panel=SimpleNamespace(is_running=lambda: False),
                         install_flow=SimpleNamespace(queue_open=lambda: False), run_all_flow=line)
     w._queueing_flow = lambda: MainWindow._queueing_flow(w)
-    assert w._queueing_flow() is None                       # Install pressed now is not taken in line
+    assert w._queueing_flow() is line                       # Install pressed now waits in that line
     assert MainWindow.queued_installs(w) == ["cinebench_2026", "handbrake_x264_1080p"]     # "In line (1)", "(2)"
     one = SimpleNamespace(queue_open=lambda: True, queued_ids=lambda: ["fio"])     # a single install still takes them
     w.install_flow = one

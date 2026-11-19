@@ -83,16 +83,19 @@ def plan_for(test_id: str, source: str = "", app_id=None, host: Optional[Host] =
 
 # Linux: the distribution's package manager through pkexec (app/frames/linux_install.py names the managers)
 LINUX_INSTALL_ARGS = {
-    "apt-get": lambda pkg: ["install", "-y", pkg],
-    "dnf": lambda pkg: ["install", "-y", pkg],
-    "pacman": lambda pkg: ["-S", "--noconfirm", "--needed", pkg],
-    "zypper": lambda pkg: ["--non-interactive", "install", pkg],
+    "apt-get": lambda pkgs: ["install", "-y", *pkgs],
+    "dnf": lambda pkgs: ["install", "-y", *pkgs],
+    "pacman": lambda pkgs: ["-S", "--noconfirm", "--needed", *pkgs],
+    "zypper": lambda pkgs: ["--non-interactive", "install", *pkgs],
 }
 
 
-def linux_commands(family: str, package: str, which: Callable[[str], Optional[str]] = shutil.which,
+def linux_commands(family: str, package, which: Callable[[str], Optional[str]] = shutil.which,
                    askpass: Optional[Callable[[], Optional[str]]] = None) -> Tuple[List[List[str]], Optional[str]]:
-    """(argv list to run in order, None) or ([], why not). apt-get refreshes its package list first."""
+    """(argv list to run in order, None) or ([], why not). apt-get refreshes its package list first. `package`: one
+    name, or a list installed in one call (one password for the whole install line, owner 2026-11-19)."""
+    packages = [package] if isinstance(package, str) else list(package)
+    package = " ".join(packages)
     from app.frames.linux_install import PACKAGE_MANAGERS
     manager = next((m for m, f in PACKAGE_MANAGERS if f == family), None)
     if manager is None:
@@ -105,4 +108,4 @@ def linux_commands(family: str, package: str, which: Callable[[str], Optional[st
     if why:
         return [], f"{why}; install {package} with {manager} yourself"
     commands = [root + [manager_path, "update"]] if manager == "apt-get" else []
-    return commands + [root + [manager_path] + LINUX_INSTALL_ARGS[manager](package)], None
+    return commands + [root + [manager_path] + LINUX_INSTALL_ARGS[manager](packages)], None

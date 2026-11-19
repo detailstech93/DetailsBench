@@ -611,7 +611,11 @@ def test_the_tests_screen_keeps_install_for_downloads_that_can_wait(qapp):
     seven.click()
     assert asked == ["sevenzip_benchmark"]
     page.show_queue(["sevenzip_benchmark"])
-    assert seven.text() == "In line (1)" and not seven.isEnabled()
+    assert seven.text() == "In line (1)" and seven.isEnabled()     # a click takes it out (owner, 2026-11-19)
+    out = []
+    page.dequeue_install_requested.connect(lambda e: out.append(e.id))
+    seven.click()
+    assert out == ["sevenzip_benchmark"] and asked == ["sevenzip_benchmark"]
     page.set_busy(False)
     assert seven.text() == "Install" and seven.isEnabled() and fio.isEnabled()
     page.can_queue = lambda e=None: False                  # a test run: everything stays greyed out
@@ -819,3 +823,25 @@ def test_tests_of_one_program_are_one_item_that_keeps_all_their_ids(monkeypatch)
     monkeypatch.setattr(run_all, "install_plan", lambda e, host=None: {"kind": "zip", "folder": "cinebench-2026"})
     items, _ = run_all.collect([entry("cinebench_2026"), entry("cinebench_2026_single")], None)
     assert len(items) == 1 and items[0].ids == ["cinebench_2026", "cinebench_2026_single"]
+
+
+def test_a_download_waiting_in_an_install_of_several_can_be_taken_out(qapp, monkeypatch):
+    # owner, 2026-11-19 (Fedora GEEKOM): Install selected gave no way to drop one that waits in line
+    from app.ai import model_set
+    entries = _models(monkeypatch, warn=())
+    installed, said = [], []
+
+    def install(tid, stop=None):
+        installed.append(tid)
+        if len(installed) == 1:                     # during the first download
+            said.append(flow.dequeue(tid))          # the one going on is Skip's, not this
+            said.append(flow.dequeue("llama_benchy_qwen38_27b"))
+            said.append(flow.dequeue("llama_benchy_qwen38_27b"))
+        return winget.Outcome(True, f"{tid} is ready.")
+    monkeypatch.setattr(model_set, "install", install)
+    flow, win, asked = run_all_for(qapp, None, entries)
+    flow.ask = lambda parent, text, install_only=False, **kw: "install"
+    assert flow.start(entries, install_only=True)
+    assert installed == ["llama_benchy_qwen35_4b"]
+    assert [ok for ok, _ in said] == [False, True, False]
+    assert "taken out of the line" in said[1][1]

@@ -138,6 +138,7 @@ class TestsPage(QWidget):
     install_requested = Signal(object)      # TestEntry: missing, with a one-click install (app/install)
     lmstudio_install_requested = Signal()   # Linux: LM Studio itself, for the AI models
     queue_requested = Signal(object)        # TestEntry: Install pressed during an install (it waits in line)
+    dequeue_install_requested = Signal(object)  # TestEntry: "In line (n)" clicked (it leaves the line)
     queue_run_requested = Signal(list)      # [TestEntry]: "Queue next" while tests run (added to that run)
     unqueue_requested = Signal(object)      # TestEntry: "Skip" on a test in line (taken out before it starts)
     install_many_requested = Signal(list)   # the ticked missing tests: installed one after the other (app/ui/run_all)
@@ -524,7 +525,9 @@ class TestsPage(QWidget):
             self.request_run(chosen)
 
     def request_install(self, entry: TestEntry):
-        if not self.busy:
+        if self.busy and entry.id in getattr(self, "in_line", ()):
+            self.dequeue_install_requested.emit(entry)
+        elif not self.busy:
             self.install_requested.emit(entry)
         elif self.can_queue(entry):
             self.queue_requested.emit(entry)
@@ -536,14 +539,16 @@ class TestsPage(QWidget):
         for n, test_id in enumerate(ids, 1):
             for other in getattr(self, "siblings", {}).get(test_id, [test_id]):
                 place.setdefault(other, n)
+        self.in_line = set(place)
         for test_id, item in self.items.items():
             button = self.tree.itemWidget(item, 5)
             if not isinstance(button, QPushButton) or not (button.text() == "Install"
                                                            or button.text().startswith("In line")):
                 continue
-            if test_id in place:
+            if test_id in place:            # a click takes it out of the line (owner, 2026-11-19)
                 button.setText(f"In line ({place[test_id]})")
-                button.setEnabled(False)
+                button.setToolTip("Waiting in line: click to take it out before it downloads.")
+                button.setEnabled(True)
             else:
                 button.setText("Install")
                 entry = self.entry(test_id)

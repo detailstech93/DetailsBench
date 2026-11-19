@@ -282,6 +282,49 @@ def test_install_selected_installs_lmstudio_before_the_models(qapp, monkeypatch)
     monkeypatch.setattr(model_set, "install", lambda tid, progress=None, stop=None: done.append(tid)
                         or winget.Outcome(True, f"{tid} downloaded."))
     flow = run_all.RunAllFlow.__new__(run_all.RunAllFlow)
-    flow.stop_event, flow.state, flow.pending = threading.Event(), None, items
+    flow.stop_event, flow.state, flow.pending, flow.line_lock = threading.Event(), None, items, threading.Lock()
     lines = run_all.RunAllFlow._install(flow, items)
     assert done == [("lmstudio", True)] + models and lines[0] == "LM Studio installed."
+
+
+def test_the_install_line_asks_the_password_once_for_every_system_package(qapp):
+    # owner, 2026-11-19 (Fedora): glmark2, vkmark, ncurses and Chromium each asked on their own; nobody answered,
+    # and each waited 15 minutes and failed
+    from app.ui import run_all
+
+    def entry(i):
+        return TestEntry(id=i, name=i, group="x", mode="automatic", state=MISSING, state_reason="", compatible=True,
+                         compatibility_reason="", verified=False)
+
+    def line():
+        items = [run_all.Item(entry("glmark2"), {"kind": "linux", "family": "fedora", "package": "glmark2"}),
+                 run_all.Item(entry("vkmark"), {"kind": "linux", "family": "fedora", "package": "vkmark"}),
+                 run_all.Item(entry("passmark_cpu"), {"kind": "zip", "then": "ncurses5"}),
+                 run_all.Item(entry("lmstudio"), {"kind": "lmstudio_app", "windows": False, "family": "fedora"}),
+                 run_all.Item(entry("chrome"), {"kind": "linux", "family": "fedora", "package": "/tmp/c.rpm",
+                                                "fetch": "chrome"})]
+        items[0].commands = items[1].commands = items[3].commands = items[4].commands = [["pkexec", "dnf"]]
+        return items
+
+    asked, ran = [], []
+    flow = run_all.RunAllFlow.__new__(run_all.RunAllFlow)
+    flow.stop_event, flow.state = threading.Event(), None
+    flow.linux_commands = lambda family, pkgs: (asked.append((family, pkgs)) or [["pkexec", "dnf", "install"] + pkgs],
+                                                None)
+    flow.run_commands = lambda commands: ran.append(commands) or "done"
+    import app.pro.passmark as passmark
+    items = line()
+    real = passmark.ncurses5_present
+    passmark.ncurses5_present = lambda: False
+    try:
+        lines = run_all.RunAllFlow._root_packages_first(flow, items)
+        assert asked == [("fedora", ["glmark2", "libatomic", "ncurses-compat-libs", "vkmark"])] and len(ran) == 1
+        assert lines == ["System packages installed: glmark2, libatomic, ncurses-compat-libs, vkmark."]
+        assert [i.commands for i in items[:4]] == [[], [], [], []] and items[4].commands    # Chrome's file asks itself
+        flow.run_commands = lambda commands: "cancelled (password prompt declined)"
+        items = line()
+        lines = run_all.RunAllFlow._root_packages_first(flow, items)
+        assert "not installed" in lines[0] and all(i.root_result for i in items[:4]) and items[4].root_result is None
+        assert items[2].plan["then"] is None            # PassMark unpacked without asking for ncurses again
+    finally:
+        passmark.ncurses5_present = real

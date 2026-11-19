@@ -386,6 +386,15 @@ class InstallFlow(QObject):
         self._mark()
         return True, f"{entry.name} is in line ({len(self.queue)}): it downloads after the one going on."
 
+    def dequeue(self, test_id: str) -> Tuple[bool, str]:
+        """A download waiting in line leaves it before it starts (owner, 2026-11-19)."""
+        found = next(((e, r) for e, r in self.queue if e.id == test_id), None)
+        if found is None:
+            return False, "It is not waiting in line (the one installing now is skipped with Skip this download)."
+        self.queue.remove(found)
+        self._mark()
+        return True, f"{found[0].name} was taken out of the line; nothing of it was downloaded."
+
     def _mark(self):
         mark = getattr(self.window.tests_page, "show_queue", None)
         if mark is not None:

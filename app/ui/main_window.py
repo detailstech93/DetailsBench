@@ -507,6 +507,7 @@ class MainWindow(QMainWindow):
                                            and __import__("app.ui.run_tests", fromlist=["x"]).running(self))
         self.tests_page.waiting = lambda: __import__("app.ui.run_tests", fromlist=["x"]).line_marks(self)
         self.tests_page.queue_requested.connect(lambda entry: self.queue_install(entry))
+        self.tests_page.dequeue_install_requested.connect(self.dequeue_install)
         from app.ui import admin_restart as _admin
         self.tests_page.install_many_requested.connect(lambda entries: _admin.install_selected(self, entries))
         install_ids = elevation.install_requested()
@@ -528,9 +529,12 @@ class MainWindow(QMainWindow):
         """The install going on that takes more downloads in line, or None (never during a test run)."""
         if self.automation_panel.is_running():
             return None
-        # an install of several tests takes no more in line: its own line shows where each one is (owner, 2026-11-17)
-        flow = getattr(self, "install_flow", None)
-        return flow if flow is not None and flow.queue_open() else None
+        # an install of several tests takes more in line too (owner, 2026-11-19, Fedora GEEKOM); the ones already in
+        # its line stay greyed as "In line (n)" / "Installing..." (5d54271)
+        for flow in (getattr(self, "install_flow", None), getattr(self, "run_all_flow", None)):
+            if flow is not None and flow.queue_open():
+                return flow
+        return None
 
     def install_queue_open(self, entry=None) -> bool:
         from app.ui.install_flow import queueable
@@ -559,11 +563,15 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Install", text)
         return ok, text
 
+    def dequeue_install(self, entry):
+        """"In line (n)" clicked: that download leaves the line before it starts (owner, 2026-11-19)."""
+        flow = self._queueing_flow()
+        ok, text = flow.dequeue(entry.id) if flow is not None else (False, "Nothing is installing now.")
+        self.status_label.setText(text)
+        return ok, text
+
     def queued_installs(self):
         flow = self._queueing_flow()
-        if flow is None and not self.automation_panel.is_running():
-            flow = getattr(self, "run_all_flow", None)
-            flow = flow if flow is not None and flow.queue_open() else None
         return flow.queued_ids() if flow is not None else []
 
     def offer_problem_report(self, text: str, session_id: Optional[int] = None):

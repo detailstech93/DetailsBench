@@ -58,6 +58,7 @@ class Item:
         self.package: Optional[winget.Package] = None
         self.commands: List[List[str]] = []
         self.problem: Optional[str] = None
+        self.root_result: Optional[str] = None     # why the line's one system-package call failed (it is not retried)
         self.warning = ""               # an AI model that most likely does not fit here (app/ai/model_fit.py)
 
     def line(self) -> str:
@@ -159,12 +160,34 @@ def check_items(items: List[Item], describe=winget.describe, linux_commands=plan
     return items
 
 
+LIBATOMIC = {"debian": "libatomic1", "fedora": "libatomic", "arch": "gcc-libs", "suse": "libatomic1"}
+
+
+def root_packages(items: List[Item], family: Optional[str], ncurses_present=None) -> List[Tuple[Item, str]]:
+    """The system packages the line would install one by one, each with its own password prompt: distribution
+    packages (glmark2, vkmark, Chromium), LM Studio's libatomic and PassMark's ncurses 5 (owner, 2026-11-19: four
+    prompts nobody answered waited 15 minutes each and failed). Chrome's own file and HandBrake's Flatpak are not
+    package names: they still ask on their own."""
+    from app.pro import passmark
+    present = ncurses_present or passmark.ncurses5_present
+    found = []
+    for item in items:
+        kind = item.plan["kind"]
+        if kind == "linux" and not item.plan.get("fetch"):
+            found.append((item, item.plan["package"]))
+        elif kind == "lmstudio_app" and item.commands and LIBATOMIC.get(family or ""):
+            found.append((item, LIBATOMIC[family]))
+        elif kind == "zip" and item.plan.get("then") == "ncurses5" and passmark.NCURSES5_PACKAGES.get(family or "")                 and not present():
+            found.append((item, passmark.NCURSES5_PACKAGES[family]))
+    return found
+
+
 def libatomic_commands(family, linux_commands, missing=None) -> Tuple[List[List[str]], Optional[str]]:
     """Linux: LM Studio's install.sh stops without libatomic; its package for this distribution, when missing."""
     from app.ai import lmstudio_linux
     if not (missing or lmstudio_linux.libatomic_missing)():
         return [], None
-    package = {"debian": "libatomic1", "fedora": "libatomic", "arch": "gcc-libs", "suse": "libatomic1"}.get(family or "")
+    package = LIBATOMIC.get(family or "")
     if not package:
         return [], "it needs the system library libatomic, which is missing: install it with your package manager"
     return linux_commands(family, package)
@@ -220,6 +243,7 @@ class RunAllFlow(QObject):
         self.pending: List[Item] = []               # what is being installed, in order (more can join: enqueue)
         self.position = 0
         self.installing = False
+        self.line_lock = threading.Lock()
         self.checked.connect(self._on_checked)
         self.installed.connect(self._on_installed)
 
@@ -290,7 +314,7 @@ class RunAllFlow(QObject):
     def enqueue(self, entry: TestEntry, remote: bool = False) -> Tuple[bool, str]:
         if not self.queue_open():
             return False, "Nothing is installing now: press Install again."
-        if any(i.entry.id == entry.id for i in self.pending[self.position:]):
+        if any(entry.id in i.ids for i in self.pending[self.position:]):
             return False, f"{entry.name} is already in line."
         plan = install_plan(entry, self.window.tests_page.host)
         if plan is None or plan["kind"] not in QUEUE_KINDS:
@@ -298,10 +322,22 @@ class RunAllFlow(QObject):
         item = check_items([Item(entry, plan)], self.describe_fn, self.linux_commands)[0]
         if item.problem:
             return False, f"{entry.name} cannot be installed by the app ({item.problem})."
-        self.pending.append(item)
+        with self.line_lock:
+            self.pending.append(item)
         self._mark()
         return True, f"{entry.name} is in line ({len(self.pending) - self.position - 1}): it downloads after the " \
                      "ones before it."
+
+    def dequeue(self, test_id: str) -> Tuple[bool, str]:
+        """A download waiting in line leaves it before it starts (owner, 2026-11-19); the one going on is Skip's."""
+        with self.line_lock:            # the worker reads the next item under the same lock
+            waiting = self.pending[self.position + 1:] if self.installing else []
+            item = next((i for i in waiting if test_id in i.ids), None)
+            if item is None:
+                return False, "It is not waiting in line (the one installing now is skipped with Skip this download)."
+            self.pending.remove(item)
+        self._mark()
+        return True, f"{item.entry.name} was taken out of the line; nothing of it was downloaded."
 
     def _mark(self):
         mark = getattr(self.window.tests_page, "show_queue", None)
@@ -350,12 +386,15 @@ class RunAllFlow(QObject):
 
     def _install(self, items: List[Item]) -> List[str]:
         """`items` is self.pending: Install pressed meanwhile adds to it (enqueue), so its length is read each time."""
-        lines = []
+        lines = self._root_packages_first(items)
         done = set()            # one program for several tests is installed once (Windows ARM, 2026-10-22: PassMark
         n = 0                   # was installed four times, once per PassMark test, and said so four times)
-        while n < len(items):
-            item = items[n]
-            self.position = n
+        while True:
+            with self.line_lock:        # dequeue may remove a waiting item meanwhile
+                if n >= len(items):
+                    break
+                item = items[n]
+                self.position = n
             n += 1
             key = install_key(item)
             if key in done:
@@ -376,7 +415,7 @@ class RunAllFlow(QObject):
                     lines.append(f"{item.entry.name}: skipped, not installed." if skipped else outcome.message)
                 elif item.plan["kind"] == "lmstudio_app":
                     from app.ai import lmstudio_linux
-                    result = self.run_commands(item.commands) if item.commands else "done"
+                    result = item.root_result or (self.run_commands(item.commands) if item.commands else "done")
                     out = lmstudio_linux.install(windows=item.plan["windows"]) if result == "done" else None
                     ok = out is not None and out.ok
                     lines.append(out.message if out is not None
@@ -393,7 +432,7 @@ class RunAllFlow(QObject):
                 else:
                     from app.install import chrome_linux
                     what = item.plan.get("label") or item.plan["package"]
-                    why = chrome_linux.prepare(item.plan)
+                    why = item.root_result or chrome_linux.prepare(item.plan)     # the line's one call failed
                     result = self.run_commands(item.commands) if why is None else why
                     chrome_linux.cleanup(item.plan)
                     ok = result == "done"
@@ -406,6 +445,29 @@ class RunAllFlow(QObject):
                 lines.append(f"{item.entry.name}: the install failed ({e})")
             logger.info("Install line: %s", lines[-1][:300] if lines else item.entry.name)   # followed in the log too
         return lines
+
+    def _root_packages_first(self, items: List[Item]) -> List[str]:
+        """Linux: every system package of the line in one call before the downloads, so the password is asked once
+        at the start (owner, 2026-11-19). Each item then reads the result instead of asking again."""
+        family = next((i.plan["family"] for i in items if i.plan.get("family")), None) or plans.this_host().family
+        found = root_packages(items, family)
+        if not found or self.stop_event.is_set():
+            return []
+        names = sorted({package for _, package in found})
+        commands, problem = self.linux_commands(family, names)
+        self.state = RunState(True, 0, len(items), f"Installing the system packages first: {', '.join(names)} "
+                                                   "(enter your password once in the system prompt)...")
+        result = problem or self.run_commands(commands)
+        for item, _ in found:
+            if result == "done":
+                item.commands = []
+            elif item.plan["kind"] == "zip":
+                item.plan = dict(item.plan, then=None)      # PassMark is unpacked; ncurses is not asked for again
+            item.root_result = None if result == "done" else result
+        line = (f"System packages installed: {', '.join(names)}." if result == "done"
+                else f"System packages not installed ({', '.join(names)}): {result}")
+        logger.info("Install line: %s", line)
+        return [line]
 
     def install_zip(self, item: Item) -> "winget.Outcome":
         from app.install import direct
