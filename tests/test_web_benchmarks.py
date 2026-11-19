@@ -171,7 +171,7 @@ def test_a_run_reads_the_score_and_cleans_up(tmp_path, fakes):
     wl = wb.WebBenchmarkWorkload(wb.SPEEDOMETER, browser="chrome.exe", popen=fake_browser(started), opener=opener)
     r = wl.run(RunContext(output_dir=tmp_path, timeout_seconds=60, stop_event=threading.Event()))
     assert r.status == "completed" and r.score == 31.4 and r.unit == "score"
-    assert r.note.startswith("Browser: Chrome/150.0.7871.116; Page: " + wb.SPEEDOMETER["url"])
+    assert r.note.startswith("Browser: Chrome/150.0.7871.116 (Chrome); Page: " + wb.SPEEDOMETER["url"])
     profile = next(c.split("=", 1)[1] for c in started[0] if c.startswith("--user-data-dir="))
     assert not __import__("os").path.exists(profile)        # the run's own profile is gone
     assert len(fakes) == 1                                   # the browser it started was closed
@@ -190,6 +190,20 @@ def test_no_score_in_time_is_timed_out(tmp_path, fakes):
     wl = wb.WebBenchmarkWorkload(wb.JETSTREAM, browser="chrome.exe", popen=fake_browser([]), opener=opener)
     r = wl.run(RunContext(output_dir=tmp_path, timeout_seconds=60, stop_event=threading.Event()))
     assert r.status == "timed_out" and r.score is None
+
+
+def test_the_browser_is_looked_up_at_each_run_and_named_in_the_note(tmp_path, fakes):
+    # Fedora, 2026-11-19: Google Chrome installed while the app was open; Chromium and Chrome both say "Chrome/157"
+    found = ["/usr/bin/chromium-browser"]
+    started = []
+    wl = wb.WebBenchmarkWorkload(wb.SPEEDOMETER, finder=lambda: found[0], popen=fake_browser(started), opener=opener,
+                                 others=lambda: [])
+    assert wl.availability() == (True, "/usr/bin/chromium-browser")
+    found[0] = "/usr/bin/google-chrome"
+    FakeWS.answers = ["31.4"]
+    r = wl.run(RunContext(output_dir=tmp_path, timeout_seconds=60, stop_event=threading.Event()))
+    assert started[0][0] == "/usr/bin/google-chrome"
+    assert r.note.startswith("Browser: Chrome/150.0.7871.116 (google-chrome); Page: ")
 
 
 def test_no_browser_is_skipped(tmp_path):

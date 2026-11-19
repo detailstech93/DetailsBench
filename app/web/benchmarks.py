@@ -91,13 +91,18 @@ class WebBenchmarkWorkload(Workload):
         self.id, self.display_name = spec["id"], spec["name"]
         self.timeout_seconds = spec["timeout"]
         self.verified = False       # not seen on a real run here yet
-        self.browser = browser if browser is not None else finder()
+        self._browser, self._finder = browser, finder
         # NucBox K10, 2026-11-14: Chrome 157 started by the app opened no DevTools port in 60 s (it did when started
         # by hand); the next browser found (Edge) is tried before the run fails
         self._others = others or ((lambda: [b for b in cdp.installed_browsers() if b != self.browser])
                                   if browser is None else (lambda: []))
         self._popen, self._connect, self._opener, self.clock = popen, connect, opener, clock
         self._started: Optional[float] = None
+
+    @property
+    def browser(self) -> Optional[str]:
+        # looked up each time: Fedora 2026-11-19, Google Chrome installed while the app was open was not used
+        return self._browser if self._browser is not None else self._finder()
 
     @property
     def progress(self):
@@ -123,19 +128,20 @@ class WebBenchmarkWorkload(Workload):
         return f'"{self.browser}" (new empty profile) {self.page["url"]}'
 
     def run(self, ctx: RunContext) -> WorkloadResult:
-        if not self.browser:
+        first = self.browser
+        if not first:
             return WorkloadResult(status="skipped", error=self.availability()[1])
         import subprocess
         popen = self._popen or subprocess.Popen
         stop = ctx.stop_event or threading.Event()
         timeout = float(ctx.timeout_seconds or self.timeout_seconds)
-        shown = [self.browser, "(new empty profile)", self.page["url"]]
+        shown = [first, "(new empty profile)", self.page["url"]]
         started = self.clock()
         self._started = started
         proc = ws = profile = port = None
         tried = []
         try:
-            for exe in [self.browser] + list(self._others()):
+            for exe in [first] + [b for b in self._others() if b != first]:
                 if proc is not None:            # the one before did not answer: closed, its profile removed
                     cdp.end_browser(proc)
                     cdp.remove_profile(profile)
@@ -178,7 +184,8 @@ class WebBenchmarkWorkload(Workload):
             duration = round(self.clock() - started, 3)
             if score is None:
                 return WorkloadResult(status="invalid", error=why, command=shown, duration_seconds=duration)
-            note = (f"Browser: {browser_name or 'unknown'}; Page: {self.page['url']}; new empty profile; "
+            # Chromium and Google Chrome both say "Chrome/157": the program run tells them apart (Fedora, 2026-11-19)
+            note = (f"Browser: {browser_name or 'unknown'} ({_name(exe)}); Page: {self.page['url']}; new empty profile; "
                     "the page's default length")
             return WorkloadResult(status="completed", score=score, unit=self.page["unit"], note=note,
                                   metrics={}, command=shown, duration_seconds=duration)
