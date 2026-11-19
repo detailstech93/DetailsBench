@@ -159,6 +159,66 @@ def biggest_gpu_name() -> Optional[str]:
     return max(adapters, key=lambda a: a.dedicated_total).name if adapters else None
 
 
+# Linux: Mesa's OpenCL driver (Rusticl) by distribution family (Fedora 45 on the GEEKOM, 2026-11-19: only the ICD
+# loader was there, Geekbench listed no OpenCL device). Rusticl serves AMD only when RUSTICL_ENABLE names radeonsi.
+OPENCL_PACKAGES = {"fedora": "mesa-libOpenCL", "debian": "mesa-opencl-icd", "arch": "opencl-mesa",
+                   "suse": "Mesa-libRusticlOpenCL"}
+ICD_DIRS = ("/etc/OpenCL/vendors", "/usr/share/OpenCL/vendors")
+RUSTICL_DRIVERS = "radeonsi,iris,nouveau,panfrost,asahi,freedreno"
+
+
+def opencl_driver_present(dirs=ICD_DIRS) -> bool:
+    """An OpenCL driver registered with the ICD loader (any vendor's .icd file)."""
+    return any(Path(d).is_dir() and any(Path(d).glob("*.icd")) for d in dirs)
+
+
+def _family() -> Optional[str]:
+    from app.install.plans import this_host
+    return this_host().family
+
+
+def opencl_env(env=None) -> dict:
+    """Linux: the environment with Rusticl turned on for the usual GPU drivers, unless the owner set it already."""
+    env = dict(os.environ if env is None else env)
+    env.setdefault("RUSTICL_ENABLE", RUSTICL_DRIVERS)
+    return env
+
+
+def opencl_install_text(present=opencl_driver_present, family=_family) -> str:
+    """What the Install button does after unpacking Geekbench on Linux (shown before the owner says Yes)."""
+    if present():
+        return "An OpenCL driver is already installed."
+    package = OPENCL_PACKAGES.get(family() or "")
+    if package:
+        return (f"Its OpenCL test needs an OpenCL driver: the app installs {package} (Mesa's OpenCL) with your "
+                "distribution's package manager, and the system asks for your password.")
+    return "Its OpenCL test needs an OpenCL driver, which the app cannot install on this distribution."
+
+
+def install_opencl(progress=lambda text: None, present=opencl_driver_present, family=_family, commands=None,
+                   run=None):
+    """After the zip: install Mesa's OpenCL driver when none is registered (winget.Outcome)."""
+    from app.install import winget
+    if present():
+        return winget.Outcome(True, "Geekbench installed; an OpenCL driver is already there.")
+    package = OPENCL_PACKAGES.get(family() or "")
+    if not package:
+        return winget.Outcome(False, "Geekbench was unpacked, but its OpenCL test needs an OpenCL driver, which the "
+                                     "app cannot install here")
+    if commands is None:
+        from app.install.plans import linux_commands as commands
+    if run is None:
+        from app.ui.frame_capture_panel import run_commands as run
+    argv, problem = commands(family(), package)
+    if problem:
+        return winget.Outcome(False, f"Geekbench was unpacked; {package} was not installed: {problem}")
+    progress(f"Installing {package} (enter your password in the system prompt)...")
+    text = run(argv)
+    if text != "done":
+        return winget.Outcome(False, f"Geekbench was unpacked; {package} was not installed: {text}")
+    return winget.Outcome(True, f"Geekbench and {package} installed.")
+
+
 def parse_scores(text: str, gpu: bool) -> Tuple[Optional[float], dict, Optional[str]]:
     """(score, metrics, why): the CPU test's score is Multi-Core (Single-Core is a metric); the GPU test's GPU Score."""
     if gpu:
@@ -225,6 +285,9 @@ class GeekbenchWorkload(Workload):
         self.exe = exe
         self._gpu_name, self._run = gpu_name, runner
         self._started: Optional[float] = None
+        self._opencl_linux = self.options[1:] == ["OpenCL"] and sys.platform.startswith("linux")
+        self._opencl_present = opencl_driver_present
+        self._env = opencl_env() if self._opencl_linux else None
 
     @property
     def progress(self):
@@ -248,6 +311,9 @@ class GeekbenchWorkload(Workload):
             return False, blocked
         if not self.exe:
             return False, f"Geekbench {self.major} is not installed (geekbench{self.major} not found)"
+        if self._opencl_linux and not self._opencl_present():
+            package = OPENCL_PACKAGES.get(_family() or "", "Mesa's OpenCL driver")
+            return False, f"it needs an OpenCL driver, which is not installed: the Install button installs {package}"
         return True, self.exe
 
     def executable(self) -> Tuple[Optional[str], str]:
@@ -262,7 +328,7 @@ class GeekbenchWorkload(Workload):
     def _device(self) -> Tuple[Optional[tuple], str]:
         """(platform, device, name) for this API, or (None, why)."""
         try:
-            res = self._run([self.exe, "--gpu-list"], capture_output=True, text=True, timeout=120,
+            res = self._run([self.exe, "--gpu-list"], capture_output=True, text=True, timeout=120, env=self._env,
                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except (OSError, subprocess.SubprocessError) as e:
             return None, f"--gpu-list failed: {e}"
@@ -291,7 +357,7 @@ class GeekbenchWorkload(Workload):
         self._started = time.monotonic()
         try:
             outcome = run_process(command, out, err, ctx.timeout_seconds or self.timeout_seconds, ctx.stop_event,
-                                  cwd=str(Path(self.exe).parent))
+                                  cwd=str(Path(self.exe).parent), env=self._env)
         finally:
             self._started = None
         common = {"command": command, "exit_code": outcome.exit_code,

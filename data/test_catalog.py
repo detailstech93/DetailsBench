@@ -5,12 +5,14 @@ Keyed by test id (tool spec id, workload id, simulation script id or library def
 - official_url: the page where the owner downloads the tool; nothing is downloaded from here by the app
 - supported_os: OS families ("windows", "linux"); missing = not limited
 - supported_architectures: native architecture -> "native" | "emulated" | "unsupported" | "unverified"
-- expected_minutes: rough duration of one run, shown as a hint only
+- expected_minutes: rough duration of one run, shown as a hint only; expected_minutes_linux: the same on Linux when it
+  differs (PassMark's Linux build at its default length: 6-7 min on the GEEKOM, 2026-11-19)
 
 A test with no entry here is still listed, with its group from its own benchmark_type and no download link.
 """
 
-from typing import Dict
+import sys
+from typing import Dict, Optional
 
 TEST_INFO: Dict[str, dict] = {
     "sevenzip_benchmark": {
@@ -111,7 +113,7 @@ TEST_INFO: Dict[str, dict] = {
     "passmark_cpu": {
         "group": "cpu", "official_url": "https://www.passmark.com/products/performancetest/",
         "supported_os": ["windows", "linux"], "supported_architectures": {"x64": "native", "arm64": "unverified"},
-        "expected_minutes": 3,
+        "expected_minutes": 3, "expected_minutes_linux": 7,
     },
     "passmark_2d": {
         "group": "gpu", "official_url": "https://www.passmark.com/products/performancetest/",
@@ -126,7 +128,7 @@ TEST_INFO: Dict[str, dict] = {
     "passmark_memory": {
         "group": "cpu", "official_url": "https://www.passmark.com/products/performancetest/",
         "supported_os": ["windows", "linux"], "supported_architectures": {"x64": "native", "arm64": "unverified"},
-        "expected_minutes": 3,
+        "expected_minutes": 3, "expected_minutes_linux": 7,
     },
     "cinebench_2026": {
         "group": "cpu", "official_url": "https://www.maxon.net/en/cinebench",
@@ -211,3 +213,10 @@ TEST_PARTS: Dict[str, dict] = {
 }
 GROUP_PARTS = {"cpu": "cpu", "gpu": "gpu", "storage": "storage", "web": "cpu", "game": "gpu", "ai": "ai",
                "stress": None, "other": None}
+
+
+def expected_minutes(test_id: str, platform: Optional[str] = None) -> Optional[float]:
+    """One run's usual minutes on this system (Linux's own when the test has one)."""
+    info = TEST_INFO.get(test_id) or {}
+    linux = (platform or sys.platform).startswith("linux")
+    return (linux and info.get("expected_minutes_linux")) or info.get("expected_minutes")

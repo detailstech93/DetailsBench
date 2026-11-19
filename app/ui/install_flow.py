@@ -73,12 +73,23 @@ def _vcredist_install(exe, progress):
     return ycruncher.install_runtime(exe, progress)
 
 
+def _opencl_text() -> str:
+    from app.pro import geekbench
+    return geekbench.opencl_install_text()
+
+
+def _opencl_install(exe, progress):
+    from app.pro import geekbench
+    return geekbench.install_opencl(progress)
+
+
 # what the same Install button downloads after a "zip" tool ("then" in data/installers.py): (text for the
 # question, download(exe, progress) -> winget.Outcome)
 THEN = {"blender_content": (_blender_text, _blender_download),
         "ncurses5": (_ncurses_text, _ncurses_install),
         "handbrake_cli": (_handbrake_text, _handbrake_install),
-        "vcredist": (_vcredist_text, _vcredist_install)}
+        "vcredist": (_vcredist_text, _vcredist_install),
+        "opencl": (_opencl_text, _opencl_install)}
 
 
 REMOTE_KINDS = ("zip", "lmstudio", "winget", "linux")

@@ -112,6 +112,8 @@ def collect(entries: List[TestEntry], host, lms=None) -> Tuple[List[Item], List[
             else:                           # one program for several tests (Blender CPU and GPU)
                 same.entry = dataclasses.replace(same.entry, name=f"{same.entry.name} + {e.name}")
                 same.ids.append(e.id)
+                if plan.get("then") and not same.plan.get("then"):     # Geekbench CPU + OpenCL: its driver too
+                    same.plan = dict(same.plan, then=plan["then"])
         elif plan is not None and plan["kind"] == "linux" and any(i.plan == plan for i in items):
             same = next(i for i in items if i.plan == plan)     # one browser for both web tests
             same.entry = dataclasses.replace(same.entry, name=f"{same.entry.name} + {e.name}")
@@ -163,14 +165,16 @@ def check_items(items: List[Item], describe=winget.describe, linux_commands=plan
 LIBATOMIC = {"debian": "libatomic1", "fedora": "libatomic", "arch": "gcc-libs", "suse": "libatomic1"}
 
 
-def root_packages(items: List[Item], family: Optional[str], ncurses_present=None, which=None) -> List[Tuple[Item, str]]:
+def root_packages(items: List[Item], family: Optional[str], ncurses_present=None, which=None,
+                  opencl_present=None) -> List[Tuple[Item, str]]:
     """The system packages the line would install one by one, each with its own password prompt: distribution
     packages (glmark2, vkmark, Chromium), LM Studio's libatomic, PassMark's ncurses 5 and flatpak for HandBrake's file
     (owner, 2026-11-19: four prompts nobody answered waited 15 minutes each and failed). Chrome's own file is not a
     package name: it still asks on its own."""
     import shutil
-    from app.pro import handbrake, passmark
+    from app.pro import geekbench, handbrake, passmark
     present = ncurses_present or passmark.ncurses5_present
+    opencl_present = opencl_present or geekbench.opencl_driver_present
     which = which or shutil.which
     found = []
     for item in items:
@@ -183,6 +187,9 @@ def root_packages(items: List[Item], family: Optional[str], ncurses_present=None
             found.append((item, "flatpak"))         # HandBrake's own Flatpak file needs flatpak (owner, 2026-11-19)
         elif kind == "zip" and item.plan.get("then") == "ncurses5" and passmark.NCURSES5_PACKAGES.get(family or "")                 and not present():
             found.append((item, passmark.NCURSES5_PACKAGES[family]))
+        elif kind == "zip" and item.plan.get("then") == "opencl" and geekbench.OPENCL_PACKAGES.get(family or "") \
+                and not opencl_present():
+            found.append((item, geekbench.OPENCL_PACKAGES[family]))     # Geekbench's OpenCL test (2026-11-19)
     return found
 
 

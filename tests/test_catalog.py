@@ -222,3 +222,10 @@ def test_a_dropped_game_is_not_offered_even_when_installed():
              {"store": "steam", "app_id": "750920", "name": "SotTR", "installed": True, "kind": "game"}]
     ids = {e.id for e in steam_entries(games, WIN_X64, [], gameplay_captures=True)}
     assert "steam_391220" not in ids and "steam_286690" not in ids and "steam_750920" in ids
+
+
+def test_passmark_has_its_own_linux_time_so_its_runs_are_not_skipped():
+    # Fedora on the GEEKOM, 2026-11-19: CPU took 6 min and Memory 7 min against a usual 3, so their runs were skipped
+    from data.test_catalog import expected_minutes
+    assert expected_minutes("passmark_cpu", "win32") == 3 and expected_minutes("passmark_cpu", "linux") == 7
+    assert expected_minutes("passmark_memory", "linux") == 7 and expected_minutes("sevenzip_benchmark", "linux") == 1

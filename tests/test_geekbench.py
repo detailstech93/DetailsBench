@@ -116,8 +116,8 @@ def test_program_found_per_system(tmp_path):
 def _workload(test_id, out_text, monkeypatch, listed=GPU_LIST, exit_code=0):
     seen = {}
 
-    def fake_run_process(command, out, err, timeout, stop, cwd=None):
-        seen["command"] = command
+    def fake_run_process(command, out, err, timeout, stop, cwd=None, env=None):
+        seen["command"], seen["env"] = command, env
         out.write_text(out_text, encoding="utf-8")
         err.write_text("", encoding="utf-8")
         return ProcessOutcome(exit_code, False, False, 360.0)
@@ -160,6 +160,43 @@ def test_a_failed_upload_is_invalid_not_a_score(tmp_path, monkeypatch):
     wl, _ = _workload("geekbench7_cpu", "Upload failed.\n", monkeypatch, exit_code=1)
     r = wl.run(RunContext(output_dir=tmp_path, stop_event=threading.Event()))
     assert r.status == "invalid" and r.score is None and "exit code 1" in r.error
+
+
+def test_linux_opencl_without_a_driver_shows_missing_and_turns_rusticl_on(tmp_path, monkeypatch):
+    # Fedora 45 on the GEEKOM, 2026-11-19: only the ICD loader was there; Geekbench listed no OpenCL device
+    monkeypatch.setattr(gb.sys, "platform", "linux")
+    monkeypatch.setattr(gb, "_family", lambda: "fedora")
+    wl, seen = _workload("geekbench7_gpu_opencl", GPU_OUT, monkeypatch)
+    wl._opencl_present = lambda: False
+    ok, why = wl.availability()
+    assert not ok and "not installed" in why and "mesa-libOpenCL" in why      # MISSING: the Install button
+    wl._opencl_present = lambda: True
+    assert wl.run(RunContext(output_dir=tmp_path, stop_event=threading.Event())).status == "completed"
+    assert seen["env"]["RUSTICL_ENABLE"].startswith("radeonsi")
+    assert gb.GeekbenchWorkload("geekbench7_gpu_vulkan", exe="/gb/geekbench7")._env is None     # only OpenCL
+    assert gb.opencl_env({"RUSTICL_ENABLE": "iris"})["RUSTICL_ENABLE"] == "iris"           # the owner's own wins
+    (tmp_path / "v").mkdir()
+    assert not gb.opencl_driver_present([str(tmp_path / "v")])
+    (tmp_path / "v" / "rusticl.icd").write_text("libRusticlOpenCL.so.1")
+    assert gb.opencl_driver_present([str(tmp_path / "v")])
+
+
+def test_opencl_install_after_the_zip_and_in_the_one_password_call(monkeypatch):
+    from app.catalog import MISSING, TestEntry
+    from app.install.plans import Host, plan_for
+    from app.ui import run_all
+    plan = plan_for("geekbench7_gpu_opencl", host=Host("linux", "x64", "fedora"))
+    assert plan["then"] == "opencl" and plan_for("geekbench7_cpu", host=Host("linux", "x64", "fedora")).get("then") is None
+    ran = []
+    out = gb.install_opencl(present=lambda: False, family=lambda: "fedora",
+                            commands=lambda fam, pkg: ([["pkexec", "dnf", "install", "-y", pkg]], None),
+                            run=lambda argv: ran.append(argv) or "done")
+    assert out.ok and ran == [[["pkexec", "dnf", "install", "-y", "mesa-libOpenCL"]]]
+    assert gb.install_opencl(present=lambda: True).ok and "already" in gb.opencl_install_text(present=lambda: True)
+    item = run_all.Item(TestEntry(id="geekbench7_gpu_opencl", name="GB", group="x", mode="automatic", state=MISSING,
+                                  state_reason="", compatible=True, compatibility_reason="", verified=False), plan)
+    assert run_all.root_packages([item], "fedora", opencl_present=lambda: False) == [(item, "mesa-libOpenCL")]
+    assert run_all.root_packages([item], "fedora", opencl_present=lambda: True) == []
 
 
 def test_not_installed_is_skipped(tmp_path):

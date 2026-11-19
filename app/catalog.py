@@ -13,7 +13,7 @@ from typing import Dict, List, Optional, Tuple
 
 from data.game_start_keys import GAME_MENU_STEPS
 from data.steam_benchmarks import DROPPED_GAMES, STEAM_BENCHMARK_APPS
-from data.test_catalog import STEAM_STORE_URL, TEST_INFO
+from data.test_catalog import STEAM_STORE_URL, TEST_INFO, expected_minutes
 
 # how a test runs
 AUTOMATIC = "automatic"     # the app runs it and reads the result
@@ -143,7 +143,7 @@ def workload_entries(workloads, environment: Optional[dict]) -> List[TestEntry]:
             id=wl.id, name=wl.display_name, group=_group(wl.id, getattr(wl, "benchmark_type", "other")),
             mode=ASSISTED if assisted else AUTOMATIC, state=state, state_reason=why,
             compatible=ok, compatibility_reason=comp, verified=_workload_verified(wl),
-            official_url=info.get("official_url"), expected_minutes=info.get("expected_minutes"),
+            official_url=info.get("official_url"), expected_minutes=expected_minutes(wl.id),
             source="workload", ref=wl))
     return entries
 

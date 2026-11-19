@@ -319,9 +319,9 @@ class AutomationRunner:
 
     def _too_long(self, summary: "RunSummary", schedule: list, position: int, item, result) -> bool:
         """After a test's first run: True when its other runs are skipped because that run took too long."""
-        from data.test_catalog import TEST_INFO
+        from data.test_catalog import expected_minutes
         wl = item.workload
-        usual = (TEST_INFO.get(wl.id) or {}).get("expected_minutes")
+        usual = expected_minutes(wl.id)
         rest = sum(1 for s in schedule[position + 1:] if s[0] is item)
         if (not usual or not rest or result.status != "completed" or not result.duration_seconds
                 or sum(r.workload_id == wl.id for r in summary.records) != 1
