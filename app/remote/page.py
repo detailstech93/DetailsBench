@@ -411,7 +411,7 @@ function showInfo(info) {
 
 // owner, 2026-10-22: while the PC runs a test, installs or scans, every choice here is greyed out until it ends
 // (an Install pressed during an install was taken but never done)
-// owner, 2026-10-22: during an install, Install still works for downloads that can wait in line ("In line (n)")
+// owner, 2026-10-22: during an install, Install still works for downloads that can wait in line ("Skip (in line n)")
 let frozen = false, queueOpen = false, queued = [], installedNow = [];
 function freeze(busy) {
   frozen = busy;
@@ -419,8 +419,8 @@ function freeze(busy) {
   document.querySelectorAll("#tests input").forEach((c) => c.disabled = busy || c.dataset.off === "1");
   document.querySelectorAll("#tests button[data-queue]").forEach((b) => {
     const n = queued.indexOf(b.dataset.queue);
-    b.textContent = n >= 0 ? "In line (" + (n + 1) + ")" : "Install";
-    b.disabled = busy && (n >= 0 || !queueOpen);
+    b.textContent = n >= 0 ? "Skip (in line " + (n + 1) + ")" : "Install";   // a click takes it out (2026-11-19)
+    b.disabled = busy && n < 0 && !queueOpen;
   });
   // installed in the line going on: no Install button left until the PC checks the tests again (owner, 2026-11-13)
   document.querySelectorAll("#tests button[data-inst]").forEach((b) => {
@@ -436,8 +436,20 @@ function actButton(label, t, what) {
   const b = el("button", label, "act go");
   if (what === "install" && t.queueable) b.dataset.queue = t.id;
   if (what === "install") b.dataset.inst = t.id;
-  b.addEventListener("click", (e) => { e.preventDefault(); askFor(t, what); });
+  b.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (b.textContent.startsWith("Skip (in line")) skipInLine(t); else askFor(t, what);
+  });
   return b;
+}
+
+async function skipInLine(t) {
+  // waiting in the install line: out of it at once, nothing downloaded, no question (owner, 2026-11-19)
+  try {
+    const d = await (await call("/api/act", { id: t.id, what: "install" })).json();
+    $("message").textContent = d.text || d.error || "";
+    refresh();
+  } catch (e) { if (e.message !== "code") $("message").textContent = "The PC does not answer."; }
 }
 
 let asking = null;

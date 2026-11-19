@@ -26,6 +26,9 @@ BAR_STYLE = ("QProgressBar { border: 1px solid #3f3f46; border-radius: 5px; text
              "font-weight: bold; } QProgressBar::chunk { background-color: #16a34a; border-radius: 4px; }")
 
 
+IN_LINE = "Skip (in line "         # an install waiting in line, as the button says it
+
+
 @dataclass
 class RunState:
     """What is running now, for the progress bar. total None = no run count (a game capture)."""
@@ -138,7 +141,7 @@ class TestsPage(QWidget):
     install_requested = Signal(object)      # TestEntry: missing, with a one-click install (app/install)
     lmstudio_install_requested = Signal()   # Linux: LM Studio itself, for the AI models
     queue_requested = Signal(object)        # TestEntry: Install pressed during an install (it waits in line)
-    dequeue_install_requested = Signal(object)  # TestEntry: "In line (n)" clicked (it leaves the line)
+    dequeue_install_requested = Signal(object)  # TestEntry: "Skip (in line n)" clicked (it leaves the line)
     queue_run_requested = Signal(list)      # [TestEntry]: "Queue next" while tests run (added to that run)
     unqueue_requested = Signal(object)      # TestEntry: "Skip" on a test in line (taken out before it starts)
     install_many_requested = Signal(list)   # the ticked missing tests: installed one after the other (app/ui/run_all)
@@ -533,8 +536,8 @@ class TestsPage(QWidget):
             self.queue_requested.emit(entry)
 
     def show_queue(self, ids: List[str]):
-        """The downloads waiting in line: their Install button says "In line (n)" and is greyed out (with every
-        other test of the same program)."""
+        """The downloads waiting in line: their Install button says "Skip (in line n)" (with every other test of the
+        same program); a click takes it out of the line."""
         place = {}
         for n, test_id in enumerate(ids, 1):
             for other in getattr(self, "siblings", {}).get(test_id, [test_id]):
@@ -543,10 +546,10 @@ class TestsPage(QWidget):
         for test_id, item in self.items.items():
             button = self.tree.itemWidget(item, 5)
             if not isinstance(button, QPushButton) or not (button.text() == "Install"
-                                                           or button.text().startswith("In line")):
+                                                           or button.text().startswith(IN_LINE)):
                 continue
             if test_id in place:            # a click takes it out of the line (owner, 2026-11-19)
-                button.setText(f"In line ({place[test_id]})")
+                button.setText(f"{IN_LINE}{place[test_id]})")    # like a test in line: Skip (owner, 2026-11-19)
                 button.setToolTip("Waiting in line: click to take it out before it downloads.")
                 button.setEnabled(True)
             else:
@@ -669,7 +672,7 @@ class TestsPage(QWidget):
         line = busy and self.can_queue()            # an install that takes more downloads in line
         for test_id, item in self.items.items():
             button = self.tree.itemWidget(item, 5)
-            if isinstance(button, QPushButton) and not busy and (button.text().startswith("In line")
+            if isinstance(button, QPushButton) and not busy and (button.text().startswith(IN_LINE)
                                                                  or button.text() == "Installing..."):
                 button.setText("Install")
             if isinstance(button, QPushButton) and button.text() == "Install":

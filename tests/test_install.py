@@ -611,7 +611,7 @@ def test_the_tests_screen_keeps_install_for_downloads_that_can_wait(qapp):
     seven.click()
     assert asked == ["sevenzip_benchmark"]
     page.show_queue(["sevenzip_benchmark"])
-    assert seven.text() == "In line (1)" and seven.isEnabled()     # a click takes it out (owner, 2026-11-19)
+    assert seven.text() == "Skip (in line 1)" and seven.isEnabled()     # a click takes it out (owner, 2026-11-19)
     out = []
     page.dequeue_install_requested.connect(lambda e: out.append(e.id))
     seven.click()
@@ -764,7 +764,7 @@ def test_tests_of_one_program_show_its_line_and_dot_together(qapp, monkeypatch):
     page.set_busy(True)
     page.show_queue(["passmark_cpu", "fio"])
     text = lambda tid: page.tree.itemWidget(page.items[tid], 5).text()
-    assert text("passmark_cpu") == text("passmark_memory") == "In line (1)" and text("fio") == "In line (2)"
+    assert text("passmark_cpu") == text("passmark_memory") == "Skip (in line 1)" and text("fio") == "Skip (in line 2)"
     page.show_queue([])
     state = [RunState(True, 0, None, "Installing PassMark"), "passmark_cpu"]
     page.watch(lambda: tp.with_install_dot(state[0], state[1]), lambda: None, skip_what="download")

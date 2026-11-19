@@ -435,6 +435,11 @@ class RemoteApi:
                 return True, f"{lic[1]}: license accepted."
             if not self._can_install(entry):
                 return False, "This test cannot be installed from here."
+            if self._busy() and entry.id in w.queued_installs():   # "Skip (in line n)" (owner, 2026-11-19)
+                ok, text = w.dequeue_install(entry)
+                if ok:
+                    logger.info("Install of %s taken out of the line from the remote page", entry.id)
+                return ok, text
             if self._busy() and w.install_queue_open(entry):     # it waits in line (owner, 2026-10-22)
                 ok, text = w.queue_install(entry, remote=True)
                 if ok:
