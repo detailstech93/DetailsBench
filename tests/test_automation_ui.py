@@ -336,3 +336,16 @@ def test_a_plan_ends_only_the_admin_helper_it_started(qapp, tmp_path, monkeypatc
     assert panel.start_plan() is True
     finish(qapp, panel)
     assert ended == [1]
+
+
+def test_a_run_that_left_a_result_page_to_type_from_is_not_a_failure():
+    # Fedora s9, 2026-11-19: Geekbench 6 uploaded its 3 runs, yet the bar said "Did not complete: geekbench6_cpu"
+    from types import SimpleNamespace as N
+    from app.automation.workload import WorkloadResult
+    from app.ui.automation_panel import failed_tests
+    page = ("Geekbench finished and uploaded, but printed no 'Multi-Core Score' line (this version shows the score "
+            "only on its result page): https://browser.geekbench.com/v6/cpu/19493845")
+    records = [N(workload_id="geekbench6_cpu", result=WorkloadResult("invalid", error=page)),
+               N(workload_id="fio", result=WorkloadResult("failed", error="no storage found")),
+               N(workload_id="sevenzip_benchmark", result=WorkloadResult("completed", score=1.0))]
+    assert failed_tests(records) == ["fio"]

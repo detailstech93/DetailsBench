@@ -184,6 +184,16 @@ def find_reports(summary) -> list:
     return out
 
 
+def failed_tests(records) -> List[str]:
+    """The tests to offer a problem report for. A run that ended on a result page whose score is typed by the owner
+    (Geekbench 6 on Linux: no score printed, only the page's link) did not fail (owner, Fedora s9 2026-11-19: "Did
+    not complete: geekbench6_cpu" showed although the 3 runs uploaded)."""
+    from app.problem_report import FAILED
+    from app.ui.run_tests import RESULT_PAGE
+    return sorted({rec.workload_id for rec in records if rec.result.status in FAILED
+                   and not RESULT_PAGE.search(rec.result.error or "")})
+
+
 class AutomationPanel(QGroupBox):
     """`get_profile()` gives the selected RunProfile; `get_environment()` a dict or None;
     `on_session_changed()` is called after a plan ends (history refresh)."""
@@ -714,7 +724,6 @@ class AutomationPanel(QGroupBox):
             callback, self.on_plan_finished = self.on_plan_finished, None     # one plan, one callback
             callback(self.last_session_id, text)
         if isinstance(summary, RunSummary) and self.on_failures is not None:
-            from app.problem_report import FAILED
-            failed = sorted({rec.workload_id for rec in summary.records if rec.result.status in FAILED})
+            failed = failed_tests(summary.records)
             if failed:
                 self.on_failures(f"Did not complete: {', '.join(failed)}.", self.last_session_id)
