@@ -35,10 +35,19 @@ def _inside(path: Optional[str], folder: str) -> bool:
     return inside(path, folder_roots(folder))
 
 
-def unix_path(arg: str) -> str:
-    """A Wine path on Wine's Z: drive (the whole Linux file system) as the Linux path: Z:\\home\\a -> /home/a."""
-    if len(arg) > 2 and arg[0] in "Zz" and arg[1] == ":" and arg[2] in "\\/":
-        return arg[2:].replace("\\", "/")
+def unix_path(arg: str, folder: Optional[str] = None) -> str:
+    """A Wine path on Wine's Z: drive (the whole Linux file system) as the Linux path: Z:\\home\\a -> /home/a.
+    A Steam library outside the home folder gets its own drive under Proton (Fedora 2026-11-19: the NTFS library
+    /run/media/m7moud/System/SteamLibrary is S:, BL3 ran as S:\\steamapps\\common\\Borderlands 3\\...): such a path
+    is placed in the library of `folder` (the game's install folder). Without it the game's own process was not
+    known, its window never counted as in front, and the menu steps waited 600 s without starting."""
+    if len(arg) > 2 and arg[1] == ":" and arg[2] in "\\/" and arg[0].isalpha():
+        rest = arg[2:].replace("\\", "/")
+        if arg[0] in "Zz":
+            return rest
+        library = (folder or "").replace("\\", "/").lower().rfind("/steamapps/")
+        if library >= 0 and rest.lower().startswith("/steamapps/"):
+            return folder.replace("\\", "/")[:library] + rest
     return arg
 
 
@@ -46,7 +55,7 @@ def _in_command_line(cmdline, folder: str) -> Optional[str]:
     """Linux: a game under Proton runs as Wine (its executable is Proton's), with the game's .exe in its command
     line; the first argument inside the folder names it."""
     for arg in cmdline or []:
-        path = unix_path(str(arg))
+        path = unix_path(str(arg), folder)
         if path.startswith("/") and _inside(path, folder):
             return path
     return None

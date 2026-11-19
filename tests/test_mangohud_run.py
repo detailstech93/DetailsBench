@@ -52,6 +52,14 @@ def test_proton_processes_are_found_by_their_command_line(tmp_path):
     found = processes_in_folder("/home/me/steamapps/common/Game", lambda: procs, linux=True)
     assert sorted(found) == [1, 2] and found[1].exe.endswith("Game.exe")
     assert sorted(processes_in_folder("/home/me/steamapps/common/Game", lambda: procs, linux=False)) == [2]
+    # a library on another drive is its own Wine drive (Fedora 2026-11-19: the NTFS library was S:)
+    lib = "/run/media/me/System/SteamLibrary/steamapps/common/Borderlands 3"
+    bl3 = [{"pid": 5, "create_time": 1.0, "exe": "/opt/proton/files/bin/wine64-preloader",
+            "cmdline": ["S:\\steamapps\\common\\Borderlands 3\\OakGame\\Binaries\\Win64\\Borderlands3.exe"]},
+           {"pid": 6, "create_time": 1.0, "exe": "/x/wine", "cmdline": ["S:\\steamapps\\common\\Other\\o.exe"]},
+           {"pid": 7, "create_time": 1.0, "exe": "/x/wine", "cmdline": ["c:\\windows\\system32\\steam.exe"]}]
+    found = processes_in_folder(lib, lambda: bl3, linux=True)
+    assert sorted(found) == [5] and found[5].exe == lib + "/OakGame/Binaries/Win64/Borderlands3.exe"
 
 
 class Fakes:
