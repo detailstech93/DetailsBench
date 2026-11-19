@@ -318,6 +318,16 @@ HANDBRAKE_CLI = {
                   "folder": "handbrakecli-1.11.2-arm64", "exe": "HandBrakeCLI.exe"},
     },
     "linux": {"debian": "handbrake-cli", "arch": "handbrake-cli"},
+    # Linux x86-64, every distribution (owner, 2026-11-19): HandBrake's own Flatpak file from the same GitHub release
+    # as Windows' CLI, so both run 1.11.2; installed per user (flatpak --user, no password). Size and SHA-256 as
+    # GitHub's release lists them (read 2026-11-19). Its runtime comes from Flathub, added for the user.
+    "linux_bundle": {"x64": {"product": "HandBrake (Flatpak, Linux x86-64)", "version": "1.11.2",
+                             "url": "https://github.com/HandBrake/HandBrake/releases/download/1.11.2/"
+                                    "HandBrake-1.11.2-x86_64.flatpak",
+                             "hosts": ["github.com"], "size": 29772536,
+                             "sha256": "8383defa3a845b77e6589bebe9c346921747a5c33b4de7b90eddd2ba863a52e5",
+                             "folder": "handbrake-flatpak-1.11.2-x64", "exe": "HandBrake-1.11.2-x86_64.flatpak",
+                             "single": True}},
 }
 # PassMark's automatic tests (app/pro/passmark.py) use the same program. On Linux, PassMark's own command-line
 # program (CPU and Memory tests only): the zips linked from passmark.com/products/pt_linux/download.php, 11.0

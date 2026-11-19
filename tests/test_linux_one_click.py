@@ -328,3 +328,17 @@ def test_the_install_line_asks_the_password_once_for_every_system_package(qapp):
         assert items[2].plan["then"] is None            # PassMark unpacked without asking for ncurses again
     finally:
         passmark.ncurses5_present = real
+
+
+def test_flatpak_joins_the_one_password_call_when_handbrakes_file_needs_it(monkeypatch):
+    from app.pro import handbrake
+    from app.ui import run_all
+    item = run_all.Item(TestEntry(id="handbrake_x264_1080p", name="HandBrake", group="x", mode="automatic",
+                                  state=MISSING, state_reason="", compatible=True, compatibility_reason="",
+                                  verified=False), {"kind": "zip", "then": "handbrake_cli"})
+    monkeypatch.setattr(handbrake, "bundle_plan", lambda arch=None: {"version": "1.11.2"})
+    monkeypatch.setattr(handbrake, "cli_path", lambda *a, **k: None)
+    assert run_all.root_packages([item], "fedora", which=lambda n: None) == [(item, "flatpak")]
+    assert run_all.root_packages([item], "fedora", which=lambda n: "/usr/bin/flatpak") == []
+    monkeypatch.setattr(handbrake, "bundle_plan", lambda arch=None: None)            # ARM: not this way
+    assert run_all.root_packages([item], "fedora", which=lambda n: None) == []

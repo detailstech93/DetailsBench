@@ -11,7 +11,9 @@ What is downloaded, all by the same Install button (data/installers.py), after t
   (Debian/Ubuntu and Arch have one). Fedora and openSUSE have it only in third-party repositories, which the app does
   not add: there it is HandBrake's own Flatpak from Flathub (fr.handbrake.ghb, which carries HandBrakeCLI), installed
   as root through pkexec and run with "flatpak run --command=HandBrakeCLI" (owner, 2026-10-22: on Fedora the clip
-  came but HandBrakeCLI never did). The Linux version can differ from Windows' (the run notes it).
+  came but HandBrakeCLI never did). The Linux version can differ from Windows' (the run notes it). Since 2026-11-19
+  (owner) Linux x86-64 on every distribution gets HandBrake's own Flatpak file from the same GitHub release as
+  Windows (1.11.2, size and SHA-256 pinned), installed per user with no password; ARM keeps the ways above.
 
 Command (HandBrakeCLI --help): HandBrakeCLI -i <clip> -o <run folder>/<file> --preset "<preset>". At the end
 HandBrake prints "average encoding speed for job is <fps> fps" (its libhb work loop): that is the score, higher is
@@ -60,6 +62,43 @@ def clip_path(data_dir: Optional[Path] = None) -> Optional[Path]:
         return None
     path = direct.target_folder(plan, data_dir) / plan["exe"]
     return path if path.is_file() else None
+
+
+FLATHUB_REPO = "https://dl.flathub.org/repo/flathub.flatpakrepo"
+
+
+def bundle_plan(arch: Optional[str] = None) -> Optional[dict]:
+    """Linux: HandBrake's own Flatpak file for this architecture (x86-64 only; ARM keeps the package / Flathub)."""
+    from data.installers import HANDBRAKE_CLI
+    if _os_key() != "linux":
+        return None
+    if arch is None:
+        from app.frames.provision import native_arch
+        arch = native_arch()
+    return HANDBRAKE_CLI["linux_bundle"].get(arch)
+
+
+def bundle_commands(flatpak: str, bundle: Path) -> list:
+    """Per user, no password: Flathub for the runtime, then HandBrake's file."""
+    return [[flatpak, "remote-add", "--user", "--if-not-exists", "flathub", FLATHUB_REPO],
+            [flatpak, "install", "--user", "-y", "--noninteractive", "--bundle", str(bundle)]]
+
+
+def _install_bundle(plan, progress, run, which):
+    from app.install import direct, winget
+    flatpak = which("flatpak")
+    if not flatpak:
+        return winget.Outcome(False, "The test clip was downloaded; HandBrake was not installed: flatpak is not "
+                                     "installed (install the flatpak package, then press Install again).")
+    progress(f"Downloading HandBrake {plan['version']} (Flatpak)...")
+    out = direct.install(plan["product"], plan)
+    if not out.ok:
+        return winget.Outcome(False, "The test clip was downloaded; " + out.message)
+    progress(f"Installing HandBrake {plan['version']} for this user (its runtime comes from Flathub)...")
+    text = run(bundle_commands(flatpak, direct.target_folder(plan) / plan["exe"]))
+    if text != "done":
+        return winget.Outcome(False, f"The test clip was downloaded; HandBrake's Flatpak was not installed: {text}")
+    return winget.Outcome(True, f"The test clip and HandBrake {plan['version']} (Flatpak, this user) are ready.")
 
 
 def cli_plan(arch: Optional[str] = None) -> Optional[dict]:
@@ -114,6 +153,14 @@ def cli_install_text() -> str:
         return (f"Then HandBrakeCLI {plan['version']} from HandBrake's own GitHub release: {plan['url']} "
                 f"({size_text(plan['size'])}, {direct.checksum_text(plan)}), extracted to "
                 f"{direct.target_folder(plan)}.")
+    bundle = bundle_plan()
+    if bundle:
+        from app.install import direct
+        from app.install.winget import size_text
+        return (f"Then HandBrake {bundle['version']}, the same version as on Windows: HandBrake's own Flatpak file "
+                f"from its GitHub release ({bundle['url']}, {size_text(bundle['size'])}, {direct.checksum_text(bundle)}), "
+                "installed for this user with no password; its runtime comes from Flathub (added for this user)."
+                + ("" if shutil.which("flatpak") else " flatpak itself is installed first (your password, once)."))
     from app.install.plans import this_host
     from data.installers import HANDBRAKE_CLI
     package = HANDBRAKE_CLI["linux"].get(this_host().family or "")
@@ -168,6 +215,11 @@ def install_cli(clip, progress=lambda text: None, commands=None, run=None, famil
         outcome = direct.install("HandBrakeCLI", plan)
         return winget.Outcome(outcome.ok, ("The test clip and HandBrakeCLI are ready." if outcome.ok else
                                            "The test clip was downloaded; " + outcome.message))
+    if run is None:
+        from app.ui.frame_capture_panel import run_commands as run
+    bundle = bundle_plan()
+    if bundle:
+        return _install_bundle(bundle, progress, run, which)
     from app.install.plans import this_host
     from data.installers import HANDBRAKE_CLI
     family = family or this_host().family or ""

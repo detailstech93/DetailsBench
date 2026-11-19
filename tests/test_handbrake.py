@@ -30,6 +30,7 @@ def test_one_install_gets_the_clip_then_handbrakecli():
 
 def test_linux_cli_comes_from_the_package(monkeypatch):
     monkeypatch.setattr(hb, "_os_key", lambda: "linux")
+    monkeypatch.setattr(hb, "bundle_plan", lambda arch=None: None)    # ARM: no HandBrake file, the old ways
     assert hb.cli_path(which=lambda n: "/usr/bin/HandBrakeCLI" if n == "HandBrakeCLI" else None) == \
         Path("/usr/bin/HandBrakeCLI")
     monkeypatch.setattr(hb, "cli_path", lambda *a, **k: None)
@@ -46,6 +47,7 @@ def test_linux_cli_comes_from_the_package(monkeypatch):
 def test_fedora_gets_handbrakes_flatpak(monkeypatch, tmp_path):
     # Fedora has no HandBrakeCLI package (RPM Fusion only): HandBrake's Flatpak from Flathub, as root
     monkeypatch.setattr(hb, "_os_key", lambda: "linux")
+    monkeypatch.setattr(hb, "bundle_plan", lambda arch=None: None)    # ARM: no HandBrake file, the old ways
     exe = tmp_path / "app" / hb.FLATPAK_ID / "current" / "active" / "files" / "bin" / "HandBrakeCLI"
     assert hb.flatpak_cli(roots=[tmp_path]) is None
     exe.parent.mkdir(parents=True)
@@ -138,3 +140,27 @@ def test_its_own_report_section():
     html = _handbrake_section(export)
     assert "<h2>HandBrake</h2>" in html and "148.2 <span>fps</span>" in html and "Fast 1080p30" in html
     assert _handbrake_section({"runs": []}) == ""
+
+
+def test_linux_x64_gets_handbrakes_own_flatpak_file_per_user(monkeypatch, tmp_path):
+    # owner, 2026-11-19: every distribution, the same 1.11.2 as Windows, no password
+    monkeypatch.setattr(hb, "_os_key", lambda: "linux")
+    plan = hb.bundle_plan("x64")
+    assert plan["version"] == HANDBRAKE_CLI["windows"]["x64"]["version"] and plan["single"]
+    assert plan["url"].startswith("https://github.com/HandBrake/HandBrake/releases/download/")
+    assert hb.bundle_plan("arm64") is None
+    monkeypatch.setattr(hb, "bundle_plan", lambda arch=None: plan)
+    monkeypatch.setattr(hb, "cli_path", lambda *a, **k: None)
+    got = []
+    monkeypatch.setattr(direct, "install", lambda name, p, **k: got.append(p) or direct.Outcome(True, "ok"))
+    monkeypatch.setattr(direct, "target_folder", lambda p, data_dir=None: tmp_path)
+    ran = []
+    out = hb.install_cli(None, run=lambda argv: (ran.append(argv), "done")[1], which={"flatpak": "/usr/bin/flatpak"}.get)
+    assert out.ok and got == [plan] and "1.11.2" in out.message
+    assert ran == [[["/usr/bin/flatpak", "remote-add", "--user", "--if-not-exists", "flathub", hb.FLATHUB_REPO],
+                    ["/usr/bin/flatpak", "install", "--user", "-y", "--noninteractive", "--bundle",
+                     str(tmp_path / plan["exe"])]]]
+    assert not any("pkexec" in a for argv in ran[0] for a in argv)
+    got.clear()
+    out = hb.install_cli(None, run=lambda argv: "done", which=lambda n: None)
+    assert not out.ok and "flatpak is not installed" in out.message and got == []    # nothing downloaded
