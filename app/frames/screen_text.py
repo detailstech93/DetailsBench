@@ -139,19 +139,54 @@ def parse_tsv(text: str) -> List[Line]:
     return out
 
 
-def read_image_tesseract(image_path, run=subprocess.run, which=shutil.which) -> Tuple[List[str], Optional[str]]:
+BRIGHT = 200      # grey level from which a pixel counts as a menu's white text
+
+
+def bright_text_image(image_path) -> Optional[Path]:
+    """The image with only its bright pixels, black on white, next to it; None when it cannot be made. Tesseract
+    missed BL3's white italic OPTIONS on its busy main menu (Fedora 2026-11-19, the step waited 300 s); on this
+    image it read PLAY, SOCIAL, OPTIONS, STORE and QUIT."""
+    try:
+        import numpy as np
+        from PySide6.QtGui import QImage
+        image = QImage(str(image_path))
+        if image.isNull():
+            return None
+        image = image.convertToFormat(QImage.Format_Grayscale8)
+        w, h = image.width(), image.height()
+        grey = np.frombuffer(image.constBits(), np.uint8).reshape(h, image.bytesPerLine())[:, :w]
+        out = np.ascontiguousarray(np.where(grey >= BRIGHT, 0, 255).astype(np.uint8))
+        path = Path(image_path).with_name(Path(image_path).stem + "_bright.png")
+        return path if QImage(out.data, w, h, w, QImage.Format_Grayscale8).save(str(path)) else None
+    except Exception:
+        return None
+
+
+def read_image_tesseract(image_path, run=subprocess.run, which=shutil.which,
+                         bright=bright_text_image) -> Tuple[List[str], Optional[str]]:
     tesseract = which("tesseract")
     if not tesseract:
         return [], "Tesseract (the OCR program for Linux) is not installed"
-    try:
-        done = run([tesseract, str(image_path)] + TESSERACT_ARGS, capture_output=True,
-                   timeout=OCR_TIMEOUT_SECONDS, shell=False)
-    except (OSError, subprocess.TimeoutExpired) as e:
-        return [], f"Tesseract did not answer ({e})"
-    if done.returncode != 0:
-        said = done.stderr.decode("utf-8", "replace").strip().splitlines()
-        return [], "Tesseract failed: " + (said[-1] if said else f"exit code {done.returncode}")
-    return [line for line in parse_tsv(done.stdout.decode("utf-8", "replace")) if line], None
+    lines: List[str] = []
+    for i, path in enumerate([image_path, None]):
+        if i:                               # second read: white menu text alone, its lines added after the first's
+            path = bright(image_path)
+            if path is None:
+                break
+        try:
+            done = run([tesseract, str(path)] + TESSERACT_ARGS, capture_output=True,
+                       timeout=OCR_TIMEOUT_SECONDS, shell=False)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            if i:
+                break
+            return [], f"Tesseract did not answer ({e})"
+        if done.returncode != 0:
+            if i:
+                break
+            said = done.stderr.decode("utf-8", "replace").strip().splitlines()
+            return [], "Tesseract failed: " + (said[-1] if said else f"exit code {done.returncode}")
+        lines += [line for line in parse_tsv(done.stdout.decode("utf-8", "replace")) if line and line not in lines]
+    return lines, None
 
 
 def _on_windows() -> bool:

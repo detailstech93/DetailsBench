@@ -27,6 +27,15 @@ def test_tesseract_tsv_gives_lines_and_word_boxes(tmp_path):
     assert screen_text.read_image_tesseract(tmp_path / "s.png", run=ok, which=lambda n: "/usr/bin/tesseract")[0] \
         == ["Story Mode", "Graphics"]
     assert seen[0] == ["/usr/bin/tesseract", str(tmp_path / "s.png"), "stdout", "-l", "eng", "--psm", "11", "tsv"]
+    # white menu text: a second read of the bright pixels alone, its new lines after the first read's
+    seen.clear()
+    more = TSV + "5\t1\t3\t1\t1\t1\t130\t430\t170\t40\t90.0\tOPTIONS\n"
+    two = lambda cmd, **kw: (seen.append(cmd[1]), SimpleNamespace(
+        returncode=0, stdout=(more if cmd[1].endswith("_bright.png") else TSV).encode(), stderr=b""))[1]
+    lines = screen_text.read_image_tesseract("s.png", run=two, which=lambda n: "/t",
+                                             bright=lambda p: tmp_path / "s_bright.png")[0]
+    assert lines == ["Story Mode", "Graphics", "OPTIONS"] and seen == ["s.png", str(tmp_path / "s_bright.png")]
+    assert screen_text.word_center(lines, "options") == (215, 450)
     bad = lambda cmd, **kw: SimpleNamespace(returncode=1, stdout=b"", stderr=b"Error opening data file eng\n")
     assert screen_text.read_image_tesseract("x", run=bad, which=lambda n: "/t")[1] == \
         "Tesseract failed: Error opening data file eng"
