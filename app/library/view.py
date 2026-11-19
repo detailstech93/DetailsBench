@@ -9,7 +9,7 @@ from app.library import games
 KINDS = (("system", "Devices"), ("cpu", "Processors"), ("gpu", "Graphics cards"), ("memory", "Memory"),
          ("storage", "Storage"))
 CONTEXT_KEYS = (("driver", "Driver"), ("firmware", "Firmware"), ("browser", "Browser"), ("ai_runtime", "AI runtime"),
-                ("bios", "BIOS"))
+                ("bios", "BIOS"), ("proton", "Proton"))
 
 
 def part_name(pkgs: List[Mapping], names: Mapping[str, str]) -> str:

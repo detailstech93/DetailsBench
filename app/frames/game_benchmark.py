@@ -506,6 +506,11 @@ class GameBenchmark:
     def run(self) -> GameCapture:
         capture = (self._run_mangohud() if self.linux else
                    self._run_passes() if self.spec.whole_benchmark else self._run())
+        if self.linux and capture.windows:
+            from app.games.proton import proton_note
+            proton = proton_note(self.spec.app_id, "linux")
+            for w in capture.windows if proton else []:
+                w.result.note = "; ".join(x for x in [w.result.note, proton] if x)
         try:        # the message stays in the run folder even when the app is closed before it is read
             (self.run_dir / LOG_NAME).write_text(
                 f"status: {capture.status}\nmessage: {capture.message}\n"

@@ -245,6 +245,9 @@ def attribute(test_id: str, group: str, hardware: Optional[Mapping], *, ai_run: 
         out["context"]["browser"] = m.group(1).strip() if m and "unknown" not in m.group(1) else None
         if not out["context"]["browser"]:
             out["flags"].append("browser not recorded")
+    m = re.search(r"Proton:\s*([^;]+)", note or "") if group == "game" else None
+    if m:
+        out["context"]["proton"] = m.group(1).strip()       # a Proton game on Linux (owner, 2026-11-19)
     if ai:
         out["context"]["ai_runtime"] = ai["backend"]
     out["ranked"] = not out["flags"] and not stress

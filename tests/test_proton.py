@@ -84,3 +84,25 @@ def test_linux_panel_forces_settings_except_registry_games(tmp_path, monkeypatch
     assert "not forced on Linux" not in text
     assert "declared by you" in p.linux_text(spec, SimpleNamespace(name="p"), 180, {"ray_tracing": True})
     assert load_settings(p.data_dir)[0][SAVED_KEY][APP] == {"ray_tracing": False}
+
+
+def test_the_proton_that_ran_the_game_is_read_from_its_compatdata(tmp_path):
+    # owner, 2026-11-19: Linux game results keep their Proton version
+    home = fake_home(tmp_path)[0]
+    other = tmp_path / "games"
+    tool = other / "steamapps" / "common" / "Proton 11.0"
+    tool.mkdir(parents=True)
+    (tool / "version").write_text("1755700000 proton-11.0-2\n", encoding="utf-8")
+    (other / "steamapps" / "compatdata" / APP / "config_info").write_text(
+        f"11.1000-200\n{tool}/files/share/fonts/\n{tool}/files/lib/\n", encoding="utf-8")
+    assert proton.proton_used(APP, home) == "Proton 11.0 (proton-11.0-2)"
+    assert proton.proton_note(APP, "linux", home) == "Proton: Proton 11.0 (proton-11.0-2)"
+    assert proton.proton_note(APP, "win32", home) is None
+    assert proton.proton_used("730", home) is None                  # native, or never run: nothing said
+
+
+def test_a_linux_game_result_shows_its_proton_in_the_library():
+    from app.library import attribution as at
+    from tests.test_library_attribution import FEDORA
+    a = at.attribute("steam_1091500", "game", FEDORA, note="Average FPS; Proton: Proton 11.0 (proton-11.0-2)")
+    assert a["context"]["proton"] == "Proton 11.0 (proton-11.0-2)"

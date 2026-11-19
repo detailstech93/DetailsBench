@@ -186,6 +186,11 @@ class SimulationWorkload(Workload):
                 forced.finish()                     # the game is closed by now: check, then put the user's back
         if forced is not None:
             result = with_settings_record(result, forced.record, Path(ctx.output_dir))
+        if self.script.get("steam_app") is not None and self._desktop is None:
+            from app.games.proton import proton_note
+            proton = proton_note(self.script["steam_app"])
+            if proton:
+                result.note = "; ".join(x for x in [result.note, proton] if x)
         return result
 
     def _forced(self, ctx: RunContext):

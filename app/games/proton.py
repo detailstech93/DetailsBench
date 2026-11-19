@@ -54,6 +54,38 @@ def prefix_for(app_id, home: Optional[Path] = None) -> Optional[Path]:
     return None
 
 
+def proton_used(app_id, home: Optional[Path] = None) -> Optional[str]:
+    """The Proton that last ran the game, e.g. "Proton 11.0 (proton-11.0-2)", or None (a native game, never run).
+    Proton writes <compatdata>/config_info at a launch with another Proton or setting; its 2nd line is
+    <proton>/files/share/fonts/ (ValveSoftware/Proton, proton_10.0 script, read 2026-11-19); the Proton folder's
+    own "version" file names its build (first line, last word)."""
+    home = Path(home) if home is not None else Path.home()
+    for library in libraries(home):
+        info = library / "steamapps" / "compatdata" / str(app_id) / "config_info"
+        try:
+            lines = info.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        fonts = Path(lines[1].strip()) if len(lines) > 1 and lines[1].strip() else None
+        if fonts is None or fonts.parts[-3:] != ("files", "share", "fonts"):
+            return None
+        folder = fonts.parents[2]
+        try:
+            words = (folder / "version").read_text(encoding="utf-8", errors="replace").split("\n")[0].split()
+        except OSError:
+            words = []
+        return f"{folder.name} ({words[-1]})" if words else folder.name
+    return None
+
+
+def proton_note(app_id, platform: str = sys.platform, home: Optional[Path] = None) -> Optional[str]:
+    """ "Proton: ..." for a Linux run's note (owner, 2026-11-19: results keep the Proton that ran them)."""
+    if not platform.startswith("linux"):
+        return None
+    used = proton_used(app_id, home)
+    return f"Proton: {used}" if used else None
+
+
 def _first(user: Path, *names: str) -> Path:
     for name in names:
         if (user / name).is_dir():
