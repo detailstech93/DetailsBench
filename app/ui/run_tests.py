@@ -573,8 +573,32 @@ def _save_plan(data_dir, entries: List[TestEntry], choice: RunChoice) -> Optiona
         return None
 
 
+def unfit_models(entries: List[TestEntry], fit=None) -> Dict[str, str]:
+    """{test id: warning} of the fixed AI models that most likely do not fit here (app/ai/model_fit.py)."""
+    from app.ai.model_set import fit_warning
+    found = {}
+    for e in entries:
+        try:
+            text = fit_warning(e.id, fit)
+        except Exception:               # a check that breaks never stops the run
+            text = ""
+        if text:
+            found[e.id] = text
+    return found
+
+
+def ask_unfit(window, names: List[str]) -> Optional[str]:
+    """"without", "anyway" or None (cancel)."""
+    from app.ui.long_question import ask_buttons
+    text = ("WARNING: " + ("this AI model most likely does" if len(names) == 1 else "these AI models most likely do")
+            + " not fit on this computer: " + ", ".join(names) + ".\nIt would most likely fail to load or be skipped "
+            "as not enough memory, and give no score (an estimate from the model's size and this computer's memory).")
+    return ask_buttons(window, "Run tests", text, [("Run without " + ("it" if len(names) == 1 else "them"), "without"),
+                                                   ("Run anyway", "anyway"), ("Cancel", None)])
+
+
 def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_report, licenses=check_licenses,
-                saved: Optional[dict] = None) -> bool:
+                saved: Optional[dict] = None, unfit=unfit_models, ask_fit=ask_unfit) -> bool:
     """`saved`: a plan read by app/experiment.py; its numbers fill the dialog (the owner still confirms)."""
     asked = licenses(window, entries)
     if len(asked) < len(entries):
@@ -596,6 +620,17 @@ def start_tests(window, entries: List[TestEntry], ask=ask_choice, opener=open_re
                                     "so they only run one at a time. Select one of them alone.")
             return False
         window.status_label.setText(f"Left out (they wait for a score typed by you; run each alone): {names}")
+    big = unfit(entries)                # before the run too, not only before the download (owner, 2026-11-19)
+    if big:
+        answer = ask_fit(window, [e.name for e in entries if e.id in big])
+        if answer is None:
+            window.status_label.setText("Nothing was run.")
+            return False
+        if answer == "without":
+            entries = [e for e in entries if e.id not in big]
+            if not entries:
+                window.status_label.setText("Nothing was run: only models that most likely do not fit were chosen.")
+                return False
     automatic, others = split_entries(entries)
     lone_game = not automatic and len(others) == 1 and others[0].source == "steam"
     # several Steam games: one dialog, then each runs alone, one after another (owner, 2026-11-04)

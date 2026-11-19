@@ -356,7 +356,9 @@ class RemoteApi:
         specs = [(k, str(si.get(key))) for k, key in (("Processor", "cpu_brand"), ("Cores", "core_count"),
                                                      ("Memory (GB)", "ram_size_gb"), ("Graphics", "gpu_name"),
                                                      ("System", "operating_system")) if si.get(key) is not None]
-        tests = [{"id": e.id, "name": e.name, "group": GROUP_TITLES.get(e.group, e.group.title()),
+        from app.ui.run_tests import unfit_models
+        unfit = unfit_models(w.tests_page.entries)      # warned on the phone before a run (owner, 2026-11-19)
+        tests = [{"id": e.id, "name": e.name, "group": GROUP_TITLES.get(e.group, e.group.title()), "fit": unfit.get(e.id, ""),
                   "section": "games" if e.group == "game" else "tests",
                   "minutes": e.expected_minutes, "verified": bool(e.verified), "can_start": not why,
                   "why": why, "warning": warning, "install": self._can_install(e),

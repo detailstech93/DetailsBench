@@ -828,3 +828,23 @@ def test_a_line_of_games_counts_the_game_that_runs_only_while_it_runs():
     window.line_sessions.append(158)
     assert line_count(window, False) == (2, 2)             # it ended: the whole line, so the bar shows 100%
     assert line_count(SimpleNamespace(line_sessions=[157], run_line=["next"]), False) == (1, 2)
+
+
+def test_a_run_with_a_model_that_most_likely_does_not_fit_asks_first(qapp):
+    # owner, 2026-11-19 (Fedora): the 27B was run with no warning; it should warn before the run, not only the download
+    from types import SimpleNamespace
+    from app.ui import run_tests
+    big = SimpleNamespace(id="llama_benchy_qwen38_27b", name="Qwen3.8 27B", group="ai", waits_for_typed_score=lambda: False)
+    small = SimpleNamespace(id="sevenzip_benchmark", name="7-Zip", group="cpu", waits_for_typed_score=lambda: False)
+    assert run_tests.unfit_models([big, small], fit=lambda size: "Warning" if "17" in size else "") == \
+        {"llama_benchy_qwen38_27b": "Warning"}
+    assert run_tests.unfit_models([SimpleNamespace(id="llama_benchy")], fit=lambda size: "Warning") == {}  # free test
+    window = SimpleNamespace(status_label=SimpleNamespace(setText=lambda t: said.append(t)))
+    said, asked = [], []
+    got = run_tests.start_tests(window, [big, small], licenses=lambda w, e: e, unfit=lambda e: {big.id: "W"},
+                                ask_fit=lambda w, names: asked.append(names))
+    assert got is False and asked == [["Qwen3.8 27B"]] and said == ["Nothing was run."]
+    said.clear()
+    got = run_tests.start_tests(window, [big], licenses=lambda w, e: e, unfit=lambda e: {big.id: "W"},
+                                ask_fit=lambda w, names: "without")
+    assert got is False and "only models that most likely do not fit" in said[0]

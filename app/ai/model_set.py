@@ -234,7 +234,8 @@ def installed(models: list, key: str, quant: str) -> Tuple[bool, str]:
 def fit_warning(test_id: str, fit: Optional[Callable[[str], str]] = None) -> str:
     """'' or why the model most likely does not fit on this computer (app/ai/model_fit.py)."""
     from app.ai import model_fit
-    return (fit or model_fit.warning_here)(all_models()[test_id][3])
+    model = all_models().get(test_id)       # the free llama-benchy test has no fixed model (Fedora, 2026-11-19 KeyError)
+    return (fit or model_fit.warning_here)(model[3]) if model else ""
 
 
 def install_text(test_id: str, fit: Optional[Callable[[str], str]] = None) -> str:

@@ -354,10 +354,11 @@ function gamePresets(ids) {
   return out;
 }
 
-let installable = [];
+let installable = [], unfitNames = {};
 
 function showInfo(info) {
   installable = info.tests.filter((t) => t.install);
+  unfitNames = Object.fromEntries(info.tests.filter((t) => t.fit && !t.install).map((t) => [t.id, t.name]));
   $("installMany").classList.toggle("hidden", installable.length < 2);
   const specs = $("specs");
   specs.replaceChildren();
@@ -764,6 +765,12 @@ $("start").onclick = async () => {
                  cooldown_seconds: parseInt($("cool").value, 10), shutdown_after: $("off").checked };
   if (section === "games") body.game_presets = gamePresets(ids);
   else body.stress_minutes = parseInt($("stressMin").value, 10);
+  // a model that most likely does not fit: warned before the run too (owner, 2026-11-19, every system)
+  const big = ids.filter((id) => unfitNames[id]).map((id) => unfitNames[id]);
+  if (big.length && !confirm("WARNING: most likely does not fit on this computer: " + big.join(", ")
+      + ". It would most likely fail to load and give no score. Run anyway?")) {
+    $("message").textContent = "Nothing was run."; return;
+  }
   $("message").textContent = "Starting...";
   try {
     const d = await (await call("/api/start", body)).json();

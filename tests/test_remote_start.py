@@ -888,3 +888,9 @@ def test_a_long_tests_question_is_answered_at_the_pc_or_on_the_phone(qapp):
     panel.ask("MLPerf: one run took 47 min", answer)
     panel.long_question[2].button(QMessageBox.Yes).click()  # answered at the PC
     assert answer["done"].is_set() and answer["go_on"] is True and api.answer_windows("Go on")[0] is False
+
+
+def test_the_phone_warns_before_running_a_model_that_most_likely_does_not_fit():
+    # owner, 2026-11-19: before the download and, once downloaded, before the run; on every system
+    from app.remote.page import PAGE
+    assert "t.fit && !t.install" in PAGE and "most likely does not fit on this computer" in PAGE and "confirm(" in PAGE
