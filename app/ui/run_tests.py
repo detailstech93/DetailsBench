@@ -880,7 +880,7 @@ def queue_tests(window, entries: List[TestEntry], licenses=check_licenses, ask=a
     if dropped:
         parts.append(f"Not queued (nothing chosen): {', '.join(dropped)}.")
     window.status_label.setText(" ".join(parts) or "Nothing was queued.")
-    if queued:
+    if queued or (later and panel.is_running()):    # the test going on now has a test to skip to
         window.tests_page.allow_skip(panel.skip_test)
     elif later and window.frame_panel.is_running() and getattr(window, "skip_game", None):
         window.tests_page.allow_skip(window.skip_game)     # a game going on now has a test to skip to
@@ -1115,8 +1115,11 @@ def launch(window, automatic: List[TestEntry], choice: RunChoice, opener=open_re
                                confirm=confirm, **({"settings": settings} if settings else {}))
     if started or panel.lhm.active():
         # stay on the Tests screen: green bar, percent and Stop there (Ctrl+Shift+X still works)
+        # Skip also when other tests wait in line after it (owner, 2026-11-19: Cyberpunk, a script game, ran alone
+        # in its plan with games in line, and only Stop or Ctrl+Shift+X could end it)
         window.tests_page.watch(lambda: plan_state(panel, result), panel.emergency_stop,
-                                skip=panel.skip_test if len(automatic) > 1 else None)
+                                skip=panel.skip_test if len(automatic) > 1 or getattr(window, "run_line", [])
+                                else None)
     else:
         panel.on_plan_finished = None          # cancelled; a later plan must not open this report
         panel.on_step_report = None

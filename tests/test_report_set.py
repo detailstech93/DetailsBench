@@ -152,6 +152,12 @@ def test_a_run_is_marked_until_it_ends_and_nothing_is_packaged_mid_run(tmp_path,
     monkeypatch.setattr(sync, "after_run", lambda w, s: sent.append(s))
     assert run_tests.launch(window, [SimpleNamespace(ref="a", waits_for_typed_score=lambda: False)],
                             SimpleNamespace(extra_runs=0), opener=lambda p: None, after=lambda s: None)
+    assert window.tests_page.skip is None                       # one test, nothing in line: Stop only
+    window.run_line = ["game"]
+    assert run_tests.launch(window, [SimpleNamespace(ref="a", waits_for_typed_score=lambda: False)],
+                            SimpleNamespace(extra_runs=0), opener=lambda p: None, after=lambda s: None)
+    assert window.tests_page.skip == panel.skip_test            # games in line after it: Skip (owner, 2026-11-19)
+    window.run_line = []
     db.create_result(sid, "a", "cpu", 5.0, unit="pts", run_index=1, duration_seconds=3)
     panel.on_step_report(0, 3, "a: run 2")
     assert sync.cut_short(tmp_path) == [sid] and sent == []
