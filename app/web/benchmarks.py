@@ -85,13 +85,15 @@ class WebBenchmarkWorkload(Workload):
                "browser's profile); leave the window in front and the PC alone while it runs.")
 
     def __init__(self, spec: dict, browser: Optional[str] = None, finder: Callable = cdp.find_browser,
-                 popen=None, connect=None, opener=None, clock=time.monotonic, others: Optional[Callable] = None):
+                 popen=None, connect=None, opener=None, clock=time.monotonic, others: Optional[Callable] = None,
+                 chrome_offered: Optional[Callable[[], bool]] = None):
         self.spec = None            # not a tool spec (app/ui/automation_panel.py reads attributes then)
         self.page = spec
         self.id, self.display_name = spec["id"], spec["name"]
         self.timeout_seconds = spec["timeout"]
         self.verified = False       # not seen on a real run here yet
         self._browser, self._finder = browser, finder
+        self._chrome_offered = chrome_offered or self._chrome_installable
         # NucBox K10, 2026-11-14: Chrome 157 started by the app opened no DevTools port in 60 s (it did when started
         # by hand); the next browser found (Edge) is tried before the run fails
         self._others = others or ((lambda: [b for b in cdp.installed_browsers() if b != self.browser])
@@ -111,10 +113,19 @@ class WebBenchmarkWorkload(Workload):
         gone = self.clock() - self._started
         return min(0.97, gone / self.page["expected"]), max(0.0, self.page["expected"] - gone)
 
+    def _chrome_installable(self) -> bool:
+        from app.install import plans
+        return (plans.plan_for(self.id) or {}).get("fetch") == "chrome"
+
     def availability(self) -> Tuple[bool, str]:
-        if not self.browser:
+        exe = self.browser
+        if not exe:
             return False, "browser not installed: no Chrome, Edge or Chromium found (the web tests use one of them)"
-        return True, self.browser
+        if is_chromium(exe) and self._chrome_offered():
+            # owner, 2026-11-19: Google Chrome wherever Google ships it; Chromium only where it does not (Arch)
+            return False, ("browser not installed: only Chromium found, and its scores are not comparable with "
+                           "Google Chrome's: the Install button installs Google Chrome")
+        return True, exe
 
     def executable(self) -> Tuple[Optional[str], str]:
         return self.browser, "Chrome, Edge or Chromium"

@@ -79,22 +79,77 @@ def test_chrome_is_downloaded_from_google_with_the_index_size_and_checksum(tmp_p
     assert "no google-chrome-stable" in chrome_linux.fetch(deb, opener=lambda r, timeout: Response(b"", r.full_url))
 
 
-def test_the_web_tests_offer_chrome_on_debian_x64_only(tmp_path):
+def test_the_web_tests_offer_google_chrome_on_debian_and_fedora_x64_and_arm64(tmp_path):
     plan = plans.plan_for("speedometer", host=LINUX)
-    assert plan["kind"] == "linux" and plan["fetch"] == "chrome" and plan["package"].endswith(".deb")
+    assert plan["kind"] == "linux" and plan["fetch"] == "chrome" and plan["package"].endswith("_amd64.deb")
     assert plans.plan_for("jetstream", host=LINUX) == plan
-    assert plans.plan_for("speedometer", host=Host("linux", "arm64", "debian")) is None
-    for family in ("fedora", "arch"):        # their own Chromium package (owner, 2026-10-22: before the Fedora test)
+    assert plans.plan_for("speedometer", host=Host("linux", "arm64", "debian"))["package"].endswith("_arm64.deb")
+    # owner, 2026-11-19: Fedora's own Chromium was 30% behind Google Chrome on Speedometer
+    fedora = plans.plan_for("speedometer", host=Host("linux", "x64", "fedora"))
+    assert fedora["family"] == "fedora" and fedora["fetch"] == "chrome" and fedora["package"].endswith(".x86_64.rpm")
+    assert plans.plan_for("speedometer", host=Host("linux", "arm64", "fedora"))["package"].endswith(".aarch64.rpm")
+    arch = Host("linux", "x64", "arch")                     # no Google package: its own Chromium
+    assert plans.plan_for("speedometer", host=arch) == {"kind": "linux", "family": "arch", "package": "chromium"}
+    for family in ("fedora", "arch"):
         host = Host("linux", "x64", family)
-        assert plans.plan_for("speedometer", host=host) == {"kind": "linux", "family": family, "package": "chromium"}
         assert plans.plan_for("glmark2", host=host)["package"] == "glmark2"
         assert plans.plan_for("vkmark", host=host)["package"] == "vkmark"
     assert plans.plan_for("speedometer", host=Host("linux", "x64", "suse")) is None
     assert plans.plan_for("speedometer", host=Host("windows", "x64")) is None
+    assert "dnf install -y" in chrome_linux.question(Path(fedora["package"]))
+    assert "apt-get install -y" in chrome_linux.question(Path(plan["package"]))
     called = []
     assert chrome_linux.prepare({"kind": "linux", "package": "vkmark"}, fetch_fn=lambda *a, **k: called.append(1)) is None
     assert chrome_linux.prepare(plan, fetch_fn=lambda deb, progress: f"got {deb.name}") == f"got {Path(plan['package']).name}"
     assert called == []
+
+
+RPM_SHA = "996e7bea59498a03bd987dec61d5dbcc56e7f86360f22f8ff791a3c969405629"
+PRIMARY = f"""<?xml version="1.0" encoding="UTF-8"?>
+<metadata xmlns="http://linux.duke.edu/metadata/common" xmlns:rpm="http://linux.duke.edu/metadata/rpm" packages="2">
+<package type="rpm"><name>google-chrome-beta</name><arch>x86_64</arch><version epoch="0" ver="159.0" rel="1"/>
+  <checksum type="sha256" pkgid="YES">{"1" * 64}</checksum><size package="150000000"/>
+  <location href="google-chrome-beta-159.0-1.x86_64.rpm"/></package>
+<package type="rpm"><name>google-chrome-stable</name><arch>x86_64</arch>
+  <version epoch="0" ver="158.0.8127.36" rel="1"/><checksum type="sha256" pkgid="YES">{RPM_SHA}</checksum>
+  <size package="155802639" installed="480586363" archive="0"/>
+  <location href="google-chrome-stable-158.0.8127.36-1.x86_64.rpm"/></package>
+</metadata>"""
+
+
+def _repomd(packed: bytes) -> str:
+    import hashlib
+    return ('<?xml version="1.0" encoding="UTF-8"?><repomd xmlns="http://linux.duke.edu/metadata/repo">'
+            f'<data type="primary"><checksum type="sha256">{hashlib.sha256(packed).hexdigest()}</checksum>'
+            '<location href="repodata/primary.xml.gz"/></data></repomd>')
+
+
+def test_google_rpm_list_gives_the_stable_package_and_bad_entries_are_refused():
+    entry = chrome_linux.parse_primary(PRIMARY)
+    assert entry == {"version": "158.0.8127.36-1", "size": 155802639, "sha256": RPM_SHA,
+                     "filename": "google-chrome-stable-158.0.8127.36-1.x86_64.rpm"}
+    assert chrome_linux.parse_primary(PRIMARY.replace('href="google-chrome-stable', 'href="../x')) is None
+    assert chrome_linux.parse_primary(PRIMARY.replace(RPM_SHA, "abc")) is None
+    assert chrome_linux.parse_primary('<!DOCTYPE x [<!ENTITY a "b">]>' + PRIMARY.split("?>", 1)[1]) is None
+    assert chrome_linux.parse_repomd(_repomd(b"x"))["href"] == "repodata/primary.xml.gz"
+    assert chrome_linux.parse_repomd(_repomd(b"x").replace("repodata/primary", "../primary")) is None
+
+
+def test_fedora_chrome_is_downloaded_from_googles_rpm_list(tmp_path, monkeypatch):
+    import gzip
+    from app.frames import provision
+    seen = {}
+    monkeypatch.setattr(provision, "download_verified", lambda url, dest, size, sha, opener, **kw:
+                        seen.update(url=url, size=size, sha=sha) or None)
+    packed = gzip.compress(PRIMARY.encode())
+    folder = chrome_linux.RPM_SERVER + "x86_64/"
+    files = {folder + "repodata/repomd.xml": _repomd(packed).encode(), folder + "repodata/primary.xml.gz": packed}
+    rpm = chrome_linux.package_path("fedora", "x64", tmp_path)
+    assert chrome_linux.fetch(rpm, opener=lambda req, timeout: Response(files[req.full_url], req.full_url)) is None
+    assert seen == {"url": folder + "google-chrome-stable-158.0.8127.36-1.x86_64.rpm", "size": 155802639,
+                    "sha": RPM_SHA}
+    files[folder + "repodata/primary.xml.gz"] = gzip.compress(b"<metadata/>")      # not what repomd.xml says
+    assert "did not match" in chrome_linux.fetch(rpm, opener=lambda req, timeout: Response(files[req.full_url], req.full_url))
 
 
 def test_a_web_test_without_a_browser_is_not_installed_rather_than_broken():
@@ -220,7 +275,7 @@ def test_fedora_and_arch_on_arm_get_the_same_packages():
     assert distro_family({"ID": "archarm", "ID_LIKE": "arch"}) == "arch"
     assert distro_family({"ID": "fedora"}) == "fedora"
     for family in ("fedora", "arch"):
-        for test_id in ("sevenzip_benchmark", "fio", "glmark2", "vkmark", "jetstream"):
+        for test_id in ("sevenzip_benchmark", "fio", "glmark2", "vkmark") + (("jetstream",) if family == "arch" else ()):
             on_arm = plans.plan_for(test_id, host=Host("linux", "arm64", family))
             assert on_arm is not None and on_arm == plans.plan_for(test_id, host=Host("linux", "x64", family))
     assert plans.plan_for("sevenzip_benchmark", host=Host("linux", "arm64", "fedora"))["package"] == "7zip"

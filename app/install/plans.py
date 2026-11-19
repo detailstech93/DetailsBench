@@ -69,12 +69,11 @@ def plan_for(test_id: str, source: str = "", app_id=None, host: Optional[Host] =
             return None
         return {"kind": "winget", "test_id": test_id, "winget": entry["winget"], "hosts": list(entry["hosts"]),
                 "path_prefix": entry.get("path_prefix", "")}
-    if host.os == "linux" and entry.get("chrome_deb") and host.family == "debian":   # Google's current .deb
-        if host.arch not in entry.get("arch", []):
-            return None
-        from app.install.chrome_linux import deb_path
-        return {"kind": "linux", "family": "debian", "package": str(deb_path()), "fetch": "chrome",
-                "label": "Google Chrome (stable)"}
+    if host.os == "linux" and entry.get("google_chrome") and host.arch in entry.get("arch", []):
+        from app.install.chrome_linux import FAMILIES, package_path     # Google's current .deb or .rpm
+        if host.family in FAMILIES:
+            return {"kind": "linux", "family": host.family, "package": str(package_path(host.family, host.arch)),
+                    "fetch": "chrome", "label": "Google Chrome (stable)"}
     if host.os == "linux":
         package = entry.get("packages", {}).get(host.family)
         return {"kind": "linux", "family": host.family, "package": package} if package else None

@@ -271,12 +271,13 @@ for _id in ("gravitymark_vulkan", "gravitymark_opengl", "gravitymark_d3d12"):
 # 43-45, 2026-10-22: glmark2 gives /usr/bin/glmark2 and glmark2-wayland; vkmark 2025.01) and Arch (archlinux.org,
 # extra: glmark2, vkmark) ship them under their own names; openSUSE is not offered. Arch Linux ARM (aarch64) has
 # glmark2, vkmark, chromium, fio and 7zip too (archlinuxarm.org, 2026-10-22); it says ID_LIKE=arch.
-# the web tests on Linux: Google Chrome's current stable .deb from dl.google.com, its size and SHA-256 read from
-# Google's own apt index at install time (app/install/chrome_linux.py), installed by apt. Debian/Ubuntu x64 only.
-# Fedora and Arch: their own Chromium package (Fedora 43-45 and Arch extra, 2026-10-22), found as chromium-browser
-# or chromium (app/web/cdp.py).
-INSTALLERS["speedometer"] = INSTALLERS["jetstream"] = {"linux": {"chrome_deb": True, "arch": ["x64"],
-                                                                 "packages": {"fedora": "chromium", "arch": "chromium"}}}
+# the web tests on Linux: Google Chrome's current stable .deb (Debian/Ubuntu) or .rpm (Fedora) from dl.google.com,
+# x64 or arm64, its size and SHA-256 read from Google's own list at install time (app/install/chrome_linux.py),
+# installed by apt or dnf (owner, 2026-11-19: Fedora's own Chromium was 30% behind Google Chrome on Speedometer).
+# Arch: no Google package, so its own Chromium (Arch extra, 2026-10-22), found as chromium (app/web/cdp.py); a run
+# on Chromium says it is not comparable with Google Chrome (app/web/benchmarks.py).
+INSTALLERS["speedometer"] = INSTALLERS["jetstream"] = {"linux": {"google_chrome": True, "arch": ["x64", "arm64"],
+                                                                 "packages": {"arch": "chromium"}}}
 INSTALLERS["vkmark"] = {"linux": {"packages": {"debian": "vkmark", "fedora": "vkmark", "arch": "vkmark"}}}
 INSTALLERS["glmark2"] = {"linux": {"packages": {"debian": "glmark2-x11", "fedora": "glmark2", "arch": "glmark2"}}}
 # MLPerf Client 2.0.1 (owner, 2026-10-22: every test installs with one click): MLCommons' own GitHub release zip

@@ -196,9 +196,13 @@ def test_the_browser_is_looked_up_at_each_run_and_named_in_the_note(tmp_path, fa
     # Fedora, 2026-11-19: Google Chrome installed while the app was open; Chromium and Chrome both say "Chrome/157"
     found = ["/usr/bin/chromium-browser"]
     started = []
+    offered = [False]
     wl = wb.WebBenchmarkWorkload(wb.SPEEDOMETER, finder=lambda: found[0], popen=fake_browser(started), opener=opener,
-                                 others=lambda: [])
-    assert wl.availability() == (True, "/usr/bin/chromium-browser")
+                                 others=lambda: [], chrome_offered=lambda: offered[0])
+    assert wl.availability() == (True, "/usr/bin/chromium-browser")           # Arch: Google ships no Chrome
+    offered[0] = True                                                         # Fedora, Debian: Install gets it
+    ok, why = wl.availability()
+    assert not ok and why.startswith("browser not installed: only Chromium") and "Install button" in why
     found[0] = "/usr/bin/google-chrome"
     FakeWS.answers = ["31.4"]
     r = wl.run(RunContext(output_dir=tmp_path, timeout_seconds=60, stop_event=threading.Event()))
