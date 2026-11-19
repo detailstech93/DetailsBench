@@ -2,6 +2,8 @@
 
 import base64
 import subprocess
+
+import pytest
 from types import SimpleNamespace
 
 from app.frames import screen_text
@@ -10,6 +12,14 @@ from app.frames.menu_steps import StepPlayer, step_problems
 from app.simulation.desktop import parse_chord
 from data.game_start_keys import GAME_MENU_STEPS, menu_steps_for
 from tests.test_game_benchmark import Fakes, spec
+
+
+@pytest.fixture(autouse=True)
+def _windows_steps(monkeypatch):
+    """These tests are of the Windows steps on any host (GitHub's Linux runner took the Linux keys and holds); the
+    Linux ones set p.platform themselves."""
+    from app.frames import menu_steps
+    monkeypatch.setattr(menu_steps, "PLATFORM", "win32")
 
 
 class Clock:
@@ -1206,3 +1216,19 @@ def test_a_kde_question_over_the_game_is_waited_for_not_given_up_after_10_s(tmp_
     desk.foreground_pid = lambda: None
     p.run()
     assert desk.events == [] and WAYLAND_FRONT in p.problem and "python" not in p.problem.split("(", 1)[1][:10]
+
+
+def test_rdr2_waits_longer_for_its_first_load_on_linux(tmp_path):
+    """Fedora 2026-11-20: its first load under Proton (shaders built, CPU 97%) outlasted 300 s."""
+    from app.frames.game_benchmark import steps_bound_seconds
+    steps = menu_steps_for(1174180)
+    timeline = [(0, ["Story Mode", "Online", "Settings"]), (10, ["Graphics", "Display", "Audio"]),
+                (20, ["Resolution", "Run Benchmark Test"]), (30, []), (700, ["Stop Benchmarking"])]
+    p, desk, clock = player(tmp_path, steps, timeline)
+    p.platform = "linux"
+    p.run()
+    assert p.problem is None and 700 <= p.mark_time < 705
+    p, desk, clock = player(tmp_path, steps, timeline)
+    p.run()                                                  # Windows: 300 s as before
+    assert p.problem and "stop" in p.problem
+    assert steps_bound_seconds(steps) >= 900

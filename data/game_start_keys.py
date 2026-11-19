@@ -34,7 +34,9 @@ GAME_MENU_STEPS: Dict[int, dict] = {
              "wait": 1},
             {"press": "enter"},
             # "Stop Benchmarking" in the corner: it runs. Loading took over 3 min on the first try here
-            {"see": "stop", "within": 300, "mark": True,
+            # Linux: Fedora 2026-11-20, its first load under Proton sat over 4 min on the loading screen at 3.5 FPS
+            # with the CPU at 97% (building its shaders) and the 300 s ran out
+            {"see": "stop", "within": 300, "mark": True, "linux": {"within": 900},
              "again": {"hold": "x", "seconds": 2.5, "press": "enter", "every": 10, "while": "benchmark test"}},
         ],
         # it writes its results file only when it quits (2026-10-18): if closing its window asks to quit, Enter

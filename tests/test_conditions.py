@@ -36,7 +36,8 @@ def test_check_text_manifest_and_report():
     text = c.text(items)
     assert text.startswith("PC right now (scores may come out lower") and "CHECK  Power plan: Power saver ->" in text
     assert c.text([items[1]]).startswith("PC right now:\n  OK  Background load")
-    assert c.check("linux", battery=lambda: None, plan=lambda p: "balanced", sample=lambda: (3.0, []))[0]["ok"]
+    assert c.check("linux", battery=lambda: None, plan=lambda p: "balanced", sample=lambda: (3.0, []),
+                   kde=lambda: None)[0]["ok"]
     manifest = build_manifest({"id": 1}, conditions={"read_at": "2026-10-19 12:00:00", "items": items})
     html = _conditions_section({"manifest": manifest})
     assert "<h2>PC before the run</h2>" in html and "Power saver" in html and "may have made" in html
@@ -56,3 +57,17 @@ def test_start_temperature():
     items = c.check("win32", battery=lambda: None, plan=lambda: "", sample=lambda: (1.0, []),
                     temps=lambda: {"gpu0_temperature": (85.0, "C")})
     assert [i["name"] for i in items] == ["Background load", "Start temperature"] and not items[1]["ok"]
+
+
+def test_kde_input_permission_is_asked_at_the_runs_question_not_during_a_game(tmp_path):
+    rc = tmp_path / "kwinrc"
+    env = {"XDG_CURRENT_DESKTOP": "KDE", "XDG_SESSION_TYPE": "wayland", "DISPLAY": ":0"}
+    asked = []
+    rc.write_text("[Xwayland]\nScale=1\n", encoding="utf-8")
+    item = c.kde_input_item(env, rc, "python", ask=lambda: asked.append(1))
+    assert not item["ok"] and asked == [1] and "Always allow" in item["advice"]
+    rc.write_text("[Other]\nXwaylandEisNoPromptApps=python\n[Xwayland]\nXwaylandEisNoPromptApps=steam, python\n",
+                  encoding="utf-8")
+    assert c.kde_input_item(env, rc, "python", ask=lambda: asked.append(2))["ok"] and asked == [1]
+    assert c.kde_input_item({"XDG_CURRENT_DESKTOP": "GNOME", "XDG_SESSION_TYPE": "wayland"}, rc, "x") is None
+    assert c.kde_input_item({"XDG_CURRENT_DESKTOP": "KDE", "XDG_SESSION_TYPE": "x11"}, rc, "x") is None

@@ -87,7 +87,8 @@ def steps_bound_seconds(steps) -> int:
     must still be logging when the benchmark starts that late."""
     total = 0.0
     for s in steps or []:
-        total += float(s.get("within", 0)) + float(s.get("wait", 0)) + float(s.get("settle", 0))
+        linux = s.get("linux") if isinstance(s.get("linux"), dict) else {}
+        total += max(float(s.get("within", 0)), float(linux.get("within") or 0))     # Linux's may be longer + float(s.get("wait", 0)) + float(s.get("settle", 0))
         total += float(s.get("seconds", 1.0)) if "hold" in s else 0.0
         total += 0.5 * len([c for c in str(s.get("press", "")).split(",") if c.strip()])
     return int(total) + 60

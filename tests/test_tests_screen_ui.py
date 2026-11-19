@@ -231,7 +231,9 @@ def test_preset_box_shows_what_each_game_gets(qapp):
     from app.ui.run_tests import PresetBox
     box = PresetBox([("1091500", "Cyberpunk 2077"), ("750920", "Shadow of the Tomb Raider")], OFFERED,
                     GamePreset(ray_tracing="ultra"))
-    assert box.preset() == GamePreset(ray_tracing="ultra")          # the game's ray tracing levels
+    # the game's ray tracing levels; nothing chosen yet is Raw (owner, 2026-11-20: upscaling only when chosen)
+    assert box.preset() == GamePreset(ray_tracing="ultra", upscaler="off", frame_gen="off")
+    assert box.combos["mode"].currentData() == "raw"
     box.combos["quality"].setCurrentIndex(box.combos["quality"].findData("high"))
     box.combos["mode"].setCurrentIndex(box.combos["mode"].findData("upscaling"))
     box.combos["upscaler"].setCurrentIndex(box.combos["upscaler"].findData("dlss"))
@@ -242,6 +244,19 @@ def test_preset_box_shows_what_each_game_gets(qapp):
     assert "Shadow of the Tomb Raider: settings cannot be set (the app cannot set this game's settings)" in text
     res = box.combos["resolution"]
     assert [res.itemData(i) for i in range(res.count())][:3] == ["1280x720", "1920x1080", "2560x1440"]
+
+
+def test_a_game_without_an_upscaler_keeps_raw_for_the_next_run(qapp):
+    """Fedora 2026-11-19: BL3 alone (no upscaler, no ray tracing) saved "keep" over Raw; Cyberpunk then ran with
+    FSR 2 at the next run."""
+    from app.games.presets import GamePreset
+    from app.ui.run_tests import PresetBox
+    raw = GamePreset(resolution="1280x720", quality="medium", upscaler="off", ray_tracing="off", frame_gen="off")
+    bl3 = {"397540": ({"resolution": ["1280x720"], "preset": ["Low", "Medium"]}, None)}
+    box = PresetBox([("397540", "Borderlands 3")], bl3, raw)
+    assert box.combos["mode"].isHidden()
+    got = box.preset()
+    assert (got.upscaler, got.frame_gen, got.ray_tracing) == ("off", "off", "off")
 
 
 def test_preset_box_offers_what_the_card_runs_and_a_preset_per_game(qapp):

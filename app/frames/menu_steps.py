@@ -201,6 +201,7 @@ def _front_name(desktop) -> str:
     except Exception:
         return "another window"
 
+PLATFORM = sys.platform           # the tests set it: they must not depend on the host
 LINUX_TAP_SECONDS = 0.15
 
 
@@ -210,7 +211,7 @@ class StepPlayer:
                  reader: Callable = read_screen, stop: Optional[threading.Event] = None, lit: Callable = lit_word):
         self.steps = steps
         self.lit = lit
-        self.platform = sys.platform
+        self.platform = PLATFORM
         self.desktop = desktop
         self.in_front = in_front
         self.folder = Path(folder)

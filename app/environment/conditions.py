@@ -247,12 +247,65 @@ def temperature_item(read=None) -> Optional[dict]:
     return _item("Start temperature", ", ".join(parts), True)
 
 
-def check(platform: str = sys.platform, battery=None, plan=None, sample=None, temps=None) -> List[dict]:
-    """The items that could be read, in order: power, power plan, background load, start temperature."""
+def kwin_allowed(rc: Path) -> List[str]:
+    """The programs KDE lets send keys and clicks without asking ('Always allow': kwinrc [Xwayland]
+    XwaylandEisNoPromptApps, comma separated; Fedora 2026-11-20 had "XwaylandEisNoPromptApps=python")."""
+    try:
+        lines = rc.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    section = ""
+    for line in lines:
+        line = line.strip()
+        if line.startswith("["):
+            section = line
+        elif section == "[Xwayland]" and line.startswith("XwaylandEisNoPromptApps="):
+            return [x.strip() for x in line.split("=", 1)[1].split(",") if x.strip()]
+    return []
+
+
+def _ask_input() -> None:
+    """One XTest call that moves nothing: KDE asks its question on a program's first one."""
+    from app.simulation.x11_desktop import X11Desktop
+    desktop = X11Desktop.open()
+    if desktop is not None:
+        desktop.mouse_move(0, 0)
+
+
+def kde_input_item(env=None, rc: Optional[Path] = None, name: Optional[str] = None, ask=_ask_input) -> Optional[dict]:
+    """KDE on Wayland asks once whether the app may send keys and clicks ("python is asking to control input
+    devices"). Asked mid run, the game waits for someone at the PC (Fedora 2026-11-19); so it is asked here, at the
+    run's question, while the owner is there."""
+    import os
+    env = os.environ if env is None else env
+    from app.simulation.x11_desktop import is_wayland
+    if "KDE" not in (env.get("XDG_CURRENT_DESKTOP") or "").upper() or not is_wayland(env):
+        return None
+    if rc is None:
+        rc = Path(env.get("XDG_CONFIG_HOME") or Path(env.get("HOME") or Path.home()) / ".config") / "kwinrc"
+    if name is None:
+        import psutil
+        name = psutil.Process().name()
+    if name in kwin_allowed(rc):
+        return _item("KDE input permission", f"{name} is always allowed", True)
+    try:
+        ask()
+    except Exception:
+        pass
+    return _item("KDE input permission", f"{name} is not always allowed yet", False,
+                 f"KDE asks now whether {name} may control input devices: tick 'Always allow' and press Allow before "
+                 "you start; asked during a game it would wait for someone at the PC")
+
+
+def check(platform: str = sys.platform, battery=None, plan=None, sample=None, temps=None,
+          kde=kde_input_item) -> List[dict]:
+    """The items that could be read, in order: power, power plan, background load, start temperature, KDE's input
+    permission (Linux)."""
     items = [battery_item(battery),
              windows_plan_item(plan) if platform == "win32" else
              linux_plan_item(plan) if platform.startswith("linux") else None,
-             load_item(sample), temperature_item(temps)]
+             load_item(sample), temperature_item(temps),
+             kde() if platform.startswith("linux") else None]
     return [i for i in items if i]
 
 

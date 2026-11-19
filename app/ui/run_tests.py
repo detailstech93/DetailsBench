@@ -191,7 +191,9 @@ class PresetBox(QGroupBox):
 
     def _load(self, p: "presets.GamePreset"):
         """Show a preset in the boxes (the lists follow the mode and the upscaler)."""
-        mode = presets.KEEP if p.upscaler == presets.KEEP and p.frame_gen == presets.KEEP else presets.mode_of(p)
+        # nothing chosen yet: Raw, the upscaler off (owner, 2026-11-20: "I must choose it for it to run")
+        mode = presets.mode_of(p)
+        self.loaded = p
         has_upscaler = self._allowed("upscaler", ["off"]) is not None
         modes = [m for m in presets.MODES if has_upscaler and (m == "raw" or self._upscalers(m == "upscaling_fg"))]
         self._fill("mode", [(presets.KEEP, "Keep the game's own")] +
@@ -224,15 +226,30 @@ class PresetBox(QGroupBox):
                            ("resolution", res is not None), ("ray_tracing", rt is not None)):
             self.combos[key].setVisible(shown)
             self.rows[key].setVisible(shown)
+        self.hidden = {"mode": not has_upscaler, "ray_tracing": rt is None}
 
     def _read(self) -> "presets.GamePreset":
         c = {k: self.combos[k].currentData() for k in self.KEYS}
         if c["mode"] == presets.KEEP:
-            return presets.GamePreset(resolution=c["resolution"], quality=c["quality"], ray_tracing=c["ray_tracing"])
+            return self._kept(presets.GamePreset(resolution=c["resolution"], quality=c["quality"],
+                                                 ray_tracing=c["ray_tracing"]))
         p = presets.game_preset(c["mode"], c["upscaler"] or "off", c["frame_gen"] or "off", c["quality"],
                                 c["resolution"], c["ray_tracing"], c["upscaler_mode"] or presets.KEEP)
         if self._allowed("frame_gen", ["x2"]) is None:     # a game without frame generation: nothing to turn off
             p = dataclasses.replace(p, frame_gen=presets.KEEP)
+        return self._kept(p)
+
+    def _kept(self, p: "presets.GamePreset") -> "presets.GamePreset":
+        """A row these games lack keeps the value chosen before (Fedora 2026-11-19: BL3 alone, which has no
+        upscaler, saved "keep" over Raw, and Cyberpunk then ran with FSR 2)."""
+        loaded = getattr(self, "loaded", None)
+        if loaded is None:
+            return p
+        if self.hidden.get("mode"):
+            p = dataclasses.replace(p, upscaler=loaded.upscaler, upscaler_mode=loaded.upscaler_mode,
+                                    frame_gen=loaded.frame_gen)
+        if self.hidden.get("ray_tracing"):
+            p = dataclasses.replace(p, ray_tracing=loaded.ray_tracing)
         return p
 
     # ---- one preset for all, or one per game --------------------------------------------------------------
