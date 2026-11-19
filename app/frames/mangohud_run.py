@@ -7,7 +7,7 @@ it at a config file. MANGOHUD_CONFIG would take priority over that file, so it i
 The config (README option names): output_folder (required for logging), log_interval=0 (one row per frame;
 MangoHud's src/overlay.cpp), autostart_log=1 (logging starts 1 s after MangoHud starts in the game), log_duration
 (seconds; MangoHud then stops logging and writes "<log>_summary.csv", which tells the app the measuring is over:
-src/logging.cpp), no_display (the HUD is not drawn).
+src/logging.cpp), and a HUD with no items and no opacity (no_display would keep autostart_log from starting).
 
 Several games in a row (the owner's wish, 2026-10-19): the config file and the log folder have ONE fixed place in
 the app's data folder (mangohud/), and the config is written again before each game; MangoHud reads it when the
@@ -64,7 +64,12 @@ def config_text(output_folder: Path, log_duration: int) -> str:
         "autostart_log=1",
         f"log_duration={int(log_duration)}",
         f"toggle_logging={STOP_LOG_KEYSYMS}",
-        "no_display",
+        # not no_display: with it MangoHud never starts autostart_log (v0.8.2 src/overlay.cpp update_hud_info runs
+        # the autostart check only when the HUD shows or a log is already on; Fedora 2026-11-19, BL3: no log until
+        # Shift+F2 started one). The HUD is drawn instead with no items (legacy_layout=0) and nothing seen (alpha 0)
+        "legacy_layout=0",
+        "alpha=0",
+        "background_alpha=0",
         ""])
 
 

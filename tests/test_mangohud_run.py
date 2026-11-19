@@ -21,7 +21,8 @@ def log_text(frames, frame_ms=50.0):
 def test_config_environment_and_steam_command(tmp_path):
     text = mh.config_text(tmp_path / "logs", 123)
     assert f"output_folder={tmp_path / 'logs'}" in text and "log_interval=0" in text
-    assert "log_duration=123" in text and "autostart_log=1" in text and "no_display" in text
+    assert "log_duration=123" in text and "autostart_log=1" in text
+    assert "no_display" not in text and "alpha=0" in text and "legacy_layout=0" in text   # no_display: no autostart
     assert "toggle_logging=Shift_L+F2" in text          # the key that ends the log before the game is closed
     env = mh.environment(tmp_path / "MangoHud.conf", base={"PATH": "/usr/bin", "MANGOHUD_CONFIG": "fps_limit=30"})
     assert env == {"PATH": "/usr/bin", "MANGOHUD": "1", "MANGOHUD_CONFIGFILE": str(tmp_path / "MangoHud.conf")}
