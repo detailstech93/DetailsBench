@@ -77,8 +77,9 @@ def steam_command(app_id, args: Sequence[str] = (), which: Callable = shutil.whi
 
 def _steam_procs():
     import psutil
-    for p in psutil.process_iter(["name"]):
-        if (p.info.get("name") or "").lower() in STEAM_NAMES:
+    for p in psutil.process_iter(["name", "status"]):
+        # a finished "steam -shutdown" the app started stays a zombie named steam (Fedora 2026-11-19): not Steam
+        if (p.info.get("name") or "").lower() in STEAM_NAMES and p.info.get("status") != psutil.STATUS_ZOMBIE:
             yield p
 
 

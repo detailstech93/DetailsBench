@@ -30,6 +30,18 @@ def test_config_environment_and_steam_command(tmp_path):
     assert mh.steam_running(lambda: ["bash", "Steam"]) and not mh.steam_running(lambda: ["steamwebhelper", "x"])
 
 
+def test_a_finished_steam_shutdown_left_as_a_zombie_is_not_steam(monkeypatch):
+    import psutil
+
+    class P:
+        def __init__(self, status):
+            self.info = {"name": "steam", "status": status}
+    monkeypatch.setattr(psutil, "process_iter", lambda attrs: [P(psutil.STATUS_ZOMBIE)])
+    assert not mh.steam_running() and mh.steam_state(Path("x")) == "closed"
+    monkeypatch.setattr(psutil, "process_iter", lambda attrs: [P(psutil.STATUS_ZOMBIE), P(psutil.STATUS_SLEEPING)])
+    assert mh.steam_running()
+
+
 def test_proton_processes_are_found_by_their_command_line(tmp_path):
     assert unix_path("Z:\\home\\me\\Game\\game.exe") == "/home/me/Game/game.exe"
     procs = [{"pid": 1, "create_time": 1.0, "exe": "/opt/proton/files/bin/wine64-preloader",
