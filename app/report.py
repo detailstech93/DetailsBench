@@ -692,11 +692,17 @@ def _geekbench_section(export: Mapping) -> str:
 
 
 def _web_section(export: Mapping) -> str:
-    return _tiles_section(
+    from app.web.benchmarks import CHROMIUM_NOTE
+    html = _tiles_section(
         export, "Browser tests", WEB_TESTS,
         "The browserbench.org pages' own scores, run by the app in a new empty browser profile. Higher is faster. "
         "Scores compare only with the same browser and version (shown under each tile). Nothing was uploaded.",
         decimals=1)
+    if html and any(CHROMIUM_NOTE in str((_mapping(r) or {}).get("note") or "") for r in export.get("runs") or []):
+        html = html.replace("<h2>Browser tests</h2>", "<h2>Browser tests</h2><p class=\"uneven\">Run on Chromium, "
+                            "not Google Chrome (this system has no Google Chrome): these scores are NOT comparable "
+                            "with Google Chrome results.</p>", 1)
+    return html
 
 
 YCRUNCHER_TESTS = (("ycruncher_pi_1b", "Pi, 1 billion digits", "s"), ("ycruncher_pi_2_5b", "Pi, 2.5 billion digits", "s"))

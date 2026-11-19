@@ -502,3 +502,15 @@ def test_a_same_device_record_in_the_library_joins_an_imported_device_to_a_measu
     record = json.loads(next((lib / "same").glob("*T12*.json")).read_text(encoding="utf-8"))
     assert record["part_key"] == "system:imported:k10-sheet" and record["same_as"] == key
     assert len(list((lib / "packages").rglob("*.json"))) == 2               # the packages as they were
+
+
+def test_a_chromium_web_run_never_groups_with_google_chrome():
+    # owner, 2026-11-19: Fedora's Chromium 157 was 30% behind Google Chrome 158 on Speedometer on the same PC
+    from app.web.benchmarks import CHROMIUM_NOTE
+    chrome = "Browser: Chrome/158.0.8127.36 (google-chrome); Page: x"
+    chromium = "Browser: Chrome/157.0.8103.78 (chromium-browser); Page: x; " + CHROMIUM_NOTE
+    a = pk.build_packages(export(runs=[run("speedometer", "web", 26.5, note=chrome)]))[0][0]
+    b = pk.build_packages(export(runs=[run("speedometer", "web", 19.2, note=chromium)]))[0][0]
+    old = pk.build_packages(export(runs=[run("speedometer", "web", 27.5, note="Browser: Chrome/157; Page: x")]))[0][0]
+    assert "browser" not in a["test"]["settings"] and b["test"]["settings"]["browser"] == "Chromium"
+    assert a["test"]["fingerprint"] == old["test"]["fingerprint"] != b["test"]["fingerprint"]

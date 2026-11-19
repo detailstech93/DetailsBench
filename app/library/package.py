@@ -67,7 +67,7 @@ def _settings(manifest: Mapping, test_id: str) -> dict:
 
 # what changes a score, the only fields of a test's settings its fingerprint reads (owner, 2026-11-17: architecture,
 # drive and the version are facts about the PC or have their own note; a field added later must not split a test)
-REAL_SETTINGS = ("model", "ai_model", "stress_minutes", "prompt_book")
+REAL_SETTINGS = ("model", "ai_model", "stress_minutes", "prompt_book", "browser")
 
 
 def fingerprint_of(test_id: str, settings: Mapping) -> str:
@@ -114,6 +114,8 @@ def build_packages(export: Mapping, read_ai_run: Callable[[str], Optional[dict]]
         if minutes and "stress_minutes" not in settings:
             settings["stress_minutes"] = minutes        # a stress run compares only with one of the same length
         note = next((r.get("note") for r in measured if r.get("note")), None)
+        if "Chromium, not Google Chrome" in (note or ""):
+            settings["browser"] = "Chromium"            # web tests: never in one group with Google Chrome's
         emulated = settings.get("comparable_to_native") is False
         ai_run = read_ai_run(test_id) if group == "ai" else None
         if (ai_run or {}).get("prompt_book"):

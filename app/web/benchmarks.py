@@ -187,6 +187,8 @@ class WebBenchmarkWorkload(Workload):
             # Chromium and Google Chrome both say "Chrome/157": the program run tells them apart (Fedora, 2026-11-19)
             note = (f"Browser: {browser_name or 'unknown'} ({_name(exe)}); Page: {self.page['url']}; new empty profile; "
                     "the page's default length")
+            if is_chromium(exe):
+                note += "; " + CHROMIUM_NOTE
             return WorkloadResult(status="completed", score=score, unit=self.page["unit"], note=note,
                                   metrics={}, command=shown, duration_seconds=duration)
         except (OSError, ValueError, RuntimeError, ConnectionError) as e:
@@ -205,6 +207,14 @@ class WebBenchmarkWorkload(Workload):
         status = "cancelled" if stop.is_set() else "failed"
         return WorkloadResult(status=status, error="stopped by user" if stop.is_set() else why, command=shown,
                               duration_seconds=round(self.clock() - started, 3))
+
+
+# owner, 2026-11-19: Fedora's Chromium 157 was 30% behind Google Chrome 158 on Speedometer on the same PC
+CHROMIUM_NOTE = "Chromium, not Google Chrome: not comparable with Google Chrome results"
+
+
+def is_chromium(exe: str) -> bool:
+    return "chromium" in ntpath.basename(exe).lower()
 
 
 def _name(exe: str) -> str:

@@ -204,6 +204,11 @@ def test_the_browser_is_looked_up_at_each_run_and_named_in_the_note(tmp_path, fa
     r = wl.run(RunContext(output_dir=tmp_path, timeout_seconds=60, stop_event=threading.Event()))
     assert started[0][0] == "/usr/bin/google-chrome"
     assert r.note.startswith("Browser: Chrome/150.0.7871.116 (google-chrome); Page: ")
+    assert wb.CHROMIUM_NOTE not in r.note
+    found[0] = "/usr/bin/chromium-browser"
+    FakeWS.answers = ["19.2"]
+    r = wl.run(RunContext(output_dir=tmp_path, timeout_seconds=60, stop_event=threading.Event()))
+    assert "(chromium-browser)" in r.note and r.note.endswith("; " + wb.CHROMIUM_NOTE)
 
 
 def test_no_browser_is_skipped(tmp_path):
@@ -251,3 +256,15 @@ def test_the_browser_stays_the_one_the_app_started():
     from app.report import failure_reason
     why = failure_reason("Chrome opened no DevTools port within 60 s (it closed by itself with exit code 0)")
     assert why.startswith("The browser closed itself at once") and "administrator" in why
+
+
+def test_the_report_says_a_chromium_run_is_not_comparable_with_google_chrome():
+    from app import report
+
+    def export(note):
+        return {"runs": [{"benchmark_name": "speedometer", "status": "completed", "score": 19.2, "unit": "score",
+                          "is_warmup": False, "note": note}], "summaries": {}}
+    chromium = report._web_section(export("Browser: Chrome/157 (chromium-browser); Page: x; " + wb.CHROMIUM_NOTE))
+    chrome = report._web_section(export("Browser: Chrome/158 (google-chrome); Page: x"))
+    assert "NOT comparable with Google Chrome results" in chromium
+    assert chrome and "NOT comparable" not in chrome
