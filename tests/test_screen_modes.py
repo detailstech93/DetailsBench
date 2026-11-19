@@ -42,3 +42,40 @@ def test_an_offered_resolution_goes_on(env, monkeypatch):
 def test_this_pc_s_modes_are_read_only_on_windows(monkeypatch):
     monkeypatch.setattr(screen_modes.sys, "platform", "linux")
     assert screen_modes.resolutions() is None and screen_modes.refresh_rates() is None
+
+
+# the GEEKOM's `xrandr` on Fedora 45 KDE (XWayland, 2026-11-19), a few lines left out
+XRANDR = """Screen 0: minimum 16 x 16, current 1920 x 1080, maximum 32767 x 32767
+HDMI-A-1 connected primary 1920x1080+0+0 (normal left inverted right x axis y axis) 531mm x 299mm
+   1920x1080     59.96*+
+   1440x1080     59.99
+   1400x1050     59.98
+   1280x1024     59.89
+   1280x960      59.94
+   1152x864      59.96
+   1024x768      59.92
+   800x600       59.86
+   640x480       59.38
+   1680x1050     59.95
+   1440x900      59.89
+   1280x800      59.81
+   1152x720      59.97
+   960x600       59.63
+   1600x900      59.95
+   1368x768      59.88
+   1280x720      59.86
+   1024x576      59.90
+"""
+
+
+def test_a_proton_game_s_modes_match_the_position_cyberpunk_saved():
+    from app.games.cyberpunk2077 import screen_positions
+    modes = screen_modes.proton_modes(XRANDR)
+    sizes = {(w, h) for w, h, _ in modes}
+    assert (1920, 800) in sizes and (1440, 960) in sizes and (2560, 1440) not in sizes   # Proton's own, if they fit
+    assert (1024, 576) not in sizes and (640, 480) in sizes and (1920, 1080, 60) in modes
+    data = {"data": [{"group_name": "/video/display", "options": [
+        {"name": "Resolution", "type": "string_list", "value": "1920x1080", "index": 15}]}]}
+    positions = screen_positions(data, sizes)
+    assert positions["1920x1080"] == 15 and positions["1280x720"] == 3
+    assert screen_modes.proton_modes("Screen 0: no modes") is None

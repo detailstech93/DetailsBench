@@ -62,8 +62,50 @@ def refresh_rates() -> Optional[Dict[Tuple[int, int], int]]:
     return out
 
 
+# Proton's own sizes (ValveSoftware/wine proton_11.0, dlls/win32u/sysparams.c default_sizes): with its emulated
+# mode setting (on by default) a game is shown these that fit the screen, the screen's own modes from 800x600 up,
+# the screen's size, and 640x480 + 960x540. Checked on the GEEKOM (Fedora 45, XWayland, 2026-11-19): this list puts
+# 1920x1080 at 15 in Cyberpunk's list, the position the game itself saved (the X server's modes alone gave 13).
+PROTON_SIZES = [(800, 600), (1024, 768), (1600, 1200), (1280, 720), (1600, 900), (1920, 1080), (2560, 1440),
+                (2880, 1620), (3200, 1800), (1440, 900), (1680, 1050), (1920, 1200), (2560, 1600), (1440, 960),
+                (1920, 1280), (2560, 1080), (1920, 800), (3840, 1600), (1280, 1024)]
+XRANDR_MODE = re.compile(r"^\s+(\d+)x(\d+)i?\s+(.*)$")
+
+
+def proton_modes(xrandr_text: str) -> Optional[Set[Tuple[int, int, int]]]:
+    """The (width, height, Hz) a Proton game is shown on this X screen (XWayland too), from `xrandr` output."""
+    sizes, current = set(), []
+    for line in xrandr_text.splitlines():
+        m = XRANDR_MODE.match(line)
+        if not m:
+            continue
+        w, h = int(m.group(1)), int(m.group(2))
+        sizes.add((w, h))
+        if "*" in m.group(3):
+            rate = re.search(r"([\d.]+)\*", m.group(3))
+            current.append((w, h, round(float(rate.group(1))) if rate else 60))
+    if not current:
+        return None
+    mw, mh, hz = max(current, key=lambda c: c[0] * c[1])
+    fits = lambda w, h: w <= mw and h <= mh
+    shown = {(w, h) for w, h in sizes if fits(w, h) and w >= 800 and h >= 600}
+    shown |= {s for s in PROTON_SIZES if fits(*s)} | {(640, 480), (960, 540)}
+    return {(w, h, 60) for w, h in shown} | {(mw, mh, max(60, hz))}
+
+
 def _modes() -> Optional[Set[Tuple[int, int, int]]]:
     """Every (width, height, Hz) an attached screen offers, or None when it cannot be read."""
+    if sys.platform.startswith("linux"):
+        import shutil
+        import subprocess
+        xrandr = shutil.which("xrandr")
+        if not xrandr:
+            return None
+        try:
+            done = subprocess.run([xrandr, "--query"], capture_output=True, timeout=10, shell=False)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        return proton_modes(done.stdout.decode("utf-8", "replace")) if done.returncode == 0 else None
     if sys.platform != "win32":
         return None
     try:
