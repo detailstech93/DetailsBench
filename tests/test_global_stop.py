@@ -60,7 +60,7 @@ def test_a_refused_hotkey_is_tried_again_and_other_systems_do_nothing(qapp):
     window = QWidget()
     user32 = User32(ok=False)
     stop = GlobalStop(window, lambda: True, lambda: None, user32=user32, platform="win32")
-    other = GlobalStop(window, lambda: True, lambda: None, platform="linux")
+    other = GlobalStop(window, lambda: True, lambda: None, platform="darwin")      # Linux: tests/test_linux_hotkey.py
     try:
         stop.check()
         stop.check()

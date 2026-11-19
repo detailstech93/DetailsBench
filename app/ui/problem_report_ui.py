@@ -130,4 +130,11 @@ class ProblemBar(QFrame):
 
     def offer(self, text: str):
         self.label.setText(text + " Send us a problem report so we can fix it?")
+        self.report_btn.setVisible(True)
+        self.show()
+
+    def note(self, text: str):
+        """Something to know, not a problem to report (Linux: Ctrl+Shift+X does not reach a game here)."""
+        self.label.setText(text)
+        self.report_btn.setVisible(False)
         self.show()

@@ -1197,7 +1197,7 @@ class MainWindow(QMainWindow):
         from PySide6.QtWidgets import QApplication
         from app.ui.global_stop import GlobalStop
         self.global_stop = GlobalStop(self, lambda: self.automation_panel.is_running() or self.frame_panel.is_running(),
-                                      self.emergency_stop_all)
+                                      self.emergency_stop_all, on_problem=lambda text: self.problem_bar.note(text))
         QApplication.instance().installNativeEventFilter(self.global_stop)
         
         # Status / Feedback area
