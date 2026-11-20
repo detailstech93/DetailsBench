@@ -239,6 +239,7 @@ class GameCapture:
     command: Optional[list] = None
     telemetry_unavailable: dict = field(default_factory=dict)
     display_mode: Optional[str] = None            # the screen's mode at the end of the benchmark ("1920x1080 at 60 Hz")
+    on_cpu: bool = False                          # the game drew on a CPU renderer (llvmpipe): another card may be tried
 
 
 def presentmon_text(out, ended_after: Optional[float]) -> str:
@@ -1261,6 +1262,38 @@ class GameBenchmark:
         its own number read; then it is closed."""
         spec, guard = self.spec, self.settings_guard
         out, notes, last = [], [], None
+        card = self._card_choice()
+        try:
+            if card is not None and card.remembered() not in (None, card.current()):
+                card.set(card.remembered(), ran=False)  # the number that drew on the graphics card here before
+                notes.append(f"graphics card number {card.remembered()} written (it drew on the graphics card on "
+                             "this PC before)")
+        except (OSError, ValueError) as e:
+            notes.append(f"the graphics card number could not be written ({e})")
+            card = None
+        try:
+            return self._passes(card, out, notes, last)
+        finally:
+            if card is not None:
+                why = card.restore()
+                if why:
+                    self.on_progress(why.lstrip("; "))
+
+    def _card_choice(self):
+        """app/games/graphics_card.py CardChoice for a game that picks its card by a number (RDR2), or None."""
+        try:
+            from app.games.graphics_card import CardChoice
+            from app.games.proton import game_env
+            from app.paths import get_data_dir
+            guard = self.settings_guard
+            env = (guard.env if guard is not None else None) or game_env(self.spec.app_id)
+            data_dir = guard.data_dir if guard is not None else get_data_dir()
+            return CardChoice.for_game(self.spec.app_id, self.run_dir, data_dir, env)
+        except (OSError, ValueError):
+            return None
+
+    def _passes(self, card, out, notes, last) -> GameCapture:
+        spec, guard = self.spec, self.settings_guard
         for k in range(spec.count):
             if self.stop_event.is_set():
                 break
@@ -1273,6 +1306,20 @@ class GameBenchmark:
                 notes.append(f"run {k}: {problem}")
                 break
             last = self._run_mangohud(pass_index=k)
+            while last.on_cpu and card is not None and not self.stop_event.is_set():
+                number = card.next_number()
+                if number is None:
+                    break
+                try:
+                    card.set(number)
+                except (OSError, ValueError) as e:
+                    last.message += f"; the graphics card number could not be changed ({e})"
+                    break
+                notes.append(f"run {k}: {last.message}; graphics card number {number} written, run again")
+                self.sleep(PASS_GAP_SECONDS)
+                last = self._run_mangohud(pass_index=k)
+                if not last.on_cpu and last.status == "recorded":
+                    card.remember(number)       # this PC's: the next runs start with it
             notes.append(f"run {k}: " + "; ".join(x for x in [rewritten, last.message] if x))
             settings = guard.check() if guard is not None else None
             for w in last.windows:
@@ -1377,11 +1424,16 @@ class GameBenchmark:
         steps = None                    # menu step player, started when the game is in front (as on Windows)
         t_mark = None                   # clock() when the steps saw the benchmark start
         menus_missed = False
+        device = None                   # what the game draws on, from MangoHud's first line
         try:
             while True:
                 if self.stop_event.is_set():
                     stopped = True
                     break
+                if device is None:
+                    device = mh.drawing_device(shared_logs, since - 2)
+                    if software_renderer(device):
+                        break           # Fedora 2026-11-20: RDR2 on llvmpipe filled RAM and swap for 20 min
                 if mh.logging_done(shared_logs, since - 2):
                     break               # log_duration reached: MangoHud wrote its summary
                 elapsed = self.clock() - t0
@@ -1458,7 +1510,7 @@ class GameBenchmark:
                 except Exception as e:
                     player.problem = player.problem or f"keys could not be released: {e}"
         own = None
-        if whole and t_mark is not None and not stopped:
+        if whole and t_mark is not None and not stopped and not software_renderer(device):
             own = self._after_whole_benchmark(steps, since)
         stop_note = ""
         if t_mark is not None and not stopped and not mh.logging_done(shared_logs, since - 2):
@@ -1473,6 +1525,9 @@ class GameBenchmark:
         tel = sampler.stop() if sampler is not None else None
         prefix = "stopped by user; " if stopped else ""
         mh.move_new_logs(shared_logs, logs, since - 2)    # this run's logs belong to its run folder
+        if software_renderer(device) and not stopped:
+            return GameCapture("failed", f"the game drew on the CPU ({device}), not on the graphics card: stopped "
+                               "as soon as MangoHud named it; nothing kept" + closed, command=command, on_cpu=True)
         if steps is not None and t_mark is None and not stopped:
             return GameCapture("failed", "the app did not reach the game's benchmark" + closed, command=command)
         best = mh.best_log(logs, since - 2)
@@ -1483,7 +1538,7 @@ class GameBenchmark:
         path, parsed = best
         if software_renderer(parsed.gpu):
             return GameCapture("failed", f"the game drew on the CPU ({parsed.gpu}), not on the graphics card: not a "
-                               "result of this PC's graphics; nothing kept" + closed, command=command)
+                               "result of this PC's graphics; nothing kept" + closed, command=command, on_cpu=True)
         frametimes = parsed.frametimes_ms
         recorded = game_seconds(frametimes)
         windows = spec.windows()

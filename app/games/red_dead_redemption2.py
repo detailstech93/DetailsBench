@@ -110,6 +110,10 @@ SETTINGS = {
 }
 
 
+# the Vulkan device it draws on, by its place in the list (app/games/graphics_card.py)
+GRAPHICS_CARD_REF = "video/adapterIndex"
+
+
 def parse(text: str) -> str:
     return text
 

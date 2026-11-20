@@ -191,6 +191,24 @@ def best_log(folder: Path, since: float) -> Optional[Tuple[Path, object]]:
     return best
 
 
+def drawing_device(folder: Path, since: float) -> Optional[str]:
+    """The device a new log names in its system line ("os,cpu,gpu,..." then its values, written when logging
+    starts), read from its first two lines only; None while none says."""
+    import csv
+    for path in find_new_logs(folder, since):
+        if path.name.lower().startswith(SKIP_PROGRAMS):
+            continue
+        try:
+            with path.open(encoding="utf-8", errors="replace") as f:
+                rows = list(csv.reader([f.readline(), f.readline()]))
+        except OSError:
+            continue
+        names = [c.strip().lower() for c in rows[0]] if rows else []
+        if len(rows) == 2 and "gpu" in names and names.index("gpu") < len(rows[1]):
+            return rows[1][names.index("gpu")].strip() or None
+    return None
+
+
 def program_name(log: Path) -> str:
     from app.frames.mangohud_csv import LOG_NAME
     m = LOG_NAME.match(log.name)

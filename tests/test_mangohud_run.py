@@ -360,3 +360,34 @@ def test_linux_whole_benchmark_starts_the_game_for_every_run_like_windows(tmp_pa
         assert list((tmp_path / "run" / f"run_{k}" / "mangohud_logs").glob("Game.exe_*.csv"))
     conf = (tmp_path / "run" / "MangoHud.conf").read_text()
     assert "log_duration=" in conf and int(conf.split("log_duration=")[1].split()[0]) >= 60
+
+
+CPU_HEAD = HEAD.replace("Ubuntu,CPU,GPU,", "Steam Runtime 4,CPU,llvmpipe (LLVM 23.1.5),")
+
+
+def test_the_device_is_read_from_the_first_lines_of_a_new_log(tmp_path):
+    (tmp_path / "Game.exe_2026-11-20_09-02-44.csv").write_text(CPU_HEAD + "20,50,10,90,1\n", encoding="utf-8")
+    (tmp_path / "fossilize_replay_2026-11-20_09-02-40.csv").write_text(HEAD, encoding="utf-8")
+    assert mh.drawing_device(tmp_path, 0) == "llvmpipe (LLVM 23.1.5)"
+    assert mh.drawing_device(tmp_path, time.time() + 60) is None             # an old log is not this run's
+    (tmp_path / "Other.exe_2026-11-20_09-03-00.csv").write_text("os,cpu", encoding="utf-8")
+    assert mh.drawing_device(tmp_path / "none", 0) is None
+
+
+def test_a_game_on_the_cpu_is_stopped_as_soon_as_mangohud_names_it(tmp_path):
+    """Fedora 2026-11-20: RDR2 drew on llvmpipe; the app waited for its whole benchmark while RAM and swap filled."""
+    fakes = Fakes(tmp_path, frames=20000)       # 1000 s of frames, if it had been let run
+    fakes.log_at = 5.0
+    plain = fakes.sleep
+
+    def sleep(seconds):
+        plain(seconds)
+        for log in fakes.logs.glob("Game.exe_*[0-9].csv") if fakes.started else ():
+            text = log.read_text(encoding="utf-8")
+            if text.startswith(HEAD):
+                log.write_text(CPU_HEAD + text[len(HEAD):], encoding="utf-8")
+    fakes.sleep = sleep
+    _, cap = run(tmp_path, fakes, seconds=900)
+    assert cap.status == "failed" and cap.on_cpu and "llvmpipe" in cap.message, cap.message
+    assert "stopped as soon as MangoHud named it" in cap.message and fakes.closed == [[7]]
+    assert fakes.now[0] < 60                                              # not the 900 s it would have run
