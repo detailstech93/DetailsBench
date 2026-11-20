@@ -29,14 +29,14 @@ def test_frame_rate_caps_are_written_off_with_a_preset():
     """Owner, 2026-11-20: FC6's menu showed a 60 FPS lock; every cap the game has goes off (Linux and Windows)."""
     from app.games import far_cry6
     xml = ('<RenderProfile Quality="medium" FrameRateLockEnabled="1" FrameRateLockValue="60"\n'
-           ' DynamicResolutionFrameRateLimit="30" VSyncPreset="off" />')
+           ' DynamicResolutionEnabled="1" DynamicResolutionFrameRateLimit="30" VSyncPreset="off" />')
     offered = far_cry6.choices(xml, {})
     requested, _ = plan_preset(2369390, GamePreset(quality="medium"), {**offered, "preset": ["Medium"]})
-    assert requested["frame_lock"] is False and requested["dynamic_resolution"] == "Off"
+    assert requested["frame_lock"] is False and requested["dynamic_resolution"] is False
     assert requested["vsync"] == "off"
     changes, refused = far_cry6.plan(xml, requested, {})
     out = far_cry6.apply(xml, changes)
-    assert 'FrameRateLockEnabled="0"' in out and 'DynamicResolutionFrameRateLimit="0"' in out
+    assert 'FrameRateLockEnabled="0"' in out and 'DynamicResolutionEnabled="0"' in out
     assert "frame_lock" not in refused and "dynamic_resolution" not in refused
     # no cap with a known off value (a FPS limit of 60 only): left as it is, nothing guessed
     assert "fps_limit" not in plan_preset(2369390, GamePreset(quality="medium"),

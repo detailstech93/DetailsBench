@@ -60,10 +60,10 @@ SETTINGS = {
     "resolution_scale": Setting("learned", ("RenderProfile@ResolutionScale",)),
     "vsync": Setting("learned", ("RenderProfile@VSyncPreset",)),
     # caps on the frame rate, always written off by a preset (owner 2026-11-20: its menu showed a 60 lock). Both
-    # files had the lock off (FrameRateLockValue 60 only matters when on); Windows had DynamicResolution... "30"
+    # files had the lock off (FrameRateLockValue 60 only matters when on); the desktop had DynamicResolutionEnabled
+    # "1" (its FrameRateLimit "30" is the FPS it lowers the resolution to keep), Fedora "0"
     "frame_lock": Setting("map", ("RenderProfile@FrameRateLockEnabled",), ON_OFF),
-    "dynamic_resolution": Setting("map", ("RenderProfile@DynamicResolutionFrameRateLimit",),
-                                  (("Off", "0"), ("30", "30"), ("60", "60"))),     # its FPS target; 0 off
+    "dynamic_resolution": Setting("map", ("RenderProfile@DynamicResolutionEnabled",), ON_OFF),
 }
 
 
