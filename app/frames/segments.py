@@ -238,7 +238,9 @@ def load_end_before(frametimes_ms: List[float], before_seconds: float, within_se
         if began > before_seconds:
             break
         if frame_ms >= min_ms and began >= before_seconds - within_seconds:
-            found = running_ms / 1000.0
+            # 1 ms after its end: back in ms (split_frames) its end rounded over it and the load was taken in
+            # (GEEKOM Windows 2026-11-20, runs 2-3: a 1.1 s frame in the span, 1% low 14 for 19)
+            found = running_ms / 1000.0 + 0.001
     return found
 
 

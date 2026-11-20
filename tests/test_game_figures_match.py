@@ -94,6 +94,19 @@ def test_sottr_span_up_to_its_load_takes_a_mark_read_late_and_never_runs_past_th
     assert (a, b) == (pytest.approx(83.0, abs=0.1), pytest.approx(240.0, abs=0.1))
 
 
+def test_sottr_span_never_holds_the_load_into_it():
+    """GEEKOM Windows 2026-11-20 runs 2-3: the load's end rounded over it in ms and its 1.1 s frame was measured
+    (frame times with 4 decimals as PresentMon's; seeds 0, 98 and 185 took it in before the fix)."""
+    import random
+    from app.frames.segments import load_end_before, split_frames
+    for seed in range(300):
+        rng = random.Random(seed)
+        frames = ([round(rng.uniform(25.0, 40.0), 4) for _ in range(rng.randint(500, 4000))]
+                  + [round(1100.0 + rng.random(), 4)] + [30.0] * 6000)
+        a = load_end_before(frames, sum(frames) / 1000.0 - 170.0, 40.0, 400.0)
+        assert max(split_frames(frames, [(a, a + 150.0)])[0]) < 500.0, seed
+
+
 def test_far_cry6_own_average_is_whole_seconds_rounded_down_so_2_fps_under_still_matches():
     """Session 21 (NucBox K10, 2026-11-14): the game said 28 where PresentMon measured 29.04 on the same 60 s."""
     from app.frames.game_benchmark import _match_text
