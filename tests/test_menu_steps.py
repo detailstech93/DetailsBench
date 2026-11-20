@@ -1277,6 +1277,13 @@ def test_lit_word_finds_a_white_frame(tmp_path):
     image.fill(QColor(30, 25, 20))
     image.save(str(path))
     assert lit_word(path, lines, ["gamepad", "gameplay", "mouse"], style="frame") is None
+    # its Options page (2026-11-20): words centred in wide boxes, the frame's top side above the lit one's words
+    for y in range(72, 80):
+        for x in range(90, 200):
+            image.setPixelColor(x, y, QColor(240, 235, 225))
+    image.save(str(path))
+    assert lit_word(path, lines, ["gamepad", "gameplay", "mouse"], style="boxframe") == "gameplay"
+    assert lit_word(path, lines, ["gamepad", "gameplay", "mouse"], style="frame") is None
 
 
 def test_lit_word_places_an_unread_lit_item_on_the_menus_column(tmp_path):

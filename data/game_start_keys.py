@@ -131,7 +131,13 @@ GAME_MENU_STEPS: Dict[int, dict] = {
              "linux": {"click": None, "pick": "options", "lit": "frame", "wake": "s", "arrows": {"down": "s", "up": "w"},
                        "dismiss_wait": 15,
                        "menu": ["new game", "select save game", "add-ons", "store", "options", "quit to desktop"]}},
-            {"see": "video", "within": 30, "settle": 1, "click": "video", "wait": 3},
+            {"see": "video", "within": 30, "settle": 1, "click": "video", "wait": 3,
+             # Fedora 2026-11-20 (720p): the game's cursor sat on VIDEO's V, read "IDEO"; nothing clicked. Its
+             # page lights VIDEO with the same white frame: keys, the mouse parked first
+             "linux": {"see": ["video", "accessibility", "controller"], "click": None, "pick": "video",
+                       "lit": "boxframe", "wake": "s", "arrows": {"down": "s", "up": "w"},
+                       "menu": ["accessibility", "gameplay", "audio", "video", "controller", "keyboard and mouse",
+                                "hud", "3rd party", "credits", "benchmark"]}},
             # the Video page has the Video Adapter setting; E moves one tab to the right
             {"see": "adapter", "within": 30, "settle": 1, "press": "e", "wait": 2},
             {"see": "filtering", "within": 30, "press": "e, e", "wait": 2},

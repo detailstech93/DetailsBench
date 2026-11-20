@@ -163,7 +163,8 @@ def lit_word(image_path, lines, menu, style: str = "bar", grid: bool = False) ->
     """The item of `menu` with an orange-red bar behind it (SOTTR's lit item), or None when none clearly is.
     style "bright": the item whose box is filled bright (dark letters on it). style "frame": the item with a
     thick white frame (Far Cry 6's main menu, Fedora 2026-11-20: QUIT TO DESKTOP's left side 0.52 bright, the
-    others 0.00-0.01). style "redframe": a red frame round its tile (RDR2's Settings, Fedora 2026-11-20: the lit
+    others 0.00-0.01). style "boxframe": that frame seen above centred words (its Options page, Fedora
+    2026-11-20: VIDEO's top side 1.0 white, the others 0.0). style "redframe": a red frame round its tile (RDR2's Settings, Fedora 2026-11-20: the lit
     Controls 0.38 red left of its word, the others 0.00).
     An item is found by its first word (OCR may misread the rest). grid: tiles in rows (RDR2's Settings), each item
     where it was read (the column fit of _menu_boxes is for a list)."""
@@ -177,6 +178,13 @@ def lit_word(image_path, lines, menu, style: str = "bar", grid: bool = False) ->
     for item, box in boxes.items():
         x, y, w, h = box
         hits = total = 0
+        if style == "boxframe":         # the band above its words, where the frame's top side is (centred words)
+            for px in range(x, min(image.width(), x + w), 3):
+                for py in range(max(0, y - 30), max(0, y - 16)):
+                    total += 1
+                    hits += image.pixelColor(px, py).lightness() > 200
+            scores[item] = hits / total if total else 0.0
+            continue
         if style in ("frame", "redframe"):      # the strip left of its words, where the frame's left side is
             near, far = (14, 30) if style == "frame" else (8, 16)
             for px in range(max(0, x - far), max(0, x - near)):
@@ -196,7 +204,7 @@ def lit_word(image_path, lines, menu, style: str = "bar", grid: bool = False) ->
                 else:
                     hits += c.red() > 120 and c.red() > 1.6 * c.green() and c.red() > 1.8 * c.blue()
         scores[item] = hits / total if total else 0.0
-    if style in ("frame", "redframe"):
+    if style in ("frame", "redframe", "boxframe"):
         best = max(scores, key=scores.get, default=None)
         if best is None or scores[best] < 0.2 or any(v > 0.5 * scores[best] for k, v in scores.items() if k != best):
             return None
