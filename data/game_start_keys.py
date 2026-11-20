@@ -137,8 +137,9 @@ GAME_MENU_STEPS: Dict[int, dict] = {
             {"see": "filtering", "within": 30, "press": "e, e", "wait": 2},
             # the Advanced page (Enable Framerate Lock): F5 starts the benchmark
             {"see": "lock", "within": 30, "settle": 1, "press": "f5", "tap": 0.15, "wait": 3},
-            # "Toggle UI" shows in the lower right while it runs
-            {"see": "toggle", "within": 90, "mark": True, "tap": 0.15,
+            # "Toggle UI" / "Exit Benchmark" show in the lower right while it runs (Fedora 2026-11-20: "Toggle" read
+            # as "toogie" on the first frame, marked 5 s late, the window reached its 60 FPS results screen: +4.8%)
+            {"see": ["toggle", "exit benchmark"], "within": 90, "mark": True, "tap": 0.15,
              "again": {"press": "f5", "every": 10, "while": "lock"}},
         ],
         "benchmark_seconds": 60,        # MarkBench waits 60 s after "toggle", then for its results screen

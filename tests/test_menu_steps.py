@@ -411,6 +411,12 @@ def test_far_cry_6_path(tmp_path):
     held = [e for e in desk.events if e[0] in ("down", "up")]
     assert [round(up[2] - down[2], 2) for down, up in zip(held[::2], held[1::2])] == [0.15] * 6
     assert "benchmark started ('toggle' seen at 8" in p.summary()
+    # the first frame's "Toggle" misread, "Exit Benchmark" read (Fedora 2026-11-20): marked there, not 5 s later
+    timeline[-1:] = [(80, ["GD toogie ur EBB exit Benchmark"]), (85, ["Toggle UI", "Exit Benchmark"])]
+    (tmp_path / "b").mkdir()
+    p, desk, clock = player(tmp_path / "b", menu_steps_for(2369390), timeline)
+    p.run()
+    assert p.problem is None and 80 <= p.mark_time < 82
 
 
 def test_borderlands_3_path(tmp_path):
