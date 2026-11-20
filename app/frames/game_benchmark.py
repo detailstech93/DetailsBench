@@ -37,7 +37,7 @@ from app.frames.admin_helper import run_presentmon
 from app.frames.presentmon import CSV_NAME, START_MARGIN_SECONDS, capture_game_args, workload_id_for
 from app.frames.presentmon_csv import parse_presentmon_csv, summarize_processes
 from app.frames.segments import (
-    first_frame_offset, game_seconds, loading_bounds, next_loading, pick_game_process, slice_samples, split_frames,
+    first_frame_offset, game_seconds, load_end_before, loading_bounds, next_loading, pick_game_process, slice_samples, split_frames,
     window_bounds,
 )
 from app.frames.stats import compute_frame_stats, stats_to_metrics
@@ -87,6 +87,7 @@ END_EARLY_SECONDS = 15.0
 # a load inside SOTTR's span is this long; a 222 ms hitch 64 s into its benchmark (Fedora 2026-11-20) was taken for
 # one and only 58 s were measured. Its loads: 5-6 s into the benchmark, 0.7 s before the results
 INSIDE_LOAD_MS = 400.0
+WHOLE_LOOKBACK_SECONDS = 40.0     # how far before its last 157 s the load into SOTTR's benchmark is looked for (21 s seen)
 
 
 SOFTWARE_RENDERERS = ("llvmpipe", "lavapipe", "softpipe", "swiftshader")
@@ -867,7 +868,12 @@ class GameBenchmark:
             # its slow last 15 s (+2 %). Only when the span starts near the mark and holds no load (not a benchmark
             # cut short)
             if stop is not None and next_loading(frametimes, stop - span + 1.0, INSIDE_LOAD_MS) == stop and                     all(stop - (b - a) >= mark_shift - END_EARLY_SECONDS for a, b in windows):
-                return [(stop - (b - a), stop) for a, b in windows]
+                # Windows and Linux 2026-11-20 (GEEKOM, 720p Medium): it draws 177.7 s between the load into it and
+                # the one before its results, no load inside; the game's own log keeps 157.5 s of them (it leaves
+                # out ~18 s, a 64 FPS scene change among them, only on Windows was it inside the last 157 s: +2.6 %
+                # there, +0.8 % on Linux). The whole of it is measured, the same frames on every system
+                return [(load_end_before(frametimes, stop - (b - a), WHOLE_LOOKBACK_SECONDS, INSIDE_LOAD_MS)
+                         or stop - (b - a), stop) for a, b in windows]
             end = next_loading(frametimes, mark_shift + 1.0)    # never past a load: session 23's 157 s from a
             # late mark took the 66 FPS results
         windows = [(a + mark_shift, b + mark_shift) for a, b in windows]

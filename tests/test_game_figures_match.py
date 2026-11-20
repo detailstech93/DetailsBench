@@ -81,12 +81,17 @@ def test_sottr_span_up_to_its_load_takes_a_mark_read_late_and_never_runs_past_th
     assert (a, b) == (pytest.approx(110.0), pytest.approx(240.0))
     # session 25: 'fps' read at 59 s, before the load into the benchmark (63 s); the results' load at 240 s
     frames = [30.0] * 2100 + [500.0] + [30.0] * 5883 + [500.0] + [15.0] * 2000
+    # and the span runs from that load (2026-11-20: the game draws 177.7 s between them on Windows and Linux)
     (a, b), = GameBenchmark._marked_windows(me, frames, [(0.0, 157.0)], 59.0)
-    assert (a, b) == (pytest.approx(83.0, abs=0.1), pytest.approx(240.0, abs=0.1))
+    assert (a, b) == (pytest.approx(63.5, abs=0.1), pytest.approx(240.0, abs=0.1))
     # Fedora 2026-11-20 run 3: a 222 ms hitch 64 s into the benchmark is not a load; the span still ends at it
     frames = [30.0] * 2100 + [500.0] + [30.0] * 2200 + [222.0] + [30.0] * 3683 + [500.0] + [15.0] * 2000
     (a, b), = GameBenchmark._marked_windows(me, frames, [(0.0, 157.0)], 70.0)
-    assert (a, b) == (pytest.approx(83.0, abs=0.3), pytest.approx(240.0, abs=0.3))
+    assert (a, b) == (pytest.approx(63.5, abs=0.3), pytest.approx(240.0, abs=0.3))
+    # a load more than 40 s before the last 157 s is not the one into it: the last 157 s are kept
+    frames = [30.0] * 1000 + [500.0] + [30.0] * 6983 + [500.0] + [15.0] * 2000
+    (a, b), = GameBenchmark._marked_windows(me, frames, [(0.0, 157.0)], 59.0)
+    assert (a, b) == (pytest.approx(83.0, abs=0.1), pytest.approx(240.0, abs=0.1))
 
 
 def test_far_cry6_own_average_is_whole_seconds_rounded_down_so_2_fps_under_still_matches():

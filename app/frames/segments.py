@@ -227,6 +227,21 @@ def next_loading(frametimes_ms: List[float], after_seconds: float, min_ms: float
     return None
 
 
+def load_end_before(frametimes_ms: List[float], before_seconds: float, within_seconds: float,
+                    min_ms: float = LOADING_FRAME_MS) -> Optional[float]:
+    """When (game seconds) the last loading frame (at least min_ms long) that began in the within_seconds up to
+    before_seconds ended, or None."""
+    running_ms, found = 0.0, None
+    for frame_ms in frametimes_ms:
+        running_ms += frame_ms
+        began = (running_ms - frame_ms) / 1000.0
+        if began > before_seconds:
+            break
+        if frame_ms >= min_ms and began >= before_seconds - within_seconds:
+            found = running_ms / 1000.0
+    return found
+
+
 def loading_bounds(frametimes_ms: List[float], after_seconds: float, end_margin_seconds: float = 3.0,
                    within_seconds: float = 60.0, min_seconds: float = 0.0) -> Tuple[Optional[float], Optional[float]]:
     """(start, end) in game seconds of a benchmark between two loading frames.
