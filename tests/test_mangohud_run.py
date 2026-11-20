@@ -372,6 +372,9 @@ def test_the_device_is_read_from_the_first_lines_of_a_new_log(tmp_path):
     assert mh.drawing_device(tmp_path, time.time() + 60) is None             # an old log is not this run's
     (tmp_path / "Other.exe_2026-11-20_09-03-00.csv").write_text("os,cpu", encoding="utf-8")
     assert mh.drawing_device(tmp_path / "none", 0) is None
+    # Fedora 2026-11-20: an RDR2 left running wrote its llvmpipe log during FC6's run: only the game's own logs
+    (tmp_path / "FarCry6_2026-11-20_11-39-49.csv").write_text(HEAD + "20,50,10,90,1\n", encoding="utf-8")
+    assert mh.drawing_device(tmp_path, 0, ["FarCry6.exe", "upc.exe"]) == "GPU"
 
 
 def test_a_game_on_the_cpu_is_stopped_as_soon_as_mangohud_names_it(tmp_path):

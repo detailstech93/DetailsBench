@@ -1323,7 +1323,12 @@ class GameBenchmark:
                 # failed after (Fedora 2026-11-20: the next RDR2 started on the CPU's number again)
                 # MangoHud writes its log (and the card's name in it) when the game closes (Fedora 2026-11-20, 11:22):
                 # read from this run's own logs when the menus failed before that
-                seen = getattr(self, "drawing_device", None) or mh.drawing_device(self.shots_dir / "mangohud_logs", 0)
+                try:
+                    own = self.exe_lister(spec.install_path) or None
+                except Exception:
+                    own = None
+                seen = getattr(self, "drawing_device", None) or mh.drawing_device(self.shots_dir / "mangohud_logs",
+                                                                                  0, own)
                 if not last.on_cpu and (last.status == "recorded" or (seen and not software_renderer(seen))):
                     card.remember(number)
             notes.append(f"run {k}: " + "; ".join(x for x in [rewritten, last.message] if x))
@@ -1432,12 +1437,16 @@ class GameBenchmark:
         menus_missed = False
         device = self.drawing_device = None     # what the game draws on, from MangoHud's first line
         try:
+            own_exes = self.exe_lister(spec.install_path) or None      # its logs only, not another game's
+        except Exception:
+            own_exes = None
+        try:
             while True:
                 if self.stop_event.is_set():
                     stopped = True
                     break
                 if device is None:
-                    device = self.drawing_device = mh.drawing_device(shared_logs, since - 2)
+                    device = self.drawing_device = mh.drawing_device(shared_logs, since - 2, own_exes)
                     if software_renderer(device):
                         break           # Fedora 2026-11-20: RDR2 on llvmpipe filled RAM and swap for 20 min
                 if mh.logging_done(shared_logs, since - 2):

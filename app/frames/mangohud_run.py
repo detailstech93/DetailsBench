@@ -191,12 +191,16 @@ def best_log(folder: Path, since: float) -> Optional[Tuple[Path, object]]:
     return best
 
 
-def drawing_device(folder: Path, since: float) -> Optional[str]:
+def drawing_device(folder: Path, since: float, programs: Optional[Iterable[str]] = None) -> Optional[str]:
     """The device a new log names in its system line ("os,cpu,gpu,..." then its values, written when logging
-    starts), read from its first two lines only; None while none says."""
+    starts), read from its first two lines only; None while none says. programs: only logs of these (the game's
+    own .exe names): Fedora 2026-11-20, an RDR2 left running drew on llvmpipe and FC6's run was stopped for it."""
     import csv
+    own = {Path(str(n)).stem.lower() for n in programs} if programs else None
     for path in find_new_logs(folder, since):
         if path.name.lower().startswith(SKIP_PROGRAMS):
+            continue
+        if own is not None and Path(program_name(path)).stem.lower() not in own:
             continue
         try:
             with path.open(encoding="utf-8", errors="replace") as f:
