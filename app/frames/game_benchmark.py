@@ -84,6 +84,9 @@ LAST_SCENE_MATCH = 2.0       # % the app's last scene may differ from the game's
 # a span up to the load before the results may begin this much before the mark (SOTTR at 1080p on a NucBox K10,
 # session 23, 2026-11-14: 'fps' was read 6-7 s into its benchmark)
 END_EARLY_SECONDS = 15.0
+# a load inside SOTTR's span is this long; a 222 ms hitch 64 s into its benchmark (Fedora 2026-11-20) was taken for
+# one and only 58 s were measured. Its loads: 5-6 s into the benchmark, 0.7 s before the results
+INSIDE_LOAD_MS = 400.0
 
 
 SOFTWARE_RENDERERS = ("llvmpipe", "lavapipe", "softpipe", "swiftshader")
@@ -863,7 +866,7 @@ class GameBenchmark:
             # SOTTR, 2026-11-12: its 33,686 frames are the 157 s before that load; 150 s from the mark missed
             # its slow last 15 s (+2 %). Only when the span starts near the mark and holds no load (not a benchmark
             # cut short)
-            if stop is not None and next_loading(frametimes, stop - span + 1.0) == stop and                     all(stop - (b - a) >= mark_shift - END_EARLY_SECONDS for a, b in windows):
+            if stop is not None and next_loading(frametimes, stop - span + 1.0, INSIDE_LOAD_MS) == stop and                     all(stop - (b - a) >= mark_shift - END_EARLY_SECONDS for a, b in windows):
                 return [(stop - (b - a), stop) for a, b in windows]
             end = next_loading(frametimes, mark_shift + 1.0)    # never past a load: session 23's 157 s from a
             # late mark took the 66 FPS results
