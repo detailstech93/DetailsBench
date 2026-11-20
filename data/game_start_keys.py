@@ -111,9 +111,9 @@ GAME_MENU_STEPS: Dict[int, dict] = {
              # Linux (2026-11-19): under Proton the game did not take clicks (its cursor stayed in the middle),
              # keys did: arrow keys to Options, Enter only once its box is the lit one. Video stays a click until
              # its page has been seen on Linux
-             # Fedora 2026-11-20: Esc closed its Ubisoft Connect popup but 12 Down arrows lit nothing (SOTTR took
-             # arrows under Proton): its W/S, plain keys like Esc, instead
-             "linux": {"click": None, "pick": "options", "lit": "bright", "wake": "s", "arrows": {"down": "s", "up": "w"},
+             # Fedora 2026-11-20: its lit item has a thick white frame (QUIT TO DESKTOP under its mouse), not a
+             # bright box: neither 12 Downs nor 12 S were seen to light anything
+             "linux": {"click": None, "pick": "options", "lit": "frame", "wake": "down",
                        "menu": ["new game", "select save game", "add-ons", "store", "options", "quit to desktop"]}},
             {"see": "video", "within": 30, "settle": 1, "click": "video", "wait": 3},
             # the Video page has the Video Adapter setting; E moves one tab to the right

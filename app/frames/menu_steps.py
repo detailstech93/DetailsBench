@@ -160,7 +160,9 @@ def _menu_boxes(lines, menu) -> dict:
 
 def lit_word(image_path, lines, menu, style: str = "bar") -> Optional[str]:
     """The item of `menu` with an orange-red bar behind it (SOTTR's lit item), or None when none clearly is.
-    style "bright": the item whose box is filled bright (dark letters on it), for Far Cry 6's menus.
+    style "bright": the item whose box is filled bright (dark letters on it). style "frame": the item with a
+    thick white frame (Far Cry 6's main menu, Fedora 2026-11-20: QUIT TO DESKTOP's left side 0.52 bright, the
+    others 0.00-0.01).
     An item is found by its first word (OCR may misread the rest)."""
     from PySide6.QtGui import QImage
     image = QImage(str(image_path))
@@ -170,6 +172,13 @@ def lit_word(image_path, lines, menu, style: str = "bar") -> Optional[str]:
     for item, box in _menu_boxes(lines, menu).items():
         x, y, w, h = box
         hits = total = 0
+        if style == "frame":            # the strip left of its words, where the frame's left side is
+            for px in range(max(0, x - 30), max(0, x - 14)):
+                for py in range(max(0, y - 20), min(image.height(), y + h + 20)):
+                    total += 1
+                    hits += image.pixelColor(px, py).lightness() > 200
+            scores[item] = hits / total if total else 0.0
+            continue
         for px in range(max(0, x - 10), min(image.width(), x + w + 10), 3):
             for py in range(max(0, y), min(image.height(), y + h), 3):
                 c = image.pixelColor(px, py)
@@ -179,6 +188,11 @@ def lit_word(image_path, lines, menu, style: str = "bar") -> Optional[str]:
                 else:
                     hits += c.red() > 120 and c.red() > 1.6 * c.green() and c.red() > 1.8 * c.blue()
         scores[item] = hits / total if total else 0.0
+    if style == "frame":
+        best = max(scores, key=scores.get, default=None)
+        if best is None or scores[best] < 0.2 or any(v > 0.5 * scores[best] for k, v in scores.items() if k != best):
+            return None
+        return best
     if style == "bright":           # white letters on a dark box light up part of it: a lit box is mostly bright
         best = max(scores, key=scores.get, default=None)
         if best is None or scores[best] < 0.6 or any(v > 0.5 * scores[best] for k, v in scores.items() if k != best):
@@ -289,9 +303,15 @@ class StepPlayer:
                     self.notes.append(f"marked at the click ({self._at()})")    # stutter between was taken for its load
             if "pick" in step:
                 self._pick(i, step)
-        for chord in [c.strip() for c in str(step.get("press", "")).split(",") if c.strip()]:
+        chords = [c.strip() for c in str(step.get("press", "")).split(",") if c.strip()]
+        for chord in chords:
             self._press(chord, step.get("tap"))
             self.sleep(PAUSE_SECONDS)
+        if chords and step.get("mark") and "see" in step and "click" not in step:
+            # marked at its keys, as a click is (BL3 on Linux, Fedora 2026-11-20: marked where Start Benchmark was
+            # read, 3 s before its E, the app read 4.4% over the game's own)
+            self.mark_time = self.clock()
+            self.notes.append(f"marked at its keys ({self._at()})")
         if "hold" in step:
             self._hold(str(step["hold"]), float(step.get("seconds", 1.0)))
         if "wait" in step:

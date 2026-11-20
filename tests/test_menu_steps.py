@@ -1142,14 +1142,14 @@ def test_bl3_start_benchmark_misread_in_its_small_italic_font_is_still_found():
 
 def test_far_cry_6_on_linux_reaches_options_by_keys_and_enter_only_when_it_is_lit(tmp_path):
     """Fedora 2026-11-19: under Proton Far Cry 6 did not take the app's clicks; keys reached it. 2026-11-20: not its
-    arrows (12 Downs lit nothing): W/S."""
+    lit item has a white frame, not a bright box."""
     steps = [menu_steps_for(2369390)[1]]
     words = ["New Game", "Select Save Game", "Add-ons", "Store", "Options", "Quit to Desktop"]
     p, desk, clock = player(tmp_path, steps, [(0, words)])
     p.platform = "linux"
-    downs = lambda: sum(e[1] == parse_chord("s") for e in desk.events if e[0] == "down")
+    downs = lambda: sum(e[1] == parse_chord("down") for e in desk.events if e[0] == "down")
     # nothing lit until the first Down, which lights New Game; each Down then one lower
-    p.lit = lambda path, lines, menu, style="bar": (menu[downs() - 1] if downs() and style == "bright" else None)
+    p.lit = lambda path, lines, menu, style="bar": (menu[downs() - 1] if downs() and style == "frame" else None)
     p.run()
     assert p.problem is None and downs() == 5, p.problem
     assert not [e for e in desk.events if e[0] == "button"]          # no click
@@ -1174,6 +1174,7 @@ def test_borderlands_3_on_linux_goes_by_keys_and_selects_with_e(tmp_path):
     p.platform = "linux"
     p.run()
     assert p.problem is None and p.mark_time is not None, p.problem
+    assert any("marked at its keys" in n for n in p.notes)              # after its E, not where it was read
     assert not [e for e in desk.events if e[0] == "button"]          # no click
     keys = [e[1] for e in desk.events if e[0] == "down"]
     assert keys[:4] == [parse_chord(k) for k in ("down", "down", "e", "e")]       # Options, then Visuals
@@ -1196,6 +1197,28 @@ def test_lit_word_finds_a_bright_box(tmp_path):
     lines = boxed(["Gamepad", "Gameplay", "Mouse"])
     assert lit_word(path, lines, ["gamepad", "gameplay", "mouse"], style="bright") == "gameplay"
     assert lit_word(path, lines, ["gamepad", "gameplay", "mouse"]) is None          # not an orange bar
+
+
+def test_lit_word_finds_a_white_frame(tmp_path):
+    """Far Cry 6 on Fedora 2026-11-20: QUIT TO DESKTOP lit by a thick white frame, the other boxes thin and dim."""
+    from PySide6.QtGui import QColor, QImage
+    from app.frames.menu_steps import lit_word
+    image = QImage(400, 300, QImage.Format.Format_RGB32)
+    image.fill(QColor(30, 25, 20))
+    for y in range(90, 150):
+        for x in range(72, 79):
+            image.setPixelColor(x, y, QColor(240, 235, 225))        # the left side of the second item's frame
+    for y in range(20, 260):
+        image.setPixelColor(81, y, QColor(120, 115, 110))          # the thin dim frames of all of them
+    path = tmp_path / "screen.png"
+    image.save(str(path))
+    lines = boxed(["Gamepad", "Gameplay", "Mouse"])
+    for line in lines:                                              # words from x 100, as in its menu
+        line.words = tuple((w, x + 100, y, ww, hh) for w, x, y, ww, hh in line.words)
+    assert lit_word(path, lines, ["gamepad", "gameplay", "mouse"], style="frame") == "gameplay"
+    image.fill(QColor(30, 25, 20))
+    image.save(str(path))
+    assert lit_word(path, lines, ["gamepad", "gameplay", "mouse"], style="frame") is None
 
 
 def test_lit_word_places_an_unread_lit_item_on_the_menus_column(tmp_path):
