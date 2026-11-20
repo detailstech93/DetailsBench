@@ -8,8 +8,8 @@ unchanged through an environment that points into the prefix. Older prefixes use
 
 Read only: the prefix is looked up in every Steam library (~/.steam/steam, ~/.local/share/Steam and the
 libraries libraryfolders.vdf lists). A game that has never run has no prefix: its settings are then "not found;
-start the game once first", as on Windows. Settings kept in the registry (Rise of the Tomb Raider) live in the
-prefix's user.reg, which the app does not edit: not forced on Linux.
+start the game once first", as on Windows. Settings kept in the registry (the Tomb Raiders) live in the prefix's
+user.reg: read and written there (settings_file.WineReg) while the game's Wine is not running.
 """
 
 import os
@@ -100,7 +100,8 @@ def prefix_env(pfx: Path) -> dict:
             "LOCALAPPDATA": str(_first(user, os.path.join("AppData", "Local"),
                                        os.path.join("Local Settings", "Application Data"))),
             "PCBM_DOCUMENTS": str(_first(user, "Documents", "My Documents")),
-            "PCBM_SAVED_GAMES": str(user / "Saved Games")}
+            "PCBM_SAVED_GAMES": str(user / "Saved Games"),
+            "PCBM_WINE_USER_REG": str(pfx / "user.reg")}      # its HKEY_CURRENT_USER (settings_file.WineReg)
 
 
 def game_env(app_id, platform: str = sys.platform, base: Optional[Mapping[str, str]] = None,
@@ -122,5 +123,6 @@ def game_env(app_id, platform: str = sys.platform, base: Optional[Mapping[str, s
 
 
 def supported(adapter, platform: str = sys.platform) -> bool:
-    """Can this adapter's settings be forced on this system? (Linux: not the registry ones.)"""
-    return adapter is not None and not (platform.startswith("linux") and adapter.base == "registry")
+    """Can this adapter's settings be forced on this system? (Linux: the registry ones too, in the prefix's
+    user.reg since 2026-11-20.)"""
+    return adapter is not None

@@ -772,7 +772,7 @@ class FrameCapturePanel(QGroupBox):
                                               "Forcing settings is supported for: Cyberpunk 2077, Borderlands 3, Red Dead Redemption 2, The Witcher 3, Far Cry 6, Counter-Strike 2, DOOM (2016).")
 
     def can_force(self, app_id) -> bool:
-        """The game's settings can be forced here (Linux: through its Proton prefix; not the registry ones)."""
+        """The game's settings can be forced here (Linux: through its Proton prefix)."""
         from app.games.proton import supported
         from app.games.settings_file import adapter_for
         return supported(adapter_for(app_id), self.platform_name)

@@ -190,6 +190,93 @@ class WinReg:
             winreg.SetValueEx(k, name, 0, winreg.REG_DWORD, int(value))
 
 
+class WineReg:
+    """DWORD values of one key in a Proton prefix's user.reg (Linux: the Windows registry of that game's Wine).
+    Wine's text format: a [Key\\\\Path] line, then "Name"=dword:0000002a lines up to an empty line; key names
+    are matched without case. Written only while that prefix's wineserver is not running: it loads the file at
+    start and writes its own copy over it when it ends (Fedora 2026-11-20: SOTTR ran 1920x1080 High, nothing
+    forced). The new file goes under a temporary name, then replaces the old one."""
+
+    WAIT_SECONDS = 30.0
+
+    def __init__(self, path: Path, busy=None, sleep=time.sleep):
+        self.path, self.sleep = Path(path), sleep
+        self.busy = busy if busy is not None else lambda: _wineserver_running(self.path.parent)
+
+    @staticmethod
+    def _header(key: str) -> str:
+        return "[" + key.replace("\\", "\\\\").lower() + "]"
+
+    def _section(self, lines: List[str], key: str) -> Tuple[int, int]:
+        """(first value line, end) of the key's section; OSError when the key is not there."""
+        head = self._header(key)
+        for i, line in enumerate(lines):
+            if line.lower().startswith(head):
+                end = i + 1
+                while end < len(lines) and lines[end].strip():
+                    end += 1
+                return i + 1, end
+        raise OSError(f"{key} is not in {self.path}")
+
+    @staticmethod
+    def _name(line: str) -> Optional[str]:
+        if not line.startswith('"') or '"=' not in line:
+            return None
+        return line[1:line.index('"=')].replace('\\"', '"').replace("\\\\", "\\")
+
+    def _lines(self) -> List[str]:
+        return self.path.read_text(encoding="utf-8", errors="surrogateescape").split("\n")
+
+    def read(self, key: str) -> Dict[str, int]:
+        lines = self._lines()
+        a, b = self._section(lines, key)
+        out = {}
+        for line in lines[a:b]:
+            name = self._name(line)
+            value = line.split('"=', 1)[1] if name is not None else ""
+            if name is not None and value.startswith("dword:"):
+                out[name] = int(value[6:].strip(), 16)
+        return out
+
+    def set_dword(self, key: str, name: str, value: int) -> None:
+        waited = 0.0
+        while self.busy():
+            if waited >= self.WAIT_SECONDS:
+                raise OSError(f"the game's Wine is still running ({self.path.parent}); its registry is not written "
+                              "now, since Wine would write its own over it when it ends")
+            self.sleep(1.0)
+            waited += 1.0
+        lines = self._lines()
+        a, b = self._section(lines, key)
+        text = '"%s"=dword:%08x' % (name.replace("\\", "\\\\").replace('"', '\\"'), int(value) & 0xFFFFFFFF)
+        at = next((i for i in range(a, b) if self._name(lines[i]) is not None
+                   and self._name(lines[i]).lower() == name.lower()), None)
+        if at is None:
+            lines.insert(b, text)
+        else:
+            lines[at] = text
+        tmp = self.path.with_name(self.path.name + ".pcbm.tmp")
+        tmp.write_text("\n".join(lines), encoding="utf-8", errors="surrogateescape")
+        shutil.copymode(self.path, tmp)
+        os.replace(tmp, self.path)
+
+
+def _wineserver_running(pfx: Path) -> bool:
+    """A wineserver of this prefix is running (Proton sets WINEPREFIX to it)."""
+    try:
+        import psutil
+    except ImportError:
+        return False
+    want = os.path.realpath(str(pfx))
+    for proc in psutil.process_iter(["name"]):
+        try:
+            if proc.info["name"] == "wineserver" and                     os.path.realpath(proc.environ().get("WINEPREFIX", "")) == want:
+                return True
+        except (psutil.Error, OSError):
+            continue
+    return False
+
+
 class RegistryStore:
     backup_suffix = ".json"
 
@@ -271,6 +358,9 @@ class Adapter:
 
     def store(self, env: Optional[Mapping[str, str]] = None, reg=None):
         if self.base == "registry":
+            wine = (env or {}).get("PCBM_WINE_USER_REG")
+            if reg is None and wine:
+                reg = WineReg(Path(wine))       # Linux: the registry inside the game's Proton prefix
             return RegistryStore(self.relative_path, reg)
         if self.base == "launch":
             return FilesStore(self.module, os.environ if env is None else env)

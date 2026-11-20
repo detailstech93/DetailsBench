@@ -3,6 +3,8 @@
 import json
 import os
 
+import pytest
+
 from app.games import proton
 from app.games.settings_file import ForcedSettings, adapter_for, read_for_dialog
 from app.games.rise_tomb_raider import APP_ID as ROTTR
@@ -46,10 +48,56 @@ def test_game_env_points_into_the_prefix_of_any_library(tmp_path):
     assert old["PCBM_DOCUMENTS"].endswith("My Documents")
 
 
-def test_registry_games_are_not_forced_on_linux():
+def test_registry_games_are_forced_on_linux_too():
     assert proton.supported(adapter_for(APP), "linux") and proton.supported(adapter_for(APP), "win32")
-    assert not proton.supported(adapter_for(ROTTR), "linux") and proton.supported(adapter_for(ROTTR), "win32")
+    assert proton.supported(adapter_for(ROTTR), "linux") and proton.supported(adapter_for(ROTTR), "win32")
     assert not proton.supported(None, "win32")
+
+
+USER_REG = ('WINE REGISTRY Version 2\n;; All keys relative to \\\\User\\\\S-1-5-21-0-0-0-1000\n\n'
+            '[Software\\\\Eidos Montreal\\\\Shadow of the Tomb Raider\\\\Graphics] 1795117706\n'
+            '#time=1dc5a0b8f1e2c3a\n"Fullscreen"=dword:00000001\n"ImageWidth"=dword:00000780\n'
+            '"ImageHeight"=dword:00000438\n"Name"="text"\n\n'
+            '[Software\\\\Other] 1\n"ImageWidth"=dword:00000001\n')
+
+
+def test_wine_registry_is_read_and_written_like_windows(tmp_path):
+    from app.games.settings_file import RegistryStore, WineReg
+    from app.games.shadow_tomb_raider import REGISTRY_KEY
+    path = tmp_path / "user.reg"
+    path.write_text(USER_REG, encoding="utf-8")
+    reg = WineReg(path, busy=lambda: False)
+    assert reg.read(REGISTRY_KEY.upper()) == {"Fullscreen": 1, "ImageWidth": 1920, "ImageHeight": 1080}
+    reg.set_dword(REGISTRY_KEY, "imagewidth", 1280)                  # names without case, as Windows
+    reg.set_dword(REGISTRY_KEY, "Vsync", 0)                          # a new one goes at the end of its key
+    text = path.read_text(encoding="utf-8")
+    assert '"imagewidth"=dword:00000500' in text and '"ImageWidth"=dword:00000001' in text   # other key untouched
+    assert reg.read(REGISTRY_KEY)["Vsync"] == 0 and text.count("Vsync") == 1
+    assert text.split("\n")[:4] == USER_REG.split("\n")[:4] and not list(tmp_path.glob("*.tmp"))
+    with pytest.raises(OSError):
+        reg.read("Software\\Nobody")                                # never started: as on Windows
+    assert RegistryStore(REGISTRY_KEY, reg).exists()
+
+
+def test_wine_registry_is_not_written_while_the_game_wine_runs(tmp_path):
+    from app.games.settings_file import WineReg
+    from app.games.shadow_tomb_raider import REGISTRY_KEY
+    path = tmp_path / "user.reg"
+    path.write_text(USER_REG, encoding="utf-8")
+    slept = []
+    WineReg(path, busy=lambda: len(slept) < 3, sleep=slept.append).set_dword(REGISTRY_KEY, "Fullscreen", 0)
+    assert len(slept) == 3 and WineReg(path, busy=lambda: False).read(REGISTRY_KEY)["Fullscreen"] == 0
+    with pytest.raises(OSError):
+        WineReg(path, busy=lambda: True, sleep=lambda s: None).set_dword(REGISTRY_KEY, "Fullscreen", 1)
+    assert WineReg(path, busy=lambda: False).read(REGISTRY_KEY)["Fullscreen"] == 0
+
+
+def test_the_prefix_registry_is_the_store_on_linux(tmp_path):
+    from app.games.settings_file import WineReg
+    from app.games.shadow_tomb_raider import APP_ID as SOTTR
+    pfx = tmp_path / "pfx"
+    store = adapter_for(SOTTR).store(proton.prefix_env(pfx))
+    assert isinstance(store.reg, WineReg) and store.reg.path == pfx / "user.reg"
 
 
 def test_forced_settings_in_the_prefix_are_written_and_put_back(tmp_path):
@@ -63,7 +111,7 @@ def test_forced_settings_in_the_prefix_are_written_and_put_back(tmp_path):
     assert fs.finish().restored and settings.read_bytes() == original
 
 
-def test_linux_panel_forces_settings_except_registry_games(tmp_path, monkeypatch):
+def test_linux_panel_forces_settings_registry_games_too(tmp_path, monkeypatch):
     from PySide6.QtWidgets import QApplication
     import sys
     QApplication.instance() or QApplication(sys.argv)
@@ -73,9 +121,8 @@ def test_linux_panel_forces_settings_except_registry_games(tmp_path, monkeypatch
     p = make_panel(tmp_path, platform_name="linux")
     save_setting(p.data_dir, SAVED_KEY, {APP: {"ray_tracing": False}, str(ROTTR): {"ray_tracing": False}})
     save_setting(p.data_dir, DECLARED_KEY, {str(ROTTR): {"ray_tracing": True}})
-    assert p.can_force(APP) and not p.can_force(ROTTR)
-    assert p.forced_settings_for(APP) == {"ray_tracing": False} and p.forced_settings_for(ROTTR) == {}
-    assert p.declared_settings_for(ROTTR) == {"ray_tracing": True} and p.declared_settings_for(APP) == {}
+    assert p.can_force(APP) and p.can_force(ROTTR)                    # its registry is in the prefix
+    assert p.forced_settings_for(ROTTR) == {"ray_tracing": False} and p.declared_settings_for(ROTTR) == {}
     from types import SimpleNamespace
     spec = SimpleNamespace(game_name="Cyberpunk 2077", app_id=APP, launch_args=[], settle_seconds=5, seconds=60,
                            warmup_runs=0, repetitions=3, wait_seconds=lambda: 200.0, steps=[], start_keys=[])

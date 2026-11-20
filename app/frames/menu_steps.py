@@ -18,7 +18,8 @@ the step expects was read on the screen (app/frames/screen_text.py), and only in
         item than last time (SOTTR, 2026-11-11: Down Down from a lit Options reached Quit Game) is still
         reached; when no lit item can be told, nothing is pressed and the run stops
         "lit": "bright" tells the lit item by a bright box instead (Far Cry 6); "wake": "down" presses that key
-        while no item is lit yet (a menu lit only once a key is pressed), never Enter
+        while no item is lit yet (a menu lit only once a key is pressed), never Enter; "arrows": {"down": "s",
+        "up": "w"} moves with other keys than the arrows (Far Cry 6 on Linux)
     {"see": "options", "within": 30, "click": "options", "linux": {"click": None, "pick": "options", ...}}
         "linux": this step's keys on Linux (None takes one out): a game under Proton may not take clicks
     {"press": "up, up, left, left, down, enter"}      chords one after another (PAUSE_SECONDS apart)
@@ -431,6 +432,7 @@ class StepPlayer:
         moves = misses = 0
         style = {"style": step["lit"]} if "lit" in step else {}
         wake = str(step.get("wake", ""))        # a menu with no lit item until a key is pressed (Far Cry 6)
+        keys = {"down": "down", "up": "up", **(step.get("arrows") or {})}
         while True:
             if self.stop.is_set():
                 raise _Stop("stopped")
@@ -456,7 +458,7 @@ class StepPlayer:
             if moves >= 2 * len(menu):
                 raise _Stop(f"step {i}: {target!r} did not light up after {moves} arrow keys ({lit!r} lit); "
                             "Enter not pressed")
-            self._press("down" if menu.index(lit) < menu.index(target) else "up", step.get("tap"))
+            self._press(keys["down"] if menu.index(lit) < menu.index(target) else keys["up"], step.get("tap"))
             moves += 1
             self.sleep(PAUSE_SECONDS)
 

@@ -1141,12 +1141,13 @@ def test_bl3_start_benchmark_misread_in_its_small_italic_font_is_still_found():
 
 
 def test_far_cry_6_on_linux_reaches_options_by_keys_and_enter_only_when_it_is_lit(tmp_path):
-    """Fedora 2026-11-19: under Proton Far Cry 6 did not take the app's clicks; keys reached it."""
+    """Fedora 2026-11-19: under Proton Far Cry 6 did not take the app's clicks; keys reached it. 2026-11-20: not its
+    arrows (12 Downs lit nothing): W/S."""
     steps = [menu_steps_for(2369390)[1]]
     words = ["New Game", "Select Save Game", "Add-ons", "Store", "Options", "Quit to Desktop"]
     p, desk, clock = player(tmp_path, steps, [(0, words)])
     p.platform = "linux"
-    downs = lambda: sum(e[1] == parse_chord("down") for e in desk.events if e[0] == "down")
+    downs = lambda: sum(e[1] == parse_chord("s") for e in desk.events if e[0] == "down")
     # nothing lit until the first Down, which lights New Game; each Down then one lower
     p.lit = lambda path, lines, menu, style="bar": (menu[downs() - 1] if downs() and style == "bright" else None)
     p.run()
@@ -1162,6 +1163,24 @@ def test_far_cry_6_on_linux_reaches_options_by_keys_and_enter_only_when_it_is_li
     p.lit = lambda *a, **k: None
     p.run()                                                              # Windows: the click as before
     assert p.problem is None and [e for e in desk.events if e[0] == "button"]
+
+
+def test_borderlands_3_on_linux_goes_by_keys_and_selects_with_e(tmp_path):
+    """Fedora 2026-11-20: under Proton BL3 took no click on Options and no Enter (PLAY stayed lit)."""
+    steps = menu_steps_for(397540)[:4]
+    timeline = [(0, ["PLAY", "SOCIAL", "OPTIONS", "STORE", "QUIT GAME"]), (10, ["VISUALS", "SOUND", "CONTROLS"]),
+                (20, ["BASIC", "General"]), (30, ["BENCHMARK", "Report Type", "Start Benchmark"]), (40, [])]
+    p, desk, clock = player(tmp_path, steps, timeline)
+    p.platform = "linux"
+    p.run()
+    assert p.problem is None and p.mark_time is not None, p.problem
+    assert not [e for e in desk.events if e[0] == "button"]          # no click
+    keys = [e[1] for e in desk.events if e[0] == "down"]
+    assert keys[:4] == [parse_chord(k) for k in ("down", "down", "e", "e")]       # Options, then Visuals
+    assert keys[-2:] == [parse_chord("down"), parse_chord("e")] and parse_chord("enter") not in keys
+    p, desk, clock = player(tmp_path, steps, timeline)
+    p.run()                                                              # Windows: its clicks as before
+    assert p.problem is None and len([e for e in desk.events if e[0] == "button"]) >= 3
 
 
 def test_lit_word_finds_a_bright_box(tmp_path):

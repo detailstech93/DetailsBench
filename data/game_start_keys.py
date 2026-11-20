@@ -111,7 +111,9 @@ GAME_MENU_STEPS: Dict[int, dict] = {
              # Linux (2026-11-19): under Proton the game did not take clicks (its cursor stayed in the middle),
              # keys did: arrow keys to Options, Enter only once its box is the lit one. Video stays a click until
              # its page has been seen on Linux
-             "linux": {"click": None, "pick": "options", "lit": "bright", "wake": "down",
+             # Fedora 2026-11-20: Esc closed its Ubisoft Connect popup but 12 Down arrows lit nothing (SOTTR took
+             # arrows under Proton): its W/S, plain keys like Esc, instead
+             "linux": {"click": None, "pick": "options", "lit": "bright", "wake": "s", "arrows": {"down": "s", "up": "w"},
                        "menu": ["new game", "select save game", "add-ons", "store", "options", "quit to desktop"]}},
             {"see": "video", "within": 30, "settle": 1, "click": "video", "wait": 3},
             # the Video page has the Video Adapter setting; E moves one tab to the right
@@ -137,23 +139,31 @@ GAME_MENU_STEPS: Dict[int, dict] = {
         # X there is Reset to Default: never pressed.
         "steps": [
             {"see": "options", "within": 300, "dismiss": {"press any": "enter"}, "settle": 2, "click": "options",
-             "wait": 3},
+             "wait": 3,
+             # Linux (Fedora 2026-11-20): under Proton it took no click (PLAY stayed lit) and no Enter; its own key
+             # bar says E selects. Its main menu opens on PLAY: Down Down is OPTIONS
+             "linux": {"click": None, "press": "down, down, e", "tap": 0.15}},
             {"see": "visuals", "within": 30, "again": {"press": "enter", "every": 5, "while": "options"},
-             "settle": 1, "click": "visuals", "wait": 3},
+             "settle": 1, "click": "visuals", "wait": 3,
+             "linux": {"again": None, "click": None, "press": "e"}},     # its Options page opens on VISUALS
             # the Visuals page opens on its first tab (Basic): C moves one tab right until the Benchmark tab shows
             # marked at its Start click: measuring starts where the load after it ends (its "fps" overlay was read
             # 44 s to 2 min late, 2026-10-30)
             {"see": "start benchmark", "within": 40, "again": {"press": "c", "every": 4}, "tap": 0.15, "settle": 1,
-             "click": "start", "mark": True},
+             "click": "start", "mark": True,
+             # its Benchmark tab opens on Report Type: Down is Start Benchmark (marked where it is seen, ~1.5 s early)
+             "linux": {"click": None, "press": "down, e"}},
             {"gone": "start benchmark", "within": 60, "dismiss": {"are you sure": "enter"},
-             "again": {"press": "enter", "every": 10, "while": "start benchmark"}},
+             "again": {"press": "enter", "every": 10, "while": "start benchmark"},
+             "linux": {"dismiss": {"are you sure": "e"}, "again": {"press": "e", "every": 10, "while": "start benchmark"}}},
             # it goes back to its main menu; its Benchmark tab then shows the last run's result (owner, 2026-10-30).
             # The screen is not read while it runs (about 110 s): reading it costs frames while it is measured
             {"wait": 115},
             {"see": "options", "within": 180, "dismiss": {"press any": "enter"}, "settle": 2, "click": "options",
-             "wait": 3},
+             "wait": 3, "linux": {"click": None, "press": "down, down, e", "tap": 0.15}},
             {"see": "visuals", "within": 30, "again": {"press": "enter", "every": 5, "while": "options"},
-             "settle": 1, "click": "visuals", "wait": 3},
+             "settle": 1, "click": "visuals", "wait": 3,
+             "linux": {"again": None, "click": None, "press": "e"}},     # its Options page opens on VISUALS
             {"see": "start benchmark", "within": 40, "again": {"press": "c", "every": 4}, "tap": 0.15, "settle": 2,
              "shot": "benchmark_result"},       # the name the report shows (app/report.py PROOF_SHOTS)
         ],
