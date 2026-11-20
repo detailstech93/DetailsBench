@@ -30,8 +30,12 @@ GAME_MENU_STEPS: Dict[int, dict] = {
             # the mouse highlights Graphics; if the click did not open it, Enter (Select) does
             # holding X 1.5 s started it once and not the next time (2026-10-19): hold longer, and again while the
             # Graphics page (its "Run Benchmark Test") is still there
-            {"see": "benchmark", "within": 30, "again": {"press": "enter", "every": 4}, "hold": "x", "seconds": 2.5,
-             "wait": 1},
+            # only while the Settings list (its GRAPHICS item) shows: Fedora 2026-11-20 the click was not taken, CONTROLS
+            # was the lit item and six Enters went down to its key mapping (the game refused the remap). Linux: the click
+            # again instead of Enter (under Proton the mouse may not light the item, so Enter opens the lit one)
+            {"see": "benchmark", "within": 30, "again": {"press": "enter", "every": 4, "while": "graphics"},
+             "hold": "x", "seconds": 2.5, "wait": 1,
+             "linux": {"again": {"click": "graphics", "every": 4, "while": "graphics"}}},
             {"press": "enter"},
             # "Stop Benchmarking" in the corner: it runs. Loading took over 3 min on the first try here
             # Linux: Fedora 2026-11-20, its first load under Proton sat over 4 min on the loading screen at 3.5 FPS
@@ -106,7 +110,11 @@ GAME_MENU_STEPS: Dict[int, dict] = {
              "press": "space, space", "tap": 0.15, "wait": 2},
             {"see": "options", "within": 300,
              "dismiss": {"government": "space, space", "original": "space, space", "starring": "space, space",
-                         "later": "esc"},
+                         "later": "esc",
+                         # Fedora 2026-11-20: Ubisoft Connect's overlay opened by itself on its Challenges &
+                         # Achievements page after the intro and stayed; Esc closes it (Shift+F2 would too, but that
+                         # is MangoHud's stop-log key)
+                         "challenges": "esc"},
              "tap": 0.15, "settle": 2, "click": "options", "wait": 3,
              # Linux (2026-11-19): under Proton the game did not take clicks (its cursor stayed in the middle),
              # keys did: arrow keys to Options, Enter only once its box is the lit one. Video stays a click until
