@@ -1159,6 +1159,7 @@ def test_far_cry_6_on_linux_reaches_options_by_keys_and_enter_only_when_it_is_li
     p.lit = lambda path, lines, menu, style="bar": None                # never lit: arrows only, no Enter
     p.run()
     assert "Enter not pressed" in p.problem and parse_chord("enter") not in [e[1] for e in desk.events]
+    assert "step_1_not_lit.png" in p.problem                         # the screen it could not tell, kept
     p, desk, clock = player(tmp_path, steps, [(0, words)])
     p.lit = lambda *a, **k: None
     p.run()                                                              # Windows: the click as before

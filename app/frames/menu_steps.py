@@ -466,8 +466,10 @@ class StepPlayer:
                 continue
             if lit is None:
                 misses += 1
-                if misses >= PICK_READS:
-                    raise _Stop(f"step {i}: the lit item of the menu could not be told; Enter not pressed")
+                if misses >= PICK_READS:      # its screen kept: the quit steps after it write screen.png again
+                    shot = self._keep_shot(f"step_{i}_not_lit.png")
+                    raise _Stop(f"step {i}: the lit item of the menu could not be told; Enter not pressed"
+                                + (f" (screenshot {shot})" if shot else ""))
                 self.sleep(LOOK_EVERY_SECONDS)
                 continue
             misses = 0
