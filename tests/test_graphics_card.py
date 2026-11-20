@@ -70,3 +70,28 @@ def test_a_remembered_number_that_draws_on_the_cpu_leaves_the_files_own_number_t
     assert card.next_number() == "1"
     card.set("1")
     assert card.next_number() == "2" and card.restore() == "" and path.read_text(encoding="utf-8") == XML
+
+
+def test_a_number_that_drew_on_the_card_is_kept_even_when_the_menus_failed_after(tmp_path, monkeypatch):
+    """Fedora 2026-11-20: number 0 drew on the Radeon, the menus then failed, and the next RDR2 started on 1 again."""
+    env, path = settings(tmp_path)
+    s = GameBenchmarkSpec(game_name="Red Dead Redemption 2", app_id=str(APP_ID), install_path=str(tmp_path / "g"),
+                          discovered_appids=[str(APP_ID)], presentmon_path="/usr/bin/mangohud", warmup_runs=0,
+                          repetitions=1, benchmark_seconds=60, steps=[{"see": "stop", "within": 60, "mark": True}])
+    bench = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=True, sleep=lambda x: None)
+    monkeypatch.setattr(bench, "_card_choice", lambda: CardChoice(APP_ID, "video/adapterIndex", *_store(env), tmp_path
+                                                                     / "run", tmp_path / "data"))
+    seen = []
+
+    def one(pass_index=None):
+        seen.append(path.read_text(encoding="utf-8").split('adapterIndex value="')[1][0])
+        if seen[-1] == "1":
+            bench.drawing_device = "llvmpipe (LLVM 23.1.5)"
+            return GameCapture("failed", "the game drew on the CPU (llvmpipe)", on_cpu=True)
+        bench.drawing_device = "AMD Radeon Graphics (RADV RENOIR)"
+        return GameCapture("failed", "step 3: 'benchmark' did not appear")
+    monkeypatch.setattr(bench, "_run_mangohud", one)
+    bench.run()
+    seen.clear()
+    bench.run()
+    assert seen == ["0"]

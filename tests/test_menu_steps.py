@@ -1179,6 +1179,44 @@ def test_far_cry_6_on_linux_presses_esc_once_for_a_popup_that_closes_slowly(tmp_
     assert [e[1] for e in desk.events if e[0] == "down"].count(parse_chord("esc")) == 1
 
 
+def test_far_cry_6_cancels_its_quit_box_over_the_menu_before_going_on(tmp_path):
+    """Fedora 2026-11-20: Ubisoft's popup showed 17 s after its Esc, the second Esc opened QUIT TO DESKTOP? over the
+    menu (its OPTIONS still read) and the app looked for the lit item under the box."""
+    steps = [menu_steps_for(2369390)[1]]
+    words = ["New Game", "Select Save Game", "Add-ons", "Store", "Options", "Quit to Desktop"]
+    p, desk, clock = player(tmp_path, steps, [(0, ["UBISOFT CONNECT", "Later"]),
+                                               (17, words + ["QUIT TO DESKTOP?", "OK", "Cancel"]), (33, words)])
+    p.platform = "linux"
+    p.lit = lambda path, lines, menu, style="bar": "options"
+    p.run()
+    assert p.problem is None, p.problem
+    keys = [e[1] for e in desk.events if e[0] == "down"]
+    assert keys.count(parse_chord("esc")) == 3 and parse_chord("space") not in keys
+    assert "closed a popup ('quit to desktop?')" in p.summary()
+
+
+def test_rdr2_on_linux_goes_to_graphics_by_its_grid_and_never_enters_another_tile(tmp_path):
+    """Fedora 2026-11-20: five clicks on Graphics were not taken and Enter opened CONTROLS (its key mapping)."""
+    steps = menu_steps_for(1174180)[1:3]
+    tiles = ["SETTINGS", "Controls", "Display", "Audio", "Graphics", "Camera", "General"]
+    p, desk, clock = player(tmp_path, steps, [(0, tiles), (12, ["GRAPHICS", "Run Benchmark Test"])])
+    p.platform = "linux"
+    grid = ["controls", "display", "audio", "graphics", "camera", "general"]
+    at = {"i": 1}                                                    # Display lit first
+
+    def lit(path, lines, menu, style="bar"):
+        assert style == "redframe" and menu == grid
+        keys = [e[1] for e in desk.events if e[0] == "down"]
+        i = at["i"] + 3 * keys.count(parse_chord("down")) - keys.count(parse_chord("left"))
+        return grid[i]
+    p.lit = lit
+    p.run()
+    assert p.problem is None, p.problem
+    keys = [e[1] for e in desk.events if e[0] == "down"]
+    assert keys[:3] == [parse_chord("down"), parse_chord("left"), parse_chord("enter")]
+    assert not [e for e in desk.events if e[0] == "button"]
+
+
 def test_borderlands_3_on_linux_goes_by_keys_and_selects_with_e(tmp_path):
     """Fedora 2026-11-20: under Proton BL3 took no click on Options and no Enter (PLAY stayed lit)."""
     steps = menu_steps_for(397540)[:4]
@@ -1282,6 +1320,7 @@ def test_rdr2_waits_longer_for_its_first_load_on_linux(tmp_path):
                 (20, ["Resolution", "Run Benchmark Test"]), (30, []), (700, ["Stop Benchmarking"])]
     p, desk, clock = player(tmp_path, steps, timeline)
     p.platform = "linux"
+    p.lit = lambda *a, **k: "graphics"                       # Linux picks its Graphics tile by keys
     p.run()
     assert p.problem is None and 700 <= p.mark_time < 705
     p, desk, clock = player(tmp_path, steps, timeline)

@@ -26,16 +26,19 @@ GAME_MENU_STEPS: Dict[int, dict] = {
             {"see": "settings", "within": 300, "dismiss": {"strange": "enter"}, "settle": 3, "press": "z", "wait": 3},
             # the settings menu starts on the item used last (Display, Camera, ...): click Graphics where it is read
             {"see": "graphics", "within": 30, "again": {"press": "z", "every": 5}, "settle": 1, "click": "graphics",
-             "stay": 1, "wait": 3},
+             "stay": 1, "wait": 3,
+             # Linux (Fedora 2026-11-20): five clicks on Graphics were not taken (it worked earlier that night):
+             # arrow keys over its 3 x 2 tiles, Enter only once Graphics has the red frame
+             "linux": {"click": None, "stay": None, "pick": "graphics", "lit": "redframe", "columns": 3,
+                       "menu": ["controls", "display", "audio", "graphics", "camera", "general"]}},
             # the mouse highlights Graphics; if the click did not open it, Enter (Select) does
             # holding X 1.5 s started it once and not the next time (2026-10-19): hold longer, and again while the
             # Graphics page (its "Run Benchmark Test") is still there
             # only while the Settings list (its GRAPHICS item) shows: Fedora 2026-11-20 the click was not taken, CONTROLS
-            # was the lit item and six Enters went down to its key mapping (the game refused the remap). Linux: the click
-            # again instead of Enter (under Proton the mouse may not light the item, so Enter opens the lit one)
+            # was the lit item and six Enters went down to its key mapping (the game refused the remap)
             {"see": "benchmark", "within": 30, "again": {"press": "enter", "every": 4, "while": "graphics"},
              "hold": "x", "seconds": 2.5, "wait": 1,
-             "linux": {"again": {"click": "graphics", "every": 4, "while": "graphics"}}},
+             "linux": {"again": None}},       # Linux: Graphics was entered by its Enter in the step before
             {"press": "enter"},
             # "Stop Benchmarking" in the corner: it runs. Loading took over 3 min on the first try here
             # Linux: Fedora 2026-11-20, its first load under Proton sat over 4 min on the loading screen at 3.5 FPS
@@ -114,7 +117,10 @@ GAME_MENU_STEPS: Dict[int, dict] = {
                          # Fedora 2026-11-20: Ubisoft Connect's overlay opened by itself on its Challenges &
                          # Achievements page after the intro and stayed; Esc closes it (Shift+F2 would too, but that
                          # is MangoHud's stop-log key)
-                         "challenges": "esc"},
+                         "challenges": "esc",
+                         # its quit box (Fedora 2026-11-20: a second Esc for Ubisoft's slow popup opened it): Esc is
+                         # its Cancel, Space its OK
+                         "quit to desktop?": "esc"},
              "tap": 0.15, "settle": 2, "click": "options", "wait": 3,
              # Linux (2026-11-19): under Proton the game did not take clicks (its cursor stayed in the middle),
              # keys did: arrow keys to Options, Enter only once its box is the lit one. Video stays a click until

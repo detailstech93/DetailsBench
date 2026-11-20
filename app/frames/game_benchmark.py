@@ -1318,8 +1318,11 @@ class GameBenchmark:
                 notes.append(f"run {k}: {last.message}; graphics card number {number} written, run again")
                 self.sleep(PASS_GAP_SECONDS)
                 last = self._run_mangohud(pass_index=k)
-                if not last.on_cpu and last.status == "recorded":
-                    card.remember(number)       # this PC's: the next runs start with it
+                # this PC's: the next runs start with it. Once MangoHud named the graphics card, even when the menus
+                # failed after (Fedora 2026-11-20: the next RDR2 started on the CPU's number again)
+                seen = getattr(self, "drawing_device", None)
+                if not last.on_cpu and (last.status == "recorded" or (seen and not software_renderer(seen))):
+                    card.remember(number)
             notes.append(f"run {k}: " + "; ".join(x for x in [rewritten, last.message] if x))
             settings = guard.check() if guard is not None else None
             for w in last.windows:
@@ -1424,14 +1427,14 @@ class GameBenchmark:
         steps = None                    # menu step player, started when the game is in front (as on Windows)
         t_mark = None                   # clock() when the steps saw the benchmark start
         menus_missed = False
-        device = None                   # what the game draws on, from MangoHud's first line
+        device = self.drawing_device = None     # what the game draws on, from MangoHud's first line
         try:
             while True:
                 if self.stop_event.is_set():
                     stopped = True
                     break
                 if device is None:
-                    device = mh.drawing_device(shared_logs, since - 2)
+                    device = self.drawing_device = mh.drawing_device(shared_logs, since - 2)
                     if software_renderer(device):
                         break           # Fedora 2026-11-20: RDR2 on llvmpipe filled RAM and swap for 20 min
                 if mh.logging_done(shared_logs, since - 2):

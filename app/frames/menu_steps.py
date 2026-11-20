@@ -19,7 +19,8 @@ the step expects was read on the screen (app/frames/screen_text.py), and only in
         reached; when no lit item can be told, nothing is pressed and the run stops
         "lit": "bright" tells the lit item by a bright box instead (Far Cry 6); "wake": "down" presses that key
         while no item is lit yet (a menu lit only once a key is pressed), never Enter; "arrows": {"down": "s",
-        "up": "w"} moves with other keys than the arrows (Far Cry 6 on Linux)
+        "up": "w"} moves with other keys than the arrows (Far Cry 6 on Linux); "columns": 3 for a grid of tiles
+        (the menu listed row by row): Down/Up to its row, then Right/Left
     {"see": "options", "within": 30, "click": "options", "linux": {"click": None, "pick": "options", ...}}
         "linux": this step's keys on Linux (None takes one out): a game under Proton may not take clicks
     {"press": "up, up, left, left, down, enter"}      chords one after another (PAUSE_SECONDS apart)
@@ -162,7 +163,8 @@ def lit_word(image_path, lines, menu, style: str = "bar") -> Optional[str]:
     """The item of `menu` with an orange-red bar behind it (SOTTR's lit item), or None when none clearly is.
     style "bright": the item whose box is filled bright (dark letters on it). style "frame": the item with a
     thick white frame (Far Cry 6's main menu, Fedora 2026-11-20: QUIT TO DESKTOP's left side 0.52 bright, the
-    others 0.00-0.01).
+    others 0.00-0.01). style "redframe": a red frame round its tile (RDR2's Settings, Fedora 2026-11-20: the lit
+    Controls 0.38 red left of its word, the others 0.00).
     An item is found by its first word (OCR may misread the rest)."""
     from PySide6.QtGui import QImage
     image = QImage(str(image_path))
@@ -172,11 +174,14 @@ def lit_word(image_path, lines, menu, style: str = "bar") -> Optional[str]:
     for item, box in _menu_boxes(lines, menu).items():
         x, y, w, h = box
         hits = total = 0
-        if style == "frame":            # the strip left of its words, where the frame's left side is
-            for px in range(max(0, x - 30), max(0, x - 14)):
+        if style in ("frame", "redframe"):      # the strip left of its words, where the frame's left side is
+            near, far = (14, 30) if style == "frame" else (8, 16)
+            for px in range(max(0, x - far), max(0, x - near)):
                 for py in range(max(0, y - 20), min(image.height(), y + h + 20)):
+                    c = image.pixelColor(px, py)
                     total += 1
-                    hits += image.pixelColor(px, py).lightness() > 200
+                    hits += (c.lightness() > 200 if style == "frame" else
+                             c.red() > 120 and c.red() > 1.6 * c.green() and c.red() > 1.8 * c.blue())
             scores[item] = hits / total if total else 0.0
             continue
         for px in range(max(0, x - 10), min(image.width(), x + w + 10), 3):
@@ -188,7 +193,7 @@ def lit_word(image_path, lines, menu, style: str = "bar") -> Optional[str]:
                 else:
                     hits += c.red() > 120 and c.red() > 1.6 * c.green() and c.red() > 1.8 * c.blue()
         scores[item] = hits / total if total else 0.0
-    if style == "frame":
+    if style in ("frame", "redframe"):
         best = max(scores, key=scores.get, default=None)
         if best is None or scores[best] < 0.2 or any(v > 0.5 * scores[best] for k, v in scores.items() if k != best):
             return None
@@ -342,7 +347,9 @@ class StepPlayer:
                 if gone and not found and not popup:
                     self.notes.append(f"{words!r} gone at {self._at()}")
                     return str(words)
-                if found and not gone:
+                # a popup first, even over the wanted word: FC6's QUIT TO DESKTOP? box sits over its menu
+                # (Fedora 2026-11-20) and the menu cannot be used under it
+                if found and not gone and not popup:
                     self.notes.append(f"saw {found!r} at {self._at()}")
                     return found
                 if popup:
@@ -482,7 +489,12 @@ class StepPlayer:
             if moves >= 2 * len(menu):
                 raise _Stop(f"step {i}: {target!r} did not light up after {moves} arrow keys ({lit!r} lit); "
                             "Enter not pressed")
-            self._press(keys["down"] if menu.index(lit) < menu.index(target) else keys["up"], step.get("tap"))
+            here, there, cols = menu.index(lit), menu.index(target), int(step.get("columns", 1))
+            if here // cols != there // cols:       # a grid of tiles (RDR2's Settings): the row first
+                key = keys["down"] if here < there else keys["up"]
+            else:
+                key = "right" if here % cols < there % cols else "left"
+            self._press(key, step.get("tap"))
             moves += 1
             self.sleep(PAUSE_SECONDS)
 
