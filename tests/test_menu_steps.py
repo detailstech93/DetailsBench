@@ -1147,8 +1147,8 @@ def test_far_cry_6_on_linux_reaches_options_by_keys_and_enter_only_when_it_is_li
     words = ["New Game", "Select Save Game", "Add-ons", "Store", "Options", "Quit to Desktop"]
     p, desk, clock = player(tmp_path, steps, [(0, words)])
     p.platform = "linux"
-    downs = lambda: sum(e[1] == parse_chord("down") for e in desk.events if e[0] == "down")
-    # nothing lit until the first Down, which lights New Game; each Down then one lower
+    downs = lambda: sum(e[1] == parse_chord("s") for e in desk.events if e[0] == "down")
+    # nothing lit until the first S (owner 2026-11-20: W/S move its menu), which lights New Game; each S one lower
     p.lit = lambda path, lines, menu, style="bar": (menu[downs() - 1] if downs() and style == "frame" else None)
     p.run()
     assert p.problem is None and downs() == 5, p.problem
