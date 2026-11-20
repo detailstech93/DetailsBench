@@ -1166,6 +1166,19 @@ def test_far_cry_6_on_linux_reaches_options_by_keys_and_enter_only_when_it_is_li
     assert p.problem is None and [e for e in desk.events if e[0] == "button"]
 
 
+def test_far_cry_6_on_linux_presses_esc_once_for_a_popup_that_closes_slowly(tmp_path):
+    """Fedora 2026-11-20: Ubisoft Connect's popup still showed 5 s after its Esc; a second Esc opened QUIT TO
+    DESKTOP? over the menu and no Down lit anything."""
+    steps = [menu_steps_for(2369390)[1]]
+    words = ["New Game", "Select Save Game", "Add-ons", "Store", "Options", "Quit to Desktop"]
+    p, desk, clock = player(tmp_path, steps, [(0, ["UBISOFT CONNECT", "Later"]), (8, words)])
+    p.platform = "linux"
+    p.lit = lambda path, lines, menu, style="bar": "options"
+    p.run()
+    assert p.problem is None, p.problem
+    assert [e[1] for e in desk.events if e[0] == "down"].count(parse_chord("esc")) == 1
+
+
 def test_borderlands_3_on_linux_goes_by_keys_and_selects_with_e(tmp_path):
     """Fedora 2026-11-20: under Proton BL3 took no click on Options and no Enter (PLAY stayed lit)."""
     steps = menu_steps_for(397540)[:4]

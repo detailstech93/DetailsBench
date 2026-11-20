@@ -113,7 +113,7 @@ GAME_MENU_STEPS: Dict[int, dict] = {
              # its page has been seen on Linux
              # Fedora 2026-11-20: its lit item has a thick white frame (QUIT TO DESKTOP under its mouse), not a
              # bright box: neither 12 Downs nor 12 S were seen to light anything
-             "linux": {"click": None, "pick": "options", "lit": "frame", "wake": "down",
+             "linux": {"click": None, "pick": "options", "lit": "frame", "wake": "down", "dismiss_wait": 15,
                        "menu": ["new game", "select save game", "add-ons", "store", "options", "quit to desktop"]}},
             {"see": "video", "within": 30, "settle": 1, "click": "video", "wait": 3},
             # the Video page has the Video Adapter setting; E moves one tab to the right

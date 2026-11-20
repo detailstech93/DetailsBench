@@ -351,7 +351,9 @@ class StepPlayer:
                             self.sleep(PAUSE_SECONDS)
                         self._press(chord, step.get("tap"))
                     self.notes.append(f"closed a popup ({popup!r})")
-                    self.sleep(DISMISS_PAUSE_SECONDS)   # one key per popup: a second Enter would hit the menu
+                    # one key per popup: a second Enter would hit the menu. Fedora 2026-11-20: Ubisoft Connect's
+                    # popup still showed 5 s after its Esc under Proton; a second Esc opened QUIT TO DESKTOP?
+                    self.sleep(float(step.get("dismiss_wait", DISMISS_PAUSE_SECONDS)))
                 elif again and self.clock() >= next_again and (not again.get("while")
                                                                or find_word(lines, again["while"])):
                     if again.get("hold"):
