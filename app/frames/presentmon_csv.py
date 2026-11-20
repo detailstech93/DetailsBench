@@ -32,6 +32,7 @@ class CaptureParse:
     rows_skipped: int = 0
     dropped: int = 0
     error: Optional[str] = None
+    gpu: Optional[str] = None           # the device it drew on, when the log names it (MangoHud's system line)
 
 
 def _remove_bom(text: str) -> str:

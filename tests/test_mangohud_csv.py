@@ -54,3 +54,13 @@ def test_an_impossible_frame_time_takes_the_time_that_really_passed():
     text = HEAD + _row(16.0, 1.0) + _row(1.8975e7, 1.056) + _row(16.0, 1.072) + _row(1352.78, 2.425)
     parsed = parse_mangohud_log(text)
     assert [round(f) for f in parsed.frametimes_ms] == [16, 56, 16, 1353]
+
+
+def test_the_device_it_drew_on_is_read_and_a_cpu_renderer_is_told():
+    """Fedora 2026-11-20: RDR2 drew on llvmpipe (Mesa's CPU renderer) at 0.1 FPS."""
+    from app.frames.game_benchmark import software_renderer
+    assert parse_mangohud_log(HEAD + _row(10.0, 0.01)).gpu == "AMD Radeon RX 7900 XTX"
+    cpu = HEAD.replace("AMD Radeon RX 7900 XTX", "llvmpipe (LLVM 23.1.5  256 bits)")
+    assert software_renderer(parse_mangohud_log(cpu + _row(10.0, 0.01)).gpu)
+    assert not software_renderer("AMD Radeon Graphics (RADV RENOIR)") and not software_renderer(None)
+    assert parse_mangohud_log("fps,frametime,elapsed\n60,16.6,1000\n").gpu is None      # old logs: no system lines

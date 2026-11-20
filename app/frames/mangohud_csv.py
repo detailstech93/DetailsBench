@@ -35,6 +35,10 @@ def parse_mangohud_log(text: str, start_seconds: float = 0.0, seconds: Optional[
         out.error = "not a MangoHud frame log (no frametime column)"
         return out
     header = [c.strip().lower() for c in rows[header_at]]
+    for i in range(header_at - 1):          # the system lines: "os,cpu,gpu,..." then its values
+        names = [c.strip().lower() for c in rows[i]]
+        if "gpu" in names and names.index("gpu") < len(rows[i + 1]):
+            out.gpu = rows[i + 1][names.index("gpu")].strip() or None
     ft, el = header.index("frametime"), (header.index("elapsed") if "elapsed" in header else None)
     end = None if seconds is None else start_seconds + seconds
     before = None                           # the previous row's elapsed (s)

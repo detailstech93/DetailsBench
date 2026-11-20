@@ -82,6 +82,15 @@ LAST_SCENE_MATCH = 2.0       # % the app's last scene may differ from the game's
 END_EARLY_SECONDS = 15.0
 
 
+SOFTWARE_RENDERERS = ("llvmpipe", "lavapipe", "softpipe", "swiftshader")
+
+
+def software_renderer(gpu: Optional[str]) -> bool:
+    """A device that draws on the CPU (Fedora 2026-11-20: RDR2 drew on llvmpipe at 0.1 FPS, its adapterIndex
+    pointing at Mesa's lavapipe in the Vulkan list, the night before at the Radeon)."""
+    return bool(gpu) and any(name in gpu.lower() for name in SOFTWARE_RENDERERS)
+
+
 def steps_bound_seconds(steps) -> int:
     """The longest the menu steps can take (every word waited for to its limit, every pause and hold): MangoHud
     must still be logging when the benchmark starts that late."""
@@ -1460,6 +1469,9 @@ class GameBenchmark:
                                prefix + "MangoHud wrote no frame log (it works with Vulkan games: Proton games and "
                                "native Vulkan ones; a native OpenGL game writes none)" + closed, command=command)
         path, parsed = best
+        if software_renderer(parsed.gpu):
+            return GameCapture("failed", f"the game drew on the CPU ({parsed.gpu}), not on the graphics card: not a "
+                               "result of this PC's graphics; nothing kept" + closed, command=command)
         frametimes = parsed.frametimes_ms
         recorded = game_seconds(frametimes)
         windows = spec.windows()
