@@ -78,3 +78,14 @@ def test_kde_input_permission_is_asked_at_the_runs_question_not_during_a_game(tm
     assert c.kde_input_item(env, rc, "python", ask=lambda: asked.append(2))["ok"] and asked == [1]
     assert c.kde_input_item({"XDG_CURRENT_DESKTOP": "GNOME", "XDG_SESSION_TYPE": "wayland"}, rc, "x") is None
     assert c.kde_input_item({"XDG_CURRENT_DESKTOP": "KDE", "XDG_SESSION_TYPE": "x11"}, rc, "x") is None
+
+
+def test_the_power_profile_is_asked_of_the_power_profiles_service():
+    from types import SimpleNamespace as NS
+    assert c._power_profile(lambda *a, **k: NS(returncode=0, stdout='s "performance"\n')) == "performance"
+    for bad in (NS(returncode=1, stdout=""), NS(returncode=0, stdout='s ""\n')):
+        try:
+            c._power_profile(lambda *a, **k: bad)
+            assert False
+        except OSError:
+            pass

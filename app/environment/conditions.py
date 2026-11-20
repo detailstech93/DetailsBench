@@ -76,13 +76,20 @@ def windows_plan_item(run=None) -> Optional[dict]:
     return _item("Power plan", name, True)
 
 
-def _power_profile() -> str:
-    """KDE's / GNOME's power profile (power-profiles-daemon or Fedora's tuned-ppd): power-saver, balanced, performance."""
+# KDE's / GNOME's power profile, asked of the system's power-profiles service (power-profiles-daemon, or Fedora's
+# tuned-ppd, which has no powerprofilesctl: GEEKOM 2026-11-20). busctl prints: s "performance"
+PROFILE_COMMAND = ["busctl", "get-property", "net.hadess.PowerProfiles", "/net/hadess/PowerProfiles",
+                   "net.hadess.PowerProfiles", "ActiveProfile"]
+
+
+def _power_profile(run=None) -> str:
+    """power-saver, balanced or performance; raises when no such service answers."""
     import subprocess
-    out = subprocess.run(["powerprofilesctl", "get"], capture_output=True, text=True, timeout=5)
-    if out.returncode != 0 or not out.stdout.strip():
+    out = (run or subprocess.run)(PROFILE_COMMAND, capture_output=True, text=True, timeout=5)
+    value = out.stdout.strip().removeprefix("s ").strip('"') if out.returncode == 0 else ""
+    if not value:
         raise OSError("no power profile")
-    return out.stdout.strip()
+    return value
 
 
 def linux_plan_item(read=None, profile_of=None) -> Optional[dict]:
