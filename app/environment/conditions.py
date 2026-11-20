@@ -76,15 +76,35 @@ def windows_plan_item(run=None) -> Optional[dict]:
     return _item("Power plan", name, True)
 
 
-def linux_plan_item(read=None) -> Optional[dict]:
+def _power_profile() -> str:
+    """KDE's / GNOME's power profile (power-profiles-daemon or Fedora's tuned-ppd): power-saver, balanced, performance."""
+    import subprocess
+    out = subprocess.run(["powerprofilesctl", "get"], capture_output=True, text=True, timeout=5)
+    if out.returncode != 0 or not out.stdout.strip():
+        raise OSError("no power profile")
+    return out.stdout.strip()
+
+
+def linux_plan_item(read=None, profile_of=None) -> Optional[dict]:
     def default(path):
         return Path(path).read_text(encoding="utf-8").strip()
     read = read or default
     parts, ok = [], True
     try:
+        # Fedora 2026-11-20 (GEEKOM, amd-pstate-epp): "governor powersave" alone said nothing; the profile decides
+        profile = (profile_of or _power_profile)()
+        parts.append(f"power profile {profile}")
+        ok = profile != "power-saver"
+    except Exception:
+        pass
+    try:
         profile = read("/sys/firmware/acpi/platform_profile")
         parts.append(f"platform profile {profile}")
-        ok = profile != "low-power"
+        ok = ok and profile != "low-power"
+    except Exception:
+        pass
+    try:
+        parts.append(f"CPU energy preference {read('/sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference')}")
     except Exception:
         pass
     try:
@@ -94,7 +114,7 @@ def linux_plan_item(read=None) -> Optional[dict]:
     if not parts:
         return None
     return _item("Power plan", ", ".join(parts), ok,
-                 "" if ok else "the low-power profile lowers the CPU's speed: pick balanced or performance")
+                 "" if ok else "the power-saver profile lowers the CPU's speed: pick balanced or performance")
 
 
 def load_item(sample=None) -> Optional[dict]:

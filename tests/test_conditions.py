@@ -21,16 +21,23 @@ def test_battery_power_plan_and_load_items():
     assert c.windows_plan_item(lambda: "garbage") is None
     files = {"/sys/firmware/acpi/platform_profile": "low-power",
              "/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor": "powersave"}
-    linux = c.linux_plan_item(lambda p: files[p])
+    linux = c.linux_plan_item(lambda p: files[p], profile_of=lambda: 1 / 0)
     assert not linux["ok"] and linux["value"] == "platform profile low-power, CPU governor powersave"
-    assert c.linux_plan_item(lambda p: (_ for _ in ()).throw(OSError())) is None
+    assert c.linux_plan_item(lambda p: (_ for _ in ()).throw(OSError()), profile_of=lambda: 1 / 0) is None
+    fedora = {"/sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference": "balance_performance",
+              "/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor": "powersave"}
+    saver = c.linux_plan_item(fedora.__getitem__, profile_of=lambda: "power-saver")
+    assert not saver["ok"] and saver["value"] == ("power profile power-saver, CPU energy preference "
+                                                  "balance_performance, CPU governor powersave")
+    assert c.linux_plan_item(fedora.__getitem__, profile_of=lambda: "performance")["ok"]
     assert c.load_item(lambda: (4.0, []))["ok"]
     busy = c.load_item(lambda: (37.0, ["MsMpEng.exe", "OneDrive.exe"]))
     assert not busy["ok"] and busy["value"] == "37% CPU in use (busiest: MsMpEng.exe, OneDrive.exe)"
     assert c.load_item(lambda: 1 / 0) is None                                    # unreadable: left out
 
 
-def test_check_text_manifest_and_report():
+def test_check_text_manifest_and_report(monkeypatch):
+    monkeypatch.setattr(c, "_power_profile", lambda: "balanced")
     items = c.check("win32", battery=lambda: None, plan=lambda: SAVER, sample=lambda: (3.0, []))
     assert [i["name"] for i in items] == ["Power plan", "Background load"]
     text = c.text(items)

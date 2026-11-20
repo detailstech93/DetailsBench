@@ -70,15 +70,36 @@ def _foreground_pid() -> Optional[int]:
     return int(pid.value) or None
 
 
+# Linux: part of a Proton game though not under its launch: the prefix's Wine server, and ntfs-3g serving the game's
+# files from an NTFS drive (Fedora 2026-11-20: mount.ntfs 2% in every game run; Windows reads NTFS in its kernel)
+LINUX_GAME_HELPERS = ("wineserver", "mount.ntfs", "ntfs-3g")
+ROOTS_EVERY_SECONDS = 10.0          # Steam's launch of a game is looked for this often, not on every read
+
+
+def _steam_game_roots(ps) -> Set[int]:
+    """Linux: Steam starts every game under its reaper ("reaper SteamLaunch AppId=1174180 -- ..."); it and all it
+    started are the game. The window in front cannot say it there (Wayland; Proton runs the game as many programs):
+    Fedora 2026-11-20, the game itself was counted as another program (BL3 20%, SOTTR 34%, Cyberpunk 35%)."""
+    out = set()
+    for p in ps.process_iter(["name", "cmdline"]):
+        cmd = p.info.get("cmdline") or []
+        if (p.info.get("name") or "") == "reaper" and "SteamLaunch" in cmd and any(
+                str(c).startswith("AppId=") for c in cmd):
+            out.add(p.pid)
+    return out
+
+
 class OtherProgramsSource:
     name = "other programs"
 
     def __init__(self, psutil_module=None, times: Optional[Callable[[], Times]] = None,
                  foreground: Callable[[], Optional[int]] = _foreground_pid, own_pid: Optional[int] = None,
-                 clock: Callable[[], float] = time.monotonic):
+                 clock: Callable[[], float] = time.monotonic, platform_name: str = sys.platform):
         if psutil_module is None:
             import psutil as psutil_module
         self.ps = psutil_module
+        self.linux = platform_name.startswith("linux")
+        self._roots: Tuple[Optional[float], Set[int]] = (None, set())
         self.times = times or (_windows_times if sys.platform == "win32" and struct.calcsize("P") == 8
                                else lambda: _psutil_times(self.ps))
         self.foreground, self.clock = foreground, clock
@@ -90,9 +111,22 @@ class OtherProgramsSource:
         self._last = (self.clock(), self.times())         # the first read only starts the measurement
         return True, "CPU used by other programs"
 
+    def _game_roots(self) -> Set[int]:
+        if not self.linux:
+            return set()
+        at, roots = self._roots
+        now = self.clock()
+        if at is None or now - at >= ROOTS_EVERY_SECONDS:
+            try:
+                roots = _steam_game_roots(self.ps)
+            except Exception:
+                roots = set()
+            self._roots = (now, roots)
+        return roots
+
     def _test_pids(self) -> Set[int]:
         pids = {0}                                         # the idle process
-        for root in (self.own_pid, self.foreground()):
+        for root in (self.own_pid, self.foreground(), *sorted(self._game_roots())):
             if not root:
                 continue
             pids.add(root)
@@ -113,6 +147,8 @@ class OtherProgramsSource:
         for pid, (name, used) in times.items():
             before = last[1].get(pid)
             if pid in test or before is None or before[0] != name or not name or name.lower().startswith(OURS):
+                continue
+            if self.linux and name.lower().startswith(LINUX_GAME_HELPERS):
                 continue
             share = max(0.0, used - before[1]) / span * 100.0
             total += share

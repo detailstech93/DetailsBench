@@ -21,7 +21,7 @@ def test_only_programs_that_are_not_the_test_count():
                    30: ("chrome.exe", 0.4), 31: ("PresentMon-2.exe", 1.0), 32: ("tiny.exe", 0.04)}])
     clock = iter([0.0, 1.0])
     src = OtherProgramsSource(psutil_module=FakePs(), times=lambda: next(reads), foreground=lambda: 20,
-                              own_pid=10, clock=lambda: next(clock))
+                              own_pid=10, clock=lambda: next(clock), platform_name="win32")
     assert src.available()[0]
     # 4 cores over 1 s: chrome 0.4 s = 10%, tiny 0.04 s = 1% (not named); the app, its child, the game, PresentMon not
     assert src.read() == {"cpu_other": (11.0, "%"), "cpu_other_chrome.exe": (10.0, "%")}
@@ -108,3 +108,28 @@ def test_the_rest_is_the_middle_of_its_reads_and_missing_when_it_cannot_be_read(
 
     assert other_idle(Src([7.0, 6.0, 30.0, 6.5, 8.0]), sleep=lambda s: None) == 7.0
     assert other_idle(object(), sleep=lambda s: None) is None
+
+
+def test_on_linux_the_game_is_what_steam_launched_not_another_program():
+    """Fedora 2026-11-20: no window in front is known there, so the game counted as another program (BL3 20%, SOTTR
+    34%) and every Linux game run said "Run again". Now Steam's reaper for the game and all it started are the test,
+    with the prefix's wineserver and ntfs-3g serving the game's NTFS drive."""
+    class Ps(FakePs):
+        def process_iter(self, attrs):
+            return [SimpleNamespace(pid=50, info={"name": "reaper", "cmdline": ["/x/reaper", "SteamLaunch",
+                                                                                "AppId=397540", "--", "/x/proton"]}),
+                    SimpleNamespace(pid=60, info={"name": "reaper", "cmdline": ["/x/reaper"]}),
+                    SimpleNamespace(pid=70, info={"name": "firefox", "cmdline": ["firefox"]})]
+
+        def Process(self, pid):
+            return SimpleNamespace(children=lambda recursive: [SimpleNamespace(pid=51), SimpleNamespace(pid=52)]
+                                   if pid == 50 else [])
+    names = {10: "python", 51: "Borderlands3.ex", 52: "steam.exe", 53: "wineserver", 54: "mount.ntfs",
+             70: "firefox", 80: "kswapd0"}
+    reads = iter([{pid: (n, 0.0) for pid, n in names.items()}, {pid: (n, 2.0) for pid, n in names.items()}])
+    clock = iter([0.0, 1.0, 1.0])
+    src = OtherProgramsSource(psutil_module=Ps(), times=lambda: next(reads), foreground=lambda: None, own_pid=10,
+                              clock=lambda: next(clock), platform_name="linux")
+    src.available()
+    # 4 cores over 1 s: firefox and kswapd0 2 s each = 50% each; the game, its Wine and its NTFS reads are the test
+    assert src.read() == {"cpu_other": (100.0, "%"), "cpu_other_firefox": (50.0, "%"), "cpu_other_kswapd0": (50.0, "%")}
