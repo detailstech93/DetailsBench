@@ -1293,6 +1293,7 @@ class GameBenchmark:
             return None
 
     def _passes(self, card, out, notes, last) -> GameCapture:
+        from app.frames import mangohud_run as mh
         spec, guard = self.spec, self.settings_guard
         for k in range(spec.count):
             if self.stop_event.is_set():
@@ -1320,7 +1321,9 @@ class GameBenchmark:
                 last = self._run_mangohud(pass_index=k)
                 # this PC's: the next runs start with it. Once MangoHud named the graphics card, even when the menus
                 # failed after (Fedora 2026-11-20: the next RDR2 started on the CPU's number again)
-                seen = getattr(self, "drawing_device", None)
+                # MangoHud writes its log (and the card's name in it) when the game closes (Fedora 2026-11-20, 11:22):
+                # read from this run's own logs when the menus failed before that
+                seen = getattr(self, "drawing_device", None) or mh.drawing_device(self.shots_dir / "mangohud_logs", 0)
                 if not last.on_cpu and (last.status == "recorded" or (seen and not software_renderer(seen))):
                     card.remember(number)
             notes.append(f"run {k}: " + "; ".join(x for x in [rewritten, last.message] if x))

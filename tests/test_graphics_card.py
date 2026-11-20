@@ -88,7 +88,12 @@ def test_a_number_that_drew_on_the_card_is_kept_even_when_the_menus_failed_after
         if seen[-1] == "1":
             bench.drawing_device = "llvmpipe (LLVM 23.1.5)"
             return GameCapture("failed", "the game drew on the CPU (llvmpipe)", on_cpu=True)
-        bench.drawing_device = "AMD Radeon Graphics (RADV RENOIR)"
+        bench.drawing_device = None             # MangoHud wrote its log when the game closed, after the menus failed
+        logs = bench.shots_dir / "mangohud_logs"
+        logs.mkdir(parents=True, exist_ok=True)
+        (logs / "RDR2_2026-11-20_11-20-51.csv").write_text(
+            "os,cpu,gpu,ram\nSteam Runtime 4,AMD Ryzen 7 7730U,AMD Radeon Graphics (RADV RENOIR),15732208\n",
+            encoding="utf-8")
         return GameCapture("failed", "step 3: 'benchmark' did not appear")
     monkeypatch.setattr(bench, "_run_mangohud", one)
     bench.run()

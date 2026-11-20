@@ -159,19 +159,22 @@ def _menu_boxes(lines, menu) -> dict:
     return {item: on_line.get(i) or (x, round(start + step * i - h / 2), w, h) for i, item in enumerate(menu)}
 
 
-def lit_word(image_path, lines, menu, style: str = "bar") -> Optional[str]:
+def lit_word(image_path, lines, menu, style: str = "bar", grid: bool = False) -> Optional[str]:
     """The item of `menu` with an orange-red bar behind it (SOTTR's lit item), or None when none clearly is.
     style "bright": the item whose box is filled bright (dark letters on it). style "frame": the item with a
     thick white frame (Far Cry 6's main menu, Fedora 2026-11-20: QUIT TO DESKTOP's left side 0.52 bright, the
     others 0.00-0.01). style "redframe": a red frame round its tile (RDR2's Settings, Fedora 2026-11-20: the lit
     Controls 0.38 red left of its word, the others 0.00).
-    An item is found by its first word (OCR may misread the rest)."""
+    An item is found by its first word (OCR may misread the rest). grid: tiles in rows (RDR2's Settings), each item
+    where it was read (the column fit of _menu_boxes is for a list)."""
     from PySide6.QtGui import QImage
     image = QImage(str(image_path))
     if image.isNull():
         return None
     scores = {}
-    for item, box in _menu_boxes(lines, menu).items():
+    boxes = ({m: b for m in menu if (b := _word_box(lines, m.split()[0])) is not None} if grid
+             else _menu_boxes(lines, menu))
+    for item, box in boxes.items():
         x, y, w, h = box
         hits = total = 0
         if style in ("frame", "redframe"):      # the strip left of its words, where the frame's left side is
@@ -460,6 +463,8 @@ class StepPlayer:
         self.desktop.mouse_to(*PARK_POINT)          # an item under the mouse lights up
         moves = misses = 0
         style = {"style": step["lit"]} if "lit" in step else {}
+        if int(step.get("columns", 1)) > 1:
+            style["grid"] = True
         wake = str(step.get("wake", ""))        # a menu with no lit item until a key is pressed (Far Cry 6)
         keys = {"down": "down", "up": "up", **(step.get("arrows") or {})}
         while True:

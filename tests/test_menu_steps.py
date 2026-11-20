@@ -1201,14 +1201,14 @@ def test_rdr2_on_linux_goes_to_graphics_by_its_grid_and_never_enters_another_til
     tiles = ["SETTINGS", "Controls", "Display", "Audio", "Graphics", "Camera", "General"]
     p, desk, clock = player(tmp_path, steps, [(0, tiles), (12, ["GRAPHICS", "Run Benchmark Test"])])
     p.platform = "linux"
-    grid = ["controls", "display", "audio", "graphics", "camera", "general"]
+    tiles_menu = ["controls", "display", "audio", "graphics", "camera", "general"]
     at = {"i": 1}                                                    # Display lit first
 
-    def lit(path, lines, menu, style="bar"):
-        assert style == "redframe" and menu == grid
+    def lit(path, lines, menu, style="bar", grid=False):
+        assert style == "redframe" and grid and menu == tiles_menu
         keys = [e[1] for e in desk.events if e[0] == "down"]
         i = at["i"] + 3 * keys.count(parse_chord("down")) - keys.count(parse_chord("left"))
-        return grid[i]
+        return tiles_menu[i]
     p.lit = lit
     p.run()
     assert p.problem is None, p.problem
