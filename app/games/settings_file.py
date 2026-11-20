@@ -702,6 +702,7 @@ CONDITION_LABELS = {"resolution": "Resolution", "window_mode": "Window mode", "p
                     "dlss_frame_gen": "DLSS frame generation", "multi_frame_gen": "Multi frame generation",
                     "ray_tracing": "Ray tracing", "dxr_reflections": "Ray traced reflections",
                     "dxr_shadows": "Ray traced shadows", "resolution_scale": "Resolution scale", "vsync": "V-Sync",
+                    "frame_lock": "Framerate lock", "fps_limit": "FPS limit", "dynamic_resolution": "Dynamic resolution",
                     "refresh_rate": "Refresh rate (Hz)"}
 # the four the owner asked to always see: said "not read" when the game's file does not tell
 KEY_CONDITIONS = (("Resolution", ("resolution",)), ("Upscaler", ("upscaler", "dlss", "fsr", "xess")),

@@ -301,7 +301,18 @@ def plan_preset(app_id, preset: GamePreset, offered: Dict[str, list]) -> Tuple[D
         full = [v for v in offered["resolution_scale"] if _scale_number(v) in (1.0, 100.0, 1000.0)]
         if full:
             requested["resolution_scale"] = full[0]
+    # anything that caps or lowers the frame rate is written off when the game has it and its off value is known
+    # (owner, 2026-11-20: FC6's menu showed a 60 FPS lock; Linux and Windows alike)
+    if requested:
+        for key in CAPS_OFF:
+            off = [v for v in offered.get(key, ()) if str(v).strip().lower() in OFF_VALUES]
+            if off:
+                requested[key] = off[0]
     return requested, skipped
+
+
+CAPS_OFF = ("vsync", "fps_limit", "frame_lock", "dynamic_resolution")
+OFF_VALUES = {"false", "0", "off", "unlimited", "disabled", "none"}
 
 
 def _scale_number(value) -> Optional[float]:

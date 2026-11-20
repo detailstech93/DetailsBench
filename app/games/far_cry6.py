@@ -59,6 +59,11 @@ SETTINGS = {
                              (("Ultra Quality", "0"), ("Quality", "1"), ("Balanced", "2"), ("Performance", "3"))),
     "resolution_scale": Setting("learned", ("RenderProfile@ResolutionScale",)),
     "vsync": Setting("learned", ("RenderProfile@VSyncPreset",)),
+    # caps on the frame rate, always written off by a preset (owner 2026-11-20: its menu showed a 60 lock). Both
+    # files had the lock off (FrameRateLockValue 60 only matters when on); Windows had DynamicResolution... "30"
+    "frame_lock": Setting("map", ("RenderProfile@FrameRateLockEnabled",), ON_OFF),
+    "dynamic_resolution": Setting("map", ("RenderProfile@DynamicResolutionFrameRateLimit",),
+                                  (("Off", "0"), ("30", "30"), ("60", "60"))),     # its FPS target; 0 off
 }
 
 
