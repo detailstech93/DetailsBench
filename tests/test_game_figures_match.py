@@ -93,3 +93,23 @@ def test_far_cry6_own_average_is_whole_seconds_rounded_down_so_2_fps_under_still
     assert own == {"avg": 28.0, "min": 25.0, "max": 32.0, "cut": 2.0}
     assert "they match" in _match_text(29.37, own["avg"], own["cut"])
     assert "DO NOT MATCH" in _match_text(30.2, own["avg"], own["cut"]) and "DO NOT MATCH" in _match_text(29.04, 28.0)
+
+
+def test_bl3_after_a_long_loading_screen_is_measured_back_from_the_load_at_its_end():
+    """Fedora 2026-11-20 (Proton): ~16 s of animated loading screen after BL3's load, no long frame in it; the
+    window began 21 s early and read 31.17 FPS for the game's 29.86. Windows' stretch fits: unchanged."""
+    from types import SimpleNamespace
+    from app.frames.game_benchmark import GameBenchmark
+    me = SimpleNamespace(spec=SimpleNamespace(app_id=397540))
+    load = [300.0, 300.0]
+    screen = [31.0] * 516                                       # 16 s at ~32 FPS
+    bench = [33.5] * 3362                                       # 112.6 s: 109 s and the fade
+    frames = [16.0] * 125 + load + screen + bench + [300.0] + [16.0] * 100
+    start = (125 * 16.0 + 600.0) / 1000.0
+    end = start + (516 * 31.0 + 3362 * 33.5) / 1000.0 - 3.0
+    for mark in (1.0, start + 1.0):                              # at its Start click, or at its keys after the load
+        (a, b), = GameBenchmark._marked_windows(me, frames, [(5.0, 114.0)], mark)
+        assert (a, b) == (pytest.approx(end - 109.0), pytest.approx(end))
+    windows = [16.0] * 125 + load + bench + [300.0] + [16.0] * 100     # no loading screen: from the load, as before
+    (a, b), = GameBenchmark._marked_windows(me, windows, [(5.0, 114.0)], 1.0)
+    assert (a, b) == (pytest.approx(start + 5.0), pytest.approx(start + 3362 * 33.5 / 1000.0 - 3.0))

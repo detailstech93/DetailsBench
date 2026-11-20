@@ -37,7 +37,8 @@ from app.frames.admin_helper import run_presentmon
 from app.frames.presentmon import CSV_NAME, START_MARGIN_SECONDS, capture_game_args, workload_id_for
 from app.frames.presentmon_csv import parse_presentmon_csv, summarize_processes
 from app.frames.segments import (
-    first_frame_offset, game_seconds, loading_bounds, pick_game_process, slice_samples, split_frames, window_bounds,
+    first_frame_offset, game_seconds, loading_bounds, next_loading, pick_game_process, slice_samples, split_frames,
+    window_bounds,
 )
 from app.frames.stats import compute_frame_stats, stats_to_metrics
 
@@ -76,6 +77,8 @@ LATE_SECONDS = 1.0                # a recording that begins this long after the 
 # a run measured over less than this share of its benchmark is not the whole of it: the owner's whole runs had
 # 97.7-100% (BL3 107.4-110 of 110 s), the bad ones 68% (BL3, a long frame mid-benchmark taken for its end) and 93%
 WHOLE_SHARE = 0.95
+LONG_LOADING_SLACK_SECONDS = 2.0   # a stretch between loads this much longer than the windows had a loading screen
+LOADING_END_MARGIN_SECONDS = 3.0  # as loading_bounds: the fade back to the menu before its load
 LAST_SCENE_MATCH = 2.0       # % the app's last scene may differ from the game's own average (session 18: 0.0-0.1%)
 # a span up to the load before the results may begin this much before the mark (SOTTR at 1080p on a NucBox K10,
 # session 23, 2026-11-14: 'fps' was read 6-7 s into its benchmark)
@@ -823,11 +826,20 @@ class GameBenchmark:
         if starts_after_loading(self.spec.app_id):
             start, end = loading_bounds(frametimes, mark_shift,
                                         min_seconds=WHOLE_SHARE * min((b - a for a, b in windows), default=0.0))
+            stop = end
             if start is not None:
                 mark_shift = start
+            else:           # marked after its load (at its keys): only the load at its end
+                stop = next_loading(frametimes, mark_shift + 1.0)
+                stop = None if stop is None else stop - LOADING_END_MARGIN_SECONDS
+            last = max((b for a, b in windows), default=0.0)
+            # Fedora 2026-11-20, BL3 on Proton: ~16 s of animated loading screen (~32 FPS, no long frame) after
+            # the load, so the stretch was 136 s for 109 and read 4.4 % high; Windows' is ~112 s. A stretch
+            # longer than the windows is measured back from its end
+            if stop is not None and stop - mark_shift > last + LONG_LOADING_SLACK_SECONDS:
+                mark_shift = stop - last
         from data.game_start_keys import ends_at_loading
         if ends_at_loading(self.spec.app_id):
-            from app.frames.segments import next_loading
             span = max((b - a for a, b in windows), default=0.0)
             # the load before the results, not the one into the benchmark: session 25 (2026-11-14) read 'fps'
             # before that one (59 s; loads at 63 and 241 s) and measured 3 s
