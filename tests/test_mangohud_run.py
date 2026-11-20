@@ -169,7 +169,12 @@ def test_stop_while_steam_starts(tmp_path):
     stop = threading.Event()
     stop.set()
     _, cap = run(tmp_path, fakes, stop=stop)
-    assert cap.status == "cancelled"
+    assert cap.status == "cancelled" and "no game process to close" in cap.message and fakes.now[0] >= 120
+    # Fedora 2026-11-20: Steam started the game after the stop and it ran on; it is waited for and closed
+    late = Fakes(tmp_path / "b")
+    late.folder_procs = lambda: {7: ProcInfo(7, 2.0, str(late.install / "Game.exe"))} if late.now[0] >= 40 else {}
+    _, cap = run(tmp_path / "b", late, stop=stop)
+    assert cap.status == "cancelled" and late.closed == [[7]] and late.now[0] < 120
 
 
 def test_several_games_reuse_the_apps_steam_and_a_users_steam_is_asked_to_exit(tmp_path):

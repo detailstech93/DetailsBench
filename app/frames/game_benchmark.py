@@ -65,7 +65,8 @@ RESULT_LOOK_SECONDS = 2.0
 RESULT_SETTLE_SECONDS = 3.0       # its words show before the results fade in (SOTTR, 2026-10-29): look again
 RESULT_SHOT = "benchmark_result.png"
 SCENE_SHOT = "scene.png"       # a game with no benchmark of its own: the screen just after the skipped seconds
-CLOSE_SECONDS = 60.0              # closing a game: politely, by force after 30 s (app/frames/game_close.py)
+CANCEL_WAIT_SECONDS = 120.0       # stopped while the game was starting: it is waited for this long, then closed
+CLOSE_SECONDS = 60.0             # closing a game: politely, by force after 30 s (app/frames/game_close.py)
 PASS_GAP_SECONDS = 10.0           # between two runs of a whole benchmark: Steam sees the game closed first
 LEFTOVER_GRACE_SECONDS = 20.0     # a launcher the run started gets this long to close by itself after the game
 MENUS_MISSED = "the app did not reach the game's benchmark"
@@ -546,6 +547,20 @@ class GameBenchmark:
             logger.exception("Could not close the game")
             return f"; the game could not be closed ({e}); close it yourself"
 
+    def _close_after_cancel(self) -> str:
+        """Stopped while Steam was starting the game: Steam starts it anyway, and it ran on (Fedora 2026-11-20: an
+        RDR2 whose card file was put back too early ran on the CPU through FC6's run). Wait for it, then close it."""
+        if self._before is None:
+            return ""
+        self.on_progress(f"Stopped: waiting up to {CANCEL_WAIT_SECONDS:g} s for {self.spec.game_name} to appear, "
+                         "to close it...")
+        end = self.clock() + CANCEL_WAIT_SECONDS
+        self._note_started()
+        while not self._started and self.clock() < end:
+            self.sleep(self.poll_seconds)
+            self._note_started()
+        return self._close_game()
+
     def _close_and_answer(self, pids) -> int:
         """Ask the game's windows to close, then answer its "quit?" question by its quit steps."""
         from app.frames import game_close
@@ -635,7 +650,7 @@ class GameBenchmark:
                                  timeout=LAUNCH_TIMEOUT_SECONDS, poll=1.0, sleep=self.sleep,
                                  clock=lambda: float("inf") if self.stop_event.is_set() else self.clock(), **extra)
         if self.stop_event.is_set():
-            return finish("cancelled", "stopped by user while the game was starting")
+            return finish("cancelled", "stopped by user while the game was starting" + self._close_after_cancel())
         if launched.get("status") != "launched":
             return finish("failed", f"the game did not start: {launched.get('message')}")
 
@@ -1410,8 +1425,8 @@ class GameBenchmark:
         deadline = self.clock() + mh.LAUNCH_TIMEOUT_SECONDS
         while not self._started:
             if self.stop_event.is_set():
-                return GameCapture("cancelled", "stopped by user while the game was starting" + self._close_game(),
-                                   command=command)
+                return GameCapture("cancelled", "stopped by user while the game was starting"
+                                   + self._close_after_cancel(), command=command)
             if self.clock() >= deadline:
                 return GameCapture("failed", f"no game process appeared within {mh.LAUNCH_TIMEOUT_SECONDS:g} s "
                                    "(Steam may be updating, signing in or showing a dialog)", command=command)
