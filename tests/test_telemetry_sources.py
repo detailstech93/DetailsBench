@@ -215,10 +215,10 @@ def test_psutil_linux_temperature_and_clock():
 
 
 def test_default_sources_per_platform():
-    assert [s.name for s in default_sources("win32")] == ["psutil", "nvidia-smi", "GPU memory", "other programs",
-                                                          "LibreHardwareMonitor"]
-    assert [s.name for s in default_sources("linux")] == ["thermal zones", "psutil", "nvidia-smi", "GPU memory",
-                                                          "other programs", "RAPL"]
+    assert [s.name for s in default_sources("win32")] == ["psutil", "LibreHardwareMonitor", "nvidia-smi",
+                                                          "GPU memory", "other programs"]
+    assert [s.name for s in default_sources("linux")] == ["thermal zones", "psutil", "amdgpu", "nvidia-smi",
+                                                          "GPU memory", "other programs", "RAPL"]
 
 
 def test_thermal_zones_give_cpu_and_gpu_temperature_and_the_gpu_clock():
@@ -244,3 +244,53 @@ def test_thermal_zones_give_cpu_and_gpu_temperature_and_the_gpu_clock():
                           "gpu0_sm_clock": (690.0, "MHz")}
     nothing = ThermalZoneSource("/t", "/d", listdir=lambda p: (_ for _ in ()).throw(OSError(p)), read_text=read)
     assert nothing.available()[0] is False and nothing.read() == {}
+
+
+def _amd_files(metrics_rev):
+    files = {"/drm/card1/device/gpu_busy_percent": "87\n", "/drm/card1/device/hwmon/hwmon5/freq1_input": "1800000000\n",
+             "/drm/card1/device/hwmon/hwmon5/temp1_input": "66000\n",
+             "/drm/card1/device/hwmon/hwmon5/power1_input": "20125000\n"}
+    dirs = {"/drm": ["card0", "card1", "card1-eDP-1", "renderD128"], "/drm/card1/device/hwmon": ["hwmon5"]}
+
+    def read(path):
+        if path not in files:
+            raise OSError(path)
+        return files[path]
+
+    def read_bytes(path):
+        if path != "/drm/card1/device/gpu_metrics" or metrics_rev is None:
+            raise OSError(path)
+        return bytes([0x60, 0x00, metrics_rev, 0x01])
+    return dict(root="/drm", listdir=lambda p: dirs[p] if p in dirs else (_ for _ in ()).throw(OSError(p)),
+                read_text=read, read_bytes=read_bytes)
+
+
+def test_amdgpu_integrated_gives_load_clock_temperature_and_chip_power_as_cpu_power():
+    from app.telemetry.sources import AmdGpuSource
+    src = AmdGpuSource(**_amd_files(2))           # gpu_metrics v2: an APU (GEEKOM A5, Ryzen 7 7730U)
+    assert src.available()[0] is True and "integrated" in src.available()[1]
+    assert src.read() == {"gpu0_load": (87.0, "%"), "gpu0_sm_clock": (1800.0, "MHz"),
+                          "gpu0_temperature": (66.0, "C"), "cpu_package_power": (20.125, "W")}
+
+
+def test_amdgpu_card_power_is_the_gpu_power_and_no_amdgpu_is_unavailable():
+    from app.telemetry.sources import AmdGpuSource
+    assert AmdGpuSource(**_amd_files(1)).read()["gpu0_power"] == (20.125, "W")
+    assert "cpu_package_power" not in AmdGpuSource(**_amd_files(None)).read()     # unknown: not called the CPU's
+    none = AmdGpuSource("/drm", listdir=lambda p: ["card0"], read_text=lambda p: (_ for _ in ()).throw(OSError(p)))
+    assert none.available()[0] is False and none.read() == {}
+
+
+def test_lhm_amd_gpu_reading():
+    from app.telemetry.sources import lhm_amd_gpu_reading
+    from app.telemetry.lhm import LhmSensor
+
+    def s(hw, kind, name, v):
+        return LhmSensor(f"{hw}/{kind}/{name}", hw, "AMD Radeon(TM) Graphics", name, kind, v, "")
+    sensors = [s("/gpu-amd/0", "Load", "GPU Core", 95.0), s("/gpu-amd/0", "Clock", "GPU Core", 2000.0),
+               s("/gpu-amd/0", "Clock", "GPU Memory", 3200.0), s("/gpu-amd/0", "Temperature", "GPU Core", 64.0),
+               s("/gpu-amd/0", "Power", "GPU Core", 9.0), s("/gpu-amd/0", "Power", "GPU Package", 12.0),
+               s("/gpu-amd/1", "Load", "GPU Core", 5.0), s("/amdcpu/0", "Power", "Package", 20.0)]
+    assert lhm_amd_gpu_reading(sensors) == {"gpu0_load": (95.0, "%"), "gpu0_sm_clock": (2000.0, "MHz"),
+                                            "gpu0_temperature": (64.0, "C"), "gpu0_power": (12.0, "W")}
+    assert lhm_amd_gpu_reading(sensors[-1:]) == {}

@@ -16,6 +16,8 @@
 - RAPL (Linux): CPU package power from the kernel's energy counters
   (/sys/class/powercap/intel-rapl:N, also used for AMD). Since kernel 5.10 only root may read
   them (CVE-2020-8694); then the source says so and the reading is absent, never 0.
+- amdgpu (Linux): AMD graphics load, clock, temperature and power, no root; on an APU its chip power is the
+  CPU package power. On Windows LibreHardwareMonitor gives the same AMD GPU readings.
 """
 
 import base64
@@ -117,6 +119,25 @@ def lhm_cpu_reading(sensors) -> Reading:
     return out
 
 
+def lhm_amd_gpu_reading(sensors) -> Reading:
+    """AMD graphics (integrated too) from LibreHardwareMonitor's /gpu-amd hardware: its "GPU Core" load, clock and
+    temperature, and its package power (else core). The first AMD GPU only."""
+    gpu = [s for s in sensors if isinstance(getattr(s, "hardware_id", None), str) and s.hardware_id.startswith("/gpu-amd")]
+    if not gpu:
+        return {}
+    first = gpu[0].hardware_id.split("/")[:3]
+    gpu = [s for s in gpu if s.hardware_id.split("/")[:3] == first]
+    out: Reading = {}
+    for kind, key, unit in (("Load", "load", "%"), ("Clock", "sm_clock", "MHz"), ("Temperature", "temperature", "C")):
+        core = [s.value for s in pick(gpu, kind) if s.name.lower() == "gpu core"]
+        if core:
+            out[f"gpu0_{key}"] = (core[0], unit)
+    power = [s.value for s in pick(gpu, "Power", None, "package")] or [s.value for s in pick(gpu, "Power", None, "core")]
+    if power:
+        out["gpu0_power"] = (power[0], "W")
+    return out
+
+
 class LhmDataError(RuntimeError):
     """The web server answered, but not with sensors we can read."""
 
@@ -182,7 +203,9 @@ class LhmSource:
 
     def available(self) -> Tuple[bool, str]:
         try:
-            reading = lhm_cpu_reading(self._sensors())
+            sensors = self._sensors()
+            reading = lhm_cpu_reading(sensors)
+            gpu = lhm_amd_gpu_reading(sensors)
         except LhmDataError as e:
             return False, f"LibreHardwareMonitor answered at {self.url} but its data could not be read: {e}"
         except LhmAuthError as e:
@@ -192,10 +215,11 @@ class LhmSource:
                            "LibreHardwareMonitor and enable Options > Remote Web Server")
         if not reading:
             return False, "LibreHardwareMonitor shows no CPU sensors (its driver may be missing)"
-        return True, ", ".join(sorted(reading))
+        return True, ", ".join(sorted(reading) + sorted(gpu))
 
     def read(self) -> Reading:
-        return lhm_cpu_reading(self._sensors())
+        sensors = self._sensors()
+        return {**lhm_amd_gpu_reading(sensors), **lhm_cpu_reading(sensors)}
 
 
 class PsutilSource:
@@ -345,6 +369,91 @@ class RaplSource:
         return {"cpu_package_power": (joules / (now - last[0]), "W")}
 
 
+DRM_ROOT = "/sys/class/drm"
+
+
+class AmdGpuSource:
+    """AMD graphics on Linux (integrated too), no root, from the amdgpu driver's files: gpu_busy_percent (load), and in
+    its hwmon freq1_input (shader clock, Hz), temp1_input (edge, m°C) and power1_average or power1_input (µW).
+    On an APU (gpu_metrics format 2 or later, the kernel's APU tables) that power is the whole chip's, CPU and
+    graphics: it is the CPU package power, as LibreHardwareMonitor's Package on Windows (owner 2026-11-25: Linux had
+    no CPU power, RAPL being root only); RaplSource, listed later, wins where it can be read. Listed before
+    nvidia-smi, so an NVIDIA card is gpu0 where there is one."""
+    name = "amdgpu"
+
+    def __init__(self, root: str = DRM_ROOT, listdir: Callable[[str], list] = os.listdir,
+                 read_text: Optional[Callable[[str], str]] = None, read_bytes: Optional[Callable[[str], bytes]] = None):
+        self.root = root
+        self.listdir = listdir
+        self.read_text = read_text or _read_text
+        self.read_bytes = read_bytes or (lambda path: open(path, "rb").read(4))
+        self._found: Optional[list] = None          # [(device dir, hwmon dir or None, is_apu)], read once
+
+    def _apu(self, device: str) -> bool:
+        try:
+            head = self.read_bytes(f"{device}/gpu_metrics")
+        except OSError:
+            return False
+        return len(head) >= 3 and head[2] >= 2       # format_revision: 1 = graphics card, 2 and 3 = APU
+
+    def _find(self) -> list:
+        if self._found is not None:
+            return self._found
+        self._found = []
+        try:
+            cards = sorted(n for n in self.listdir(self.root) if n.startswith("card") and n[4:].isdigit())
+        except OSError:
+            cards = []
+        for card in cards:
+            device = f"{self.root}/{card}/device"
+            try:
+                self.read_text(f"{device}/gpu_busy_percent")
+            except OSError:
+                continue                             # not an amdgpu device
+            try:
+                hw = sorted(n for n in self.listdir(f"{device}/hwmon") if n.startswith("hwmon"))
+            except OSError:
+                hw = []
+            self._found.append((device, f"{device}/hwmon/{hw[0]}" if hw else None, self._apu(device)))
+        # shortcut: one AMD GPU is read, a graphics card before an APU; read more when a report shows gpu1
+        self._found.sort(key=lambda f: f[2])
+        self._found = self._found[:1]
+        return self._found
+
+    def _number(self, path: str) -> Optional[float]:
+        try:
+            return float(self.read_text(path).strip())
+        except (OSError, ValueError):
+            return None
+
+    def available(self) -> Tuple[bool, str]:
+        found = self._find()
+        if not found:
+            return False, "no amdgpu graphics"
+        return True, "AMD " + ("integrated graphics; chip power as CPU package power" if found[0][2]
+                               else "graphics card") + ": load, clock, temperature, power"
+
+    def read(self) -> Reading:
+        out: Reading = {}
+        for device, hwmon, apu in self._find():
+            load = self._number(f"{device}/gpu_busy_percent")
+            if load is not None:
+                out["gpu0_load"] = (load, "%")
+            if hwmon is None:
+                continue
+            clock, temp = self._number(f"{hwmon}/freq1_input"), self._number(f"{hwmon}/temp1_input")
+            if clock is not None and clock > 0:
+                out["gpu0_sm_clock"] = (clock / 1e6, "MHz")
+            if temp is not None and 0 < temp / 1000.0 < 150:
+                out["gpu0_temperature"] = (temp / 1000.0, "C")
+            power = self._number(f"{hwmon}/power1_average")
+            if power is None:
+                power = self._number(f"{hwmon}/power1_input")
+            if power is not None and power > 0:
+                out["cpu_package_power" if apu else "gpu0_power"] = (power / 1e6, "W")
+        return out
+
+
 THERMAL_ROOT = "/sys/class/thermal"
 DEVFREQ_ROOT = "/sys/class/devfreq"
 
@@ -440,8 +549,10 @@ def default_sources(platform_name: str = sys.platform) -> list:
     from app.telemetry.other_programs import OtherProgramsSource
     sources.append(OtherProgramsSource())          # trust fix 3a: other programs using the CPU during a run
     if platform_name == "win32":
-        sources.append(LhmSource(settings=_provisioned_lhm_settings))
+        # before nvidia-smi: its AMD GPU readings give way to an NVIDIA card's
+        sources.insert(1, LhmSource(settings=_provisioned_lhm_settings))
     elif platform_name.startswith("linux"):
+        sources.insert(1, AmdGpuSource())           # after psutil, before nvidia-smi
         sources.insert(0, ThermalZoneSource())
         sources.append(RaplSource())
     return sources
