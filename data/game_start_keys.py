@@ -94,7 +94,9 @@ GAME_MENU_STEPS: Dict[int, dict] = {
         ],
         # closing its window asks whether to quit (owner, 2026-10-29: left unanswered, it was closed by force)
         "quit_steps": [{"see": "yes", "within": 15, "settle": 1, "click": "yes"}],
-        # 2026-11-12: its "Frames rendered" (33,633-33,834) are the ~157 s before the load to its results
+        # 2026-11-12: its "Frames rendered" (33,633-33,834) are the ~157 s before the load to its results; since
+        # 2026-11-20 the whole ~178 s from the load into it is measured (game_benchmark._marked_windows), and this
+        # 157 is the span that load is looked for before
         "benchmark_seconds": 157,
         "ends_at_loading": True,
         "verified": True,       # passed real runs with the owner (2026-10/11)

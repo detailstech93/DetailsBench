@@ -135,3 +135,12 @@ def test_bl3_after_a_long_loading_screen_is_measured_back_from_the_load_at_its_e
     windows = [16.0] * 125 + load + bench + [300.0] + [16.0] * 100     # no loading screen: from the load, as before
     (a, b), = GameBenchmark._marked_windows(me, windows, [(5.0, 114.0)], 1.0)
     assert (a, b) == (pytest.approx(start + 5.0), pytest.approx(start + 3362 * 33.5 / 1000.0 - 3.0))
+
+
+def test_sottr_text_says_the_whole_span_is_measured():
+    from types import SimpleNamespace
+    from app.ui.frame_capture_panel import measured_span_text
+    assert "load into it to the load before its results" in measured_span_text(SimpleNamespace(app_id="750920",
+                                                                                             benchmark_seconds=157))
+    assert "(about 130 s) is measured from its start" in measured_span_text(SimpleNamespace(app_id="1174180",
+                                                                                         benchmark_seconds=130))

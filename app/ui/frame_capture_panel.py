@@ -39,7 +39,7 @@ from app.frames.presentmon import (
 from app.paths import get_data_dir, load_settings, save_setting
 from app.telemetry import sources as telemetry_sources
 from data.game_routes import route_for
-from data.game_start_keys import menu_steps_for, start_keys_for
+from data.game_start_keys import ends_at_loading, menu_steps_for, start_keys_for
 from app.ui.automation_panel import STOP_SHORTCUT, TELEMETRY_TIP, AutomationWorker
 
 logger = logging.getLogger(__name__)
@@ -116,6 +116,16 @@ def list_processes() -> List[Tuple[str, int]]:
         if name and pid not in (0, 4, own):
             out.append((name, pid))
     return sorted(out, key=lambda item: (item[0].lower(), item[1]))
+
+
+def measured_span_text(spec) -> str:
+    """How much of a whole benchmark is measured. SOTTR (2026-11-20): from the load into it to the load before its
+    results (~178 s), more than the ~157 s its own result covers, so the same frames on every system."""
+    if ends_at_loading(getattr(spec, "app_id", None)):
+        return ("is measured all of it, from the load into it to the load before its results (the game's own "
+                "result leaves out part of it)")
+    return (f"(about {spec.benchmark_seconds} s) is measured from its start, the span the game's own result "
+            f"covers")
 
 
 class ProcessListWorker(QThread):
@@ -976,8 +986,8 @@ class FrameCapturePanel(QGroupBox):
                 f"2. {launch_url_text(spec)} is opened."
                 + (" The arguments apply to this launch only; Steam may ask you to allow them."
                    if spec.launch_args else "") + "\n"
-                + (f"3. The game is started {spec.count} times, and each time its whole benchmark (about "
-                   f"{spec.benchmark_seconds} s) is measured from its start, the span the game's own result covers. "
+                + (f"3. The game is started {spec.count} times, and each time its whole benchmark "
+                   f"{measured_span_text(spec)}. "
                    f"The first run is the warm-up and is not counted (shaders and files load the first time); the "
                    f"other {spec.repetitions} are averaged. The game's own numbers are shown next to the app's.\n"
                    if whole else
@@ -1159,8 +1169,7 @@ class FrameCapturePanel(QGroupBox):
                 f"launch the game (steam -applaunch {spec.app_id}"
                 + (" " + " ".join(spec.launch_args) if spec.launch_args else "") + ").\n"
                 + (f"2. The game is started {spec.count} times, and each time MangoHud logs its frames and its whole "
-                   f"benchmark (about {spec.benchmark_seconds} s) is measured from its start, the span the game's own "
-                   f"result covers; its results page is kept for the report and the game's own numbers are shown "
+                   f"benchmark {measured_span_text(spec)}; its results page is kept for the report and the game's own numbers are shown "
                    f"next to the app's. {spec.warmup_runs} warm-up run(s) first, not counted; the other "
                    f"{spec.repetitions} are averaged. " if getattr(spec, "whole_benchmark", False) else
                    f"2. MangoHud logs every frame for about {spec.wait_seconds():.0f} s from the game's first frames. "
