@@ -78,6 +78,35 @@ def fingerprint_of(test_id: str, settings: Mapping) -> str:
     return hashlib.sha256(json.dumps({"test": test_id, **real}, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
 
+AI_RUN_KEYS = ("tool", "tool_version", "model", "quantization", "arch", "backend", "device_type", "context_length",
+               "gpu_layers", "pp", "tg", "depths", "concurrency")
+
+
+def run_context(manifest: Mapping, hw: Mapping, ai_run: Optional[Mapping]) -> dict:
+    """What the test ran on besides its parts (owner, 2026-11-19): the screen, the power plan, every GPU's driver, the
+    other programs' CPU at rest and, for an AI test, its backend and quantization. None where it was not recorded
+    (an older session), never a guess."""
+    conditions = manifest.get("conditions") or {}
+    plan = next((i.get("value") for i in conditions.get("items") or [] if i.get("name") == "Power plan"), None)
+    drivers = [" ".join(str(x) for x in (g.get("name") or g.get("driver_name"), g.get("driver")) if x)
+               for g in hw.get("gpus") or []]
+    ai = {k: ai_run[k] for k in AI_RUN_KEYS if (ai_run or {}).get(k) is not None} if ai_run else None
+    return {"screen": conditions.get("screen"), "power_plan": plan, "gpu_drivers": [d for d in drivers if d] or None,
+            "other_cpu_idle": conditions.get("other_cpu_idle"), "ai": ai or None}
+
+
+def work_curves(measured: List[Mapping]) -> Optional[List[dict]]:
+    """A stress test's per-second work (% of its best second) of each measured run, so a dip can be matched to the
+    other programs' share at that time (owner, 2026-11-19); None for other tests."""
+    curves = []
+    for run in measured:
+        one = {name: [[t, round(v, 1)] for t, v in (s.get("points") or [])]
+               for name, s in (run.get("series") or {}).items() if name.endswith("_work") and isinstance(s, Mapping)}
+        if one:
+            curves.append(one)
+    return curves or None
+
+
 def _display_name(manifest: Mapping, test_id: str) -> str:
     entry = next((b for b in (manifest.get("benchmarks") or []) if b.get("name") == test_id), {}) or {}
     return entry.get("display_name") or test_id
@@ -161,6 +190,7 @@ def build_packages(export: Mapping, read_ai_run: Callable[[str], Optional[dict]]
                      "unit": units.pop() if len(units) == 1 else None, "settings": settings,
                      "fingerprint": fingerprint},
             "attribution": attr,
+            "run": run_context(manifest, hw, ai_run),
             "result": {"mean": stats.get("mean"), "median": stats.get("median"), "min": stats.get("min"),
                        "max": stats.get("max"), "stdev": stats.get("stdev"), "cv_percent": cv,
                        "runs": len(measured), "accuracy": accuracy(len(measured), cv),
@@ -169,6 +199,9 @@ def build_packages(export: Mapping, read_ai_run: Callable[[str], Optional[dict]]
                        "measured_at": [r.get("timestamp") for r in measured],
                        "metrics": (export.get("metric_summaries") or {}).get(test_id) or {}},
         }
+        curves = work_curves(measured)
+        if curves:
+            pkg["result"]["work_per_second"] = curves
         pkg["hash"] = content_hash(pkg)
         out.append(pkg)
     return out, left

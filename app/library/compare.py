@@ -219,6 +219,36 @@ def ranking(results: List[Mapping], test_key: tuple, names: Optional[Mapping[str
             "pcs": [view.pc_name(picks[k], names, devices) for k in order]}
 
 
+def _screen(p: Mapping) -> Optional[str]:
+    s = (p.get("run") or {}).get("screen") or {}
+    return f"{s['width']}x{s['height']}" if s.get("width") and s.get("height") else None
+
+
+def _ai(p: Mapping) -> Optional[str]:
+    ai = (p.get("run") or {}).get("ai") or {}
+    return " ".join(str(ai[k]) for k in ("backend", "quantization") if ai.get(k)) or None
+
+
+def run_notes(present: List[Mapping]) -> List[str]:
+    """What the results ran with that is not the same (owner, 2026-11-19): the screen for graphics tests, the power
+    plan, an AI test's backend and quantization. Said also when one result recorded it and another did not."""
+    group = (present[0]["test"].get("group") or "") if present else ""
+    checks = [("power plan", lambda p: (p.get("run") or {}).get("power_plan"))]
+    if group == "gpu":
+        checks.insert(0, ("screen", _screen))
+    if group == "ai":
+        checks.insert(0, ("AI backend and quantization", _ai))
+    notes = []
+    for label, get in checks:
+        values = [get(p) for p in present]
+        known = sorted({v for v in values if v})
+        if len(known) > 1:
+            notes.append(f"another {label}: " + " / ".join(known))
+        elif known and None in values:
+            notes.append(f"{label} not recorded for some (older results)")
+    return notes
+
+
 def _rows(parts: List[dict], chosen: Mapping[str, Mapping[tuple, Mapping]]) -> List[dict]:
     rows = []
     for test_key in {k for c in chosen.values() for k in c}:
@@ -259,6 +289,7 @@ def _rows(parts: List[dict], chosen: Mapping[str, Mapping[tuple, Mapping]]) -> L
                 fingerprint_of(p["test"]["id"], p["test"].get("settings") or {})
                 for p in present if p["test"].get("fingerprint")}) > 1:
             notes.append("other settings: not the same test")
+        notes += run_notes(present)
         valued = [m for m in means if m is not None]
         best = None
         if len(valued) > 1 and not first["test"].get("no_best"):

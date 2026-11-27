@@ -368,10 +368,30 @@ def other_idle(source=None, reads: int = IDLE_READS, sleep=time.sleep) -> Option
         return None
 
 
-def timed_check(idle=other_idle, **kw) -> dict:
+def screen_now() -> Optional[dict]:
+    """The main screen as the run starts: its size in pixels (not scaled), refresh rate and name, from the app's own
+    Qt window system (owner 2026-11-19: a package must say what resolution it ran at); None without a Qt app."""
+    try:
+        from PySide6.QtGui import QGuiApplication
+        if QGuiApplication.instance() is None:
+            return None
+        screen = QGuiApplication.primaryScreen()
+        if screen is None:
+            return None
+        size, ratio = screen.size(), screen.devicePixelRatio() or 1.0
+        return {"width": round(size.width() * ratio), "height": round(size.height() * ratio),
+                "refresh_hz": round(screen.refreshRate(), 2), "name": screen.name() or None}
+    except Exception:
+        return None
+
+
+def timed_check(idle=other_idle, screen=screen_now, **kw) -> dict:
     """The items with the time they were read (stored in the session's manifest), and the other programs' CPU at rest
-    as `other_cpu_idle` (app/report_set.busy_runs measures each run's other programs against it)."""
+    as `other_cpu_idle` (app/report_set.busy_runs measures each run's other programs against it), and the screen."""
     out = {"read_at": time.strftime("%Y-%m-%d %H:%M:%S"), "items": check(**kw)}
+    shown = screen()
+    if shown:
+        out["screen"] = shown
     rest = idle()
     if rest is not None:
         out["other_cpu_idle"] = rest
