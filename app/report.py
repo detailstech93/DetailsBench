@@ -305,7 +305,8 @@ SERIES_NAMES = {"fps": "each second of the last measured run", "cpu_work": "CPU"
                 "tel_cpu_core_clock_avg": "CPU", "tel_cpu_clock_avg": "CPU", "tel_gpu0_sm_clock": "GPU",
                 "tel_cpu_load": "CPU", "tel_gpu0_load": "GPU", "tel_gpu0_vram_used": "GPU",
                 "tel_ram_used_gib": "PC", "tel_gpumem0_dedicated": "GPU", "tel_gpumem0_shared": "GPU",
-                "tel_gpumem1_dedicated": "second GPU", "tel_gpumem1_shared": "second GPU"}
+                "tel_gpumem1_dedicated": "second GPU", "tel_gpumem1_shared": "second GPU",
+                "tel_gpu_model_dedicated": "the model's program", "tel_gpu_model_shared": "the model's program"}
 
 
 def _safe_svg(svg: str) -> str:
@@ -516,8 +517,10 @@ BLENDER_CHARTS = tuple(c for c in STRESS_CHARTS if c[1][0] != "cpu_work")
 # GPU uses: an integrated GPU works in it, a graphics card spills into it when its own is full. RAM is always there,
 # also for a test on the CPU alone.
 AI_CHARTS = BLENDER_CHARTS + (("Graphics card memory (VRAM) used", ("tel_gpu0_vram_used", "tel_gpumem0_dedicated",
-                                                                    "tel_gpumem1_dedicated"), "GiB"),
-                              ("Shared GPU memory used (RAM)", ("tel_gpumem0_shared", "tel_gpumem1_shared"), "GiB"),
+                                                                    "tel_gpumem1_dedicated", "tel_gpu_model_dedicated"),
+                               "GiB"),
+                              ("Shared GPU memory used (RAM)", ("tel_gpumem0_shared", "tel_gpumem1_shared",
+                                                                "tel_gpu_model_shared"), "GiB"),
                               ("Memory (RAM) used", ("tel_ram_used_gib",), "GiB"))
 # memory charts: the whole of that memory, read during the test, so the chart shows the use out of all of it
 TOTAL_OF = {"tel_gpu0_vram_used": "tel_gpu0_vram_total", "tel_gpumem0_dedicated": "tel_gpumem0_dedicated_total",
@@ -908,6 +911,18 @@ def _ai_tiles(metrics: Mapping) -> list:
                                       ("e2e_ttft_ms", "Time to first token", "s")) if name in first]
 
 
+def model_memory_text(metrics: Mapping) -> str:
+    """The AI model program's own memory at its most (plan "GPU per program" step 3), mean of the measured runs."""
+    def most(key):
+        v = (_mapping(metrics.get(f"tel_gpu_model_{key}_max")) or {}).get("mean")
+        return v if isinstance(v, (int, float)) and math.isfinite(v) else None
+    dedicated, shared = most("dedicated"), most("shared")
+    if dedicated is None:
+        return ""
+    return (f"{dedicated:.2f} GiB on the graphics card" + (f", {shared:.2f} GiB in the PC's memory (shared)"
+                                                            if shared is not None else ""))
+
+
 def _ai_table(metrics: Mapping) -> str:
     """Every llama-benchy measurement: one row per concurrency, context depth and phase (mean of the measured runs)."""
     rows = _ai_rows(metrics)
@@ -990,6 +1005,9 @@ def _tiles_section(export: Mapping, heading: str, tests, explanation: str, readi
             details["Extra runs"] = f"{extra} (the scores varied a lot, so more runs were added)"
         if ai:
             details = _ai_settings(details, _mapping(metrics.get(name)) or {})
+        model = model_memory_text(_mapping(metrics.get(name)) or {})
+        if model:
+            details["The model's program"] = model
         kv = "".join(f"<tr><th>{esc(k)}</th><td>{esc(v)}</td></tr>" for k, v in details.items())
         if not readings:            # typed in by the owner: no readings were taken during the test
             blocks.append(f"<h3>{esc(engine)}</h3>" + f'<table class="kv">{kv}</table>')

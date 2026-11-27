@@ -363,7 +363,11 @@ class AutomationRunner:
         if factory is None:
             return None
         try:
-            return factory().start()
+            sampler = factory()
+            if getattr(wl, "benchmark_type", None) == "ai" and hasattr(sampler, "sources"):
+                from app.telemetry.gpu_programs import ModelMemorySource
+                sampler.sources.append(ModelMemorySource())     # the model program's own memory (plan step 3)
+            return sampler.start()
         except Exception as e:              # telemetry never blocks a run
             self.on_progress(f"telemetry not started: {e}")
             return None
