@@ -50,10 +50,21 @@ def _side(runs: List[Mapping], manifest, is_test: bool) -> dict:
 SPECULATIVE = re.compile(r"Speculative: ([^;]+)")
 
 
+MODEL = re.compile(r"Model: ([^;\s]+)")
+# Before 2026-11-27 MTP was not recorded: LM Studio turned it on by itself for a model with an MTP head. Our models,
+# read in LM Studio's log on the owner's laptop 2026-11-27 ("creating MTP draft context" for Qwen3.8 27B only).
+# shortcut: only these keys are known; a model the owner added stays "not recorded" until it is added here.
+MTP_BEFORE = {"qwen/qwen3.8-27b": "MTP on", "qwen/qwen3.5-4b": "MTP off", "google/gemma-4-12b-qat": "MTP off"}
+
+
 def speculative(runs: List[Mapping]) -> Optional[str]:
-    """An AI test's MTP setting from its runs' notes ("Speculative: MTP off"), None when not recorded."""
-    found = {m.group(1).strip() for r in runs if r.get("status") == "completed"
-             for m in [SPECULATIVE.search(str(r.get("note") or ""))] if m}
+    """An AI test's MTP setting from its runs' notes ("Speculative: MTP off"); an older run without it: what LM
+    Studio did then for its model (MTP_BEFORE); None when not known."""
+    done = [str(r.get("note") or "") for r in runs if r.get("status") == "completed"]
+    found = {m.group(1).strip() for n in done for m in [SPECULATIVE.search(n)] if m}
+    if not found:
+        found = {MTP_BEFORE.get(m.group(1).lower()) for n in done for m in [MODEL.search(n)] if m}
+        found = set() if None in found else found
     return " / ".join(sorted(found)) if found else None
 
 

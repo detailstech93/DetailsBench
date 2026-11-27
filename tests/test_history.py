@@ -112,3 +112,10 @@ def test_ai_runs_with_and_without_mtp_are_never_compared(tmp_path):
     first = row(off)
     assert first["compare"]["status"] == "not_comparable"
     assert "not recorded for the earlier run" in _earlier_section({"earlier": [first]})
+    # an older run of a known model: what LM Studio did then (Qwen3.8 27B: MTP on; Gemma: none to turn on)
+    from app.history import speculative
+    note = lambda n: [{"status": "completed", "note": n}]
+    assert speculative(note("Model: qwen/qwen3.8-27b Q4_K_M; Context: 4096")) == "MTP on"
+    assert speculative(note("Model: google/gemma-4-12b-qat Q4_0")) == "MTP off"
+    assert speculative(note("Model: qwen/qwen3.8-27b; Speculative: MTP off")) == "MTP off"
+    assert speculative(note("Model: my/own-model Q4_0")) is None
