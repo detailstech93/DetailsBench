@@ -59,8 +59,27 @@ def _number(value: Optional[float]) -> str:
 
 def software(pkg: Mapping) -> str:
     ctx = pkg["attribution"].get("context") or {}
-    text = "; ".join(f"{label} {ctx[k]}" for k, label in CONTEXT_KEYS if ctx.get(k))
+    text = "; ".join([f"{label} {ctx[k]}" for k, label in CONTEXT_KEYS if ctx.get(k)] + ran_with(pkg))
     return text or ("driver unknown" if pkg.get("old_session") else "-")      # phase 6: an older session
+
+
+def ran_with(pkg: Mapping) -> List[str]:
+    """The package's run block (a1ef799) as short texts: the screen (graphics and device tests), the power plan, the
+    other programs at rest, an AI test's backend and quantization. Nothing for what was not recorded. Drivers are
+    left out: the context's driver is shown already."""
+    run = pkg.get("run") or {}
+    out = []
+    screen = run.get("screen") or {}
+    if screen.get("width") and pkg["attribution"].get("part") in ("gpu", "system"):
+        hz = f" {screen['refresh_hz']:g} Hz" if screen.get("refresh_hz") else ""
+        out.append(f"screen {screen['width']}x{screen['height']}{hz}")
+    if run.get("power_plan"):
+        out.append(f"power plan {run['power_plan']}")
+    if isinstance(run.get("other_cpu_idle"), (int, float)):
+        out.append(f"other programs {run['other_cpu_idle']:.1f}% CPU at rest")
+    ai = run.get("ai") or {}
+    out += [f"{label} {ai[k]}" for k, label in (("backend", "backend"), ("quantization", "quant")) if ai.get(k)]
+    return out
 
 
 def driver_label(pkg: Mapping) -> str:

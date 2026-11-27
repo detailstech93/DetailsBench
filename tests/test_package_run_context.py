@@ -58,3 +58,17 @@ def test_comparison_says_what_ran_differently():
                       _pkg("ai", ai={"backend": "cpu", "quantization": "Q4_K_M"})]) == \
         ["another AI backend and quantization: cpu Q4_K_M / vulkan Q4_K_M"]
     assert run_notes([{"test": {"group": "gpu"}}, {"test": {"group": "gpu"}}]) == []
+
+
+def test_the_library_row_shows_what_the_test_ran_with():
+    from app.library import view
+    pkg = {"attribution": {"part": "gpu", "context": {"driver": "581.80"}},
+           "run": {"screen": {"width": 1920, "height": 1080, "refresh_hz": 60.0, "name": "X"},
+                   "power_plan": "Balanced", "gpu_drivers": ["RTX 581.80"], "other_cpu_idle": 1.234,
+                   "ai": {"backend": "CUDA", "quantization": "Q4_K_M", "model": "m"}}}
+    assert view.software(pkg) == ("Driver 581.80; screen 1920x1080 60 Hz; power plan Balanced; "
+                                  "other programs 1.2% CPU at rest; backend CUDA; quant Q4_K_M")
+    cpu = dict(pkg, attribution={"part": "cpu", "context": {}}, run={"screen": {"width": 1920, "height": 1080}})
+    assert view.software(cpu) == "-"                                  # a CPU test: its screen is not shown
+    old = {"attribution": {"part": "gpu", "context": {}}, "old_session": True}
+    assert view.software(old) == "driver unknown"                     # no run block: nothing guessed
