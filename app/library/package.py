@@ -92,7 +92,9 @@ def run_context(manifest: Mapping, hw: Mapping, ai_run: Optional[Mapping]) -> di
                for g in hw.get("gpus") or []]
     ai = {k: ai_run[k] for k in AI_RUN_KEYS if (ai_run or {}).get(k) is not None} if ai_run else None
     return {"screen": conditions.get("screen"), "power_plan": plan, "gpu_drivers": [d for d in drivers if d] or None,
-            "other_cpu_idle": conditions.get("other_cpu_idle"), "ai": ai or None}
+            "other_cpu_idle": conditions.get("other_cpu_idle"), "ai": ai or None,
+            "cpu_power_limit": conditions.get("cpu_power_limit"), "mesa": conditions.get("mesa"),
+            "file_system": conditions.get("data_file_system")}
 
 
 def work_curves(measured: List[Mapping]) -> Optional[List[dict]]:

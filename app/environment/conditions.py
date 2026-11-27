@@ -385,13 +385,84 @@ def screen_now() -> Optional[dict]:
         return None
 
 
-def timed_check(idle=other_idle, screen=screen_now, **kw) -> dict:
+HEX = re.compile(r"0x([0-9a-fA-F]+)")
+RAPL = "/sys/class/powercap/intel-rapl:0"
+
+
+def cpu_power_limit(platform: str = sys.platform, run=None, read=None) -> Optional[dict]:
+    """What caps the CPU besides the power plan (owner, 2026-11-19). Linux: the RAPL package limits (constraint 0 long,
+    1 short term), readable without root unlike its energy counter. Windows: the plan's maximum processor state, AC and
+    battery, from powercfg; PL1/PL2 themselves need admin rights (MSR) there and are not read. None where unknown."""
+    try:
+        if platform.startswith("linux"):
+            read = read or (lambda p: Path(p).read_text(encoding="utf-8").strip())
+            out = {}
+            for i, key in ((0, "long_w"), (1, "short_w")):
+                try:
+                    out[key] = round(int(read(f"{RAPL}/constraint_{i}_power_limit_uw")) / 1e6, 1)
+                except (OSError, ValueError):
+                    pass
+            return out or None
+        if platform == "win32":
+            text = run() if run else subprocess.run(
+                ["powercfg", "/query", "SCHEME_CURRENT", "SUB_PROCESSOR", "PROCTHROTTLEMAX"], capture_output=True,
+                text=True, timeout=10, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
+            values = [int(h, 16) for h in HEX.findall(text or "")]
+            # its last two numbers are the AC and battery indexes (the GUIDs hold no 0x)
+            return {"max_state_ac": values[-2], "max_state_dc": values[-1]} if len(values) >= 2 else None
+    except Exception:
+        return None
+    return None
+
+
+def file_system(path: Optional[Path] = None, partitions=None) -> Optional[str]:
+    """The file system of the drive a disk test writes to (the app's data folder): "NTFS", "ext4"... None if unknown."""
+    try:
+        if path is None:
+            from app.paths import resolve_database_path
+            path = Path(resolve_database_path()[0]).resolve().parent
+        if partitions is None:
+            import psutil
+            partitions = psutil.disk_partitions(all=False)
+        here = str(path).lower()
+        found = [p for p in partitions if here.startswith(str(p.mountpoint).lower())]
+        return max(found, key=lambda p: len(p.mountpoint)).fstype or None if found else None
+    except Exception:
+        return None
+
+
+MESA = re.compile(r"Mesa (\d+\.\d+(?:\.\d+)?)")
+
+
+def mesa_version(platform: str = sys.platform, run=None) -> Optional[str]:
+    """Linux graphics driver version: "Mesa 24.2.8" from glxinfo -B, else vulkaninfo --summary. None elsewhere or
+    when neither tool is installed."""
+    if not platform.startswith("linux"):
+        return None
+    for command in (["glxinfo", "-B"], ["vulkaninfo", "--summary"]):
+        try:
+            text = run(command) if run else subprocess.run(command, capture_output=True, text=True,
+                                                           timeout=10).stdout
+        except Exception:
+            continue
+        m = MESA.search(text or "")
+        if m:
+            return m.group(1)
+    return None
+
+
+def timed_check(idle=other_idle, screen=screen_now, power_limit=cpu_power_limit, fs=file_system, mesa=mesa_version,
+                **kw) -> dict:
     """The items with the time they were read (stored in the session's manifest), and the other programs' CPU at rest
     as `other_cpu_idle` (app/report_set.busy_runs measures each run's other programs against it), and the screen."""
     out = {"read_at": time.strftime("%Y-%m-%d %H:%M:%S"), "items": check(**kw)}
     shown = screen()
     if shown:
         out["screen"] = shown
+    for key, reader in (("cpu_power_limit", power_limit), ("data_file_system", fs), ("mesa", mesa)):
+        value = reader()
+        if value:
+            out[key] = value
     rest = idle()
     if rest is not None:
         out["other_cpu_idle"] = rest

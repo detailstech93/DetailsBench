@@ -19,10 +19,11 @@ def test_run_context_from_the_manifest_and_ai_run():
                    "power_plan": "Balanced", "gpu_drivers": ["AMD Radeon(TM) Graphics 32.0.21025.10016", "amdgpu"],
                    "other_cpu_idle": 0.4,
                    "ai": {"model": "qwen3.5-4b", "quantization": "Q4_K_M", "backend": "llama.cpp-vulkan@2.73.0",
-                          "pp": 512}}
+                          "pp": 512}, "cpu_power_limit": None, "mesa": None, "file_system": None}
     # an older session: not recorded, never guessed
     assert run_context({}, {}, None) == {"screen": None, "power_plan": None, "gpu_drivers": None,
-                                         "other_cpu_idle": None, "ai": None}
+                                         "other_cpu_idle": None, "ai": None, "cpu_power_limit": None,
+                                         "mesa": None, "file_system": None}
 
 
 def test_stress_work_curve_goes_into_the_package():
@@ -72,3 +73,48 @@ def test_the_library_row_shows_what_the_test_ran_with():
     assert view.software(cpu) == "-"                                  # a CPU test: its screen is not shown
     old = {"attribution": {"part": "gpu", "context": {}}, "old_session": True}
     assert view.software(old) == "driver unknown"                     # no run block: nothing guessed
+
+
+def test_cpu_power_limit_file_system_and_mesa_are_read_without_the_host():
+    from types import SimpleNamespace as NS
+    from app.environment import conditions as c
+    files = {"/sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw": "55000000",
+             "/sys/class/powercap/intel-rapl:0/constraint_1_power_limit_uw": "157000000"}
+    def read(path):
+        if path not in files:
+            raise OSError(path)
+        return files[path]
+    assert c.cpu_power_limit("linux", read=read) == {"long_w": 55.0, "short_w": 157.0}
+    assert c.cpu_power_limit("linux", read=lambda p: (_ for _ in ()).throw(OSError())) is None   # AMD: no RAPL
+    query = ("Power Setting GUID: bc5038f7-23e0-4960-96da-33abaf5935ec  (Maximum processor state)\n"
+             "Minimum Possible Setting: 0x00000000\nMaximum Possible Setting: 0x00000064\n"
+             "Current AC Power Setting Index: 0x00000064\nCurrent DC Power Setting Index: 0x00000050\n")
+    assert c.cpu_power_limit("win32", run=lambda: query) == {"max_state_ac": 100, "max_state_dc": 80}
+    parts = [NS(mountpoint="/", fstype="btrfs"), NS(mountpoint="/home", fstype="ext4")]
+    assert c.file_system("/home/u/.local/share/app", parts) == "ext4"
+    assert c.file_system("C:\\Users\\x", [NS(mountpoint="C:\\", fstype="NTFS")]) == "NTFS"
+    assert c.mesa_version("linux", run=lambda cmd: "OpenGL version string: 4.6 (Compatibility Profile) Mesa 24.2.8\n"
+                          if cmd[0] == "glxinfo" else "") == "24.2.8"
+    assert c.mesa_version("linux", run=lambda cmd: "driverInfo = Mesa 25.0.1" if cmd[0] == "vulkaninfo"
+                          else (_ for _ in ()).throw(FileNotFoundError())) == "25.0.1"
+    assert c.mesa_version("win32") is None
+    out = REAL_TIMED_CHECK(idle=lambda: None, screen=lambda: None, power_limit=lambda: {"long_w": 55.0},
+                           fs=lambda: "NTFS", mesa=lambda: None, temps=lambda: {})
+    assert out["cpu_power_limit"] == {"long_w": 55.0} and out["data_file_system"] == "NTFS" and "mesa" not in out
+
+
+def test_the_new_fields_show_in_the_library_and_comparisons():
+    from app.library import compare, view
+    gpu = {"attribution": {"part": "gpu", "context": {}}, "test": {"group": "gpu"},
+           "run": {"cpu_power_limit": {"long_w": 55.0, "short_w": 157.0}, "mesa": "24.2.8"}}
+    assert view.software(gpu) == "CPU limit 55 W / 157 W; Mesa 24.2.8"
+    win = {"attribution": {"part": "cpu", "context": {}}, "test": {"group": "cpu"},
+           "run": {"cpu_power_limit": {"max_state_ac": 100, "max_state_dc": 80}}}
+    assert view.software(win) == "max processor state 100% (battery 80%)"
+    disk = {"attribution": {"part": "drive", "context": {}}, "test": {"group": "storage"},
+            "run": {"file_system": "NTFS"}}
+    assert view.software(disk) == "file system NTFS"
+    other = dict(gpu, run={"cpu_power_limit": {"long_w": 45.0}, "mesa": "25.0.1"})
+    notes = compare.run_notes([gpu, other])
+    assert "another Mesa: 24.2.8 / 25.0.1" in notes and any(n.startswith("another CPU power limit") for n in notes)
+    assert compare.run_notes([dict(disk), dict(disk, run={"file_system": "ext4"})]) == ["another file system: NTFS / ext4"]

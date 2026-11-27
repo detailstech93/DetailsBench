@@ -229,13 +229,21 @@ def _ai(p: Mapping) -> Optional[str]:
     return " ".join(str(ai[k]) for k in ("backend", "quantization") if ai.get(k)) or None
 
 
+def _limit(p: Mapping) -> Optional[str]:
+    limit = (p.get("run") or {}).get("cpu_power_limit") or {}
+    return " ".join(f"{k} {limit[k]:g}" for k in sorted(limit) if limit.get(k) is not None) or None
+
+
 def run_notes(present: List[Mapping]) -> List[str]:
     """What the results ran with that is not the same (owner, 2026-11-19): the screen for graphics tests, the power
     plan, an AI test's backend and quantization. Said also when one result recorded it and another did not."""
     group = (present[0]["test"].get("group") or "") if present else ""
-    checks = [("power plan", lambda p: (p.get("run") or {}).get("power_plan"))]
+    checks = [("power plan", lambda p: (p.get("run") or {}).get("power_plan")), ("CPU power limit", _limit)]
     if group == "gpu":
         checks.insert(0, ("screen", _screen))
+        checks.append(("Mesa", lambda p: (p.get("run") or {}).get("mesa")))
+    if group == "storage":
+        checks.append(("file system", lambda p: (p.get("run") or {}).get("file_system")))
     if group == "ai":
         checks.insert(0, ("AI backend and quantization", _ai))
     notes = []

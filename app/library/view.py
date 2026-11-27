@@ -77,6 +77,15 @@ def ran_with(pkg: Mapping) -> List[str]:
         out.append(f"power plan {run['power_plan']}")
     if isinstance(run.get("other_cpu_idle"), (int, float)):
         out.append(f"other programs {run['other_cpu_idle']:.1f}% CPU at rest")
+    limit = run.get("cpu_power_limit") or {}
+    if limit.get("long_w") or limit.get("short_w"):
+        out.append("CPU limit " + " / ".join(f"{limit[k]:g} W" for k in ("long_w", "short_w") if limit.get(k)))
+    if limit.get("max_state_ac") is not None:
+        out.append(f"max processor state {limit['max_state_ac']}% (battery {limit.get('max_state_dc')}%)")
+    if run.get("mesa") and pkg["attribution"].get("part") in ("gpu", "system"):
+        out.append(f"Mesa {run['mesa']}")
+    if run.get("file_system") and (pkg.get("test") or {}).get("group") == "storage":
+        out.append(f"file system {run['file_system']}")
     ai = run.get("ai") or {}
     out += [f"{label} {ai[k]}" for k, label in (("backend", "backend"), ("quantization", "quant")) if ai.get(k)]
     return out
