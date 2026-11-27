@@ -88,6 +88,9 @@ def license_question() -> str:
             f"{LICENSE_URL}\n\nRead it. Is your use allowed by it, and do you accept it? Nothing is uploaded.")
 
 
+DRAWN = re.compile(r"Creating (\d+x\d+) \w+ Window")
+
+
 def build_command(exe: str, api: str, folder: str) -> list:
     return [exe, "-vsync", "0", "-fps", "1", "-benchmark", "1", "-close", "1", "-fullscreen", "1", "-status", "1",
             "-times", str(Path(folder) / "times.txt"), api]
@@ -225,7 +228,9 @@ class GravityMarkWorkload(Workload):
         fps, details, why = parse_result(_read(out) + "\n" + _read(err), _read(folder / "times.txt"))
         if fps is None:
             return WorkloadResult(status="invalid", error=why, **common)
-        parts = [("GravityMark", VERSION), ("API", self.title), ("Mode", "full screen, vsync off")] + list(details.items())
+        size = DRAWN.search(_read(out))     # "Creating 1920x1080 Vulkan Window": the size it drew at
+        parts = ([("GravityMark", VERSION), ("API", self.title), ("Mode", "full screen, vsync off"),
+                  ("Drawn at", size.group(1) if size else None)] + list(details.items()))
         note = "; ".join(f"{k}: {v}" for k, v in parts if v)
         return WorkloadResult(status="completed", score=round(fps, 2), unit=UNIT, metrics={}, note=note, **common)
 

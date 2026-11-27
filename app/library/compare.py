@@ -242,6 +242,7 @@ def run_notes(present: List[Mapping]) -> List[str]:
     if group == "gpu":
         checks.insert(0, ("screen", _screen))
         checks.append(("Mesa", lambda p: (p.get("run") or {}).get("mesa")))
+        checks.insert(1, ("size drawn at", lambda p: (p.get("run") or {}).get("drawn_at")))
     if group == "storage":
         checks.append(("file system", lambda p: (p.get("run") or {}).get("file_system")))
     if group == "ai":

@@ -19,11 +19,12 @@ def test_run_context_from_the_manifest_and_ai_run():
                    "power_plan": "Balanced", "gpu_drivers": ["AMD Radeon(TM) Graphics 32.0.21025.10016", "amdgpu"],
                    "other_cpu_idle": 0.4,
                    "ai": {"model": "qwen3.5-4b", "quantization": "Q4_K_M", "backend": "llama.cpp-vulkan@2.73.0",
-                          "pp": 512}, "cpu_power_limit": None, "mesa": None, "file_system": None}
+                          "pp": 512}, "cpu_power_limit": None, "mesa": None, "file_system": None,
+                   "drawn_at": None}
     # an older session: not recorded, never guessed
     assert run_context({}, {}, None) == {"screen": None, "power_plan": None, "gpu_drivers": None,
                                          "other_cpu_idle": None, "ai": None, "cpu_power_limit": None,
-                                         "mesa": None, "file_system": None}
+                                         "mesa": None, "file_system": None, "drawn_at": None}
 
 
 def test_stress_work_curve_goes_into_the_package():
@@ -118,3 +119,19 @@ def test_the_new_fields_show_in_the_library_and_comparisons():
     notes = compare.run_notes([gpu, other])
     assert "another Mesa: 24.2.8 / 25.0.1" in notes and any(n.startswith("another CPU power limit") for n in notes)
     assert compare.run_notes([dict(disk), dict(disk, run={"file_system": "ext4"})]) == ["another file system: NTFS / ext4"]
+
+
+def test_the_size_a_graphics_tool_drew_at_is_kept():
+    import re
+    from app.library import compare, view
+    from app.pro import gravitymark
+    line = "M: 191.63 ms: Creating 1920x1080 Vulkan Window"
+    assert gravitymark.DRAWN.search(line).group(1) == "1920x1080"
+    assert run_context({}, {}, None, "GravityMark: 1.88; Drawn at: 1920x1080; Read from: x")["drawn_at"] == "1920x1080"
+    assert run_context({}, {}, None, "glmark2, OpenGL, default scenes, drawn at 800x600")["drawn_at"] == "800x600"
+    assert run_context({}, {}, None, "glmark2, OpenGL, default scenes, 800x600 window")["drawn_at"] is None
+    assert re.search(r"Surface Size:\s*(\d+x\d+)", "    Surface Size:   800x600 windowed", re.I).group(1) == "800x600"
+    a = {"attribution": {"part": "gpu", "context": {}}, "test": {"group": "gpu"}, "run": {"drawn_at": "1920x1080"}}
+    b = dict(a, run={"drawn_at": "2560x1440"})
+    assert view.software(a) == "drawn at 1920x1080"
+    assert compare.run_notes([a, b]) == ["another size drawn at: 1920x1080 / 2560x1440"]

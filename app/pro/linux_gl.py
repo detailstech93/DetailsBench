@@ -159,7 +159,9 @@ class LinuxGpuWorkload(Workload):
         score, why_not = parse_score(self.program, text)
         if score is None:
             return WorkloadResult(status="invalid", error=why_not, **common)
-        note = f"{self.program}, {self.api}, default scenes, 800x600 window"
+        size = re.search(r"Surface Size:\s*(\d+x\d+)", text, re.I)      # glmark2: "Surface Size:   800x600 windowed"
+        note = f"{self.program}, {self.api}, default scenes, " + (f"drawn at {size.group(1)}" if size else
+                                                                  "800x600 window")
         return WorkloadResult(status="completed", score=score, unit=UNIT, metrics={}, note=note, **common)
 
 

@@ -73,6 +73,8 @@ def ran_with(pkg: Mapping) -> List[str]:
     if screen.get("width") and pkg["attribution"].get("part") in ("gpu", "system"):
         hz = f" {screen['refresh_hz']:g} Hz" if screen.get("refresh_hz") else ""
         out.append(f"screen {screen['width']}x{screen['height']}{hz}")
+    if run.get("drawn_at"):
+        out.append(f"drawn at {run['drawn_at']}")
     if run.get("power_plan"):
         out.append(f"power plan {run['power_plan']}")
     if isinstance(run.get("other_cpu_idle"), (int, float)):

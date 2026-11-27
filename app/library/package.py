@@ -82,7 +82,10 @@ AI_RUN_KEYS = ("tool", "tool_version", "model", "quantization", "arch", "backend
                "gpu_layers", "pp", "tg", "depths", "concurrency")
 
 
-def run_context(manifest: Mapping, hw: Mapping, ai_run: Optional[Mapping]) -> dict:
+DRAWN_AT = re.compile(r"[Dd]rawn at:? (\d+x\d+)")
+
+
+def run_context(manifest: Mapping, hw: Mapping, ai_run: Optional[Mapping], note: Optional[str] = None) -> dict:
     """What the test ran on besides its parts (owner, 2026-11-19): the screen, the power plan, every GPU's driver, the
     other programs' CPU at rest and, for an AI test, its backend and quantization. None where it was not recorded
     (an older session), never a guess."""
@@ -94,7 +97,9 @@ def run_context(manifest: Mapping, hw: Mapping, ai_run: Optional[Mapping]) -> di
     return {"screen": conditions.get("screen"), "power_plan": plan, "gpu_drivers": [d for d in drivers if d] or None,
             "other_cpu_idle": conditions.get("other_cpu_idle"), "ai": ai or None,
             "cpu_power_limit": conditions.get("cpu_power_limit"), "mesa": conditions.get("mesa"),
-            "file_system": conditions.get("data_file_system")}
+            "file_system": conditions.get("data_file_system"),
+            # the size a graphics tool printed it drew at (GravityMark, glmark2), from its result note
+            "drawn_at": (DRAWN_AT.search(note or "") or [None, None])[1]}
 
 
 def work_curves(measured: List[Mapping]) -> Optional[List[dict]]:
@@ -192,7 +197,7 @@ def build_packages(export: Mapping, read_ai_run: Callable[[str], Optional[dict]]
                      "unit": units.pop() if len(units) == 1 else None, "settings": settings,
                      "fingerprint": fingerprint},
             "attribution": attr,
-            "run": run_context(manifest, hw, ai_run),
+            "run": run_context(manifest, hw, ai_run, note),
             "result": {"mean": stats.get("mean"), "median": stats.get("median"), "min": stats.get("min"),
                        "max": stats.get("max"), "stdev": stats.get("stdev"), "cv_percent": cv,
                        "runs": len(measured), "accuracy": accuracy(len(measured), cv),
