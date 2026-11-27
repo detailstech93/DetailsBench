@@ -145,14 +145,14 @@ class _FmtItem(ctypes.Structure):
 class PdhCounters:
     """One PDH query with the two GPU Adapter Memory counters; read() -> {"dedicated": {instance: bytes}, ...}."""
 
-    def __init__(self):
+    def __init__(self, paths: Dict[str, str] = COUNTERS):
         self.pdh = ctypes.WinDLL("pdh")
         self.query = ctypes.c_void_p()
         status = self.pdh.PdhOpenQueryW(None, None, ctypes.byref(self.query))
         if status != 0:
             raise OSError(f"PdhOpenQueryW failed: 0x{status & 0xFFFFFFFF:08X}")
         self.counters = {}
-        for key, path in COUNTERS.items():
+        for key, path in paths.items():
             handle = ctypes.c_void_p()
             status = self.pdh.PdhAddEnglishCounterW(self.query, ctypes.c_wchar_p(path), None, ctypes.byref(handle))
             if status != 0:

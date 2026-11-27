@@ -142,7 +142,7 @@ class OtherProgramsSource:
         if last is None or now - last[0] <= 0:
             return {}
         span = (now - last[0]) * self.cores
-        test = self._test_pids()
+        test = self._test = self._test_pids()      # kept for the GPU share of the same sample
         total, named = 0.0, {}
         for pid, (name, used) in times.items():
             before = last[1].get(pid)

@@ -1,0 +1,60 @@
+"""Plan "GPU per program" steps 1-2 (owner, 2026-11-27): other programs' share of the test's graphics card, Windows'
+own share kept apart, and a GPU-busy run flagged "Run again"."""
+
+from types import SimpleNamespace as NS
+
+from app.telemetry.gpu_programs import GpuProgramsSource, per_program
+
+CARD = (0, 0xD1E6)
+
+
+def _inst(pid, eng, kind, luid="0x00000000_0x0000D1E6"):
+    return f"pid_{pid}_luid_{luid}_phys_0_eng_{eng}_engtype_{kind}"
+
+
+def test_per_program_sums_each_engine_type_and_keeps_the_busiest():
+    values = {_inst(20, 0, "3D"): 40.0, _inst(20, 1, "3D"): 30.0, _inst(20, 5, "Copy"): 50.0,
+              _inst(30, 0, "VideoDecode"): 4.0, _inst(30, 0, "3D", "0x00000000_0x00001111"): 90.0}  # another card
+    assert per_program(values, CARD) == {20: 70.0, 30: 4.0}
+
+
+class FakeOther:
+    def __init__(self):
+        self._last = (1.0, {4: ("System", 0), 20: ("game.exe", 0), 30: ("msedge.exe", 0), 31: ("dwm.exe", 0),
+                            32: ("tiny.exe", 0), 33: ("PresentMon-2.exe", 0)})
+        self._test = {0, 20}
+
+    def _test_pids(self):
+        return self._test
+
+
+def test_the_test_and_windows_own_programs_are_kept_apart():
+    reads = iter([{"engine": {}}, {"engine": {_inst(20, 0, "3D"): 95.0, _inst(30, 0, "3D"): 7.5,
+                                              _inst(32, 0, "3D"): 1.0, _inst(4, 5, "Copy"): 1.5,
+                                              _inst(31, 0, "3D"): 0.1, _inst(33, 0, "3D"): 2.0}}])
+    src = GpuProgramsSource(FakeOther(), platform_name="win32",
+                            adapters=lambda: [NS(luid=CARD, name="RTX", vendor_id=0x10DE, dedicated_total=8)],
+                            counters=lambda: NS(read=lambda: next(reads)))
+    assert src.available() == (True, "other programs' share of RTX")
+    assert src.read() == {"gpu_other": (8.5, "%"), "gpu_windows": (1.6, "%"), "gpu_other_msedge.exe": (7.5, "%")}
+    assert GpuProgramsSource(FakeOther(), platform_name="linux").available()[0] is False
+
+
+def _run(index, gpu, named=None):
+    metrics = {"tel_cpu_other_avg": {"value": 1.0, "unit": "%"}, "tel_gpu_other_avg": {"value": gpu, "unit": "%"},
+               "tel_gpu_windows_avg": {"value": 30.0, "unit": "%"}}
+    metrics.update({f"tel_gpu_other_{n}_avg": {"value": v, "unit": "%"} for n, v in (named or {}).items()})
+    return {"benchmark_name": "frames_bl3", "run_index": index, "is_warmup": False, "status": "completed",
+            "score": 113.0, "unit": "FPS", "metrics": metrics}
+
+
+def test_a_run_with_the_graphics_card_busy_is_run_again():
+    from app.report_set import busy_runs, busy_what, run_again_text
+    export = {"session": {"id": 1, "name": "s", "created_at": "2026-11-27T10:00:00"},
+              "runs": [_run(1, 0.5), _run(2, 9.4, {"msedge.exe": 7.2}), _run(3, 0.6)]}
+    assert busy_runs(export, "frames_bl3") == ["run 2: graphics card 9% (msedge.exe 7%), the other runs 1%"]
+    assert run_again_text(export).startswith("Run again: other programs were using the graphics card")
+    assert busy_what(["run 1: 12%", "run 2: graphics card 9%"]) == "the CPU and the graphics card"
+    calm = dict(export, runs=[_run(1, 0.5), _run(2, 4.0), _run(3, 0.6)])     # under GPU_BUSY_PERCENT: not flagged
+    assert busy_runs(calm, "frames_bl3") == []
+    assert busy_runs(dict(export, runs=[_run(1, 6.0)]), "frames_bl3") == ["run 1: graphics card 6%"]

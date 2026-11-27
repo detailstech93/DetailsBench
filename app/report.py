@@ -1077,12 +1077,12 @@ def _header_section(export: Mapping) -> str:
     if _truthy(session.get("is_test")):
         parts.append('<p class="badge test">TEST DATA - not real results</p>')
 
-    from app.report_set import busy_runs, skipped_note
+    from app.report_set import busy_runs, busy_what, skipped_note
     titles = _game_titles(export)
     for name in _tested_names(export):        # seen at once, above the numbers (owner, 2026-11-12)
         busy = busy_runs(export, name)
         if busy:
-            parts.append(f'<p class="badge again">Run again: other programs were using the CPU during '
+            parts.append(f'<p class="badge again">Run again: other programs were using {busy_what(busy)} during '
                          f'{esc(_label(name, _emulated(export), titles))}: {esc("; ".join(busy))}</p>')
     for name in _tested_names(export):        # the Skip button: how far the test got (owner, 2026-10-20)
         note = skipped_note([_mapping(r) or {} for r in export.get("runs") or []
@@ -1655,6 +1655,7 @@ def render_summary_report(export: Mapping, outcomes: list) -> str:
     """The final report of a run of several tests (owner, 2026-10-20): the environment, then each test with how many
     times it ran, a short result (or that it failed, and why), the time it took and a link to its own report.
     outcomes: app/report_set.py test_outcome() rows with "title" and "file"."""
+    from app.report_set import busy_what
     export_mapping = _mapping(export) or {}
     rows = []
     for o in outcomes:
@@ -1664,11 +1665,13 @@ def render_summary_report(export: Mapping, outcomes: list) -> str:
         details = f'<div class="muted">{esc(o.get("details"))}</div>' if o.get("details") else ""
         if o.get("busy"):
             state += '<div class="uneven">Run again</div>'
-            details += f'<div class="uneven">Other programs were using the CPU: {esc("; ".join(o["busy"]))}</div>'
+            details += (f'<div class="uneven">Other programs were using {busy_what(o["busy"])}: '
+                        f'{esc("; ".join(o["busy"]))}</div>')
         rows.append(f"<tr><td>{link}</td><td>{state}</td><td>{esc(o.get('result'))}{details}</td>"
                     f"<td>{esc(o.get('runs'))}</td><td>{esc(o.get('time'))}</td></tr>")
     again = [o.get("title") for o in outcomes if o.get("busy")]
-    again = (f'<p class="badge again">Run again (other programs were using the CPU): {esc(" · ".join(again))}</p>'
+    what = busy_what([b for o in outcomes for b in o.get("busy") or []])
+    again = (f'<p class="badge again">Run again (other programs were using {what}): {esc(" · ".join(again))}</p>'
              if again else "")
     passed = sum(1 for o in outcomes if o.get("passed"))
     skipped = sum(1 for o in outcomes if o.get("skipped"))

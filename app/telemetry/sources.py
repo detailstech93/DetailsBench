@@ -547,8 +547,11 @@ def default_sources(platform_name: str = sys.platform) -> list:
     sources = [PsutilSource(platform_name=platform_name), NvidiaSmiSource(), GpuMemorySource(platform_name)]
     sources += _plug_sources()
     from app.telemetry.other_programs import OtherProgramsSource
-    sources.append(OtherProgramsSource())          # trust fix 3a: other programs using the CPU during a run
+    other = OtherProgramsSource()
+    sources.append(other)                           # trust fix 3a: other programs using the CPU during a run
     if platform_name == "win32":
+        from app.telemetry.gpu_programs import GpuProgramsSource
+        sources.append(GpuProgramsSource(other))    # after it: its program names of this sample are reused
         # before nvidia-smi: its AMD GPU readings give way to an NVIDIA card's
         sources.insert(1, LhmSource(settings=_provisioned_lhm_settings))
     elif platform_name.startswith("linux"):

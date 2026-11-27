@@ -138,6 +138,11 @@ BUSY_LIMIT = 10.0
 # 6.2-6.3%); 3 missed those three.
 ABOVE_RUNS = 2.0
 OTHER = "tel_cpu_other_"
+# owner's to change (2026-11-27, plan "GPU per program" step 2): a run where programs that are not the test used this
+# share of its graphics card on average. Nothing else used it during the games of 2026-11-16 (Windows' own share,
+# gpu_windows, is kept apart and never flagged).
+GPU_BUSY_PERCENT = 5.0
+GPU_OTHER = "tel_gpu_other_"
 
 
 def other_cpu_idle(export: Mapping) -> Optional[float]:
@@ -157,35 +162,53 @@ def busy_percent(export: Mapping) -> float:
 def busy_runs(export: Mapping, name: str) -> List[str]:
     """Each measured run of the test where other programs kept the CPU busy: "run 2: 12% (chrome.exe 9%), the
     other runs 6%". With two runs or more, each against the middle of its session's runs (ABOVE_RUNS over it, always
-    at BUSY_LIMIT); a lone run against the rest before the session (busy_percent)."""
-    out, rest, runs = [], other_cpu_idle(export), []
+    at BUSY_LIMIT); a lone run against the rest before the session (busy_percent). Then the runs where they kept the
+    test's graphics card busy: "run 2: graphics card 9% (msedge.exe 7%)", never under GPU_BUSY_PERCENT."""
+    return _busy(export, name, OTHER, "") + _busy(export, name, GPU_OTHER, "graphics card ")
+
+
+def _busy(export: Mapping, name: str, prefix: str, what: str) -> List[str]:
+    gpu = prefix == GPU_OTHER
+    out, rest, runs = [], None if gpu else other_cpu_idle(export), []
     for r in export.get("runs") or []:
         if r.get("benchmark_name") != name or r.get("is_warmup"):
             continue
-        share = ((r.get("metrics") or {}).get("tel_cpu_other_avg") or {}).get("value")
+        share = ((r.get("metrics") or {}).get(prefix + "avg") or {}).get("value")
         if isinstance(share, (int, float)):
             runs.append((r, share))
     middle = statistics.median(v for _, v in runs) if len(runs) > 1 else None
-    limit = busy_percent(export) if middle is None else min(BUSY_LIMIT, middle + ABOVE_RUNS)
+    if gpu:
+        limit = GPU_BUSY_PERCENT if middle is None else min(BUSY_LIMIT, max(GPU_BUSY_PERCENT, middle + ABOVE_RUNS))
+    else:
+        limit = busy_percent(export) if middle is None else min(BUSY_LIMIT, middle + ABOVE_RUNS)
     for r, share in runs:
         if share < limit:
             continue
         m = r.get("metrics") or {}
-        named = sorted(((k[len(OTHER):-len("_avg")], v.get("value")) for k, v in m.items()
-                        if k.startswith(OTHER) and k.endswith("_avg") and k != "tel_cpu_other_avg"
+        named = sorted(((k[len(prefix):-len("_avg")], v.get("value")) for k, v in m.items()
+                        if k.startswith(prefix) and k.endswith("_avg") and k != prefix + "avg"
                         and isinstance(v.get("value"), (int, float))), key=lambda p: -p[1])[:3]
         which = ", ".join(f"{n} {v:.0f}%" for n, v in named)
-        out.append(f"run {r.get('run_index')}: {share:.0f}%" + (f" ({which})" if which else "")
+        out.append(f"run {r.get('run_index')}: {what}{share:.0f}%" + (f" ({which})" if which else "")
                    + (f", the other runs {middle:.0f}%" if middle is not None else
                       f", {rest:.0f}% at rest" if rest is not None else ""))
     return out
 
 
+def busy_what(busy: List[str]) -> str:
+    """What the other programs kept busy, for the "Run again" texts."""
+    gpu = any("graphics card" in b for b in busy)
+    cpu = any("graphics card" not in b for b in busy)
+    return "the CPU and the graphics card" if gpu and cpu else "the graphics card" if gpu else "the CPU"
+
+
 def run_again_text(export: Mapping) -> str:
     """One line for the app and the phone when a test of this session needs running again, else ""."""
     titles = display_names(export)
-    busy = [f"{titles.get(n, n)} ({'; '.join(b)})" for n in tested_names(export) for b in [busy_runs(export, n)] if b]
-    return ("Run again: other programs were using the CPU: " + " · ".join(busy)) if busy else ""
+    found = [(n, b) for n in tested_names(export) for b in [busy_runs(export, n)] if b]
+    busy = [f"{titles.get(n, n)} ({'; '.join(b)})" for n, b in found]
+    return (f"Run again: other programs were using {busy_what([x for _, b in found for x in b])}: "
+            + " · ".join(busy)) if busy else ""
 
 
 def failure_reason(note) -> str:
