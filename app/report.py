@@ -1110,11 +1110,29 @@ def _header_section(export: Mapping) -> str:
         if note:
             parts.append(f'<p class="badge manual">{esc(note)}</p>')
 
+    parts.append(_mtp_badges(export))
     if _truthy(session.get("is_manual")):
         parts.append('<p class="badge manual">Contains manually entered results</p>')
 
     parts.append("</section>")
     return "".join(parts)
+
+
+def _mtp_badges(export: Mapping) -> str:
+    """An AI test with MTP on, seen at once at the top: its speed is not the steady score (owner 2026-11-27)."""
+    from app.history import MODEL, speculative
+    runs = [_mapping(r) or {} for r in export.get("runs") or []]
+    titles = _game_titles(export)
+    badges = []
+    for name in _tested_names(export):
+        own = [r for r in runs if r.get("benchmark_name") == name]
+        if name.startswith("llama_benchy") and "MTP on" in (speculative(own) or ""):
+            models = sorted({m.group(1) for r in own for m in [MODEL.search(str(r.get("note") or ""))] if m})
+            model = f" ({', '.join(models)})" if models else ""
+            badges.append(f'<p class="badge mtp">MTP ON (speculative decoding): '
+                          f'{esc(_label(name, _emulated(export), titles) + model)}. Faster, but each run differs; '
+                          "compared only with other runs with MTP on.</p>")
+    return "".join(badges)
 
 
 def _run_lines(export: Mapping, name: Any) -> list:
@@ -1610,6 +1628,7 @@ def _style_block() -> str:
         "border:1px solid var(--test);"
         "}"
         ".badge.again{display:block;border-radius:8px;color:#fff;background:#b45309;font-size:1rem;}"
+        ".badge.mtp{display:block;border-radius:8px;color:#fff;background:#7c3aed;font-size:1rem;}"
         ".badge.manual{"
         "color:var(--manual);"
         "border:1px solid var(--manual);"
@@ -1715,7 +1734,7 @@ def render_summary_report(export: Mapping, outcomes: list) -> str:
         + '<section class="header"><h1 dir="auto" class="tested">Summary of the run: '
           f"{len(outcomes)} tests</h1><p class=\"session\" dir=\"auto\">"
           f"{_session_name(export_mapping.get('session'))} · started "
-          f"{_text((_mapping(export_mapping.get('session')) or {}).get('created_at'), '-')}</p>" + again + "</section>"
+          f"{_text((_mapping(export_mapping.get('session')) or {}).get('created_at'), '-')}</p>" + again + _mtp_badges(export_mapping) + "</section>"
         + _environment_section(export_mapping)
         + _conditions_section(export_mapping)
         + "<section><h2>Tests in this run</h2>" + tiles

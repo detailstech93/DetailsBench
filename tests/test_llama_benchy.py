@@ -322,3 +322,16 @@ def test_the_free_test_loads_its_model_with_mtp_as_chosen(tmp_path):
 def test_the_report_names_mtp_in_the_settings():
     from app.report import _ai_settings
     assert _ai_settings({"Speculative": "MTP off"}, {}) == {"Speculative decoding (MTP)": "MTP off"}
+
+
+def test_an_mtp_on_test_is_marked_at_the_top_of_the_report():
+    """Owner 2026-11-27: a test with MTP on is told apart at once, at the top of the report."""
+    from app.report import _header_section, _mtp_badges
+    run = lambda name, note: {"benchmark_name": name, "status": "completed", "is_warmup": False, "note": note}
+    export = {"session": {"id": 1}, "runs": [run("llama_benchy", "Model: qwen/qwen3.8-27b; Speculative: MTP on"),
+                                            run("llama_benchy_gemma4_12b", "Model: google/gemma-4-12b-qat Q4_0")]}
+    badges = _mtp_badges(export)
+    assert badges.count('class="badge mtp"') == 1 and "MTP ON" in badges and "qwen/qwen3.8-27b" in badges
+    assert badges in _header_section(export)
+    export["runs"][0]["note"] = "Model: qwen/qwen3.8-27b; Speculative: MTP off"
+    assert _mtp_badges(export) == ""
