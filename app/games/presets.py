@@ -308,7 +308,15 @@ def plan_preset(app_id, preset: GamePreset, offered: Dict[str, list]) -> Tuple[D
             off = [v for v in offered.get(key, ()) if str(v).strip().lower() in OFF_VALUES]
             if off:
                 requested[key] = off[0]
+        for key, value in SAME_EVERY_RUN.get(str(app_id), {}).items():
+            if value in offered.get(key, ()):
+                requested[key] = value
     return requested, skipped
+
+
+# settings a preset leaves alone, held the same for every run (laptop s160, 2026-11-27: SOTTR ran with exclusive
+# fullscreen on and anti-aliasing 0, its 50 earlier runs with off and 2: 195 against 174 FPS, not comparable)
+SAME_EVERY_RUN = {"750920": {"exclusive_fullscreen": False, "anti_aliasing": 2}}
 
 
 CAPS_OFF = ("vsync", "fps_limit", "frame_lock", "dynamic_resolution")

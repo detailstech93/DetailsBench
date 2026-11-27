@@ -39,9 +39,10 @@ def test_the_dialog_offers_what_was_matched_with_the_owner():
     offered = sotr.choices(high, {})
     preset = GamePreset(resolution="1920x1080", upscaler="dlss", ray_tracing="on", quality="ultra")
     assert plan_preset(750920, preset, offered) == (
-        {"resolution": "1920x1080", "dlss": "Quality", "ray_tracing": "Ultra", "preset": "Highest"}, {})
+        {"resolution": "1920x1080", "dlss": "Quality", "ray_tracing": "Ultra", "preset": "Highest",
+         "exclusive_fullscreen": False}, {})
     assert plan_preset(750920, GamePreset(upscaler="off", ray_tracing="off", quality="low"), offered)[0] == {
-        "dlss": "Off", "ray_tracing": "Off", "preset": "Low"}
+        "dlss": "Off", "ray_tracing": "Off", "preset": "Low", "exclusive_fullscreen": False}
     assert game_values(750920, offered, "upscaler", ["off", "dlss", "fsr", "xess"]) == ["off", "dlss"]
     assert game_values(750920, offered, "quality", ["low", "medium", "high", "ultra"]) == ["low", "medium", "high", "ultra"]
     assert game_values(750920, offered, "frame_gen", ["x2"]) is None
@@ -95,9 +96,10 @@ def test_the_dlss_mode_is_chosen_only_with_dlss_on():
         "quality", "balanced", "performance", "ultra_performance"]
     assert game_values(397540, None, "upscaler_mode", list(presets.UPSCALER_MODES[1:])) is None      # BL3: none
     on = presets.game_preset("upscaling", "dlss", "off", presets.KEEP, presets.KEEP, presets.KEEP, "performance")
-    assert plan_preset(750920, on, offered)[0] == {"dlss": "Performance"}
+    assert plan_preset(750920, on, offered)[0] == {"dlss": "Performance", "exclusive_fullscreen": False}
     off = presets.game_preset("raw", "dlss", "off", presets.KEEP, presets.KEEP, presets.KEEP, "performance")
-    assert off.upscaler_mode == presets.KEEP and plan_preset(750920, off, offered)[0] == {"dlss": "Off", "ray_tracing": "Off"}
+    assert off.upscaler_mode == presets.KEEP and plan_preset(750920, off, offered)[0] == {"dlss": "Off", "ray_tracing": "Off",
+                                                                                   "exclusive_fullscreen": False}
     assert presets.GamePreset.from_dict(on.to_dict()) == on
 
 
@@ -154,3 +156,15 @@ def test_settings_changed_outside_the_app_are_written_again_before_each_run(tmp_
     assert "ray_tracing was 'Ultra', not 'Off'" in forced.check()
     forced.finish()
     assert store.data["RayTracing"] == 0 and store.data["DLSS"] == 3     # the user's own put back
+
+
+def test_exclusive_fullscreen_and_anti_aliasing_are_held_the_same_every_run():
+    """Laptop s160, 2026-11-27: exclusive fullscreen on and AA 0 against 50 runs with off and 2 (195 vs 174 FPS)."""
+    now = dict(REG, ExclusiveFullscreen=1, AA=0)
+    offered = sotr.choices(now, {"anti_aliasing": {"2": "seen"}})
+    requested = plan_preset(750920, GamePreset(upscaler="off", ray_tracing="off"), offered)[0]
+    assert requested["exclusive_fullscreen"] is False and requested["anti_aliasing"] == 2
+    new = sotr.apply(now, sotr.plan(now, requested, {"anti_aliasing": {"2": "seen"}})[0])
+    assert new["ExclusiveFullscreen"] == 0 and new["AA"] == 2
+    # AA 2 never seen in this game's file: its number is not written blind
+    assert "anti_aliasing" not in plan_preset(750920, GamePreset(upscaler="off"), sotr.choices(now, {}))[0]
