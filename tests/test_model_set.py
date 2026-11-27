@@ -155,7 +155,7 @@ def test_the_owner_adds_and_removes_own_models(tmp_path, monkeypatch):
     test_id = ms.add_model("qwen/qwen3.5-9b", "q4_k_m", "Qwen3.5 9B", "7.0 GB")
     assert test_id == "llama_benchy_my_qwen_qwen3_5_9b_q4_k_m"
     assert ms.all_models()[test_id] == ("Qwen3.5 9B", "qwen/qwen3.5-9b", "Q4_K_M", "7.0 GB")
-    assert len(ms.all_models()) == 5 and [w.id for w in ms.model_workloads()][-1] == test_id
+    assert len(ms.all_models()) == 4 and [w.id for w in ms.model_workloads()][-1] == test_id
     assert plans.plan_for(test_id, host=plans.Host("windows", "x64")) == {"kind": "lmstudio", "test_id": test_id}
     assert "lms get qwen/qwen3.5-9b@q4_k_m" in ms.install_text(test_id)
     for key, quant in (("not a key", "Q4_0"), ("a/b", "Q4 0; rm"), ("google/gemma-4-12b-qat", "Q4_0")):
@@ -165,7 +165,7 @@ def test_the_owner_adds_and_removes_own_models(tmp_path, monkeypatch):
         except ValueError:
             pass
     assert not ms.remove_model("llama_benchy_gemma4_12b") and ms.remove_model(test_id)
-    assert len(ms.all_models()) == 4
+    assert len(ms.all_models()) == 3
 
 
 def test_models_on_disk_for_the_choice():
@@ -195,13 +195,13 @@ def test_ai_models_dialog(tmp_path, qapp):
     told = []
     d = AiModelsDialog(data_dir=tmp_path, on_disk=lambda: [("qwen/qwen3.8-27b", "Q8_0", "Qwen3.8 27B", "28.6 GB")],
                        tell=told.append)
-    assert d.list.count() == 4 and not d.remove() and "built-in" in told[-1]
+    assert d.list.count() == 3 and not d.remove() and "built-in" in told[-1]
     d.choice.setCurrentIndex(0)
-    assert d.add() and d.changed and d.list.count() == 5
+    assert d.add() and d.changed and d.list.count() == 4
     d.choice.setEditText("mistral/ministral-8b@Q4_K_M")
-    assert d.add() and d.list.count() == 6
-    d.list.setCurrentRow(5)
-    assert d.remove() and d.list.count() == 5
+    assert d.add() and d.list.count() == 5
+    d.list.setCurrentRow(4)
+    assert d.remove() and d.list.count() == 4
     assert "Qwen3.8 27B" in ms.custom_models(tmp_path)[ms.custom_id("qwen/qwen3.8-27b", "Q8_0")][0]
 
 
@@ -315,7 +315,7 @@ def test_the_free_llama_benchy_test_has_its_own_install_for_the_book(monkeypatch
     assert "did not send" in ms.install("llama_benchy", shown.append, lms=Path("lms")).message
 
 
-def test_mtp_is_off_for_every_test_and_on_only_for_its_own(tmp_path, monkeypatch):
+def test_mtp_is_off_for_every_fixed_test(tmp_path, monkeypatch):
     """Owner 2026-11-27: Qwen3.8 27B with MTP (LM Studio's own choice) varied 5.5%, without it 0.5%."""
     def run_process(command, out, err, timeout, stop, cwd=None, **k):
         for f in (out, err):
@@ -324,8 +324,8 @@ def test_mtp_is_off_for_every_test_and_on_only_for_its_own(tmp_path, monkeypatch
         return SimpleNamespace(exit_code=0, timed_out=False, cancelled=False, duration_seconds=40.0, start_error=None)
     monkeypatch.setattr(llama_benchy, "run_process", run_process)
     ls = [dict(LS[1], selectedVariant="qwen/qwen3.8-27b@q4_k_m")]
-    for test_id, flag, said in (("llama_benchy_qwen38_27b", "--no-speculative-draft-mtp", "MTP off"),
-                                ("llama_benchy_qwen38_27b_mtp", "--speculative-draft-mtp", "MTP on")):
+    assert all(not t.endswith("_mtp") for t in ms.MODELS)    # MTP on is only the free test's choice (owner)
+    for test_id, flag, said in (("llama_benchy_qwen38_27b", "--no-speculative-draft-mtp", "MTP off"),):
         ms._LS.clear()
         fake = FakeLms(ls=ls)
         w = _workload(tmp_path, fake, test_id)
@@ -349,8 +349,3 @@ def test_mtp_is_off_for_every_test_and_on_only_for_its_own(tmp_path, monkeypatch
     loads = [c for c in old.calls if c[0] == "load"]
     assert r.status == "completed" and len(loads) == 2 and not any("speculative" in a for a in loads[1])
     assert "no MTP option" in json.loads((tmp_path / "old" / "ai_run.json").read_text(encoding="utf-8"))["speculative"]
-    ms._LS.clear()
-    w = _workload(tmp_path, OldLms(ls=ls), "llama_benchy_qwen38_27b_mtp")
-    w._card_gb = lambda: 24.0
-    r = w.run(RunContext(output_dir=tmp_path / "old_mtp", timeout_seconds=60))
-    assert r.status == "skipped" and r.score is None and "update LM Studio" in r.error

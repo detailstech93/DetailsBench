@@ -750,7 +750,7 @@ def _handbrake_section(export: Mapping) -> str:
 
 def _model_sections(export: Mapping) -> str:
     """One section per fixed LM Studio model (app/ai/model_set.py), also one the owner removed since."""
-    from app.ai.model_set import CONTEXT, MTP_TESTS, PP, TG, all_models
+    from app.ai.model_set import CONTEXT, PP, TG, all_models
     try:
         models = all_models()
     except Exception:                   # settings not readable: the built-in names only
@@ -761,15 +761,12 @@ def _model_sections(export: Mapping) -> str:
     for test_id in ids:
         title, key, quant, _size = models.get(test_id, (test_id, "", "", ""))
         model = f"{key} {quant}" if key else "the model named on the tile"
-        mtp = test_id in MTP_TESTS
         sections.append(_tiles_section(
             export, f"{title} (llama-benchy)", ((test_id, f"{title}, {quant}" if quant else title, "tok/s"),),
             f"Token generation in tokens per second (llama-benchy, total tg at depth 0, one request, gpt2 token "
             f"counts) for {model} in LM Studio, loaded by the app with context {CONTEXT}, every layer on the "
             f"graphics card and one request at a time; prompt {PP} tokens, {TG} generated"
-            + ("; with MTP on (the model's own draft head guesses tokens ahead): the speed follows each prompt's "
-               "text, so its runs differ more" if mtp else "; MTP (speculative decoding) off")
-            + ". Higher is faster. Comparable only with the same model, quantization, LM Studio engine, llama-benchy "
+            + "; MTP (speculative decoding) off. Higher is faster. Comparable only with the same model, quantization, LM Studio engine, llama-benchy "
             "version and MTP setting. Nothing was uploaded.", decimals=1, chart_specs=AI_CHARTS, ai=True,
             settings={test_id: [("Prompt tokens (pp)", PP), ("Generated tokens (tg)", TG),
                                 ("Context depth (tokens)", 0), ("Concurrency (requests at once)", 1),
