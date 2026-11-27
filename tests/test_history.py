@@ -84,3 +84,31 @@ def test_game_scores_are_compared_only_with_the_same_settings():
     assert effective_game_settings(declared) == {"preset": "High"}
     assert game_settings_issue("cyberpunk2077_builtin_benchmark", {}, forced)["code"] == "game_settings_unknown"
     assert game_settings_issue("tool_a", {}, {}) is None                              # not a game
+
+
+def test_ai_runs_with_and_without_mtp_are_never_compared(tmp_path):
+    """Owner 2026-11-27: Qwen3.8 27B ran 28.5 tok/s with MTP off and about 37.7 with it on."""
+    db = Database(str(tmp_path / "m.db"))
+
+    def ai(score, note):
+        sid = db.create_session(f"s{len(db.search_sessions(include_test=True))}")
+        db.create_result(sid, "llama_benchy", "ai", score, "tok/s", run_index=1, note=note)
+        db.save_session_manifest(sid, manifest())
+        time.sleep(1.05)
+        return sid
+    old = ai(37.0, "Model: m")                                  # before 2026-11-27: not recorded
+    off = ai(28.4, "Model: m; Speculative: MTP off")
+    on = ai(38.0, "Model: m; Speculative: MTP on")
+
+    def row(sid):
+        return earlier_comparisons(db, next(s for s in db.search_sessions() if s["id"] == sid),
+                                   db.get_session_manifest(sid), db.get_runs(sid))[0]
+    now = row(on)                       # the newest MTP off run is passed over: only MTP on runs count
+    assert now["compare"]["status"] == "not_comparable" and [e["session_id"] for e in now["earlier"]] == [off, old]
+    assert any(i["message"] == "Different MTP: MTP off -> MTP on." for i in now["compare"]["issues"])
+    again = ai(28.6, "Model: m; Speculative: MTP off")
+    r = row(again)
+    assert [e["session_id"] for e in r["earlier"]] == [off] and r["compare"]["status"] != "not_comparable"
+    first = row(off)
+    assert first["compare"]["status"] == "not_comparable"
+    assert "not recorded for the earlier run" in _earlier_section({"earlier": [first]})

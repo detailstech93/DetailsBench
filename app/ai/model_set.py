@@ -327,6 +327,7 @@ class FixedModelWorkload(llama_benchy.LlamaBenchyWorkload):
     unload_jit = False                # its own copy is unloaded by run() below
     unload_all_first = False          # run() below unloads every model before it loads its own
     checks_memory = False             # run() below checks it before loading
+    loads_model = False               # run() below loads its own copy, with its MTP setting
     tokenizer = "gpt2"                # --tokenizer gpt2 on every PC (recorded in ai_run.json)
 
     def __init__(self, test_id: str, exe: Optional[Path] = None, lms: Optional[Path] = None,

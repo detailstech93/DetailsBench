@@ -773,8 +773,7 @@ def _model_sections(export: Mapping) -> str:
             "version and MTP setting. Nothing was uploaded.", decimals=1, chart_specs=AI_CHARTS, ai=True,
             settings={test_id: [("Prompt tokens (pp)", PP), ("Generated tokens (tg)", TG),
                                 ("Context depth (tokens)", 0), ("Concurrency (requests at once)", 1),
-                                ("Loaded context (tokens)", CONTEXT),
-                                ("Speculative decoding (MTP)", "on" if mtp else "off")]}))
+                                ("Loaded context (tokens)", CONTEXT)]}))
     return "".join(sections)
 
 
@@ -823,8 +822,8 @@ def _free_llama_section(export: Mapping) -> str:
     return _tiles_section(
         export, "llama-benchy (model chosen for the run)", FREE_LLAMA_TESTS,
         "Token generation in tokens per second with the LM Studio model and settings chosen before the run (they "
-        "are on the tile and in the runs table). Higher is faster. Comparable only with the same model, "
-        "quantization, settings and LM Studio engine; for results that compare between PCs use the fixed AI "
+        "are on the tile and in the runs table, MTP on or off with them). Higher is faster. Comparable only with "
+        "the same model, quantization, settings, MTP setting and LM Studio engine; for results that compare between PCs use the fixed AI "
         "models. Nothing was uploaded.", decimals=1, chart_specs=AI_CHARTS, ai=True)
 
 
@@ -886,6 +885,8 @@ def _ai_settings(details: dict, metrics: Mapping) -> dict:
             out["Loaded context (tokens)"] = value
         elif key == "Parallel":
             out["Parallel requests LM Studio allows"] = value
+        elif key == "Speculative":
+            out["Speculative decoding (MTP)"] = value
         else:
             out[key] = value
     return out

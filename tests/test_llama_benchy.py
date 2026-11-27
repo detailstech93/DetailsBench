@@ -288,3 +288,37 @@ def test_mtp_is_kept_and_a_comparison_says_when_it_differs():
     assert run_notes([off, old]) == ["speculative decoding not recorded for some (older results)"]
     text = llama_benchy.report_markdown({}, {"speculative": "MTP off"})
     assert "- Speculative decoding: MTP off" in text and "Speculative" not in llama_benchy.report_markdown({}, {})
+
+
+def test_the_free_test_loads_its_model_with_mtp_as_chosen(tmp_path):
+    """Owner 2026-11-27: the free test too, MTP off or on, said in the report and its note."""
+    script = _fake(tmp_path, f"open(out, 'w').write({json.dumps(json.dumps(RESULT))})\n")
+    for mtp, flag, said in ((False, "--no-speculative-draft-mtp", "MTP off"), (True, "--speculative-draft-mtp", "MTP on")):
+        calls = []
+        w = PyBenchy(script)
+        w._lms_load = lambda argv, timeout: (calls.append(argv), (0, ""))[1]
+        w.configure({"mtp": mtp})
+        run_dir = tmp_path / said
+        run_dir.mkdir()
+        r = w.run(RunContext(output_dir=run_dir, timeout_seconds=60))
+        assert r.status == "completed" and calls == [["lms", "load", "google/gemma-4-12b-qat", flag, "-y"]]
+        assert f"Speculative: {said}" in r.note
+        assert json.loads((run_dir / "ai_run.json").read_text(encoding="utf-8"))["speculative"] == said
+        assert f"- Speculative decoding: {said}" in (run_dir / llama_benchy.REPORT_FILE).read_text(encoding="utf-8")
+    old = PyBenchy(script)
+    old._lms_load = lambda argv, timeout: (1, "error: unknown option '--no-speculative-draft-mtp'")
+    (tmp_path / "old").mkdir()
+    r = old.run(RunContext(output_dir=tmp_path / "old", timeout_seconds=60))
+    assert r.status == "completed" and "no MTP option" in r.note
+    old.configure({"mtp": True})
+    r = old.run(RunContext(output_dir=tmp_path / "old", timeout_seconds=60))
+    assert r.status == "skipped" and r.score is None and "update LM Studio" in r.error
+    bad = PyBenchy(script)
+    bad._lms_load = lambda argv, timeout: (1, "Error: not enough GPU memory")
+    r = bad.run(RunContext(output_dir=tmp_path / "old", timeout_seconds=60))
+    assert r.status == "failed" and r.score is None and "not enough GPU memory" in r.error
+
+
+def test_the_report_names_mtp_in_the_settings():
+    from app.report import _ai_settings
+    assert _ai_settings({"Speculative": "MTP off"}, {}) == {"Speculative decoding (MTP)": "MTP off"}

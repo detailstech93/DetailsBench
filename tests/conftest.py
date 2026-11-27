@@ -139,6 +139,14 @@ def _no_real_telemetry(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_lms_load(monkeypatch):
+    """The free llama-benchy test loads its model with this computer's lms: never in tests."""
+    from app.ai.llama_benchy import LlamaBenchyWorkload
+    monkeypatch.setattr(LlamaBenchyWorkload, "_lms_path", staticmethod(lambda: "lms"))
+    monkeypatch.setattr(LlamaBenchyWorkload, "_lms_load", staticmethod(lambda argv, timeout: (0, "")))
+
+
+@pytest.fixture(autouse=True)
 def _no_real_tool_setup(request, monkeypatch):
     """Starting a run checks for PresentMon and LibreHardwareMonitor and offers downloads. In tests
     LibreHardwareMonitor counts as already running (nothing asked, nothing started) and no release

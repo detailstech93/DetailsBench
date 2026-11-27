@@ -45,12 +45,19 @@ class LlamaBenchyDialog(QDialog):
         self.concurrency.setToolTip("Parallel requests; several levels are measured one after another (for example 1 2 4).")
         self.prefix = QCheckBox("Prefix caching (measure the context load and the cached follow-up separately)")
         self.prefix.setChecked(bool(current.get("prefix_caching", False)))
+        self.mtp = QComboBox()
+        self.mtp.addItem("Off: the steady score of this PC", False)
+        self.mtp.addItem("On: faster, but each run differs (compared only with MTP on)", True)
+        self.mtp.setCurrentIndex(1 if current.get("mtp") else 0)
+        self.mtp.setToolTip("MTP: the model's own draft head guesses tokens ahead (speculative decoding). Only some "
+                            "models have it; LM Studio would turn it on by itself. Its speed follows the prompt's text.")
         form.addRow("Model (LM Studio):", self.model)
         form.addRow("Prompt tokens (pp):", self.pp)
         form.addRow("Generated tokens (tg):", self.tg)
         form.addRow("Context depths:", self.depths)
         form.addRow("Concurrency levels:", self.concurrency)
         form.addRow("", self.prefix)
+        form.addRow("MTP (speculative decoding):", self.mtp)
         layout = QVBoxLayout(self)
         layout.addLayout(form)
         note = QLabel(WARNING + " Every depth runs at every concurrency level, so the run takes longer with more values.")
@@ -73,7 +80,8 @@ class LlamaBenchyDialog(QDialog):
             self.error.setText("Concurrency levels: whole numbers of 1 or more, separated by spaces.")
             return None
         return {"model": self.model.currentData(), "pp": self.pp.value(), "tg": self.tg.value(),
-                "depths": depths, "concurrency": conc, "prefix_caching": self.prefix.isChecked()}
+                "depths": depths, "concurrency": conc, "prefix_caching": self.prefix.isChecked(),
+                "mtp": bool(self.mtp.currentData())}
 
     def _accept(self):
         if self.values() is not None and self.model.currentData():

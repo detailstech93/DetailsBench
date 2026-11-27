@@ -300,7 +300,11 @@ class LlamaBenchyWorkload(Workload):
     checks_memory = True              # the owner's model is checked against the free memory (model_set does its own)
     unload_jit = True                 # a model LM Studio loaded for this run is unloaded after it
     unload_all_first = True           # `lms unload --all` before the run
-    speculative = None                # the fixed models: "MTP off"/"MTP on"; the owner's own load: not known
+    speculative = None                # what the run loaded with: "MTP off", "MTP on", or why it is not known
+    mtp = False                       # the owner's choice in the dialog; off: the steady score (owner 2026-11-27)
+    loads_model = True                # loads the chosen model itself (so MTP is set), not LM Studio's JIT load
+    _lms_load: Optional[Callable] = None   # (argv, timeout) -> (code, text); model_set._run when None
+    _lms_path: Optional[Callable] = None   # () -> lms; lmstudio.lms_path when None
 
     def __init__(self, model: Optional[str], base_url: str = lmstudio.DEFAULT_URL, pp: int = 512, tg: int = 128,
                  depths: Sequence[int] = (0,), runs: int = 1, exe: Optional[Path] = None,
@@ -318,8 +322,8 @@ class LlamaBenchyWorkload(Workload):
         self._start_server = start_server or lmstudio.start_server
 
     def configure(self, settings: Mapping):
-        """Settings from the panel's dialog: model, pp, tg, depths, concurrency, prefix_caching."""
-        for key in ("model", "pp", "tg", "depths", "concurrency", "prefix_caching"):
+        """Settings from the panel's dialog: model, pp, tg, depths, concurrency, prefix_caching, mtp."""
+        for key in ("model", "pp", "tg", "depths", "concurrency", "prefix_caching", "mtp"):
             if key in settings:
                 setattr(self, key, settings[key])
 
@@ -376,6 +380,30 @@ class LlamaBenchyWorkload(Workload):
         known = next((m for m in model_set.all_models().values() if m[1] == self.model), None)
         return model_set.memory_short(known[0], known[3]) if known else None
 
+    def _load_chosen(self) -> Optional[str]:
+        """`lms load <model> --[no-]speculative-draft-mtp -y`: LM Studio's JIT load would turn MTP on by itself for a
+        model that has it, and the speed then follows each prompt's text (owner 2026-11-27). Its other load settings
+        stay LM Studio's own for the model, as with the JIT load. None when loaded (or left to JIT), else why not."""
+        from app.ai import model_set
+        lms = (self._lms_path or lmstudio.lms_path)()
+        if lms is None:
+            self.speculative = "not known (LM Studio's CLI lms not found: LM Studio loaded it as it chooses)"
+            return None
+        run = self._lms_load or model_set._run
+        code, text = run([str(lms), "load", self.model,
+                          "--speculative-draft-mtp" if self.mtp else "--no-speculative-draft-mtp", "-y"],
+                         model_set.LOAD_SECONDS)
+        if code != 0 and model_set.NO_MTP_OPTION.search(text or ""):
+            if self.mtp:
+                return "this LM Studio cannot turn MTP on (lms load has no --speculative-draft-mtp): update LM Studio"
+            self.speculative = "LM Studio's choice (this LM Studio has no MTP option)"
+            return None
+        if code != 0:
+            last = (text or "").splitlines()[-1] if text else f"exit code {code}"
+            return f"LM Studio could not load {self.model}: {model_set.lms_error(last)[:300]}"
+        self.speculative = "MTP on" if self.mtp else "MTP off"
+        return None
+
     def run(self, ctx: RunContext) -> WorkloadResult:
         if not self.exe:
             return WorkloadResult(status="skipped", error="llama-benchy not installed in the app's Python")
@@ -396,6 +424,11 @@ class LlamaBenchyWorkload(Workload):
             return WorkloadResult(status="failed", error=problem)
         if self.unload_all_first:
             self._unload_all()
+        if self.loads_model:
+            problem = self._load_chosen()
+            if problem:
+                return WorkloadResult(status="skipped" if problem.startswith("this LM Studio") else "failed",
+                                      error=problem)
         record = self._model_record()     # before the run: a JIT model may only be loaded by it
         out, err = folder / "stdout.txt", folder / "stderr.txt"
         try:
@@ -440,7 +473,7 @@ class LlamaBenchyWorkload(Workload):
         metrics.update({k: v for k, v in ai_run.items() if isinstance(v, str)})
         parts = (("Model", ai_run.get("model")), ("Quantization", ai_run.get("quantization")),
                  ("Backend", ai_run.get("backend")), ("Context", ai_run.get("context_length")),
-                 ("pp/tg", f"{self.pp}/{self.tg}"))
+                 ("pp/tg", f"{self.pp}/{self.tg}"), ("Speculative", ai_run.get("speculative")))
         note = "; ".join(f"{k}: {v}" for k, v in parts if v)       # the report's tile names what was measured
         return WorkloadResult(status="completed", score=score, unit="tok/s", metrics=metrics, note=note, **common)
 

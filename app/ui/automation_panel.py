@@ -427,7 +427,8 @@ class AutomationPanel(QGroupBox):
                               for p in plan], cooldown)
 
     def choose_settings(self, workload) -> Optional[dict]:
-        current = {k: getattr(workload, k) for k in ("model", "pp", "tg", "depths", "concurrency", "prefix_caching")}
+        current = {k: getattr(workload, k) for k in ("model", "pp", "tg", "depths", "concurrency", "prefix_caching",
+                                                         "mtp")}
         return choose_llama_settings(self, current)
 
     def report_text(self) -> str:

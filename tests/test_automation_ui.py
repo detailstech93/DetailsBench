@@ -191,8 +191,10 @@ def test_llama_settings_dialog_and_no_server(qapp):
     box.depths.setText("8192 0")
     box.concurrency.setText("1 4")
     box.prefix.setChecked(True)
+    assert box.mtp.currentData() is False           # MTP off unless the owner picks it (owner 2026-11-27)
+    box.mtp.setCurrentIndex(1)
     assert box.values() == {"model": "a", "pp": 256, "tg": 128, "depths": [0, 8192], "concurrency": [1, 4],
-                            "prefix_caching": True}
+                            "prefix_caching": True, "mtp": True}
     box.concurrency.setText("0")
     assert box.values() is None and "Concurrency" in box.error.text()
 

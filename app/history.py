@@ -8,6 +8,7 @@ app/compare.py, so a different major version, architecture, runtime or emulation
 Test sessions are only compared with test sessions. Nothing is changed in the database.
 """
 
+import re
 from typing import Any, Dict, List, Mapping, Optional
 
 from app.stats import summarize_runs
@@ -42,7 +43,34 @@ def pc_key(manifest: Optional[Mapping]) -> Optional[tuple]:
 def _side(runs: List[Mapping], manifest, is_test: bool) -> dict:
     versions = {r.get("benchmark_version") for r in runs if r.get("benchmark_version")}
     return {"summary": summarize_runs(runs, include_test=is_test),
-            "version": versions.pop() if len(versions) == 1 else None, "manifest": manifest, "is_test": is_test}
+            "version": versions.pop() if len(versions) == 1 else None, "manifest": manifest, "is_test": is_test,
+            "speculative": speculative(runs)}
+
+
+SPECULATIVE = re.compile(r"Speculative: ([^;]+)")
+
+
+def speculative(runs: List[Mapping]) -> Optional[str]:
+    """An AI test's MTP setting from its runs' notes ("Speculative: MTP off"), None when not recorded."""
+    found = {m.group(1).strip() for r in runs if r.get("status") == "completed"
+             for m in [SPECULATIVE.search(str(r.get("note") or ""))] if m}
+    return " / ".join(sorted(found)) if found else None
+
+
+def speculative_issue(name: str, before: Mapping, now: Mapping) -> Optional[dict]:
+    """Owner 2026-11-27: a run with MTP is never compared with one without (Qwen3.8 27B: 28.5 tok/s off, about 37.7
+    on). Not recorded on one side (before 2026-11-27): not compared either, LM Studio may have turned it on."""
+    if not name.startswith("llama_benchy"):
+        return None
+    a, b = before.get("speculative"), now.get("speculative")
+    if a == b:
+        return None
+    if a is None or b is None:
+        return {"level": "block", "code": "speculative_unknown",
+                "message": "MTP (speculative decoding) not recorded for the "
+                           + ("earlier run (before 2026-11-27): LM Studio may have turned it on"
+                              if a is None else "run now") + "."}
+    return {"level": "block", "code": "speculative", "message": f"Different MTP: {a} -> {b}."}
 
 
 def _unit(runs: List[Mapping]) -> str:
@@ -151,11 +179,14 @@ def earlier_comparisons(db, session: Mapping, manifest: Optional[Mapping], runs:
                                 "side": side})
     rows = []
     for name in sorted(n for n in wanted if found[n]):
+        same = [e for e in found[name] if e["side"]["speculative"] == now_sides[name]["speculative"]]
+        if name.startswith("llama_benchy") and same:     # only runs with the same MTP setting, when there are any
+            found[name] = same
         latest = found[name][0]
         before = latest.pop("side")
         result = compare_benchmark(name, before, now_sides[name])
-        issue = game_settings_issue(name, before["manifest"], manifest)
-        if issue:
+        for issue in [i for i in (game_settings_issue(name, before["manifest"], manifest),
+                                  speculative_issue(name, before, now_sides[name])) if i]:
             result["issues"].append(issue)
             if issue["level"] == "block":
                 result["status"] = "not_comparable"
