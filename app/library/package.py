@@ -79,7 +79,7 @@ def fingerprint_of(test_id: str, settings: Mapping) -> str:
 
 
 AI_RUN_KEYS = ("tool", "tool_version", "model", "quantization", "arch", "backend", "device_type", "context_length",
-               "gpu_layers", "pp", "tg", "depths", "concurrency")
+               "gpu_layers", "pp", "tg", "depths", "concurrency", "sampling")
 
 
 DRAWN_AT = re.compile(r"[Dd]rawn at:? (\d+x\d+)")

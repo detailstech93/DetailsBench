@@ -132,6 +132,12 @@ def benchy_path(python: str = sys.executable, env=None, frozen: Optional[bool] =
     return None
 
 
+# the same text every request: llama-benchy sends no sampling settings, so the server picked words at random and the
+# speed of one request varied (owner's laptop 2026-11-27, Qwen3.8 27B in LM Studio, 128 tokens: 29.6-32.3 tok/s at
+# the server's default, 31.2-31.5 with these; s162 gave 30.6-38.3 inside one run)
+SAMPLING = "temperature=0,seed=42"
+
+
 def build_command(exe: str, base_url: str, model: str, pp: int, tg: int, depths: Sequence[int],
                   runs: int, result_path: str, concurrency: Sequence[int] = (1,),
                   prefix_caching: bool = False) -> List[str]:
@@ -139,7 +145,7 @@ def build_command(exe: str, base_url: str, model: str, pp: int, tg: int, depths:
             "--pp", str(pp), "--tg", str(tg), "--depth", *[str(d) for d in depths],
             "--concurrency", *[str(c) for c in concurrency],
             *(["--enable-prefix-caching"] if prefix_caching else []),
-            "--runs", str(runs), "--format", "json", "--save-result", result_path]
+            "--runs", str(runs), "--extra-body", SAMPLING, "--format", "json", "--save-result", result_path]
 
 
 def _mean(entry) -> Optional[float]:
@@ -203,6 +209,7 @@ def report_markdown(data: Mapping, ai_run: Mapping) -> str:
         if ai_run.get(key) is not None:
             lines.append(f"- {label}: {ai_run[key]}")
     lines += [f"- Prompt / generated tokens: {ai_run.get('pp')} / {ai_run.get('tg')}",
+              f"- Sampling: {ai_run.get('sampling') or 'the server default (before 2026-11-27)'}",
               f"- Context depths: {', '.join(str(d) for d in ai_run.get('depths', []))}",
               f"- Concurrency levels: {', '.join(str(c) for c in ai_run.get('concurrency', []))}",
               f"- Prefix caching: {'on' if data.get('prefix_caching_enabled') else 'off'}",
@@ -413,6 +420,7 @@ class LlamaBenchyWorkload(Workload):
             record = after if "context_length" in after else record
         ai_run = {**record, "tool": "llama-benchy", "tool_version": VERSION,
                   "tokenizer": tokenizer_used(log, getattr(self, "tokenizer", None) or self.model), "pp": self.pp, "tg": self.tg,
+                  "sampling": SAMPLING,
                   "depths": self.depths, "concurrency": self.concurrency, "prefix_caching": self.prefix_caching,
                   "runs": self.runs}
         changed = book_changed()

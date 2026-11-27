@@ -247,6 +247,8 @@ def run_notes(present: List[Mapping]) -> List[str]:
         checks.append(("file system", lambda p: (p.get("run") or {}).get("file_system")))
     if group == "ai":
         checks.insert(0, ("AI backend and quantization", _ai))
+        # llama-benchy's word picking, fixed from 2026-11-27: older results picked at random (steadier now)
+        checks.insert(1, ("AI sampling", lambda p: ((p.get("run") or {}).get("ai") or {}).get("sampling")))
     notes = []
     for label, get in checks:
         values = [get(p) for p in present]

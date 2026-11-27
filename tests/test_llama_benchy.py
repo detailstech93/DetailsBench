@@ -22,7 +22,8 @@ MODELS = [{"id": "google/gemma-4-12b-qat", "compatibility_type": "gguf", "quanti
 def test_build_command():
     assert llama_benchy.build_command("b.exe", "http://localhost:1234/", "m", 512, 32, [0, 4096], 1, "r.json") == [
         "b.exe", "--base-url", "http://localhost:1234/v1", "--model", "m", "--pp", "512", "--tg", "32",
-        "--depth", "0", "4096", "--concurrency", "1", "--runs", "1", "--format", "json", "--save-result", "r.json"]
+        "--depth", "0", "4096", "--concurrency", "1", "--runs", "1", "--extra-body", "temperature=0,seed=42",
+        "--format", "json", "--save-result", "r.json"]
     cmd = llama_benchy.build_command("b", "u", "m", 1, 1, [0], 1, "r", concurrency=[1, 2], prefix_caching=True)
     assert cmd[cmd.index("--concurrency"):cmd.index("--runs")] == ["--concurrency", "1", "2", "--enable-prefix-caching"]
 
@@ -263,3 +264,14 @@ def test_the_prompt_book_comes_with_install_pinned_and_the_test_waits_for_it(tmp
     assert w.availability() == (False, llama_benchy.BOOK_MISSING)
     r = w.run(RunContext(output_dir=tmp_path))
     assert r.status == "skipped" and r.error == llama_benchy.BOOK_MISSING          # not 7 failed tries
+
+
+def test_fixed_sampling_is_kept_and_a_comparison_says_when_one_result_had_none():
+    # owner 2026-11-27: the server's random word picking made one request's tg vary (s162: 30.6-38.3 tok/s)
+    from app.library.compare import run_notes
+    from app.library.package import run_context
+    assert run_context({}, {}, {"model": "m", "sampling": llama_benchy.SAMPLING})["ai"]["sampling"] == "temperature=0,seed=42"
+    new = {"test": {"group": "ai"}, "run": {"ai": {"backend": "cuda", "sampling": llama_benchy.SAMPLING}}}
+    old = {"test": {"group": "ai"}, "run": {"ai": {"backend": "cuda"}}}
+    assert run_notes([new, old]) == ["AI sampling not recorded for some (older results)"]
+    assert run_notes([new, new]) == []
