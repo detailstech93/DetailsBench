@@ -97,3 +97,24 @@ def test_an_ai_test_adds_the_model_reading_and_the_report_shows_it():
     metrics = {"tel_gpu_model_dedicated_max": {"mean": 17.08}, "tel_gpu_model_shared_max": {"mean": 1.55}}
     assert model_memory_text(metrics) == "17.08 GiB on the graphics card, 1.55 GiB in the PC's memory (shared)"
     assert model_memory_text({}) == ""
+
+
+def test_lm_studios_llama_server_is_the_ai_test_not_another_program():
+    # owner 2026-11-27, s162: llama-server was flagged "Run again" (CPU 22%, graphics card 43%) in its own AI test
+    other = FakeOther()
+    other._last[1][40] = ("llama-server.exe", 0)
+    reads = iter([{"engine": {}}, {"engine": {_inst(40, 0, "Compute_0"): 54.0, _inst(30, 0, "3D"): 1.0}}])
+    src = GpuProgramsSource(other, platform_name="win32",
+                            adapters=lambda: [NS(luid=CARD, name="RTX", vendor_id=0x10DE, dedicated_total=8)],
+                            counters=lambda: NS(read=lambda: next(reads)))
+    src.available()
+    assert src.read()["gpu_other"] == (1.0, "%")
+    from app.telemetry.other_programs import OtherProgramsSource
+    from tests.test_other_programs import FakePs
+    times = iter([{40: ("llama-server.exe", 0.0), 30: ("chrome.exe", 0.0)},
+                  {40: ("llama-server.exe", 1.0), 30: ("chrome.exe", 0.4)}])
+    clock = iter([0.0, 1.0])
+    cpu = OtherProgramsSource(psutil_module=FakePs(), times=lambda: next(times), foreground=lambda: None, own_pid=10,
+                              clock=lambda: next(clock), platform_name="win32")
+    cpu.available()
+    assert cpu.read() == {"cpu_other": (10.0, "%"), "cpu_other_chrome.exe": (10.0, "%")}

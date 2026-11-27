@@ -17,8 +17,11 @@ import time
 from typing import Callable, Dict, Optional, Set, Tuple
 
 NAMED_PERCENT = 2.0
-# started for a test but not as this app's child: PresentMon runs elevated, its service always runs
-OURS = ("presentmon", "librehardwaremonitor", "nvidia-smi")
+# started for a test but not as this app's child: PresentMon runs elevated, its service always runs; llama-server is
+# the AI test's engine, started by LM Studio (owner 2026-11-27, s162: it was flagged as another program, CPU 22-26% and
+# graphics card 41-45%). shortcut: a llama-server busy outside an AI test is not counted either; rare, as it only works
+# when asked
+OURS = ("presentmon", "librehardwaremonitor", "nvidia-smi", "llama-server")
 Times = Dict[int, Tuple[str, float]]       # pid -> (program name, CPU seconds used so far)
 
 
