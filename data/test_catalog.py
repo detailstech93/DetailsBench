@@ -61,6 +61,12 @@ TEST_INFO: Dict[str, dict] = {
         "supported_architectures": {"x64": "native", "arm64": "unverified"},
         "expected_minutes": 8,
     },
+    "llama_benchy_qwen38_27b_mtp": {
+        "group": "ai", "official_url": "https://lmstudio.ai/models/qwen3.8",
+        "supported_os": ["windows", "linux"],
+        "supported_architectures": {"x64": "native", "arm64": "unverified"},
+        "expected_minutes": 8,
+    },
     "mlperf_client": {
         "group": "ai", "official_url": "https://github.com/mlcommons/mlperf_client/releases",
         "supported_os": ["windows"],

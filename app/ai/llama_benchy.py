@@ -210,6 +210,7 @@ def report_markdown(data: Mapping, ai_run: Mapping) -> str:
             lines.append(f"- {label}: {ai_run[key]}")
     lines += [f"- Prompt / generated tokens: {ai_run.get('pp')} / {ai_run.get('tg')}",
               f"- Sampling: {ai_run.get('sampling') or 'the server default (before 2026-11-27)'}",
+              *([f"- Speculative decoding: {ai_run['speculative']}"] if ai_run.get("speculative") else []),
               f"- Context depths: {', '.join(str(d) for d in ai_run.get('depths', []))}",
               f"- Concurrency levels: {', '.join(str(c) for c in ai_run.get('concurrency', []))}",
               f"- Prefix caching: {'on' if data.get('prefix_caching_enabled') else 'off'}",
@@ -299,6 +300,7 @@ class LlamaBenchyWorkload(Workload):
     checks_memory = True              # the owner's model is checked against the free memory (model_set does its own)
     unload_jit = True                 # a model LM Studio loaded for this run is unloaded after it
     unload_all_first = True           # `lms unload --all` before the run
+    speculative = None                # the fixed models: "MTP off"/"MTP on"; the owner's own load: not known
 
     def __init__(self, model: Optional[str], base_url: str = lmstudio.DEFAULT_URL, pp: int = 512, tg: int = 128,
                  depths: Sequence[int] = (0,), runs: int = 1, exe: Optional[Path] = None,
@@ -420,7 +422,7 @@ class LlamaBenchyWorkload(Workload):
             record = after if "context_length" in after else record
         ai_run = {**record, "tool": "llama-benchy", "tool_version": VERSION,
                   "tokenizer": tokenizer_used(log, getattr(self, "tokenizer", None) or self.model), "pp": self.pp, "tg": self.tg,
-                  "sampling": SAMPLING,
+                  "sampling": SAMPLING, **({"speculative": self.speculative} if self.speculative else {}),
                   "depths": self.depths, "concurrency": self.concurrency, "prefix_caching": self.prefix_caching,
                   "runs": self.runs}
         changed = book_changed()

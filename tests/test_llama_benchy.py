@@ -275,3 +275,16 @@ def test_fixed_sampling_is_kept_and_a_comparison_says_when_one_result_had_none()
     old = {"test": {"group": "ai"}, "run": {"ai": {"backend": "cuda"}}}
     assert run_notes([new, old]) == ["AI sampling not recorded for some (older results)"]
     assert run_notes([new, new]) == []
+
+
+def test_mtp_is_kept_and_a_comparison_says_when_it_differs():
+    from app.library.compare import run_notes
+    from app.library.package import run_context
+    assert run_context({}, {}, {"model": "m", "speculative": "MTP off"})["ai"]["speculative"] == "MTP off"
+    off = {"test": {"group": "ai"}, "run": {"ai": {"sampling": "s", "speculative": "MTP off"}}}
+    on = {"test": {"group": "ai"}, "run": {"ai": {"sampling": "s", "speculative": "MTP on"}}}
+    old = {"test": {"group": "ai"}, "run": {"ai": {"sampling": "s"}}}
+    assert run_notes([off, on]) == ["another speculative decoding: MTP off / MTP on"]
+    assert run_notes([off, old]) == ["speculative decoding not recorded for some (older results)"]
+    text = llama_benchy.report_markdown({}, {"speculative": "MTP off"})
+    assert "- Speculative decoding: MTP off" in text and "Speculative" not in llama_benchy.report_markdown({}, {})

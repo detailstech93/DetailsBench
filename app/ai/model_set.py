@@ -45,7 +45,14 @@ MODELS = {
     "llama_benchy_qwen35_4b": ("Qwen3.5 4B", "qwen/qwen3.5-4b", "Q4_K_M", "3.75 GB"),
     "llama_benchy_gemma4_12b": ("Gemma 4 12B QAT", "google/gemma-4-12b-qat", "Q4_0", "7.2 GB"),
     "llama_benchy_qwen38_27b": ("Qwen3.8 27B", "qwen/qwen3.8-27b", "Q4_K_M", "17.7 GB"),
+    "llama_benchy_qwen38_27b_mtp": ("Qwen3.8 27B with MTP", "qwen/qwen3.8-27b", "Q4_K_M", "17.7 GB"),
 }
+# MTP (the model's own draft head, speculative decoding): LM Studio turns it on by itself for a model that has one (of
+# these only Qwen3.8 27B). Its speed then follows each prompt's text (llama-benchy's prompts are random book slices):
+# owner's laptop 2026-11-27, Qwen3.8 27B, 3x3 runs: MTP off 28.35-28.68 tok/s (CV 0.47%), on 34.91-39.78 (CV 5.46%).
+# So every test loads with MTP off, and these load with it on, as their own test (owner 2026-11-27).
+MTP_TESTS = ("llama_benchy_qwen38_27b_mtp",)
+NO_MTP_OPTION = re.compile(r"unknown option|unknown argument", re.I)   # an LM Studio before the MTP options
 CONTEXT, PP, TG, RUNS = 4096, 512, 128, 3
 LOAD_SECONDS, GET_SECONDS = 600, 6 * 3600
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -144,8 +151,11 @@ def get_command(lms: str, key: str, quant: str) -> List[str]:
     return [lms, "get", variant(key, quant), "--gguf", "-y"]
 
 
-def load_command(lms: str, key: str, ident: str) -> List[str]:
-    return [lms, "load", key, "--identifier", ident, "-c", str(CONTEXT), "--gpu", "max", "--parallel", "1", "-y"]
+def load_command(lms: str, key: str, ident: str, mtp: Optional[bool] = False) -> List[str]:
+    """mtp True/False: `--speculative-draft-mtp` / `--no-speculative-draft-mtp` (lms load --help); None: neither."""
+    flag = [] if mtp is None else ["--speculative-draft-mtp" if mtp else "--no-speculative-draft-mtp"]
+    return [lms, "load", key, "--identifier", ident, "-c", str(CONTEXT), "--gpu", "max", "--parallel", "1", *flag,
+            "-y"]
 
 
 def unload_command(lms: str, ident: str) -> List[str]:
@@ -326,6 +336,7 @@ class FixedModelWorkload(llama_benchy.LlamaBenchyWorkload):
         title, self.key, self.quant, self.size = model or all_models()[test_id]
         super().__init__(identifier(test_id), pp=PP, tg=TG, depths=(0,), runs=RUNS, exe=exe, **kwargs)
         self.id = test_id
+        self.mtp = test_id in MTP_TESTS
         self.verified = test_id in self.VERIFIED
         self.title = title
         self.display_name = f"llama-benchy: {title} ({self.quant})"
@@ -361,7 +372,7 @@ class FixedModelWorkload(llama_benchy.LlamaBenchyWorkload):
         if not (self.exe and self.lms):
             return None
         return " && ".join(subprocess.list2cmdline(c) for c in (
-            load_command(str(self.lms), self.key, self.model),
+            load_command(str(self.lms), self.key, self.model, self.mtp),
             self._command("<run folder>/" + llama_benchy.RESULT_FILE),
             unload_command(str(self.lms), self.model)))
 
@@ -391,8 +402,18 @@ class FixedModelWorkload(llama_benchy.LlamaBenchyWorkload):
         short = self.memory_short()
         if short:
             return WorkloadResult(status="skipped", error=short)
-        load = load_command(lms, self.key, self.model)
+        load = load_command(lms, self.key, self.model, self.mtp)
         code, text = self._lms_run(load, LOAD_SECONDS)
+        self.speculative = "MTP on" if self.mtp else "MTP off"
+        if code != 0 and NO_MTP_OPTION.search(text or "") and not self.mtp:
+            # an older LM Studio: loaded as it chooses, and the result says so
+            load = load_command(lms, self.key, self.model, None)
+            code, text = self._lms_run(load, LOAD_SECONDS)
+            self.speculative = "LM Studio's choice (this LM Studio has no MTP option)"
+        elif code != 0 and NO_MTP_OPTION.search(text or ""):
+            return WorkloadResult(status="skipped", error=f"{self.display_name}: this LM Studio cannot turn MTP on "
+                                  "(lms load has no --speculative-draft-mtp): update LM Studio", command=load,
+                                  exit_code=code)
         folder = Path(ctx.output_dir)
         folder.mkdir(parents=True, exist_ok=True)
         (folder / "lms_load.txt").write_text(subprocess.list2cmdline(load) + "\n\n" + text, encoding="utf-8")
@@ -413,7 +434,7 @@ class FixedModelWorkload(llama_benchy.LlamaBenchyWorkload):
             self._lms_run(unload_command(lms, self.model), 60)
         if result.status == "completed":
             parts = [("Model", f"{self.key} {self.quant}"), ("Context", str(CONTEXT)), ("GPU offload", "max"),
-                     ("Parallel", "1"), ("pp/tg", f"{PP}/{TG}"), ("Runs", str(RUNS))]
+                     ("Parallel", "1"), ("pp/tg", f"{PP}/{TG}"), ("Runs", str(RUNS)), ("Speculative", self.speculative)]
             result.note = "; ".join(f"{k}: {v}" for k, v in parts)
         return result
 
