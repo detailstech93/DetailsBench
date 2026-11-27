@@ -1340,3 +1340,22 @@ def test_rdr2_waits_longer_for_its_first_load_on_linux(tmp_path):
     p.run()                                                  # Windows: 300 s as before
     assert p.problem and "stop" in p.problem
     assert steps_bound_seconds(steps) >= 900
+
+
+def test_a_benchmark_measured_load_to_load_says_so_in_its_note(tmp_path, monkeypatch):
+    """Laptop s160, 2026-11-27: SOTTR's note said "157 s from its start" over a 177 s load-to-load span."""
+    import data.game_start_keys as keys
+    monkeypatch.setattr(keys, "ends_at_loading", lambda app_id: True)
+    fakes = PassFakes(tmp_path)
+    s = spec(install_path=str(fakes.install), steps=[{"see": "stop", "within": 60, "mark": True}],
+             benchmark_seconds=60)
+    cap = GameBenchmark(s, tmp_path / "run", None, lambda m: None, linux=False, elevated_runner=fakes.elevated,
+                        launcher=fakes.launcher, snapshot=lambda: [], clock=fakes.clock, sleep=fakes.sleep,
+                        folder_procs=fakes.folder_procs, closer=fakes.closer,
+                        desktop=SimpleNamespace(foreground_pid=lambda: 100 + fakes.run),
+                        exe_lister=lambda folder: ["Game.exe"],
+                        step_player=lambda st: FakeSteps(fakes, mark_after=30),
+                        own_result=lambda app_id, since: {"avg": 48.0}).run()
+    notes = [w.result.note for w in cap.windows if w.result.status == "completed"]
+    assert notes and all(" s, from the load into it to the load before its results)" in n for n in notes)
+    assert not any("from its start" in n for n in notes)

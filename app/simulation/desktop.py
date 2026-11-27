@@ -150,6 +150,12 @@ class Win32Desktop:
             self.user32.ShowWindow(hwnd, 9)           # SW_RESTORE
             self.user32.BringWindowToTop(hwnd)
             self.user32.SetForegroundWindow(hwnd)
+            # laptop 2026-11-27: a remote-desktop window in front ("This is a non-commercial session") kept the
+            # game behind; a minimize + restore activates a window where SetForegroundWindow was refused
+            if self.user32.GetForegroundWindow() != hwnd:
+                self.user32.ShowWindow(hwnd, 6)       # SW_MINIMIZE
+                self.user32.ShowWindow(hwnd, 9)       # SW_RESTORE
+                self.user32.SwitchToThisWindow(hwnd, True)
         finally:
             if attached:
                 self.user32.AttachThreadInput(mine, other, False)

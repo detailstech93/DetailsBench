@@ -1084,9 +1084,11 @@ class GameBenchmark:
                 "the app did not reach the game's results page after its benchmark, so the game's own result "
                 f"was not kept (the frames measured {result.score:.1f} FPS; not stored)"))
         if result.status == "completed":
-            measured_text = (f"Measured: the game's whole benchmark ({spec.benchmark_seconds} s from its "
-                             f"start), the game started anew, {spec.warmup_runs} warm-up run(s) before "
-                             "were not counted")
+            from data.game_start_keys import ends_at_loading
+            span = (f"{b - a:.0f} s, from the load into it to the load before its results"
+                    if ends_at_loading(spec.app_id) else f"{spec.benchmark_seconds} s from its start")
+            measured_text = (f"Measured: the game's whole benchmark ({span}), the game started anew, "
+                             f"{spec.warmup_runs} warm-up run(s) before were not counted")
             if scenes:
                 measured_text = (f"Measured: the game's whole benchmark, its {len(scenes)} scenes "
                                  f"({b - a:.0f} s; the {b - a - sum(map(sum, scenes)) / 1000.0:.0f} s of "
